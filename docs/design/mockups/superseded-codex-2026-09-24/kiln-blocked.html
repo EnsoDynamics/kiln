@@ -1,0 +1,77 @@
+<div id="kiln-blocked-v3" aria-label="Kiln blocked mockup">
+<style>
+#kiln-blocked-v3{--bg:light-dark(#fff,#192027);--ink:light-dark(#172c35,#e8f2f4);--muted:light-dark(#60717a,#a7b9c1);--line:light-dark(#e3e9ed,#35454d);--soft:light-dark(#f4f7f8,#222e36);--active:light-dark(#166661,#99d9d0);--active-bg:light-dark(#eaf6f3,#233d3a);--warn:light-dark(#815416,#f3cf90);--warn-bg:light-dark(#fff6e7,#3b3123);--space:30px;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);width:100%}
+#kiln-blocked-v3 *{box-sizing:border-box}
+#kiln-blocked-v3 .app{background:var(--bg);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#kiln-blocked-v3 header{padding:16px var(--space);display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line)}
+#kiln-blocked-v3 header strong{font-size:19px;font-weight:600;letter-spacing:-.6px}
+#kiln-blocked-v3 header span{font-size:10px;letter-spacing:.8px;color:var(--muted)}
+#kiln-blocked-v3 main{padding:var(--space)}
+#kiln-blocked-v3 .eyebrow{font-size:11px;font-weight:600;letter-spacing:1px;color:var(--muted)}
+#kiln-blocked-v3 h1{font-size:32px;line-height:1.15;letter-spacing:-1px;font-weight:650;margin:6px 0 24px}
+#kiln-blocked-v3 h2{font-size:19px;line-height:1.4;font-weight:600;letter-spacing:-.25px;margin:6px 0 10px}
+#kiln-blocked-v3 p{margin:6px 0;font-size:14px}
+#kiln-blocked-v3 .muted,#kiln-blocked-v3 small{color:var(--muted)}
+#kiln-blocked-v3 small{font-size:12px}
+#kiln-blocked-v3 .status{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+#kiln-blocked-v3 .pill{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;background:var(--active-bg);color:var(--active);border-radius:20px;padding:6px 11px}
+#kiln-blocked-v3 .pill.warn{background:var(--warn-bg);color:var(--warn)}
+#kiln-blocked-v3 .spinner{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:kiln-turn 1.2s linear infinite;flex-shrink:0}
+@keyframes kiln-turn{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#kiln-blocked-v3 .spinner{animation:none}}
+#kiln-blocked-v3 .phase{border-top:1px solid var(--line)}
+#kiln-blocked-v3 summary{list-style:none;display:flex;align-items:center;gap:14px;padding:18px 0;min-height:52px}
+#kiln-blocked-v3 summary::-webkit-details-marker{display:none}
+#kiln-blocked-v3 .number{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:12px}
+#kiln-blocked-v3 .done .number{background:var(--active-bg);color:var(--active)}
+#kiln-blocked-v3 .current .number{background:var(--active);color:var(--bg)}
+#kiln-blocked-v3 .phase-title{flex:1;min-width:0;font-weight:500}
+#kiln-blocked-v3 .phase-state{font-size:12px;color:var(--muted);white-space:nowrap}
+#kiln-blocked-v3 .current .phase-state{color:var(--active)}
+#kiln-blocked-v3 .chevron{font-size:17px;color:var(--muted);display:inline-block}
+#kiln-blocked-v3 details[open]>summary .chevron{transform:rotate(90deg)}
+#kiln-blocked-v3 .inside{padding:0 0 18px 42px}
+#kiln-blocked-v3 .disclosure{border-top:1px solid var(--line);margin-top:14px}
+#kiln-blocked-v3 .disclosure summary{font-size:13px;color:var(--muted);justify-content:space-between;padding:14px 0;min-height:44px}
+#kiln-blocked-v3 .disclosure .inside{padding-left:0;font-size:13px}
+#kiln-blocked-v3 .note{background:var(--soft);border-radius:8px;padding:18px 20px;margin-bottom:22px}
+#kiln-blocked-v3 .note.attention{background:var(--warn-bg)}
+#kiln-blocked-v3 .note .eyebrow{color:var(--warn)}
+#kiln-blocked-v3 .phase-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:13px;font-size:12px;color:var(--muted)}
+#kiln-blocked-v3 .steps{margin:18px 0 26px;padding:0;list-style:none}
+#kiln-blocked-v3 .steps li{display:flex;justify-content:space-between;gap:20px;padding:9px 0;font-size:13px}
+#kiln-blocked-v3 .steps li span:last-child{color:var(--muted);font-size:12px;text-align:right}
+#kiln-blocked-v3 blockquote{margin:10px 0 0;padding:0 0 0 14px;border-left:2px solid var(--line);font-size:14px}
+#kiln-blocked-v3 code,#kiln-blocked-v3 pre{font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+#kiln-blocked-v3 pre{margin:0;padding:14px;background:var(--soft);border-radius:7px}
+#kiln-blocked-v3 .log-entry{margin:10px 0;padding-bottom:12px;border-bottom:1px solid var(--line)}
+#kiln-blocked-v3 .log-entry p{font-size:13px}
+#kiln-blocked-v3 .linktext{color:var(--active);font-weight:500}
+#kiln-blocked-v3 .endline{padding-top:17px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+@media(max-width:600px){#kiln-blocked-v3{--space:20px}#kiln-blocked-v3 h1{font-size:28px}#kiln-blocked-v3 header{flex-wrap:wrap}#kiln-blocked-v3 summary{gap:10px;flex-wrap:wrap}#kiln-blocked-v3 .phase-title{flex-basis:calc(100% - 66px)}#kiln-blocked-v3 .phase-state{margin-left:38px}#kiln-blocked-v3 .inside{padding-left:0}#kiln-blocked-v3 .steps li{gap:12px}#kiln-blocked-v3 .steps li span{max-width:60%}}
+
+</style>
+<div class="app">
+<header><strong>↗ kiln</strong><span>PREVIEW · FICTIONAL DATA</span></header>
+<main>
+<div class="eyebrow">PRD</div>
+<h1>Order notifications</h1>
+<div class="status"><span class="pill warn">Needs your input</span><small>Stopped at phase 2 of 4</small></div>
+<div class="note attention"><div class="eyebrow">EMAIL STAFF WHEN A NEW ORDER ARRIVES</div><h2>Who should receive the order email?</h2><p>The PRD says “staff,” but does not identify the recipients.</p><blockquote>Should I notify all staff, or only the team assigned to the order?</blockquote><small>Question from Claude Code</small></div>
+<details class="disclosure" id="continue"><summary>How to answer and continue <span>＋</span></summary><div class="inside"><p>Supply your decision in the terminal. Kiln continues this phase’s saved session.</p><pre>kiln run docs/prds/order-notifications/order-notifications-prd.md --answer "Notify only the team assigned to the order."</pre><small>Example answer; nothing is sent from this preview.</small></div></details>
+<details class="disclosure" id="blocked-log"><summary>Session output <span>＋</span></summary><div class="inside"><small>Phase 2 · Claude Code · attempt 1</small><div class="log-entry"><small>Last assistant message · 14:12</small><p>I checked the PRD and existing notification rules. Neither identifies which staff should receive a new-order email. Choosing all staff would change who receives order information. Should I notify all staff, or only the team assigned to the order?</p></div><details id="blocked-earlier"><summary>Earlier output <span>＋</span></summary><div class="inside"><p>13:55 · Loaded requirements and design.</p><p>14:02 · Searched staff roles and notification rules.</p><p>14:09 · Confirmed no recipient rule is specified.</p></div></details></div></details>
+<div class="endline">1 phase complete · Later phases will wait.</div>
+
+</main>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('kiln-blocked-v3');let revision=0;
+ function restore(s){if(s?.modelContent?.screen!=='blocked')return;const v=s?.privateContent?.revision||0;if(revision&&v<=revision)return;revision=v;root.querySelectorAll('details').forEach(d=>d.open=(s?.privateContent?.openDetails||[]).includes(d.id))}
+ restore(window.openai?.widgetState);
+ window.addEventListener('openai:set_globals',e=>restore(e.detail?.globals?.widgetState));
+ root.querySelectorAll('summary').forEach(s=>s.addEventListener('click',()=>setTimeout(()=>{revision++;window.openai?.setWidgetState?.({modelContent:{screen:'blocked'},privateContent:{revision,openDetails:Array.from(root.querySelectorAll('details[open]')).map(d=>d.id)}}).catch(()=>{})},0)));
+ if(globalThis.Tweak){const layout={spacing:'Comfortable'};const t=new Tweak({container:root,onChange:()=>root.style.setProperty('--space',layout.spacing==='Compact'?'20px':'30px')});t.addSelect(layout,'spacing',{label:'Spacing',options:['Comfortable','Compact']})}
+})();
+</script>
+</div>

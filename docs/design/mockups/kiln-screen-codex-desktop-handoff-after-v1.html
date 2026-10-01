@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln · Desktop handoff</title>
+<!-- Kiln design mockup. Fictional sample data. Source of truth for the screen's layout, copy and colors. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#12110e}
+a{color:#e2694f}a:hover{color:#f0866e}
+@keyframes kspin{to{transform:rotate(360deg)}}
+@keyframes kpulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+<div style="min-height: 100vh; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased">
+<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 14px clamp(16px, 4vw, 32px); border-bottom: 1px solid rgba(237, 232, 221, 0.12)">
+<div style="display: flex; align-items: center; gap: 14px; min-width: 0">
+<a href="kiln-screen-desktop-home.html" style="display: inline-flex; align-items: center; gap: 9px; color: #ede8dd; text-decoration: none"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg><span style="font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 28px; line-height: 1">kiln</span></a>
+<span style="color: rgba(237, 232, 221, 0.24); font-size: 18px">/</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #bdb6a8">acme-shop</span>
+</div>
+<div style="display: flex; align-items: center; gap: 16px"><span style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #8c8577"><span style="width: 7px; height: 7px; border-radius: 999px; background: #9cc49a; animation: kpulse 2.4s ease-in-out infinite"></span>Live · updated 2s ago</span></div>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 32px) 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 40px">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #8c8577">docs/prds/customer-returns/</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-weight: 400; font-size: clamp(48px, 6.4vw, 76px); line-height: 0.98; letter-spacing: -0.01em; color: #ede8dd">Customer returns</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px"><span style="display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2; white-space: nowrap; background: #e6b450; color: #12110e; border: 1px solid #e6b450"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto"><rect x="2" y="2.5" width="12" height="8.5" rx="1.5"></rect><path d="M5.5 14h5M8 11v3"></path></svg>Needs Codex desktop</span><span style="font-size: 14px; color: #bdb6a8">Paused before phase 4 · Restock check-in</span><span aria-hidden="true" style="color: #8c8577">·</span><span style="font-size: 14px; color: #bdb6a8">4 of 5 phases done</span></div>
+</div><section style="background: #1b1a16; border: 1px solid rgba(230, 180, 80, 0.5); border-radius: 18px; padding: clamp(20px, 3vw, 28px); display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; "><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #e6b450">Why this phase needs a desktop</span>
+<p style="margin: 0; font-size: 15.5px; color: #bdb6a8; line-height: 1.6; text-wrap: pretty; ">AC-RET-14 says a warehouse worker scans a returned item in the <strong style="color: #ede8dd; font-weight: 600">Warehouse Station</strong> app and the stock count goes up by one. Warehouse Station is a native macOS app. Claude Code can’t operate it unattended, so this whole phase runs in Codex desktop: build, review and verification.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px"><span style="display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(237, 232, 221, 0.12); font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #bdb6a8; overflow-wrap: anywhere">phase-4-restock-check-in.md · AC-RET-14</span><span style="display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(237, 232, 221, 0.12); font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #bdb6a8; overflow-wrap: anywhere">Found in preflight · 9:16 AM</span></div></section><div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start"><div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 28px"><section style="display: flex; flex-direction: column; gap: 18px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Your part</span>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 28px">
+<li style="display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 0 16px">
+<span style="width: 36px; height: 36px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 20px; color: #ede8dd; box-sizing: border-box">1</span>
+<div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600; color: #ede8dd">Open this worktree in Codex desktop</span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+<span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #ede8dd; padding: 10px 14px; border-radius: 10px; background: #0d0c0a; border: 1px solid rgba(237, 232, 221, 0.12); overflow-wrap: anywhere">~/devel/acme-shop-kiln/customer-returns</span>
+<button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: transparent; color: #ede8dd; border: 1px solid rgba(237, 232, 221, 0.24); "><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect><path d="M3 10.5V3.8A1.3 1.3 0 0 1 4.3 2.5H11"></path></svg>Copy path</button>
+</div>
+</div>
+</li>
+<li style="display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 0 16px">
+<span style="width: 36px; height: 36px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 20px; color: #ede8dd; box-sizing: border-box">2</span>
+<div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600; color: #ede8dd">Start a new task with this prompt</span>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<pre style="margin: 0; white-space: pre-wrap; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.65; color: #bdb6a8; background: #0d0c0a; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 12px; padding: 16px 18px; overflow-wrap: anywhere">Implement phase 4 of Customer returns: Restock check-in.
+
+Repository: ~/devel/acme-shop-kiln/customer-returns
+Branch: feature/customer-returns (baseline 7f3a91c)
+
+Read docs/prds/customer-returns/phase-4-restock-check-in.md, then
+the PRD, technical design and assumptions it points to. Use the
+implement-from-requirements skill.
+
+This phase needs desktop computer use: AC-RET-14 is verified by
+scanning a returned item in Warehouse Station.
+
+Authorized: commit and push to feature/customer-returns.
+Not authorized: merging, opening PRs, other branches.
+
+You're done when the phase doc has its Closed line and
+everything is committed and pushed.</pre>
+<div style="display: flex; flex-wrap: wrap; gap: 10px"><button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; "><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect><path d="M3 10.5V3.8A1.3 1.3 0 0 1 4.3 2.5H11"></path></svg>Copy prompt</button></div>
+</div>
+</div>
+</li>
+<li style="display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 0 16px">
+<span style="width: 36px; height: 36px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 20px; color: #ede8dd; box-sizing: border-box">3</span>
+<div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600; color: #ede8dd">Leave Kiln running</span>
+<p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6; text-wrap: pretty; ">It watches the branch. Once the phase is closed, committed and pushed, Kiln opens the pull request on its own.</p>
+</div>
+</li>
+</ol>
+</section></div><div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px"><aside style="background: #1b1a16; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 18px; padding: clamp(20px, 3vw, 28px); display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; "><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Kiln continues when</span>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 12px; padding: 14px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)">
+<span style="width: 18px; height: 18px; margin-top: 2px; border-radius: 999px; border: 1px dashed rgba(237, 232, 221, 0.24); box-sizing: border-box"></span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: #ede8dd">Phase doc closed<span style="font-size: 12px; color: #8c8577">Waiting</span></span><span style="font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">Closed line in phase-4-restock-check-in.md</span></span>
+</li>
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 12px; padding: 14px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)">
+<span style="width: 18px; height: 18px; margin-top: 2px; border-radius: 999px; border: 1px dashed rgba(237, 232, 221, 0.24); box-sizing: border-box"></span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: #ede8dd">Everything committed<span style="font-size: 12px; color: #8c8577">Waiting</span></span><span style="font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">Worktree clean</span></span>
+</li>
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 12px; padding: 14px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)">
+<span style="width: 18px; height: 18px; margin-top: 2px; border-radius: 999px; border: 1px dashed rgba(237, 232, 221, 0.24); box-sizing: border-box"></span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: #ede8dd">Pushed<span style="font-size: 12px; color: #8c8577">Waiting</span></span><span style="font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">feature/customer-returns matches origin</span></span>
+</li>
+</ul>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px"><span style="font-size: 13px; color: #8c8577; white-space: nowrap">Checked 12s ago</span><button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: transparent; color: #ede8dd; border: 1px solid rgba(237, 232, 221, 0.24); ">Check now</button></div>
+<p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6; text-wrap: pretty; ">Kiln can’t see the Codex conversation. It only trusts what lands in Git.</p></aside></div></div>
+</main>
+</div>
+</body>
+</html>
