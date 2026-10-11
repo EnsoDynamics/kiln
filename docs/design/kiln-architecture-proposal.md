@@ -36,7 +36,7 @@ It replaces the loop a person runs by hand today: start a session with `implemen
 - a background service that keeps runs going without a terminal;
 - Windows.
 
-v1 is deliberately sequential. A dozen one-hour phases that run unattended overnight is already the main win, and running phases one at a time keeps the done check, the stop path and Git simple.
+v1 is deliberately sequential. A dozen one-hour phases that run unattended overnight is already the main win, and running phases one at a time keeps the done check, the stop path and Git simple. Parallel phases are still the likely next step, so v1 shouldn't make them hard: keep Kiln's state per phase and per session rather than assuming a single current session, keep the done check per phase, and keep the engine's next-phase choice in one place so a dependency-aware scheduler could replace it.
 
 The desktop handoff waits because v1 already handles that case: a phase that needs a native desktop app ends without closing, like any other stop, and its last message says why. The preflight would add a separate model pass, a routing table and a second handoff flow. It's worth building once real features show how often the case comes up.
 
@@ -139,7 +139,8 @@ Kiln must not start the next session while you have the stopped one open, becaus
 
 ## Git and branches
 
-- **One worktree and branch per run.** Kiln creates the worktree and feature branch from the base branch before the first session. This is the default because a multi-hour unattended run in the shared checkout would collide with everything else happening there. "This checkout and branch" is available as a setting.
+- **One worktree and one feature branch for the whole PRD, always.** Kiln creates them from the base branch before the first session, and every phase works in them in turn: no per-phase branches, worktrees or PRs, and every later `kiln run` for the feature reuses them. Per-phase branches would only add cost when phases run one after another: each would have to branch off the previous phase's branch to get its code, and the end would be a stack of PRs to review instead of one. They become necessary only for parallel phases (after v1). A multi-hour unattended run in the shared checkout would collide with everything else happening there, so there is no option to work in the current checkout.
+- **Git flow by default.** The base branch is `develop` (deploys to dev; `main` deploys to production), falling back to the repository's default branch when there is no `develop`, and it can be changed before Start. The PR goes from the feature branch into the base branch. Other branching strategies get no special support in v1.
 - **A push per phase.** Every phase pushes to the feature branch, and there is one PR at the end.
 - **The session does the Git work.** Commits, pushes, conflict repair and the PR all happen in the session. Kiln only reads Git state.
 - **Nothing destructive.** Kiln never resets, stashes, cleans or force-pushes. If the worktree is dirty after a stop, you resolve it.
@@ -196,11 +197,11 @@ Decided on October 11, 2026:
 
 1. ~~Command line with a web view, or a desktop app?~~ A command line that serves the local web view. A desktop shell is possible later and the architecture keeps it possible, but it is not v1.
 2. ~~Language and distribution.~~ TypeScript, as one npm package. Python remained viable; .NET was rejected for adding a runtime boundary without enough benefit.
+4. ~~Default workspace.~~ Always a new worktree and feature branch, off `develop` by default. No current-checkout option in v1.
 
 Still open:
 
 3. **Default permission mode for unattended sessions.** Recommendation: `auto` with permission prompts off. It needs an account that qualifies for auto mode.
-4. **Default workspace.** A new worktree and feature branch (the current default), or the current checkout and branch, which matches the method's own default.
 
 ## Left to the technical design
 
