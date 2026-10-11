@@ -50,7 +50,7 @@ The review mode needs nothing from the methodology. When nobody has authorized a
 
 ## How a run works
 
-1. **Enroll.** `kiln run <PRD>` finds the technical design, assumptions and phase docs in the PRD's directory. It checks that every leaf phase cites acceptance criteria and records the run settings: worktree, branch, base branch, agent, model and end point.
+1. **Enroll.** `kiln run <PRD directory or PRD file>` is the only way in. Kiln looks in the PRD's directory for the PRD, the technical design and the phase docs, where the skills put them (assumptions are optional), and checks that every leaf phase cites acceptance criteria, that dependencies point backward and that the checkout is clean. Anything missing or failing is an error in the terminal, and Kiln exits. Otherwise it opens the browser on Documents found, where the person reviews what was found, sets the run settings (worktree, branch, base branch, model, effort, keep-awake), confirms refinement and presses Start. A feature already underway skips this and carries on.
 2. **Pick the next phase.** Kiln uses the method's own rule: walk the plan in order, through any `## Split into` tables, to the first leaf without a `**Closed:**` line. Kiln re-reads the plan after every session, so a session that splits its own phase needs no special handling.
 3. **Run one session.** Kiln starts a headless Claude Code session in the worktree with the launch prompt below. It streams the output to disk and to the UI, and waits for the session to exit.
 4. **Check.** Kiln runs the done check. If it passes, go back to step 2. If not, the run goes to Needs you.
@@ -60,7 +60,7 @@ The review mode needs nothing from the methodology. When nobody has authorized a
 
 The prompt is the authorization a person would give by hand, written out once:
 
-- Run `implement-from-requirements` on `<phase doc>` of `<PRD>`.
+- Run `implement-from-requirements` on `<phase doc>` of `<PRD>`. (The session itself is started with the run's model and effort level.)
 - Work in `<worktree>` on `<branch>`. Don't switch branches or create another worktree.
 - You may commit and push to `<branch>`, and run `refactor-pass` after the feature commit. You may not open PRs, merge, or touch other branches.
 - You're finished when the phase doc has its Closed line and everything is committed and pushed.
@@ -96,7 +96,7 @@ A question from Claude takes the same path. With permission prompts turned off, 
 
 Kiln doesn't retry on its own in v1. A retry loop would need to know why the session stopped, which principle 3 rules out.
 
-An **interrupted** session is a different case. When Kiln itself stops while a session is still working (Ctrl+C, a closed terminal, `kiln pause --now`, a restart, sleep), its record shows the session was running and never finished. The next `kiln run` runs the done check and, if the phase isn't done, resumes that same session and tells it to carry on. This needs no reading of the session: Kiln knows it was interrupted because it was there. Kiln never discards an interrupted phase's work and never starts a fresh session on top of it; a session it can't resume goes to Needs you with the fresh-session prompt.
+An **interrupted** session is a different case. When Kiln itself stops while a session is still working (Ctrl+C, a closed terminal, a restart, sleep), its record shows the session was running and never finished. The next `kiln run` runs the done check and, if the phase isn't done, resumes that same session and tells it to carry on. This needs no reading of the session: Kiln knows it was interrupted because it was there. Kiln never discards an interrupted phase's work and never starts a fresh session on top of it; a session it can't resume goes to Needs you with the fresh-session prompt.
 
 ## Progress and output
 
@@ -128,6 +128,7 @@ The table below was checked on September 30, 2026 against Claude Code 2.1.286 (`
 |---|---|
 | Unattended session | `claude -p "<launch prompt>"` run in the worktree |
 | Known session ID | `--session-id <uuid>`, chosen by Kiln before launch |
+| Model and effort | `--model <model>` and `--effort low\|medium\|high\|xhigh\|max` (effort checked against Claude Code 2.1.292 on October 11, 2026) |
 | Live output | `--output-format stream-json --verbose --include-partial-messages` |
 | Reviewer subagent text | `--forward-subagent-text`; the messages carry `parent_tool_use_id` |
 | Nobody to answer prompts | `--permission-prompts none`: anything that would prompt is denied, `AskUserQuestion` is removed, and denials appear as `permission_denied` events |
@@ -154,21 +155,18 @@ Git and the phase docs are the record of what's done. If Kiln's state is lost, `
 ## Command line and web view
 
 ```
-kiln run <PRD path or directory>   move this feature forward: start, continue, resume, or re-check
-kiln status                        what's running, for every enrolled feature
-kiln open                          open the local web view
-kiln logs [--follow]               session output
-kiln pause                         stop after the current phase
-kiln pause --now                   end the current turn now (SIGINT); the phase counts as interrupted
+kiln run <PRD directory or PRD file>   move this feature forward: show Documents found, start, continue, resume, or re-check
 ```
+
+**One command; the browser does the rest.** `kiln run` is Kiln's only command. It starts Kiln, opens the browser view, and hosts the run. Everything else, including reviewing documents, settings, Start, Pause after this phase, Check again, session output and every feature's state, is in the browser view. In the terminal, Ctrl+C is the only other control. There are no `status`, `logs`, `open` or `pause` commands, and no command to run a single phase.
 
 **`kiln run` means "move this feature forward", not "start a new run".** Every invocation reads the phase docs, Git and Kiln's own record, works out where the feature really stands, and does the next right thing: start the next phase, resume an interrupted session, or run the done check on a stopped one. The same command serves the first time, after Ctrl+C, after a restart, after a Needs you is resolved, and after a fix in the worktree. There is no separate `kiln resume`.
 
 **`kiln run` stays in the foreground.** It owns the orchestration, the local web server, the current Claude Code process and Kiln's state, and it runs in the terminal it was started from for the whole run. There is no daemon, launchd or systemd service. Kiln's users already live in terminals, and a cheap interruption makes this acceptable: closing the terminal or pressing Ctrl+C interrupts the run, and `kiln run` picks it back up. Ctrl+C is a controlled interruption: Kiln ends the session's turn so it stays resumable, records the interrupted phase and session, and exits without leaving a Claude Code process behind.
 
-**Keep-awake.** While a phase's session is working, Kiln prevents idle sleep, on by default, with a setting and a command-line override to turn it off. It releases the hold whenever no session is working. Kiln says plainly that this prevents idle sleep only: closing a laptop's lid may still sleep the machine, and a sleep that ends the session is recovered like any interruption. Kiln doesn't count on a streaming session surviving suspend and wake.
+**Keep-awake.** While a phase's session is working, Kiln prevents idle sleep, on by default, with a run setting to turn it off. It releases the hold whenever no session is working. Kiln says plainly that this prevents idle sleep only: closing a laptop's lid may still sleep the machine, and a sleep that ends the session is recovered like any interruption. Kiln doesn't count on a streaming session surviving suspend and wake.
 
-**The web view.** The view is interactive, not a status report: Start, Pause after this phase and Check again (and the run settings before Start) call the Kiln process. It is served by `kiln run` on loopback only, gets live updates pushed from the process rather than by reloading, and stays up while `kiln run` is running, including at Needs you, paused and complete. Being on localhost doesn't make it safe on its own: a page from another site open in the same browser must not be able to read a run or press its controls, without making the person log in.
+**The web view.** The view is interactive, not a status report: Start, Pause after this phase and Check again (and the run settings before Start) call the Kiln process. It is served by `kiln run` on loopback only, opened in the browser by `kiln run` itself, gets live updates pushed from the process rather than by reloading, and stays up while `kiln run` is running, including at Needs you, paused and complete. Being on localhost doesn't make it safe on its own: a page from another site open in the same browser must not be able to read a run or press its controls, without making the person log in.
 
 **Shape of the code.** Kiln is TypeScript, distributed as one npm package (`npm install -g <package>`) that holds the command line, the engine, the local server and the compiled web view (Svelte and Vite). The engine and the web view talk only through a local API, so a desktop shell later (Tauri, as in MarkView) could host the same UI without changing the engine. Orchestration stays out of the UI code.
 
@@ -211,7 +209,7 @@ These are deliberately not settled here, and the technical design decides each o
 - **Resuming an interrupted session.** The exact prompt for the resumed turn, and what to do when a Claude Code process is still alive after the machine wakes versus when it has to be resumed.
 - **The pushed check.** The exact Git predicate, proving that the local head exists on the remote rather than trusting that `git push` succeeded.
 - **Keep-awake implementation** on macOS (`caffeinate` or a power assertion) and Linux.
-- **The local server.** A fixed or dynamic port, how `kiln open` finds it, what `kiln open` does when no `kiln run` is running, and whether `kiln run` opens the browser itself.
+- **The local server.** A fixed or dynamic port, and how a second `kiln run` for the same feature finds the one already running.
 - **Local security.** Binding, origin checks and a per-run or per-install token for the control endpoints, invisible to the person.
 - **State format.** Plain files or a small SQLite store, chosen from what has to be stored.
 - **The npm package name** and install command.

@@ -24,7 +24,7 @@
 
 ## Computer-use preflight and Codex desktop handoff
 
-Before a run starts, a separate model pass would classify which phases need a native desktop app. Those phases would be handed to Codex desktop with a prepared prompt, and Kiln would continue once the same done check passes. The screens are on the design canvas, and the classifier prompt is in [Kiln computer-use preflight prompt](kiln-computer-use-preflight-prompt.md). In v1, such a phase simply stops and comes to you like any other stop.
+Before a run starts, a separate model pass would classify which phases need a native desktop app. Those phases would be handed to Codex desktop with a prepared prompt, and Kiln would continue once the same done check passes. Its screens were drafted and then removed from the v1 mockups; the classifier prompt is in [Kiln computer-use preflight prompt](kiln-computer-use-preflight-prompt.md). In v1, such a phase simply stops and comes to you like any other stop.
 
 ## Codex as an unattended agent
 
