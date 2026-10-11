@@ -6,6 +6,10 @@ The Enso Method works without Kiln. Kiln automates the loop a person otherwise r
 
 Status: design stage. There is no runner code yet.
 
+## Requirements
+
+- [Kiln v1 PRD](docs/prds/kiln-v1/kiln-v1-prd.md): what v1 delivers and its acceptance criteria.
+
 ## Design documents
 
 - [Architecture proposal](docs/design/kiln-architecture-proposal.md): principles, v1 scope, the done check, the stop path, and open questions.

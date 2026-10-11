@@ -1,6 +1,6 @@
 # Kiln architecture proposal
 
-Design proposal, revised September 30, 2026. No runner code exists yet. The screens are in [Kiln interface scenarios](kiln-interface-scenarios.md).
+Design proposal, revised September 30, 2026, and again on October 11, 2026 with decisions on how Kiln runs as a process, recovers from interruptions, handles sleep and is distributed. No runner code exists yet. The requirements are in the [Kiln v1 PRD](../prds/kiln-v1/kiln-v1-prd.md). The screens are in [Kiln interface scenarios](kiln-interface-scenarios.md).
 
 ## What Kiln is
 
@@ -23,7 +23,8 @@ It replaces the loop a person runs by hand today: start a session with `implemen
 - phases run strictly one after another, never in parallel, with Claude Code as the agent;
 - a dedicated worktree and feature branch;
 - a push after every phase and one PR at the end;
-- a command line and a local web view.
+- a command line that stays in the foreground for the run, and a local web view it serves;
+- macOS and Linux.
 
 **After v1:** these are recorded, with the reasoning, in [Kiln ideas after v1](kiln-after-v1-ideas.md):
 - running independent phases in parallel;
@@ -31,7 +32,9 @@ It replaces the loop a person runs by hand today: start a session with `implemen
 - Codex as an unattended agent;
 - a mode that holds each phase for your review before commit;
 - merging the final PR;
-- a desktop app wrapper.
+- a desktop app wrapper;
+- a background service that keeps runs going without a terminal;
+- Windows.
 
 v1 is deliberately sequential. A dozen one-hour phases that run unattended overnight is already the main win, and running phases one at a time keeps the done check, the stop path and Git simple.
 
@@ -93,6 +96,8 @@ A question from Claude takes the same path. With permission prompts turned off, 
 
 Kiln doesn't retry on its own in v1. A retry loop would need to know why the session stopped, which principle 3 rules out.
 
+An **interrupted** session is a different case. When Kiln itself stops while a session is still working (Ctrl+C, a closed terminal, `kiln pause --now`, a restart, sleep), its record shows the session was running and never finished. The next `kiln run` runs the done check and, if the phase isn't done, resumes that same session and tells it to carry on. This needs no reading of the session: Kiln knows it was interrupted because it was there. Kiln never discards an interrupted phase's work and never starts a fresh session on top of it; a session it can't resume goes to Needs you with the fresh-session prompt.
+
 ## Progress and output
 
 Progress comes from the session's own tool calls, not from anything the skills write:
@@ -141,24 +146,30 @@ Kiln must not start the next session while you have the stopped one open, becaus
 
 ## Kiln's own state
 
-Kiln writes nothing into the repository. Its state lives under `~/.local/state/kiln/`: run settings, each phase's session ID and output, and pause requests.
+Kiln writes nothing into the repository. Its state lives under `~/.local/state/kiln/`: run settings, each phase's session ID and output, which session (if any) was interrupted, and pause requests.
 
-Git and the phase docs are the record of what's done. If Kiln's state is lost, `kiln run` finds the next unclosed leaf the same way it always does, and only the old transcripts are gone.
+Git and the phase docs are the record of what's done. If Kiln's state is lost, `kiln run` finds the next unclosed leaf the same way it always does; only the old transcripts, and the ability to resume an interrupted session automatically, are gone. Choose the storage format from what actually has to be stored and queried; a database isn't needed just because there is a web view.
 
 ## Command line and web view
 
 ```
-kiln run <PRD path or directory>   start, continue, or re-check after a stop
+kiln run <PRD path or directory>   move this feature forward: start, continue, resume, or re-check
 kiln status                        what's running, for every enrolled feature
 kiln open                          open the local web view
 kiln logs [--follow]               session output
 kiln pause                         stop after the current phase
-kiln pause --now                   end the current turn now (SIGINT)
+kiln pause --now                   end the current turn now (SIGINT); the phase counts as interrupted
 ```
 
-`kiln run` is safe to run at any time: it attaches to a run in progress, runs the done check when a run is stopped, and starts the next phase when the check passes. The local web view listens on loopback only, shows the same state, and has the same controls: Start, Pause and Check again.
+**`kiln run` means "move this feature forward", not "start a new run".** Every invocation reads the phase docs, Git and Kiln's own record, works out where the feature really stands, and does the next right thing: start the next phase, resume an interrupted session, or run the done check on a stopped one. The same command serves the first time, after Ctrl+C, after a restart, after a Needs you is resolved, and after a fix in the worktree. There is no separate `kiln resume`.
 
-A background supervisor owns the sessions, so closing the terminal or the browser doesn't stop a run. Sleep suspends it. After a reboot, `kiln run` recovers by running the done check on the phase that was in flight.
+**`kiln run` stays in the foreground.** It owns the orchestration, the local web server, the current Claude Code process and Kiln's state, and it runs in the terminal it was started from for the whole run. There is no daemon, launchd or systemd service. Kiln's users already live in terminals, and a cheap interruption makes this acceptable: closing the terminal or pressing Ctrl+C interrupts the run, and `kiln run` picks it back up. Ctrl+C is a controlled interruption: Kiln ends the session's turn so it stays resumable, records the interrupted phase and session, and exits without leaving a Claude Code process behind.
+
+**Keep-awake.** While a phase's session is working, Kiln prevents idle sleep, on by default, with a setting and a command-line override to turn it off. It releases the hold whenever no session is working. Kiln says plainly that this prevents idle sleep only: closing a laptop's lid may still sleep the machine, and a sleep that ends the session is recovered like any interruption. Kiln doesn't count on a streaming session surviving suspend and wake.
+
+**The web view.** The view is interactive, not a status report: Start, Pause after this phase and Check again (and the run settings before Start) call the Kiln process. It is served by `kiln run` on loopback only, gets live updates pushed from the process rather than by reloading, and stays up while `kiln run` is running, including at Needs you, paused and complete. Being on localhost doesn't make it safe on its own: a page from another site open in the same browser must not be able to read a run or press its controls, without making the person log in.
+
+**Shape of the code.** Kiln is TypeScript, distributed as one npm package (`npm install -g <package>`) that holds the command line, the engine, the local server and the compiled web view (Svelte and Vite). The engine and the web view talk only through a local API, so a desktop shell later (Tauri, as in MarkView) could host the same UI without changing the engine. Orchestration stays out of the UI code.
 
 Kiln notifies you when a phase needs you, when a Codex desktop handoff is ready (after v1), and when the PR is ready. Routine phase changes don't notify.
 
@@ -181,7 +192,25 @@ Kiln notifies you when a phase needs you, when a Codex desktop handoff is ready 
 
 ## Open questions
 
-1. **Command line with a web view, or a desktop app?** Recommendation: a command line that serves the local web view, with a desktop wrapper later only if dropping a folder onto the app matters. A browser can't learn the path of a folder dropped onto a page.
-2. **Language and distribution.** Python installed with `uv tool install`, or TypeScript with npm. Both have a supported Agent SDK. .NET would require the .NET SDK on every machine.
+Decided on October 11, 2026:
+
+1. ~~Command line with a web view, or a desktop app?~~ A command line that serves the local web view. A desktop shell is possible later and the architecture keeps it possible, but it is not v1.
+2. ~~Language and distribution.~~ TypeScript, as one npm package. Python remained viable; .NET was rejected for adding a runtime boundary without enough benefit.
+
+Still open:
+
 3. **Default permission mode for unattended sessions.** Recommendation: `auto` with permission prompts off. It needs an account that qualifies for auto mode.
 4. **Default workspace.** A new worktree and feature branch (the current default), or the current checkout and branch, which matches the method's own default.
+
+## Left to the technical design
+
+These are deliberately not settled here, and the technical design decides each one on purpose rather than by accident:
+
+- **Ctrl+C and signals.** What Kiln sends the Claude Code process, whether it waits for a graceful end before forcing one, what it saves before exiting, and how it cleans up the process group on macOS and Linux so no Claude Code process is orphaned. Don't assume Node's default child-process behavior is enough.
+- **Resuming an interrupted session.** The exact prompt for the resumed turn, and what to do when a Claude Code process is still alive after the machine wakes versus when it has to be resumed.
+- **The pushed check.** The exact Git predicate, proving that the local head exists on the remote rather than trusting that `git push` succeeded.
+- **Keep-awake implementation** on macOS (`caffeinate` or a power assertion) and Linux.
+- **The local server.** A fixed or dynamic port, how `kiln open` finds it, what `kiln open` does when no `kiln run` is running, and whether `kiln run` opens the browser itself.
+- **Local security.** Binding, origin checks and a per-run or per-install token for the control endpoints, invisible to the person.
+- **State format.** Plain files or a small SQLite store, chosen from what has to be stored.
+- **The npm package name** and install command.

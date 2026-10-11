@@ -45,3 +45,11 @@ This is a wrapper around the local web view, mainly so you can drop a PRD folder
 ## A "why it stopped" headline
 
 When a phase ends without being done, Kiln could ask the stopped session itself, through a forked headless resume, for a one-line reason to show above its last message. This would use the person's own Claude login, not a separate model service.
+
+## A background service
+
+In v1, `kiln run` runs in the foreground of its terminal, and closing the terminal interrupts the run until `kiln run` picks it back up. A background service (launchd, systemd or a Windows service) would keep runs going with no terminal open. Worth building only if real use shows that interruptions from closed terminals cost more than the cheap resume makes them.
+
+## Windows
+
+v1 runs on macOS and Linux. Windows needs its own process-group cleanup on Ctrl+C and its own way to prevent idle sleep.
