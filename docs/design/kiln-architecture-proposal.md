@@ -171,6 +171,13 @@ kiln run <PRD directory or PRD file>   move this feature forward: show Documents
    - continue it headlessly with `claude -p --resume <id>`, the way `kiln run` resumes an interrupted session;
    - confirm skills load and their calls appear in the stream.
    - confirm headless `/usage` still returns `usage_report` with no model call, and that polling it while a session works doesn't disturb that session.
+   - confirm the Agent SDK's `supportedModels()` spends no usage and works against the person's own `claude`, without the SDK's bundled copy;
+   - confirm `claude -p --resume` of a session whose transcript is gone exits without an `init` event;
+   - find out what a streaming `claude -p` does when the computer sleeps and wakes;
+   - confirm SIGINT sent to the session's whole process group ends the turn and leaves the session resumable;
+   - find out whether, with `--forward-subagent-text`, a subagent's tool calls reach the stream as well as its text;
+   - find out whether a model's `supportsAutoMode` reflects what the signed-in account may use.
+   (Added October 15, 2026 by the Kiln v1 technical design, which depends on each. Gates 1 and 2 run by hand, before Kiln's engine is built.)
 2. **One real phase.** Run a small real phase end to end with the launch prompt, and confirm:
    - the session stays on Kiln's worktree and branch, even when instructions say otherwise (a global "work on develop" rule, or the method's rule for parallel sessions);
    - it writes the Closed line, commits and pushes;
@@ -189,9 +196,9 @@ Decided on October 11, 2026:
 2. ~~Language and distribution.~~ TypeScript, as one npm package. Python remained viable; .NET was rejected for adding a runtime boundary without enough benefit.
 4. ~~Default workspace.~~ Always a new worktree and feature branch, off `develop` by default. No current-checkout option in v1.
 
-Still open:
+Decided on October 15, 2026:
 
-3. **Default permission mode for unattended sessions.** Recommendation: `auto` with permission prompts off. It needs an account that qualifies for auto mode.
+3. ~~Default permission mode for unattended sessions.~~ `auto` with permission prompts off, as recommended; it needs an account that qualifies for auto mode. Recorded in the [Kiln v1 technical design](../prds/kiln-v1/technical-design.md).
 
 ## Left to the technical design
 

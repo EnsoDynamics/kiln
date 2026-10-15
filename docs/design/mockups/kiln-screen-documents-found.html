@@ -58,7 +58,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg>
 <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
 <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span style="font-size: 15px; font-weight: 600; color: #ede8dd">Assumptions</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">assumptions.md</span></div>
-<span style="font-size: 14px; color: #bdb6a8">11 assumptions, 2 awaiting stakeholder feedback. They’re green lights; nothing waits on them.</span>
+<span style="font-size: 14px; color: #bdb6a8">11 assumptions, 2 not yet confirmed. They’re green lights; nothing waits on them.</span>
 </div>
 </li>
 <li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
@@ -96,6 +96,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="worktree" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Worktree</label>
 <input id="worktree" type="text" value="~/devel/acme-shop-kiln/customer-returns" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Folder exists and isn't empty: "That folder already exists and isn’t empty. Choose a new one." -->
 <span style="font-size: 12.5px; color: #8c8577">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
 </div>
 
@@ -103,10 +104,12 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="branch" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Feature branch</label>
 <input id="branch" type="text" value="feature/customer-returns" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Branch exists locally or on origin (UI-003): "That branch already exists. Choose a name no branch has; a new name starts this PRD over from develop." (the base branch's name in place of develop) -->
 </div>
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="base" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Branch from, and PR into</label>
 <select id="base" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%"><option value="develop">develop</option><option value="main">main</option></select>
+<!-- Field messages, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Not on origin: "develop isn’t on origin." PRD documents differ from this checkout's: "develop on origin has different PRD documents from this checkout. Push them to develop first; every session starts from there." (the chosen branch's name in place of develop) -->
 </div>
 </div>
 
@@ -118,6 +121,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="model" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Model</label>
 <select id="model" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-size: 14px; box-sizing: border-box; width: 100%"><option value="opus">Opus 5.5</option><option value="fable">Fable 5.1</option><option value="sonnet">Sonnet 5.5</option></select>
+<!-- Field message, not drawn in this state, and only built if proof gate 1 shows supportsAutoMode reflects the account (technical design, Account and Usage). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. "Opus 5.5 can’t run unattended on this account; it needs auto mode." (the chosen model's name) -->
 </div>
 </div>
 
@@ -136,6 +140,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <label for="awake" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer">
 <input id="awake" type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
 <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; color: #ede8dd">Keep this computer awake while a session works</span><span style="font-size: 12.5px; color: #8c8577">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span>
+<!-- Setting message, not drawn in this state: when keep-awake can't work (Linux without systemd-inhibit), one amber line (#e6b450, 12.5px) under the help text, here and wherever keep-awake is shown: "Can’t keep this computer awake: systemd-inhibit isn’t available." Start isn't held by it. -->
 </label>
 
 <dl style="margin: 0; padding-top: 16px; border-top: 1px solid rgba(237, 232, 221, 0.12); display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; font-size: 13.5px">
