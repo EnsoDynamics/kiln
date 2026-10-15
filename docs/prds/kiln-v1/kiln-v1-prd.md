@@ -29,7 +29,6 @@ These settled decisions from the architecture proposal shape everything below:
 - The **done check** is the three-part test Kiln applies after every session: the phase is closed, everything is committed, and everything is pushed.
 - **Needs you** is the state Kiln enters when a phase fails the done check.
 - A session is **interrupted** when Kiln stops while the session is still working: Ctrl+C, a closed terminal, a restart, or sleep. Kiln knows this from its own record that the session was running and never finished. It is different from a session that **ended on its own**, finished or crashed, which Kiln judges with the done check.
-- The **session marker** is the log a session keeps in `.agent-sessions/` in the shared checkout. Its **DONE line** names how the session ended, for example `Blocked — vendor API credentials expired`.
 
 ## Acceptance Criteria
 
@@ -86,12 +85,11 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
 - [ ] **AC-STOP-01 — Kiln stops and doesn't retry.** When a phase is Needs you, no later phase starts and Kiln doesn't rerun the phase on its own. (An interrupted session is a different case: Kiln resumes it, per AC-KEEP-04.)
 - [ ] **AC-STOP-02 — The person sees how the session ended, word for word.** The Needs you screen shows:
   - the session's last assistant message, verbatim;
-  - the session marker's DONE line, when the session wrote one;
   - the exit code and the time the session stopped;
   - the last skill seen in the session;
   - when the session ended without a final message, its last lines of output, errors included.
 - [ ] **AC-STOP-03 — The person sees which checks failed and why.** Each of the three checks shows whether it passed, with the specific fact behind it. Examples: "No Closed line in phase-2b-store-credit.md", "12 files changed, not committed", "a41c9e2 isn't on origin yet".
-- [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words.
+- [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words, quoted, never summarized; the Needs you screen's "Finish the phase" step uses the same wording for every stop.
 - [ ] **AC-STOP-05 — The person can reopen the exact session.** Kiln shows a copyable command that changes to the PRD's worktree and runs `claude --resume <session ID>`. It opens that session in a terminal with its full history.
 - [ ] **AC-STOP-06 — A fresh-session prompt is there when the session can't be opened.** The Needs you screen also offers a copyable prompt for a fresh session that points at the phase document, for when the session can't be reopened, for example because its transcript is gone.
 - [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check (as does `kiln run`, if Kiln was restarted in the meantime). When it passes, the phase shows as Done, finished by the person, and the next phase starts. When it fails, the phase stays Needs you with the updated check results.
@@ -130,7 +128,7 @@ The person can see how far Kiln has got, what the current session is doing, and 
 - [ ] **AC-WATCH-03 — Session output is shown live.** For the current session, the person can watch Claude's text as it is written, each tool call and its result, and the reviewer subagent's messages labeled as the reviewer's. Every line is timestamped, and earlier output can be loaded.
 - [ ] **AC-WATCH-04 — The phase detail identifies the session.** The phase detail shows the session ID, the model and effort level, the start time and elapsed time, and the commits made for the phase so far.
 - [ ] **AC-WATCH-05 — Settings are shown apart from per-phase facts.** While Kiln is working, the browser view shows the PRD's settings: agent, model and effort level for the next session, keep-awake, and where Kiln stops, with the worktree and branches marked as fixed for the PRD. Facts that belong to a phase (worktree, branch, commits, times, session) are shown with that phase, not with the settings.
-- [ ] **AC-WATCH-06 — Every session's full output is kept.** Every session's full output is saved on the person's machine, outside the repository. It stays viewable after the session ends and after the PRD is done.
+- [ ] **AC-WATCH-06 — A stopped session's full output can be read.** Every session's full output is saved on the person's machine, outside the repository, and the Needs you screen links to it.
 - [ ] **AC-WATCH-07 — Nothing claims evidence for acceptance criteria.** Kiln shows no status of its own saying an acceptance criterion is met or tested. Any such claim on screen is the session's own output, shown as session output.
 
 ### Start It in the Terminal, Control It From the Browser
@@ -140,7 +138,7 @@ The terminal only starts Kiln and hosts it. Everything the person does after tha
 - [ ] **AC-CLI-01 — `kiln run` always means "move this feature forward".** The same command is used the first time, after Ctrl+C, after a restart, after a Needs you is resolved, and after the person fixes something in the workspace. Each time it works out where the feature really stands from the phase documents, Git and its own record, then does the right next thing: show Documents found for a feature not started, start the next phase, resume an interrupted session (AC-KEEP-04), or run the done check on a stopped phase. Phases already done are never redone, and there is no separate resume command. If Kiln is already running the feature, `kiln run` says so, gives the browser view's address and starts nothing.
 - [ ] **AC-CLI-07 — `kiln run` is the only command.** Kiln has no other commands in v1: no separate commands for status, logs, pausing, or running a single phase. In the terminal, the only other control is Ctrl+C (AC-KEEP-02).
 - [ ] **AC-VIEW-01 — The browser view is local only.** The browser view can be reached only from the same machine, never from another computer on the network.
-- [ ] **AC-VIEW-02 — The browser view is where Kiln is controlled.** It offers Start (on Documents found, and to continue after a pause), Pause after this phase, and Check again. Pause after this phase lets the current session finish its phase, including its commit and push, and the done check runs; no further phase starts until the person presses Start. Session output, current and past, is read in the browser view.
+- [ ] **AC-VIEW-02 — The browser view is where Kiln is controlled.** It offers Start (on Documents found, and to continue after a pause), Pause after this phase, and Check again. Pause after this phase lets the current session finish its phase, including its commit and push, and the done check runs; no further phase starts until the person presses Start. Session output is read in the browser view.
 - [ ] **AC-VIEW-03 — The browser view stays current.** The browser view updates on its own while Kiln works, without a reload, and shows when it was last updated.
 - [ ] **AC-VIEW-04 — The browser view lasts as long as `kiln run`.** While `kiln run` is running for a feature, its browser view works, including while Kiln is stopped at Needs you, paused or complete, so Check again and Start work from the browser.
 - [ ] **AC-VIEW-05 — Other web pages can't use Kiln.** A page from any other site, open in the same browser, can neither read Kiln's state or output nor press Kiln's controls. The person never has to log in or handle a key to use the browser view.
@@ -155,7 +153,6 @@ Phases within one PRD run one at a time, but a person can have several PRDs movi
 - [ ] **AC-MULTI-02 — Each PRD has its own browser view.** Every instance serves its own browser view at its own address, prints that address in its terminal, and never takes over another instance's address. Each browser tab's title names its feature, so tabs for different PRDs can be told apart.
 - [ ] **AC-MULTI-03 — PRDs don't touch each other's work.** Each PRD's sessions work only in its own worktree and feature branch (AC-START-06), so two PRDs in one repository never change each other's files or branches.
 - [ ] **AC-MULTI-04 — One PRD, one Kiln.** A PRD can be run by only one instance at a time; a second `kiln run` for the same PRD says it is already running and gives its address (AC-CLI-01).
-- [ ] **AC-MULTI-05 — Shared resources aren't coordinated.** Kiln instances on one machine share its dev servers, ports, databases and the person's Claude usage limits, and Kiln doesn't coordinate them. A clash between them ends a session like any other failure and comes to the person as Needs you.
 
 ### Survive Interruptions Without Losing Work
 
@@ -168,7 +165,6 @@ Working through a PRD can take many hours, but each phase is its own session, so
 - [ ] **AC-KEEP-05 — A session that can't be resumed comes to the person.** If an interrupted session can't be resumed, for example because its transcript is gone, the phase goes to Needs you with the fresh-session prompt (AC-STOP-06).
 - [ ] **AC-KEEP-06 — Kiln keeps the computer awake while it works.** While a phase's session is working, Kiln stops the computer from going to sleep when idle. This is on by default and can be turned off in the PRD's settings. Kiln lets the computer sleep again whenever no session is working: at Needs you, when paused, when complete, and when Kiln exits.
 - [ ] **AC-KEEP-07 — Kiln is honest about sleep.** Where keep-awake is shown, Kiln says it prevents idle sleep only, and that closing a laptop's lid may still put the computer to sleep. A sleep that ends the session is recovered like any other interruption (AC-KEEP-04).
-- [ ] **AC-KEEP-08 — Git and the phase documents are the record.** If Kiln's own records are lost, `kiln run` still finds the next unclosed leaf and continues. Only the old session output, and the ability to resume an interrupted session automatically, are lost.
 
 ### Install It With One Command
 
@@ -187,8 +183,6 @@ The v1 mockups are the design of record. The rules below hold on every screen.
 - [ ] **AC-LOOK-07 — Every screen says where it is and whose it is.** Above the feature name, every browser screen labels the repository (its name, taken from the Git repository's top-level folder) and the PRD folder (its path from the repository root), without assuming anything about how the person arranges their folders. The top bar carries the Kiln mark on the left and, on the right, the connection status and the Enso Method mark, since Kiln runs only Enso Method PRDs.
 - [ ] **AC-LOOK-03 — Phase numbers and titles stay put.** Phase titles come from the phase documents word for word. A phase's number stays in its circle in every state.
 - [ ] **AC-LOOK-04 — Color means one thing.** A single red accent marks the phase in progress, amber means it needs the person, and green with a check means Done. The look is the Enso Method website's dark theme: Instrument Serif headings, Inter body text, and JetBrains Mono for code.
-- [ ] **AC-LOOK-05 — The mockups show v1 and nothing else.** No screen shows a feature this PRD leaves out.
-- [ ] **AC-LOOK-06 — The session is quoted, never summarized.** Wherever a screen refers to what the session said, it quotes it word for word. The Needs you screen's "Finish the phase" step uses the same wording for every stop.
 
 ### Proven on a Real Feature
 
@@ -209,9 +203,7 @@ The mockups also assume the repository is hosted on GitHub, where the pull reque
 
 ## Questions This PRD Leaves Open
 
-Decided on October 11, 2026, and no longer open: v1 is one terminal command plus a local browser view (proposal open question 1); Kiln is TypeScript, installed as one npm package (open question 2); v1 runs on macOS and Linux; every PRD gets its own new worktree and feature branch, off `develop` by default (open question 4, AC-START-06); a PRD started from the terminal opens Documents found in the browser and waits for Start (AC-START-10); several PRDs can run at once, one `kiln run` each (AC-MULTI-01).
-
-Still open, and the criteria above hold whichever way they are answered:
+Still open, and the criteria above hold whichever way it is answered:
 
 1. The default permission mode for unattended sessions (proposal open question 3).
 

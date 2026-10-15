@@ -11,7 +11,7 @@ It replaces the loop a person runs by hand today: start a session with `implemen
 ## Principles
 
 1. **The Enso Method stands alone.** Everything Kiln does, a person can do by hand with the same skills in any coding agent. The method has no step that depends on Kiln, and Kiln writes nothing into the repository that the skills don't already write.
-2. **v1 needs no changes to the methodology.** Kiln reads what the skills already produce: the phase doc's `**Closed:**` line, Git state, and the session marker's DONE line. Any later change to a skill is proposed on its own, and only if it also improves manual use. Kiln's launch prompt grants commit, push and refactor-pass authorization explicitly, so Kiln works whether or not the skills commit by default; since October 2026 the implement skills commit, run `refactor-pass` and push a feature branch on their own by default, a change made for manual use first.
+2. **v1 needs no changes to the methodology.** Kiln reads what the skills already produce: the phase doc's `**Closed:**` line and Git state. Any later change to a skill is proposed on its own, and only if it also improves manual use. Kiln's launch prompt grants commit, push and refactor-pass authorization explicitly, so Kiln works whether or not the skills commit by default; since October 2026 the implement skills commit, run `refactor-pass` and push a feature branch on their own by default, a change made for manual use first.
 3. **Kiln doesn't interpret a session.** "Done" means three facts Kiln reads from Git. Anything else hands the phase to you, along with what the session said last. Kiln never guesses a cause or invents a question.
 4. **Assumptions are green lights.** Nothing in Kiln waits on stakeholder feedback. Unconfirmed assumptions are counted on Documents found as information, not as a hold on merging.
 5. **Kiln owns the order and the visibility; the session owns the engineering.** Implementation, review, test hardening, commits and pushes happen inside the session through the skills, the same way they do by hand.
@@ -75,7 +75,6 @@ There's no model-based verdict on how the session ended. The method already writ
 The Needs you screen shows:
 
 - the session's last assistant message, word for word (the method's wrap-up rules put a critical finding or a blocker here);
-- the session marker's DONE line, when the session wrote one (in `.agent-sessions/` in the shared checkout), which names the terminal state, for example `Blocked — vendor API credentials expired`;
 - the exit code, when the session stopped, and the last skill seen;
 - the session's last lines of output, when it ended without a final message;
 - which checks failed, with the fact behind each;
@@ -177,7 +176,7 @@ kiln run <PRD directory or PRD file>   move this feature forward: show Documents
    - it writes the Closed line, commits and pushes;
    - the done check passes.
 3. **The stop path.** Make a phase fail with a missing credential, then:
-   - confirm Needs you shows the last message and the DONE line;
+   - confirm Needs you shows the last message and the failed checks;
    - finish the phase by hand through `claude --resume`;
    - confirm Check again lets Kiln continue.
 4. **A whole small feature.** Three to five phases through to the PR, including one phase that splits itself, one stop finished by hand, and one Ctrl+C partway through a phase that `kiln run` then resumes.
