@@ -29,7 +29,7 @@ These settled decisions from the architecture proposal shape everything below:
 - The **feature name** is the PRD folder's name with hyphens read as spaces and the first letter capitalized: `docs/prds/customer-returns/` is "Customer returns". It names the feature in the terminal, the browser tab and every screen.
 - The **done check** is the three-part test Kiln applies after every phase's session: the phase is closed, everything is committed, and everything is pushed.
 - The **pull-request session** is the session Kiln starts once every leaf is closed, to open the pull request; Kiln handles it as one last phase (AC-PR-05).
-- **Needs you** is the state Kiln stops in, handing the work to the person, when it can't confirm a session did its job: a phase failed the done check, no pull request is open (AC-PR-02), or an interrupted session can't be resumed (AC-KEEP-05).
+- **Needs you** is the state Kiln stops in, handing the work to the person, when it can't confirm a session did its job — a phase failed the done check, no pull request is open (AC-PR-02), or an interrupted session can't be resumed (AC-KEEP-05) — or when the phase plan is broken before the next phase starts (AC-STOP-07).
 - A session is **interrupted** when it is cut off rather than ending on its own: Kiln stops while the session is working (Ctrl+C, a closed terminal, a restart), or the computer sleeps while it is working and the session doesn't survive. Kiln knows this from its own record, never from reading the session. A session that **ended on its own**, finished or crashed, is judged by the done check alone.
 
 ## Acceptance Criteria
@@ -76,7 +76,7 @@ A phase counts as done only when Git and the phase document say so. How the sess
 
   Otherwise the phase is Needs you.
 - [ ] **AC-DONE-02 — Exit codes and messages don't decide.** A session that exits cleanly saying it finished, but fails a check, is Needs you. A session that crashed, but whose work passes all three checks, is Done.
-- [ ] **AC-DONE-03 — The same check runs everywhere.** It is the same check after every phase's session, when the person presses Check again, when `kiln run` is run on a stopped feature, and before an interrupted session is resumed.
+- [ ] **AC-DONE-03 — The same check runs everywhere.** It is the same check after every phase's session, when the person presses Check again, when `kiln run` is run on a stopped feature, and before an interrupted session is resumed. (A broken-plan stop is checked as AC-STOP-07 says.)
 - [ ] **AC-DONE-04 — No model judges how a session ended.** Kiln makes no model call to decide or explain how a session ended.
 
 ### Hand a Stopped Phase Back With What the Session Said
@@ -93,7 +93,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
 - [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words, quoted, never summarized.
 - [ ] **AC-STOP-05 — The person can reopen the exact session.** Kiln shows a copyable command that changes to the PRD's worktree and runs `claude --resume <session ID>`. It opens that session in a terminal with its full history.
 - [ ] **AC-STOP-06 — A fresh-session prompt is there when the session can't be opened.** The Needs you screen also offers a copyable prompt for a fresh session that points at the phase document, for when the session can't be reopened, for example because its transcript is gone.
-- [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check. When it passes, the phase shows as Done, finished by the person, and the next phase starts, unless a pause is waiting (AC-VIEW-03). When it fails, the phase stays Needs you with the updated check results.
+- [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check. When it passes, the phase shows as Done, finished by the person, and the next phase starts, unless a pause is waiting (AC-VIEW-03). When it fails, the phase stays Needs you with the updated check results. At a broken-plan stop, Check again and `kiln run` read the phase plan again in place of the done check: once the plan reads correctly, the phase starts, unless a pause is waiting, and nothing is marked Done; until then, the stop stays, showing the problem found.
 - [ ] **AC-STOP-08 — Nothing starts while the person may be in the stopped session.** After a stop, Kiln starts no session for that PRD until the person presses Check again or runs `kiln run`.
 
 ### Leave the Git Work to the Sessions
@@ -222,13 +222,13 @@ Anything this PRD doesn't describe. Ideas for later versions are kept in [Kiln i
 
 ## Depends On
 
-The criteria rely on Claude Code features that were checked on September 30, 2026 against Claude Code 2.1.286's help text and documentation: starting an unattended session with an ID chosen in advance, streaming its output live, refusing prompts with no one there, reopening an unattended session with `claude --resume`, and continuing an interrupted one headlessly with `claude -p --resume`. The effort levels were checked against Claude Code 2.1.292 on October 11, 2026. The account comes from `claude auth status --json`. "The latest Opus" is the `--model opus` alias in Claude Code 2.1.299's help text, but no `claude` command lists the models the signed-in account is offered (AC-START-06); the Agent SDK's `supportedModels()` is the likely route, untried. Usage limits come from running `/usage` headlessly, which was run for real on October 14, 2026 (Claude Code 2.1.299): it is answered locally, with no model call and no usage spent, but the Agent SDK documents its structured `usage_report` as experimental, so its shape may change. The rest hasn't been tried for real yet; the architecture proposal's proof gates 1 to 3 try it. If one doesn't work as documented, the criteria that depend on it come back as product decisions, not silent workarounds.
+The criteria rely on Claude Code features that were checked on September 30, 2026 against Claude Code 2.1.286's help text and documentation: starting an unattended session with an ID chosen in advance, streaming its output live, refusing prompts with no one there, reopening an unattended session with `claude --resume`, and continuing an interrupted one headlessly with `claude -p --resume`. The effort levels were checked against Claude Code 2.1.292 on October 11, 2026. The account comes from `claude auth status --json`. "The latest Opus" is the `--model opus` alias in Claude Code 2.1.299's help text, but no `claude` command lists the models the signed-in account is offered (AC-START-06); the technical design's route to that list is untried until proof gate 1. Usage limits come from running `/usage` headlessly, which was run for real on October 14, 2026 (Claude Code 2.1.299): it is answered locally, with no model call and no usage spent, but the Agent SDK documents its structured `usage_report` as experimental, so its shape may change. The rest hasn't been tried for real yet; the architecture proposal's proof gates 1 to 3 try it. If one doesn't work as documented, the criteria that depend on it come back as product decisions, not silent workarounds.
 
 The mockups also assume the repository is hosted on GitHub, where the pull request opens ("Open on GitHub" on the Complete screen). v1 supports GitHub-hosted repositories only.
 
 ## Questions This PRD Leaves Open
 
-None. The default permission mode for unattended sessions (proposal open question 3) was settled on October 15, 2026 as `auto` with permission prompts off; the [technical design](technical-design.md) records it and settles the proposal's "Left to the technical design" list.
+None. The [technical design](technical-design.md) settles the architecture proposal's remaining open questions, including the permission mode unattended sessions run in, and its "Left to the technical design" list.
 
 ## Pending human actions
 

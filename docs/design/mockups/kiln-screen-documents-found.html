@@ -96,7 +96,8 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="worktree" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Worktree</label>
 <input id="worktree" type="text" value="~/devel/acme-shop-kiln/customer-returns" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
-<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Folder exists and isn't empty: "That folder already exists and isn’t empty. Choose a new one." -->
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Folder exists and isn't empty: "That folder already exists and isn’t empty. Choose a new one." Not a full path: "Enter a full path, starting with / or ~." Inside a checkout of this repository: "That folder is inside a checkout of this repository. Choose one outside it." -->
+<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a worktree path." -->
 <span style="font-size: 12.5px; color: #8c8577">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
 </div>
 
@@ -105,11 +106,14 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <label for="branch" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Feature branch</label>
 <input id="branch" type="text" value="feature/customer-returns" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
 <!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Branch exists locally or on origin (UI-003): "That branch already exists. Choose a name no branch has; a new name starts this PRD over from develop." (the base branch's name in place of develop) -->
+<!-- Field messages, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a branch name." Not a valid branch name: "That isn’t a valid branch name." -->
 </div>
 <div style="display: flex; flex-direction: column; gap: 6px">
 <label for="base" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Branch from, and PR into</label>
 <select id="base" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%"><option value="develop">develop</option><option value="main">main</option></select>
 <!-- Field messages, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Not on origin: "develop isn’t on origin." PRD documents differ from this checkout's: "develop on origin has different PRD documents from this checkout. Push them to develop first; every session starts from there." (the chosen branch's name in place of develop) -->
+<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field empty (origin names no default branch and has no develop): "Choose a base branch." -->
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. When the base check can't reach origin (offline, credentials, a timeout): "Couldn’t reach origin: <git's message>" (git's error text in place of <git's message>), the done check's wording. -->
 </div>
 </div>
 
@@ -122,6 +126,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <label for="model" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Model</label>
 <select id="model" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-size: 14px; box-sizing: border-box; width: 100%"><option value="opus">Opus 5.5</option><option value="fable">Fable 5.1</option><option value="sonnet">Sonnet 5.5</option></select>
 <!-- Field message, not drawn in this state, and only built if proof gate 1 shows supportsAutoMode reflects the account (technical design, Account and Usage). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. "Opus 5.5 can’t run unattended on this account; it needs auto mode." (the chosen model's name) -->
+<!-- Field message, not drawn in this state (UI-011). When Claude Code's model list can't be read (an error or a timeout), the select holds only the saved model, named by its alias as is (opus), and one amber line (#e6b450, 12.5px, the help-text style) sits under the field: "Couldn’t load Claude Code’s models: <the error>" (the error text in place of <the error>). Start isn't held by it, since a session can still run on the saved model. -->
 </div>
 </div>
 
@@ -140,7 +145,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <label for="awake" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer">
 <input id="awake" type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
 <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; color: #ede8dd">Keep this computer awake while a session works</span><span style="font-size: 12.5px; color: #8c8577">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span>
-<!-- Setting message, not drawn in this state: when keep-awake can't work (Linux without systemd-inhibit), one amber line (#e6b450, 12.5px) under the help text, here and wherever keep-awake is shown: "Can’t keep this computer awake: systemd-inhibit isn’t available." Start isn't held by it. -->
+<!-- Setting message, not drawn in this state: when keep-awake can't work (Linux, the session's tool missing: gnome-session-inhibit in a GNOME session, systemd-inhibit elsewhere), one amber line (#e6b450, 12.5px) under the help text, here and wherever keep-awake is shown: "Can’t keep this computer awake: systemd-inhibit isn’t available." (naming the missing tool) Start isn't held by it. -->
 </label>
 
 <dl style="margin: 0; padding-top: 16px; border-top: 1px solid rgba(237, 232, 221, 0.12); display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; font-size: 13.5px">
@@ -173,6 +178,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
 <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: #8c8577; border: 1px solid rgba(237, 232, 221, 0.18); width: 100%; cursor: not-allowed">Start</button>
 <span style="font-size: 12.5px; color: #8c8577; line-height: 1.55">Confirm refinement to start.</span>
+<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here with the fields editable and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up the worktree: <git's message>" (git's error text in place of <git's message>); the terminal prints the same line. -->
 </div>
 </section>
 

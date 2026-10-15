@@ -174,6 +174,7 @@ kiln run <PRD directory or PRD file>   move this feature forward: show Documents
    - confirm the Agent SDK's `supportedModels()` spends no usage and works against the person's own `claude`, without the SDK's bundled copy;
    - confirm `claude -p --resume` of a session whose transcript is gone exits without an `init` event;
    - find out what a streaming `claude -p` does when the computer sleeps and wakes;
+   - for a sleep mid-response and a sleep mid-Bash: find out what the stream emits after wake (API retry system events; a `<synthetic>` assistant message when retries run out), how the process exits, and whether a session that reconnects emits a real assistant event before any later exit;
    - confirm SIGINT sent to the session's whole process group ends the turn and leaves the session resumable;
    - find out whether, with `--forward-subagent-text`, a subagent's tool calls reach the stream as well as its text;
    - find out whether a model's `supportsAutoMode` reflects what the signed-in account may use.
