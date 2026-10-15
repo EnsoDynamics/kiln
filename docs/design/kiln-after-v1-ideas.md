@@ -1,6 +1,6 @@
 # Kiln ideas after v1
 
-**Not part of v1.** Nothing here is designed in detail or scheduled. These ideas came up while designing v1 and were deliberately left out. Each needs its own research before it becomes a design. v1 itself is described in the [Kiln architecture proposal](kiln-architecture-proposal.md).
+**Not part of v1.** Nothing here is designed in detail or scheduled. These ideas came up while designing v1 and were deliberately left out. Each needs its own research before it becomes a design. v1 itself is described in the [Kiln v1 PRD](../prds/kiln-v1/kiln-v1-prd.md) and the [Kiln architecture proposal](kiln-architecture-proposal.md).
 
 ## Run independent phases in parallel
 
@@ -24,7 +24,22 @@
 
 ## Computer-use preflight and Codex desktop handoff
 
-Before a run starts, a separate model pass would classify which phases need a native desktop app. Those phases would be handed to Codex desktop with a prepared prompt, and Kiln would continue once the same done check passes. Its screens were drafted and then removed from the v1 mockups; the classifier prompt is in [Kiln computer-use preflight prompt](kiln-computer-use-preflight-prompt.md). In v1, such a phase simply stops and comes to you like any other stop.
+Before the first phase starts, a separate model pass would classify which phases need a native desktop app. Those phases would be handed to Codex desktop with a prepared prompt, and Kiln would continue once the same done check passes. In v1, such a phase simply stops and comes to you like any other stop. A first draft of the classifier prompt, kept for whoever designs this:
+
+```text
+Classify native desktop computer-use needs for an already-written PRD and its executable leaf phases. Do not implement, edit files, create phases, or reorder the plan.
+
+Read the PRD {PRD_PATH}, design {DESIGN_PATH}, ordered plan {PLAN_PATH}, and every leaf phase file {PHASE_PATHS}. For each phase, inspect setup, main implementation, acceptance criteria, deliverable review, test hardening, and final verification.
+
+Choose exactly one route for every leaf:
+- claude_unattended: no known required action needs native desktop computer use;
+- codex_desktop_handoff: a required action needs seeing and operating a macOS or Windows app or OS UI;
+- unresolved_capability: read-only investigation cannot resolve a material capability question.
+
+Browser-only automation does not satisfy native desktop use. UI source code alone does not require desktop use. Do not route to desktop merely because work is difficult. Cite each decisive phase document and acceptance criterion or required step. Explain the specific UI action, or why code, tests, and APIs suffice. Do not infer that a Codex CLI feature flag supplies supported unattended desktop control. For an ambiguity, return the exact unresolved question rather than guessing Claude is safe.
+
+Return only JSON matching the supplied schema, with exactly one item per leaf in source-plan order. Keep phase IDs and titles verbatim and echo Kiln's source-document digest. No prose outside JSON.
+```
 
 ## Codex as an unattended agent
 
@@ -36,7 +51,7 @@ In this mode, Kiln wouldn't authorize commits. `implement-from-requirements` alr
 
 ## Merge the final PR
 
-Today the run ends at "PR ready for review". With authority to merge, the run would carry through CI and the merge, and Kiln would confirm the merged state.
+Today Kiln stops at "PR ready for review". With authority to merge, Kiln would carry through CI and the merge, and Kiln would confirm the merged state.
 
 ## Desktop app
 
@@ -48,8 +63,24 @@ When a phase ends without being done, Kiln could ask the stopped session itself,
 
 ## A background service
 
-In v1, `kiln run` runs in the foreground of its terminal, and closing the terminal interrupts the run until `kiln run` picks it back up. A background service (launchd, systemd or a Windows service) would keep runs going with no terminal open. Worth building only if real use shows that interruptions from closed terminals cost more than the cheap resume makes them.
+In v1, `kiln run` runs in the foreground of its terminal, and closing the terminal interrupts Kiln until `kiln run` picks it back up. A background service (launchd, systemd or a Windows service) would keep Kiln going with no terminal open. Worth building only if real use shows that interruptions from closed terminals cost more than the cheap resume makes them.
 
 ## Windows
 
 v1 runs on macOS and Linux. Windows needs its own process-group cleanup on Ctrl+C and its own way to prevent idle sleep.
+
+## Notifications
+
+System notifications when a phase needs you and when the PR is ready, so you hear about a stop without watching the browser tab. v1 shows everything in the browser view only.
+
+## A home screen
+
+A screen that lists a repository's PRDs, or accepts a dropped PRD folder, as a way in besides `kiln run <PRD folder>`. A browser page can't learn the path of a dropped folder, so dropping needs a desktop app.
+
+## More terminal commands
+
+`kiln status`, `kiln logs`, `kiln open` and `kiln pause`. In v1 the browser view does all of these, and `kiln run` is the only command.
+
+## An end-of-PRD summary
+
+A panel on the Complete screen with how often Kiln needed you, how many sessions ran, and the assumptions still awaiting stakeholder feedback.

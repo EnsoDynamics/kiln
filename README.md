@@ -13,6 +13,5 @@ Status: design stage. There is no runner code yet.
 ## Design documents
 
 - [Architecture proposal](docs/design/kiln-architecture-proposal.md): principles, v1 scope, the done check, the stop path, and open questions.
-- [Interface scenarios](docs/design/kiln-interface-scenarios.md): the screens, and which ones are in v1.
-- [Kiln ideas after v1](docs/design/kiln-after-v1-ideas.md): not part of v1. Parallel phases, the Codex desktop handoff, and other ideas deliberately left out.
-- [Computer-use preflight prompt](docs/design/kiln-computer-use-preflight-prompt.md): after v1. The check that finds phases needing native desktop control before a run starts.
+- [Interface scenarios](docs/design/kiln-interface-scenarios.md) and the [mockups](docs/design/mockups/): the v1 screens, which are the design of record.
+- [Kiln ideas after v1](docs/design/kiln-after-v1-ideas.md): not part of v1; ideas deliberately left out.

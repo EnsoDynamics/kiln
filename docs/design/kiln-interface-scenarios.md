@@ -1,35 +1,35 @@
 # Kiln interface scenarios
 
-These are the screens for Kiln v1, revised October 11, 2026. They show only what v1 builds. They use a fictional customer-returns feature with phases 1, 2a, 2b, 3 and 4, and follow the [Kiln architecture proposal](kiln-architecture-proposal.md).
+These are the screens for Kiln v1, revised October 14, 2026. They show only what v1 builds, and they implement the [Kiln v1 PRD](../prds/kiln-v1/kiln-v1-prd.md). They use a fictional customer-returns feature with phases 1, 2a, 2b, 3 and 4.
 
-**The mockups in `mockups/` are the design of record.** Every screen has two files:
+**The mockups in `mockups/` are the design of record.** Edit the HTML there directly; it is the only source. Every screen has two files:
 
 - the HTML is the source to build from: layout, copy, colors and type;
 - the PNG is the same screen rendered at its design size, for a quick look.
 
-Open the HTML in a browser to click between screens.
+Open any HTML file in a browser to see it at full size. A few screens link to each other (Watch live, All phases, Full session output).
 
-The screens were drafted on a private Claude design canvas, <https://claude.ai/artifact/Jjj5EpYDtT5YUU1PhLdNZm>. When the canvas and the repository disagree, the repository wins.
-
-| Screen | What it shows | In v1 | Mockup |
-|---|---|---|---|
-| Terminal: `kiln run` | The only command: a missing-document error, a good start that opens the browser, one line per phase, and Ctrl+C then `kiln run` resuming | Yes | [HTML](mockups/kiln-screen-terminal-kickoff.html) · [PNG](mockups/kiln-screen-terminal-kickoff.png) |
-| Documents found | What Kiln found beside the PRD, the run settings (model, effort, keep-awake and more), what the run is allowed to do, and Start | Yes | [HTML](mockups/kiln-screen-documents-found.html) · [PNG](mockups/kiln-screen-documents-found.png) |
-| Running | The phase list, with the current phase's progress from its tool calls | Yes | [HTML](mockups/kiln-screen-running.html) · [PNG](mockups/kiln-screen-running.png) |
-| Phase detail, live | Live session output, progress, session ID and commits | Yes | [HTML](mockups/kiln-screen-phase-detail-live.html) · [PNG](mockups/kiln-screen-phase-detail-live.png) |
-| Needs you: session ended with a message | The last message word for word, the resume command, and the done check | Yes | [HTML](mockups/kiln-screen-needs-you-ended-with-message.html) · [PNG](mockups/kiln-screen-needs-you-ended-with-message.png) |
-| Needs you: session crashed | The same, with the exit code and the last output lines | Yes | [HTML](mockups/kiln-screen-needs-you-crashed.html) · [PNG](mockups/kiln-screen-needs-you-crashed.png) |
-| Notifications | Needs you, and PR ready | Yes | [HTML](mockups/kiln-screen-notifications.html) · [PNG](mockups/kiln-screen-notifications.png) |
-| Complete | The PR, and assumptions still awaiting stakeholder feedback | Yes | [HTML](mockups/kiln-screen-complete.html) · [PNG](mockups/kiln-screen-complete.png) |
+| Screen | What it shows | Mockup |
+|---|---|---|
+| Terminal: `kiln run` | The only command: a missing-document error, a good start that opens the browser, one line per phase event, and Ctrl+C then `kiln run` resuming the interrupted session | [HTML](mockups/kiln-screen-terminal-kickoff.html) · [PNG](mockups/kiln-screen-terminal-kickoff.png) |
+| Documents found | What Kiln found beside the PRD, the settings (worktree, branches, model, effort, keep-awake), what Kiln may do, the refinement confirmation, and Start | [HTML](mockups/kiln-screen-documents-found.html) · [PNG](mockups/kiln-screen-documents-found.png) |
+| Running | The current phase at the top with its progress, the phase plan with each phase's Details, the settings, Pause Kiln, and the connection to Kiln | [HTML](mockups/kiln-screen-running.html) · [PNG](mockups/kiln-screen-running.png) |
+| Paused | Kiln paused between phases, the next phase, and Start to continue | [HTML](mockups/kiln-screen-paused.html) · [PNG](mockups/kiln-screen-paused.png) |
+| Disconnected | Kiln has stopped: what the view last saw, and the `kiln run` command that picks it back up | [HTML](mockups/kiln-screen-disconnected.html) · [PNG](mockups/kiln-screen-disconnected.png) |
+| Phase detail, live | Live session output, progress, session ID, model and effort, and commits | [HTML](mockups/kiln-screen-phase-detail-live.html) · [PNG](mockups/kiln-screen-phase-detail-live.png) |
+| Needs you: session ended with a message | The last message word for word, exit code, last skill seen, the resume command, and the done check | [HTML](mockups/kiln-screen-needs-you-ended-with-message.html) · [PNG](mockups/kiln-screen-needs-you-ended-with-message.png) |
+| Needs you: session crashed | The same, with the last output lines in place of a final message | [HTML](mockups/kiln-screen-needs-you-crashed.html) · [PNG](mockups/kiln-screen-needs-you-crashed.png) |
+| Complete | The progress screen, finished: the pull request and every phase done | [HTML](mockups/kiln-screen-complete.html) · [PNG](mockups/kiln-screen-complete.png) |
 
 ## Rules the screens follow
 
-- `kiln run <PRD folder>` is the only command and the only way in. After it opens the browser, everything is controlled there; the terminal just hosts the run.
+- `kiln run <PRD folder or PRD file>` is the only command and the only way in. After it opens the browser, everything is controlled there; the terminal just hosts Kiln.
+- The top bar has the Kiln mark on the left and, on the right, the connection to Kiln and the Enso Method mark. Above the feature name, every screen labels the Repository and the PRD folder.
 - The feature name is the largest text on every screen.
-- Phase titles come from the phase docs word for word, and the phase number stays in its circle in every state.
+- "Run" is never a noun on screen. One phase's Claude Code work is a session; Kiln's whole job is the PRD.
+- Phase titles come from the phase docs word for word, all phases are listed at the same level, and the phase number stays in its circle in every state.
 - A phase is Done only when the done check passes (closed, committed and pushed). It shows green with a check, and its row shows the pushed commit.
-- Progress steps come from the session's tool calls. Nothing on screen claims evidence for acceptance criteria.
+- Progress steps come from the session's tool calls: Build, Deliverable review, Test hardening, Commit, Refactor pass, Push. Nothing on screen claims evidence for acceptance criteria.
 - When a phase stops, the screen shows what the session said and how to resume it, never a guessed cause or a question Kiln made up.
-- Unconfirmed assumptions appear at the end as information, never as a hold.
-- The look is the Enso Method website's dark theme: Instrument Serif headings, Inter body text and JetBrains Mono for code. The single red accent marks the phase in progress, amber means it needs you, and green means done.
-
+- Unconfirmed assumptions are counted on Documents found as information, never as a hold.
+- The look is the Enso Method website's dark theme: Instrument Serif headings, Inter body text and JetBrains Mono for code. The single red accent marks the phase in progress, amber means it needs you or Kiln is disconnected, and green means done.
