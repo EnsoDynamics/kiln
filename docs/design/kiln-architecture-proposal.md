@@ -126,6 +126,8 @@ The table below was checked on September 30, 2026 against Claude Code 2.1.286 (`
 | Hand back to you | `claude --resume <session-id>` opens a `-p` session interactively with its full history. `-p` sessions are left out of the `/resume` picker and `--continue`, so Kiln has to show the ID |
 | Stop now | SIGINT ends the turn and leaves the session resumable. SIGTERM exits with code 143 and leaves the turn unfinished |
 | Outcome | The final `result` event carries the exit status and session ID |
+| Account | `claude auth status --json` prints the signed-in email, organization and plan, without a session |
+| Usage limits | `claude -p "/usage" --output-format stream-json --verbose --no-session-persistence` is answered locally, without a model call: zero tokens, zero cost, about 6 seconds (checked October 14, 2026, Claude Code 2.1.299). Its assistant message carries `usage_report.rate_limits.limits[]`: `kind` (`session`, `weekly_all`, `weekly_scoped`), `percent`, `resets_at`, `severity`, and `scope.model.display_name` for per-model rows such as Fable. The SDK documents this report as experimental. Kiln polls it every 5 minutes and before each phase. Each session's own `rate_limit_event` arrives only at session start and on status changes, so it isn't enough on its own |
 
 Kiln must not start the next session while you have the stopped one open, because two processes resuming the same transcript interleave their messages. A stopped PRD doesn't start anything until you press Check again or run `kiln run`, so this is covered.
 
@@ -169,6 +171,7 @@ kiln run <PRD directory or PRD file>   move this feature forward: show Documents
    - reopen it with `claude --resume <id>` in a terminal;
    - continue it headlessly with `claude -p --resume <id>`, the way `kiln run` resumes an interrupted session;
    - confirm skills load and their calls appear in the stream.
+   - confirm headless `/usage` still returns `usage_report` with no model call, and that polling it while a session works doesn't disturb that session.
 2. **One real phase.** Run a small real phase end to end with the launch prompt, and confirm:
    - the session stays on Kiln's worktree and branch, even when instructions say otherwise (a global "work on develop" rule, or the method's rule for parallel sessions);
    - it writes the Closed line, commits and pushes;

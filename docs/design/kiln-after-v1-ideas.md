@@ -84,3 +84,7 @@ A screen that lists a repository's PRDs, or accepts a dropped PRD folder, as a w
 ## An end-of-PRD summary
 
 A panel on the Complete screen with how often Kiln needed you, how many sessions ran, and the assumptions still awaiting stakeholder feedback.
+
+## Codex usage limits
+
+When Codex becomes an agent option, its app-server's `account/rateLimits/read` gives the same 5-hour and weekly percentages and reset times, so the Claude account card can become an agent account card.
