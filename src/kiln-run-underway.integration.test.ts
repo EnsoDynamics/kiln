@@ -9,6 +9,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { runKilnCommand } from "./kiln-command.js";
+import { endProcessTree } from "./platform/helper-process.js";
 import { isProcessLive } from "./platform/process-start-time.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "./test-support/engine-harness.js";
 import { git } from "./test-support/git-repositories.js";
@@ -133,7 +134,9 @@ describe("kiln run on a feature underway", () => {
     } finally {
       writeFileSync(release, "");
       // The holder stays in the foreground at Needs you; it is stopped as a person would.
-      holder.kill(process.platform === "win32" ? undefined : "SIGINT");
+      // On Windows a kill ends only Kiln's own process, so its children are ended with it.
+      if (process.platform === "win32") endProcessTree(holder.pid, "SIGTERM");
+      else holder.kill("SIGINT");
       await exited;
     }
   });

@@ -117,7 +117,13 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
       spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
         child = spawnDetached(spawnOptions.command, spawnOptions.args, { cwd: spawnOptions.cwd ?? options.cwd, env: spawnOptions.env as NodeJS.ProcessEnv, stdin: "pipe" });
         child.stderr!.setEncoding("utf8").on("data", (text: string) => (stderr += text));
-        spawnOptions.signal.addEventListener("abort", () => endProcessTree(child?.pid, "SIGTERM"), { once: true });
+        // When the SDK ends the child it ends the whole tree, so a .cmd shim's claude goes with it on Windows.
+        const spawned = child;
+        spawned.kill = (signal?: NodeJS.Signals | number) => {
+          endProcessTree(spawned.pid, typeof signal === "string" ? signal : "SIGTERM");
+          return true;
+        };
+        spawnOptions.signal.addEventListener("abort", () => endProcessTree(spawned.pid, "SIGTERM"), { once: true });
         return child as ChildProcess & { stdin: NonNullable<ChildProcess["stdin"]>; stdout: NonNullable<ChildProcess["stdout"]> };
       },
     },

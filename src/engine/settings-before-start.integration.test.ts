@@ -89,6 +89,7 @@ describe("the model and effort before Start", () => {
     expect(engine.record.startedAt).toBeUndefined();
     await engine.changeSettings({ model: "opus" });
     expect(await engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await engine.settled();
   });
 
   it("keeps the saved model with no message, and every level open, when the list doesn't offer it", async () => {

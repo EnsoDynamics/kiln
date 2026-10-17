@@ -1,7 +1,7 @@
 // Real temporary Git repositories for integration tests, isolated from the person's own Git
 // configuration, with a local bare repository available as `origin`.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,17 @@ export function createSandbox(): Sandbox {
   // On Windows a folder can't be removed while a process that just ended still holds it; taskkill
   // returns before the tree it ends is gone, so cleanup waits up to 10 seconds there.
   const retries = process.platform === "win32" ? 50 : 10;
-  return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: retries, retryDelay: 200 }) };
+  const cleanup = () => {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: retries, retryDelay: 200 });
+    } catch (error) {
+      // Name what still holds the folder, so a failure says which process outlived its test.
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EBUSY") throw error;
+      const processes = spawnSync("powershell", ["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*kiln-test-*' } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)\" }"], { encoding: "utf8" });
+      throw new Error(`${(error as Error).message}\nProcesses still naming a test sandbox:\n${processes.stdout}`);
+    }
+  };
+  return { root, env, cleanup };
 }
 
 export function git(sandbox: Sandbox, cwd: string, ...args: string[]): string {
