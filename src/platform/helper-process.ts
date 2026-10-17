@@ -18,7 +18,21 @@ export interface HelperOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  /**
+   * Aborted when Kiln is stopping: a running call is ended (SIGINT to its group; its tree on
+   * Windows) and a new one fails at once, so a stop never waits on git or gh.
+   */
+  signal?: AbortSignal;
 }
+
+/**
+ * How long, on Windows, a child's abnormal end waits before it is handled: a Ctrl+C reaches
+ * every process in Kiln's console at once, and Kiln's own handler must run first.
+ */
+export const WINDOWS_CTRL_C_GRACE_MS = 1000;
+
+/** The failure of a helper call made, or still running, once Kiln began to stop. */
+export const STOPPING_FAILURE = "Kiln is stopping";
 
 /**
  * Finds an executable on the PATH the way a shell would, without running it. On Windows it
@@ -65,29 +79,43 @@ export function runHelper(executable: string, args: string[], options: HelperOpt
   const timeoutMs = options.timeoutMs ?? HELPER_TIMEOUT_MS;
   const env = { ...(options.env ?? process.env), GIT_TERMINAL_PROMPT: "0" };
 
+  if (options.signal?.aborted) return Promise.resolve({ exitCode: null, stdout: "", stderr: "", failure: STOPPING_FAILURE });
+
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    const onAbort = () => {
+      endProcessTree(child.pid, "SIGINT");
+      finish({ exitCode: null, stdout, stderr, failure: STOPPING_FAILURE });
+    };
     const finish = (result: HelperResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
 
     const child = spawnDetached(executable, args, { cwd: options.cwd, env, stdin: "ignore" });
     const timer = setTimeout(() => {
-      endProcessGroup(child.pid);
+      endProcessTree(child.pid, "SIGTERM");
       finish({ exitCode: null, stdout, stderr, failure: `timed out after ${timeoutMs / 1000} seconds` });
     }, timeoutMs);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
     child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
     child.on("error", (error) => finish({ exitCode: null, stdout, stderr, failure: error.message }));
-    child.on("close", (code, signal) =>
-      finish(code === null ? { exitCode: null, stdout, stderr, failure: `ended by ${signal}` } : { exitCode: code, stdout, stderr }),
-    );
+    child.on("close", (code, signal) => {
+      const result = code === null ? { exitCode: null, stdout, stderr, failure: `ended by ${signal}` } : { exitCode: code, stdout, stderr };
+      // On Windows a Ctrl+C reaches the call as well as Kiln, and the call can end before Kiln's
+      // signal handler runs; an abnormal end waits a moment, so the stop is seen first and the
+      // call's result reads as the stop's, never as git's or gh's answer.
+      const abnormal = code === null || code < 0 || code >= 128;
+      if (process.platform === "win32" && options.signal && abnormal) setTimeout(() => finish(result), WINDOWS_CTRL_C_GRACE_MS);
+      else finish(result);
+    });
   });
 }
 
@@ -111,12 +139,19 @@ export function spawnDetached(executable: string, args: string[], options: { cwd
   });
 }
 
-function endProcessGroup(pid: number | undefined): void {
+/**
+ * Ends a child Kiln spawned together with everything it started: a signal to its process
+ * group on macOS and Linux, where every child leads its own group; `taskkill /T /F` on
+ * Windows, where Node can only end a process outright and only taskkill reaches the whole tree,
+ * so a .cmd shim's real process goes too.
+ *
+ *   endProcessTree(child.pid, "SIGTERM")
+ */
+export function endProcessTree(pid: number | undefined, signal: NodeJS.Signals): void {
   if (pid === undefined) return;
   try {
-    // On Windows only taskkill ends the whole tree, so a .cmd shim's real process goes too.
-    if (process.platform === "win32") spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" });
-    else process.kill(-pid, "SIGTERM");
+    if (process.platform === "win32") spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" }).on("error", () => {});
+    else process.kill(-pid, signal);
   } catch {
     // Already gone.
   }

@@ -3,12 +3,13 @@
 // (AC-CLI-01; technical design, "Where a Feature Stands").
 
 import { basename, dirname, resolve } from "node:path";
-import { Engine, type TerminalEvent } from "./engine/engine.js";
-import { findExecutable } from "./platform/helper-process.js";
+import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
+import { findExecutable, WINDOWS_CTRL_C_GRACE_MS } from "./platform/helper-process.js";
+import { KeepAwake } from "./platform/keep-awake.js";
 import { featureNameFor, resolvePrdPath, type PrdLocation } from "./prd-location.js";
 import { runStartChecks, startChecksPassed } from "./start-checks.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
-import { NewerSchemaError, readPrdRecord, type PrdRecord } from "./state/records.js";
+import { NewerSchemaError, readPrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
 import { formatDocumentsFound, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
 import { formatDecisionLine, formatSummaryLine } from "./underway-output.js";
@@ -19,12 +20,72 @@ export interface CommandContext {
   env: NodeJS.ProcessEnv;
   stdout: { write(text: string): unknown; isTTY?: boolean };
   stderr: { write(text: string): unknown; isTTY?: boolean };
+  /** Where SIGINT, SIGHUP and SIGTERM arrive: the process itself, or a stand-in in tests. */
+  signals?: { on(event: NodeJS.Signals, listener: () => void): unknown; off(event: NodeJS.Signals, listener: () => void): unknown };
 }
 
 /** Exit code for a command line Kiln can't act on: no path, an unknown command, a path that isn't one PRD. */
 export const EXIT_USAGE = 2;
 /** Exit code when a start check fails, the PRD is already running, or Kiln can't go on. */
 export const EXIT_START_CHECKS_FAILED = 1;
+
+/** Exit codes after a stop, 128 plus the signal's number, as a shell reports them. */
+export const EXIT_SIGNALLED: Record<InterruptCause & ("sigint" | "sighup" | "sigterm"), number> = { sigint: 130, sighup: 129, sigterm: 143 };
+
+const STOP_SIGNALS = ["SIGINT", "SIGHUP", "SIGTERM"] as const;
+
+/**
+ * Ctrl+C, a closed terminal and SIGTERM, handled the same way (AC-KEEP-02; technical design,
+ * "Stopping a session"): the engine runs the stop sequence, and once it is done the command
+ * returns, releasing the instance lock, then prints one line. A second Ctrl+C skips the rest of
+ * the stop's wait. A closed terminal has nowhere to print.
+ */
+class StopControl {
+  engine: Engine | undefined;
+  /** What a stop prints when no engine is running yet. */
+  fallback: StopReport = { text: "Kiln stopped.", grey: "Nothing was started." };
+  cause: (typeof STOP_SIGNALS)[number] | undefined;
+  private report: StopReport | undefined;
+  private resolveDone!: (code: number) => void;
+  /** Resolves with the exit code once a stop has finished. */
+  readonly done = new Promise<number>((resolve) => (this.resolveDone = resolve));
+  private readonly listeners = new Map<NodeJS.Signals, () => void>();
+
+  constructor(private readonly context: CommandContext) {
+    for (const signal of STOP_SIGNALS) {
+      const listener = () => this.onSignal(signal);
+      this.listeners.set(signal, listener);
+      context.signals?.on(signal, listener);
+    }
+  }
+
+  get stopping(): boolean {
+    return this.cause !== undefined;
+  }
+
+  private onSignal(signal: (typeof STOP_SIGNALS)[number]): void {
+    const cause = signal.toLowerCase() as "sigint" | "sighup" | "sigterm";
+    if (this.cause !== undefined) {
+      // A second Ctrl+C skips the rest of the wait.
+      void this.engine?.stop(cause);
+      return;
+    }
+    this.cause = signal;
+    const stopped = this.engine ? this.engine.stop(cause) : Promise.resolve(this.fallback);
+    void stopped.then((report) => {
+      this.report = report;
+      this.resolveDone(EXIT_SIGNALLED[cause]);
+    });
+  }
+
+  /** Removes the handlers, then prints the stop's line, after the instance lock is released. */
+  finish(): void {
+    for (const [signal, listener] of this.listeners) this.context.signals?.off(signal, listener);
+    if (!this.report || this.cause === "SIGHUP") return;
+    const colors = terminalColors(this.context.stdout, this.context.env);
+    this.context.stdout.write(`${this.report.text}${this.report.grey ? ` ${colors.grey(this.report.grey)}` : ""}\n`);
+  }
+}
 
 /**
  * Runs the `kiln` command line and returns its exit code.
@@ -76,6 +137,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return EXIT_START_CHECKS_FAILED;
   }
 
+  const stop = new StopControl(context);
   try {
     let record: PrdRecord | undefined;
     try {
@@ -85,17 +147,22 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
       context.stderr.write(`kiln: ${error.message}\n`);
       return EXIT_START_CHECKS_FAILED;
     }
-    if (record?.startedAt === undefined) return await notStarted(location, tools, context);
-    return await underway(location, tools, record, stateDirectory, context);
+    const work = record?.startedAt === undefined ? notStarted(location, tools, context, stop) : underway(location, tools, record, stateDirectory, context, stop);
+    return await Promise.race([work, stop.done]);
   } finally {
     lock.release();
+    stop.finish();
   }
 }
 
 /** A feature not started: the start checks, then what Kiln found (AC-START-02). */
-async function notStarted(location: PrdLocation, tools: { git: string; gh: string | undefined; claude: string | undefined }, context: CommandContext): Promise<number> {
+async function notStarted(location: PrdLocation, tools: { git: string; gh: string | undefined; claude: string | undefined }, context: CommandContext, stop: StopControl): Promise<number> {
   const errColors = terminalColors(context.stderr, context.env);
   const report = await runStartChecks(location, tools, context.env);
+  // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
+  // runs; a moment's wait lets the stop be seen before a failure is reported.
+  if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
+  if (stop.stopping) return stop.done;
   if (!startChecksPassed(report)) {
     context.stderr.write(`${formatStartFailure(location.featureName, location.prdDirectoryFromRoot, report, errColors)}\n`);
     return EXIT_START_CHECKS_FAILED;
@@ -108,9 +175,20 @@ async function notStarted(location: PrdLocation, tools: { git: string; gh: strin
 }
 
 /** A feature underway: finish any setup, judge what the record says, and carry on (AC-CLI-01). */
-async function underway(location: PrdLocation, tools: { git: string; gh: string | undefined; claude: string | undefined }, record: PrdRecord, stateDirectory: string, context: CommandContext): Promise<number> {
+async function underway(
+  location: PrdLocation,
+  tools: { git: string; gh: string | undefined; claude: string | undefined },
+  record: PrdRecord,
+  stateDirectory: string,
+  context: CommandContext,
+  stop: StopControl,
+): Promise<number> {
   const colors = terminalColors(context.stdout, context.env);
-  const write = (line: string) => context.stdout.write(`${line}\n`);
+  // Nothing more is printed once a stop begins; its own line comes last.
+  const write = (line: string) => {
+    if (!stop.stopping) context.stdout.write(`${line}\n`);
+  };
+  const keepAwake = new KeepAwake({ featureName: location.featureName, env: context.env, onError: (message) => write(`${colors.amber("✗")} ${message}`) });
   const engine = new Engine({
     paths: {
       mainCheckoutPath: location.mainCheckoutPath,
@@ -125,20 +203,27 @@ async function underway(location: PrdLocation, tools: { git: string; gh: string 
     stateDirectory,
     record,
     onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
+    keepAwake,
   });
-
-  if (record.completedAt === undefined) {
-    const prepared = await engine.prepare();
-    if (!prepared.ok) return notStarted(location, tools, context);
+  stop.engine = engine;
+  try {
+    if (record.completedAt === undefined) {
+      const prepared = await engine.prepare();
+      if (stop.stopping) return await stop.done;
+      if (!prepared.ok) return notStarted(location, tools, context, stop);
+    }
+    write(formatSummaryLine(engine, colors));
+    const decision = await engine.decide();
+    if (stop.stopping) return await stop.done;
+    write(formatDecisionLine(decision, engine, colors));
+    await engine.continue();
+    if (stop.stopping) return await stop.done;
+    // Without the browser view nothing can press Start or Check again, so Kiln exits once it waits.
+    if (!engine.record.completedAt) write(colors.grey("  This build of Kiln has no browser view yet, so it exits here; kiln run checks again and carries on."));
+    return 0;
+  } finally {
+    if (!stop.stopping) engine.close();
   }
-  write(formatSummaryLine(engine, colors));
-  const decision = await engine.decide();
-  write(formatDecisionLine(decision, engine, colors));
-  if (decision.kind === "interrupted") return EXIT_START_CHECKS_FAILED;
-  await engine.continue();
-  // Without the browser view nothing can press Start or Check again, so Kiln exits once it waits.
-  if (!engine.record.completedAt) write(colors.grey("  This build of Kiln has no browser view yet, so it exits here; kiln run checks again and carries on."));
-  return 0;
 }
 
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {

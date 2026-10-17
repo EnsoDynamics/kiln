@@ -69,8 +69,11 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
     case "complete":
       text = `Pull request #${engine.record.pullRequest?.number ?? "?"} is ready for review.`;
       break;
-    case "interrupted":
-      text = `${capitalized(phaseName(engine.judgedId(decision.phaseKey)))}’s session ${decision.sessionId.slice(0, 8)} was interrupted, and this build of Kiln can’t resume a session yet. Nothing was started.`;
+    case "resume":
+      text =
+        decision.phaseKey === PR_PHASE_KEY
+          ? `Resuming the pull-request session ${decision.sessionId.slice(0, 8)}.`
+          : `Resuming ${phaseName(engine.judgedId(decision.phaseKey))}’s session ${decision.sessionId.slice(0, 8)}.`;
       break;
     case "setup_failed":
       text = decision.error;

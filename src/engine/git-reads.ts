@@ -6,10 +6,12 @@ import { runHelper, type HelperResult } from "../platform/helper-process.js";
 export interface GitContext {
   git: string;
   env: NodeJS.ProcessEnv;
+  /** Aborted when Kiln stops: every git call still running ends, and its result is ignored. */
+  signal?: AbortSignal;
 }
 
 export function runGit(context: GitContext, cwd: string, args: string[], timeoutMs?: number): Promise<HelperResult> {
-  return runHelper(context.git, args, { cwd, env: context.env, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+  return runHelper(context.git, args, { cwd, env: context.env, ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(context.signal ? { signal: context.signal } : {}) });
 }
 
 /** The command's own error, for a fact shown in place of its result. */

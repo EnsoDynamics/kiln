@@ -2,8 +2,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPhasePlan } from "../plan/phase-plan.js";
-import { launchArguments, modelNameFromId } from "../session/claude-session.js";
-import { freshSessionPrompt, phaseSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { launchArguments, modelNameFromId, resumeArguments } from "../session/claude-session.js";
+import { freshSessionPrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { keepAwakeMissingMessage, keepAwakeTool } from "../platform/keep-awake.js";
 import { formatPhaseLine, formatStartedLine, planColumns, terminalColors, terminalTime } from "../terminal-output.js";
 import { PHASES } from "../test-support/fixture-documents.js";
 import { judgedLeaf, nextLeaf } from "./plan-reading.js";
@@ -33,6 +34,8 @@ describe("the terminal's phase lines", () => {
     expect(formatPhaseLine(at(10, 57), "2a", "Card refunds", { kind: "done", pushedSha: "5d81b37aaaa" }, columns, plain)).toBe("10:57  2a  Card refunds       done · pushed 5d81b37");
     expect(formatPhaseLine(at(13, 4), "PR", "Final pull request", { kind: "opened", number: 218 }, columns, plain)).toBe(" 1:04  PR  Final pull request  opened #218");
     expect(formatPhaseLine(at(0, 5), "2b", "Store credit", { kind: "stopped" }, columns, plain)).toBe("12:05  2b  Store credit       stopped");
+    expect(formatPhaseLine(at(11, 4), "2b", "Store credit", { kind: "resumed" }, columns, plain)).toBe("11:04  2b  Store credit       resumed");
+    expect(formatPhaseLine(at(11, 2), "2b", "Store credit", { kind: "interrupted" }, columns, plain)).toBe("11:02  2b  Store credit       interrupted");
   });
 
   it("colors the event as drawn: started red, done green, stopped amber", () => {
@@ -40,6 +43,9 @@ describe("the terminal's phase lines", () => {
     const line = formatPhaseLine(at(9, 17), "1", "Return intake", { kind: "started" }, planColumns(mockupPlan), colors);
     expect(line).toContain("\x1b[38;2;226;105;79mstarted");
     expect(formatPhaseLine(at(9, 17), "1", "x", { kind: "stopped" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;230;180;80mstopped");
+    // The terminal mockup draws resumed in the accent red; an interrupted phase is amber (AC-LOOK-04).
+    expect(formatPhaseLine(at(11, 4), "2b", "x", { kind: "resumed" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;226;105;79mresumed");
+    expect(formatPhaseLine(at(11, 4), "2b", "x", { kind: "interrupted" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;230;180;80minterrupted");
     expect(terminalTime(at(23, 59))).toBe("11:59");
   });
 });
@@ -72,6 +78,70 @@ describe("the prompts", () => {
     expect(prompt).toContain("pass `--repo github.com/acme/acme-shop` to every `gh` command");
     expect(prompt).toContain("Open it ready for review, not as a draft");
     expect(prompt).toContain("You may not merge it, deploy anything, or touch any other branch.");
+  });
+});
+
+describe("the resumed session's prompt", () => {
+  const phaseDoc = "docs/prds/customer-returns/phase-2b-store-credit.md";
+
+  it("names when and why Kiln was interrupted, and sends the session back to its phase", () => {
+    expect(resumePrompt({ cause: "sigint", time: "2026-10-17T15:02:11Z", phaseDoc })).toBe(
+      "Kiln was interrupted at `2026-10-17T15:02:11Z` (Ctrl+C) while this session was working, and has resumed it. " +
+        "Carry on with `docs/prds/customer-returns/phase-2b-store-credit.md` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies.",
+    );
+    expect(resumePrompt({ cause: "sighup", time: "t", phaseDoc })).toContain("(the terminal closed)");
+    expect(resumePrompt({ cause: "sigterm", time: "t", phaseDoc })).toContain("(Kiln was stopped)");
+    expect(resumePrompt({ cause: "sleep", time: "t", phaseDoc })).toContain("(the computer slept)");
+  });
+
+  it("says Kiln recorded no reason when it was killed outright, giving the last output's time", () => {
+    expect(resumePrompt({ time: "2026-10-17T15:02:11Z", phaseDoc }).split(". ")[0]).toBe(
+      "Kiln stopped without recording why while this session was working; its last output was at `2026-10-17T15:02:11Z`, and Kiln has resumed it",
+    );
+  });
+
+  it("asks the pull-request session to check GitHub first", () => {
+    expect(resumePrompt({ cause: "sigint", time: "t" })).toContain(
+      "Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.",
+    );
+  });
+
+  it("resumes with --resume in place of --session-id, the same flags otherwise", () => {
+    const args = resumeArguments("7c1e9f2a-0000", "claude-opus-5-5", "high");
+    expect(args.slice(0, 7)).toEqual(["-p", "--input-format", "stream-json", "--resume", "7c1e9f2a-0000", "--model", "claude-opus-5-5"]);
+    expect(args).not.toContain("--session-id");
+    expect(args.slice(7)).toEqual(launchArguments("x", "y", "high").slice(7));
+    expect(resumeArguments("id", "claude-haiku-4-5", undefined)).not.toContain("--effort");
+  });
+});
+
+describe("the keep-awake hold", () => {
+  const reason = "Kiln: Customer returns is being implemented";
+
+  it("is caffeinate -i on macOS, watching Kiln's PID", () => {
+    expect(keepAwakeTool("darwin", { PATH: "" }, 4242, "Customer returns")).toEqual({ ok: true, command: "/usr/bin/caffeinate", args: ["-i", "-w", "4242"] });
+  });
+
+  it("is gnome-session-inhibit in a GNOME session and systemd-inhibit elsewhere on Linux, never one for the other", () => {
+    expect(keepAwakeTool("linux", { PATH: "", XDG_CURRENT_DESKTOP: "ubuntu:GNOME" }, 1, "Customer returns")).toEqual({ ok: false, missing: "gnome-session-inhibit" });
+    expect(keepAwakeTool("linux", { PATH: "", XDG_CURRENT_DESKTOP: "KDE" }, 1, "Customer returns")).toEqual({ ok: false, missing: "systemd-inhibit" });
+    expect(keepAwakeMissingMessage("systemd-inhibit")).toBe("Can’t keep this computer awake: systemd-inhibit isn’t available.");
+  });
+
+  it("holds a sleep block with a reason naming the feature, around a command that ends with Kiln", () => {
+    const tool = keepAwakeTool("linux", { PATH: process.env.PATH ?? "", XDG_CURRENT_DESKTOP: "KDE" }, 77, "Customer returns");
+    if (!tool.ok) return; // systemd-inhibit isn't on this machine; the missing case is above
+    expect(tool.args).toEqual(["--what=sleep", "--mode=block", "--who=Kiln", `--why=${reason}`, "sh", "-c", "while kill -0 77 2>/dev/null; do sleep 5; done"]);
+  });
+
+  it("is PowerShell holding SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) until Kiln's process ends, on Windows", () => {
+    const tool = keepAwakeTool("win32", { SystemRoot: "C:\\Windows" }, 4242, "Customer returns");
+    expect(tool.ok).toBe(true);
+    if (!tool.ok) return;
+    expect(tool.args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    const script = Buffer.from(tool.args[3]!, "base64").toString("utf16le");
+    expect(script).toContain("SetThreadExecutionState([uint32]2147483649)");
+    expect(script).toContain("Wait-Process -Id 4242");
   });
 });
 

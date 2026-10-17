@@ -23,6 +23,11 @@ export interface DoneCheckInput {
   /** The leaf Kiln launched; when the session split it, its first leaf is judged instead. */
   launchedLeafId: string;
   originRetryMs?: number;
+  /**
+   * When the computer last woke, as Kiln's sleep readings found it (milliseconds since the
+   * epoch); a wake during the origin retry starts its two minutes again from the wake.
+   */
+  lastWakeAt?: () => number | undefined;
 }
 
 export interface DoneCheckOutcome {
@@ -103,13 +108,19 @@ async function pushedCheck(input: DoneCheckInput): Promise<{ check: CheckResult;
 }
 
 async function readOriginWithRetry(input: DoneCheckInput): Promise<{ ok: true; commit: string | undefined } | { ok: false; error: string }> {
-  const deadline = Date.now() + (input.originRetryMs ?? ORIGIN_RETRY_MS);
+  const retryMs = input.originRetryMs ?? ORIGIN_RETRY_MS;
+  const startedAt = Date.now();
+  let deadline = startedAt + retryMs;
   for (;;) {
     const result = await worktreeGit(input, ["ls-remote", "origin", `refs/heads/${input.branch}`]);
     if (result.exitCode === 0) {
       const line = result.stdout.split(/\r?\n/).find((row) => row.endsWith(`\trefs/heads/${input.branch}`));
       return { ok: true, commit: line?.split("\t")[0] };
     }
+    if (input.git.signal?.aborted) return { ok: false, error: gitError(result) };
+    // The network is often not back yet when a computer wakes, so a wake restarts the wait.
+    const wake = input.lastWakeAt?.();
+    if (wake !== undefined && wake > startedAt) deadline = Math.max(deadline, wake + retryMs);
     if (Date.now() + ORIGIN_RETRY_INTERVAL_MS > deadline) return { ok: false, error: gitError(result) };
     await new Promise((resolve) => setTimeout(resolve, ORIGIN_RETRY_INTERVAL_MS));
   }
@@ -128,6 +139,7 @@ export interface PullRequestCheckInput {
   github: string;
   branch: string;
   baseBranch: string;
+  signal?: AbortSignal;
 }
 
 export interface PullRequestCheckOutcome {
@@ -174,7 +186,7 @@ export async function runPullRequestCheck(input: PullRequestCheckInput): Promise
       "--json",
       "number,title,url,isDraft,isCrossRepository,headRefName,baseRefName,additions,deletions,commits",
     ],
-    { cwd: input.mainCheckoutPath, env: input.env },
+    { cwd: input.mainCheckoutPath, env: input.env, ...(input.signal ? { signal: input.signal } : {}) },
   );
   if (result.exitCode !== 0) return { passed: false, ghError: true, check: { name, passed: false, fact: gitError(result) } };
   return readPullRequestList(result.stdout, input.branch, input.baseBranch);

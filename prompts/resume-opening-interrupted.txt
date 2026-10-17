@@ -1,0 +1,1 @@
+Kiln was interrupted at `{{time}}` ({{cause}}) while this session was working, and has resumed it.

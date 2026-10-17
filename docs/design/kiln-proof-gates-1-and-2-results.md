@@ -17,7 +17,7 @@ Proof gates 1 and 2 of the [architecture proposal](kiln-architecture-proposal.md
 | `claude -p --resume` of a session whose transcript is gone exits without `init` | Held: no `init`; one `result` (`error_during_execution`, no result text, `errors: ["No conversation found with session ID: …"]`), the same line on stderr, exit code 1 | `resume-transcript-gone` |
 | With `--forward-subagent-text`, a subagent's tool calls reach the stream as well as its text | Held: its tool calls and their results arrive with `parent_tool_use_id`. Its report to its caller arrives as a **`SubagentHandback` tool call** whose input is `{"message": …}`, not as a text block | `subagent-tool-calls-forwarded` |
 | Whether a model's `supportsAutoMode` reflects what the signed-in account may use | Every alias entry had it `true`; one entry (`claude-haiku-4-5-20251001`) lacked it. A session on that model with `--permission-mode auto` ran in **`default` mode with no error**: its `init` reports `permissionMode: "default"`. Variation between accounts wasn't tried, with one account | `auto-mode-on-model-without-auto-support`, `supported-models.json` |
-| What a streaming session does when the computer sleeps and wakes, mid-response and mid-Bash | **Not run.** It needs the computer actually asleep, which this unattended session can't do and then wake from. Doug's action: [below](#not-yet-run-the-sleep-items) | |
+| What a streaming session does when the computer sleeps and wakes, mid-response and mid-Bash | **Not run.** It needs the computer actually asleep, which this unattended session can't do and then wake from. Optional since 2026-10-17: [below](#not-yet-run-the-sleep-items) | |
 
 ### What changed in the design
 
@@ -41,7 +41,7 @@ The session took 2 minutes 26 seconds and exited 0. All six progress steps were 
 
 ## Not yet run: the sleep items
 
-These two items of gate 1 decide how Kiln tells a sleep that cut a session off from one it survived (technical design, "Interruptions, sleep and resume"), which Phase 3 builds. They need the computer asleep for real, so they are a human action, needed before Phase 3 starts:
+These two items of gate 1 check how Kiln tells a sleep that cut a session off from one it survived (technical design, "Interruptions, sleep and resume"). They need the computer asleep for real. Doug waived them as a prerequisite on 2026-10-17: they're optional, to be checked in normal use, and Phase 3 built the sleep handling from the design. To run them:
 
 1. In a throwaway Git repository holding a script that takes several minutes (the gate used a `slow-task.sh` that prints a line a second for two minutes), run, from the Kiln checkout:
    `node scripts/exploration/proof-gate-session.mjs --cwd <repo> --out sleep-mid-bash.jsonl --session-id $(uuidgen | tr A-Z a-z) --model sonnet --effort low --prompt "Run ./slow-task.sh with Bash in the foreground and wait for it, then say done."`

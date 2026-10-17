@@ -60,3 +60,30 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
   const note = template("fresh-session-note.txt");
   return `${prompt.slice(0, firstBreak)} ${note}${prompt.slice(firstBreak)}`;
 }
+
+/** The cause in a resumed session's prompt, from the run's `interruptedBy`. */
+const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
+
+export interface ResumePromptValues {
+  /** The interrupted run's cause; absent when Kiln was killed outright and recorded none. */
+  cause?: keyof typeof INTERRUPT_CAUSES;
+  /** `interruptedAt`, or the run's last output time when Kiln recorded no interruption. */
+  time: string;
+  /** The launched leaf's document, from the worktree root; absent for the pull-request session. */
+  phaseDoc?: string;
+}
+
+/**
+ * The first message of a resumed session (AC-KEEP-04; technical design, "The prompts").
+ *
+ *   resumePrompt({ cause: "sigint", time: "2026-10-17T15:02:11Z", phaseDoc: "docs/prds/customer-returns/phase-2b-store-credit.md" })
+ *   // "Kiln was interrupted at `2026-10-17T15:02:11Z` (Ctrl+C) while this session was working, and has resumed it. Carry on with `docs/…/phase-2b-store-credit.md` from where you stopped; …"
+ */
+export function resumePrompt(values: ResumePromptValues): string {
+  const opening =
+    values.cause === undefined
+      ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
+      : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
+  const carryOn = values.phaseDoc === undefined ? template("resume-carry-on-pull-request.txt") : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc });
+  return `${opening} ${carryOn}`;
+}

@@ -82,6 +82,8 @@ export function planColumns(plan: { id: string; title: string }[]): PlanColumns 
 export type PhaseLineEvent =
   | { kind: "started" }
   | { kind: "stopped" }
+  | { kind: "interrupted" }
+  | { kind: "resumed" }
   | { kind: "done"; pushedSha: string }
   | { kind: "opened"; number: number };
 
@@ -93,11 +95,12 @@ export type PhaseLineEvent =
  */
 export function formatPhaseLine(at: Date, id: string, title: string, event: PhaseLineEvent, columns: PlanColumns, colors: TerminalColors): string {
   const pad = (text: string, width: number) => (text.length + 2 > width ? `${text}  ` : text.padEnd(width));
+  // Red is Kiln's accent for the phase in progress, amber what needs the person, green done (AC-LOOK-04).
   const what =
-    event.kind === "started"
-      ? colors.red("started")
-      : event.kind === "stopped"
-        ? colors.amber("stopped")
+    event.kind === "started" || event.kind === "resumed"
+      ? colors.red(event.kind)
+      : event.kind === "stopped" || event.kind === "interrupted"
+        ? colors.amber(event.kind)
         : event.kind === "done"
           ? colors.green("done") + colors.grey(` · pushed ${event.pushedSha.slice(0, 7)}`)
           : colors.green("opened") + colors.grey(` #${event.number}`);

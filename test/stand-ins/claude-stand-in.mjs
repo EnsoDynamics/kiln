@@ -19,14 +19,27 @@
 //   { "waitForFile": "<path>" }                               blocks until the file exists
 //   { "result": "final message" }                             the result event; then waits for stdin to close
 //   { "exit": 0 }                                             the exit code (default 0)
+//   { "work": "<command>" }                                   a foreground Bash call that runs until interrupted
+//   { "touch": "<path>" }                                     creates the file, so a test knows the session got here
+//   { "sleepFor": 300 }                                       waits that many milliseconds
+// A session may also say { "noInit": true }: a resume whose transcript is gone, as proof gate 1
+// recorded it (no init, one error result, the same line on stderr, exit 1), and
+// { "ignoreInterrupt": true }: the interrupt request and SIGINT are ignored, so only a forced
+// end stops it.
+//
+// The interrupt control request on stdin, or SIGINT, ends the turn the way proof gate 1 recorded
+// it: the running tool's result "The user doesn't want to proceed with this tool use", the text
+// "[Request interrupted by user for tool use]", a result with subtype error_during_execution,
+// and exit code 1 for the request, 0 for SIGINT.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const args = process.argv.slice(2);
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
-const sessionId = args[args.indexOf("--session-id") + 1] ?? args[args.indexOf("--resume") + 1];
+const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+const sessionId = flag("--session-id") ?? flag("--resume");
 const model = args[args.indexOf("--model") + 1];
 const emit = (event) => process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...event })}\n`);
 const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -41,10 +54,24 @@ const toolResult = (id, content, isError = false) =>
 
 let stdinText = "";
 let stdinClosed = false;
+let interruptBy;
+let onInterrupt = () => {};
+// Claude Code stops the tool it was running when the turn is interrupted.
+let onInterruptCleanup = () => {};
+const interrupt = (by) => {
+  if (interruptBy !== undefined || session?.ignoreInterrupt) return;
+  interruptBy = by;
+  onInterrupt();
+};
+let session;
 const firstLine = new Promise((resolve) => {
   process.stdin.on("data", (chunk) => {
     stdinText += chunk.toString("utf8");
-    if (stdinText.includes("\n")) resolve(stdinText.slice(0, stdinText.indexOf("\n")));
+    const lines = stdinText.split("\n");
+    if (lines.length > 1) resolve(lines[0]);
+    for (const line of lines.slice(1, -1)) {
+      if (line.includes('"control_request"') && line.includes('"interrupt"')) interrupt("request");
+    }
   });
   process.stdin.on("end", () => {
     stdinClosed = true;
@@ -52,6 +79,7 @@ const firstLine = new Promise((resolve) => {
   });
 });
 const stdinEnd = new Promise((resolve) => process.stdin.on("end", resolve));
+process.on("SIGINT", () => interrupt("sigint"));
 
 const message = JSON.parse((await firstLine) || "{}");
 const prompt = message?.message?.content ?? "";
@@ -60,17 +88,52 @@ const index = existsSync(counterPath) ? Number(readFileSync(counterPath, "utf8")
 writeFileSync(counterPath, String(index + 1));
 appendFileSync(`${scenarioPath}.calls.jsonl`, `${JSON.stringify({ args, cwd: process.cwd(), prompt })}\n`);
 const scenario = JSON.parse(readFileSync(scenarioPath, "utf8"));
-const session = scenario.sessions[index] ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
+session = scenario.sessions[index] ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
 
-const phaseDoc = /implement `([^`]+)`/.exec(prompt)?.[1];
-const branch = /on branch `([^`]+)`/.exec(prompt)?.[1] ?? /from `([^`]+)` into/.exec(prompt)?.[1];
+if (session.noInit) {
+  const error = `No conversation found with session ID: ${sessionId}`;
+  emit({ type: "result", subtype: "error_during_execution", is_error: true, errors: [error] });
+  process.stderr.write(`${error}\n`);
+  process.exit(1);
+}
+
+// A resumed session's prompt names its phase doc as "Carry on with `…`" and no branch: the
+// session already knows its branch, so the stand-in reads the one checked out.
+const phaseDoc = /implement `([^`]+)`/.exec(prompt)?.[1] ?? /Carry on with `([^`]+)`/.exec(prompt)?.[1];
+const branch = /on branch `([^`]+)`/.exec(prompt)?.[1] ?? /from `([^`]+)` into/.exec(prompt)?.[1] ?? git("symbolic-ref", "--short", "HEAD").trim();
 
 emit({ type: "system", subtype: "init", model: model === "opus" ? "claude-opus-5-5" : model, permissionMode: "auto", claude_code_version: "2.1.299-stand-in" });
 
 let exitCode = 0;
 let resultSent = false;
+const endInterrupted = (toolUseId) => {
+  onInterruptCleanup();
+  if (toolUseId) toolResult(toolUseId, "The user doesn't want to proceed with this tool use. The tool use was rejected.", true);
+  emit({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] } });
+  emit({ type: "result", subtype: "error_during_execution", is_error: true });
+  process.exit(interruptBy === "sigint" ? 0 : 1);
+};
 for (const action of session.actions) {
-  if (action.skill) {
+  if (interruptBy !== undefined) endInterrupted();
+  if (action.work) {
+    const id = toolCall("Bash", { command: action.work });
+    // The running tool is a real child process, as Claude Code's Bash tool is; its PID is
+    // written to KILN_STANDIN_TOOL_PID_FILE when set, so a test can see it is ended too.
+    const tool = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    if (process.env.KILN_STANDIN_TOOL_PID_FILE) writeFileSync(process.env.KILN_STANDIN_TOOL_PID_FILE, String(tool.pid));
+    onInterruptCleanup = () => tool.kill();
+    await new Promise((resolve) => {
+      onInterrupt = resolve;
+      if (interruptBy !== undefined) resolve();
+      // Gives up once the test's sandbox is gone, so a failed test leaves no process behind.
+      setInterval(() => existsSync(scenarioPath) || process.exit(1), 200);
+    });
+    endInterrupted(id);
+  } else if (action.touch) {
+    writeFileSync(action.touch, "");
+  } else if (action.sleepFor) {
+    await new Promise((resolve) => setTimeout(resolve, action.sleepFor));
+  } else if (action.skill) {
     const id = toolCall("Skill", { skill: action.skill });
     toolResult(id, `Launching skill: ${action.skill}`);
   } else if (action.partial) {
@@ -120,7 +183,8 @@ for (const action of session.actions) {
   } else if (action.openPullRequest) {
     const statePath = process.env.KILN_STANDIN_GH_STATE;
     const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { pulls: [] };
-    const base = /into `([^`]+)`/.exec(prompt)?.[1];
+    // A resumed session's prompt doesn't name the base; the fixture's base is develop.
+    const base = /into `([^`]+)`/.exec(prompt)?.[1] ?? action.openPullRequest.base ?? "develop";
     state.pulls.push({
       number: action.openPullRequest.number,
       title: action.openPullRequest.title ?? "Customer returns",

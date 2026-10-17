@@ -1,5 +1,7 @@
 # Phase 1: Proof gates 1 and 2, and kiln run checking a PRD's documents
 
+**Closed:** 2026-10-17
+
 **Parent PRD:** docs/prds/kiln-v1/kiln-v1-prd.md
 **Technical design:** docs/prds/kiln-v1/technical-design.md — relevant sections: "Workload Type and Starting Point", "Dependencies", "The Plan Reader", "Command line", "Windows" (Paths), "Testing Approach" (its "Order" paragraph and the plan reader tests)
 **Proof gates:** docs/design/kiln-architecture-proposal.md — "Proof gates", gates 1 and 2
@@ -22,5 +24,4 @@ None.
 - CI runs the unit and Git integration tests on macOS, Linux and Windows runners from this phase on, which is how AC-INSTALL-03 is held until Phase 6's Windows run.
 - Until Phase 4 serves the browser view, `kiln run` on a PRD that passes every start check prints the drawn "all checks passed" line, then says it can't start phases yet, and exits 0.
 
-## Pending human actions
-- Doug: run proof gate 1's two sleep items on macOS and add their recordings to `test/fixtures/proof-gate-1/`, as [the gate results](../../design/kiln-proof-gates-1-and-2-results.md) ("Not yet run: the sleep items") give. Everything else in this phase is done; it gets its `**Closed:**` line when the recordings are in. Phase 2 doesn't need them and can start; Phase 3 can't.
+- Gate 1's two sleep items were this phase's last open item, a human action for Doug. Doug waived them on 2026-10-17: they're optional, to be checked in normal use ([the gate results](../../design/kiln-proof-gates-1-and-2-results.md), "Not yet run: the sleep items"), so this phase is closed.

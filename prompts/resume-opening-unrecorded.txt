@@ -1,0 +1,1 @@
+Kiln stopped without recording why while this session was working; its last output was at `{{time}}`, and Kiln has resumed it.

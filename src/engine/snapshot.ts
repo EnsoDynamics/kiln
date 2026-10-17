@@ -59,6 +59,7 @@ export interface Snapshot {
     effort: Effort;
     effortLevels: Effort[] | null;
     keepAwake: boolean;
+    keepAwakeError?: string;
     worktreePath: string;
     featureBranch: string;
     baseBranch: string;
@@ -82,6 +83,8 @@ export interface Snapshot {
     phaseId: string;
     kind: StopKind;
     stoppedAt: string;
+    /** `stoppedAt` is the interrupted run's last output, since Kiln recorded no interruption time. */
+    stoppedAtIsLastOutput?: true;
     finalMessage?: string;
     exitCode?: number;
     signal?: string;
@@ -145,6 +148,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       effort: settings.effort,
       effortLevels: null,
       keepAwake: settings.keepAwake,
+      ...optional("keepAwakeError", engine.keepAwakeError),
       worktreePath: displayPath(settings.worktreePath),
       featureBranch: settings.featureBranch,
       baseBranch: settings.baseBranch,
@@ -258,6 +262,24 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const everStarted = session.runs.some((candidate) => candidate.pid !== undefined);
   const lines = engine.outputLines(session);
   const endedAt = run?.endedAt ?? stop.at;
+  if (stop.kind === "not_resumable") {
+    // In place of AC-STOP-02's list: when the session was interrupted, its last lines, and the
+    // fresh session with no resume command (AC-KEEP-05). The interrupted run is the one before the failed resume.
+    const interruptedIndex = session.runs.length - 2;
+    const interrupted = session.runs[interruptedIndex];
+    const lastOutput = interrupted?.interruptedAt === undefined;
+    const stoppedAt = interrupted?.interruptedAt ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
+    return {
+      ...base,
+      stoppedAt,
+      ...(lastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
+      lastLines: lines.slice(-10),
+      freshSessionPrompt: prompts(true),
+      outputLineCount: lines.length,
+      sessionEndedAt: endedAt,
+      steps: stepStates(session.steps),
+    };
+  }
   const finalMessage = run?.result?.text?.trim() ? run.result.text : undefined;
   return {
     ...base,

@@ -6,8 +6,21 @@
 
 import { randomUUID } from "node:crypto";
 import type { PhasePlan } from "../plan/phase-plan.js";
-import { launchArguments, modelNameFromId, readOutputLines, runSessionProcess } from "../session/claude-session.js";
-import { phaseSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { endProcessTree } from "../platform/helper-process.js";
+import type { KeepAwakeHolder } from "../platform/keep-awake.js";
+import { isProcessLive } from "../platform/process-start-time.js";
+import { platformSleepReader, type SleepReader } from "../platform/sleep-readings.js";
+import {
+  launchArguments,
+  modelNameFromId,
+  readOutputLines,
+  resumeArguments,
+  runLastOutputAt,
+  runReportedInit,
+  runSessionProcess,
+  type SessionControl,
+} from "../session/claude-session.js";
+import { phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import type { OutputLine, SessionOutputReader } from "../session/session-output.js";
 import {
   EFFORT_LEVELS,
@@ -18,9 +31,11 @@ import {
   writeSessionRecord,
   type CheckResult,
   type Effort,
+  type InterruptCause,
   type PrdRecord,
   type PullRequestFacts,
   type SessionRecord,
+  type SessionRun,
   type Settings,
   type StopKind,
 } from "../state/records.js";
@@ -38,8 +53,8 @@ export interface EngineTools {
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string }
-  | { kind: "phase"; at: Date; phaseId: string; title: string; event: "started" | "stopped" | "done"; pushedSha?: string }
-  | { kind: "pull_request"; at: Date; event: "started" | "stopped" | "opened"; number?: number }
+  | { kind: "phase"; at: Date; phaseId: string; title: string; event: "started" | "stopped" | "done" | "interrupted" | "resumed"; pushedSha?: string }
+  | { kind: "pull_request"; at: Date; event: "started" | "stopped" | "opened" | "interrupted" | "resumed"; number?: number }
   | { kind: "message"; text: string };
 
 export type CommandResult = { ok: true } | { ok: false; status: 400 | 409; reason: string; fieldErrors?: FieldErrors };
@@ -56,7 +71,30 @@ export interface EngineOptions {
   now?: () => Date;
   /** How long a failing read of origin is retried in the done check; two minutes unless a test says otherwise. */
   originRetryMs?: number;
+  /** The operating system's suspend record; the platform's own unless a test gives one. */
+  sleepReader?: SleepReader;
+  /** How often the suspend record is read while Kiln runs: every 10 seconds. */
+  sleepCheckMs?: number;
+  /** Holds the computer awake while a session's process runs and keep-awake is on (AC-KEEP-06). */
+  keepAwake?: KeepAwakeHolder;
+  /** How long a stop waits for the session to exit after its interrupt: 30 seconds. */
+  stopWaitMs?: number;
+  /** How long after SIGTERM to the session's group a stop sends SIGKILL: 5 seconds. */
+  killGraceMs?: number;
+  /** The wait before a session's end is handled; on Windows a Ctrl+C reaches the session too ([Windows]). */
+  exitGraceMs?: number;
 }
+
+/** What a stop leaves to print (UI-010 item 3): the first sentence, then the grey rest. */
+export interface StopReport {
+  text: string;
+  grey?: string;
+}
+
+const STOP_WAIT_MS = 30_000;
+const KILL_GRACE_MS = 5_000;
+const SLEEP_CHECK_MS = 10_000;
+const WINDOWS_EXIT_GRACE_MS = 1_000;
 
 /**
  * The phase Kiln is working on: between a Done and the next spawn it has no session; while the
@@ -82,8 +120,10 @@ export type UnderwayDecision =
   | { kind: "plan_stop"; phaseKey: string; doneFirst?: DoneFirst }
   | { kind: "paused"; beforePhaseKey: string; doneFirst?: DoneFirst }
   | { kind: "complete"; doneFirst?: DoneFirst }
-  | { kind: "interrupted"; phaseKey: string; sessionId: string }
+  | { kind: "resume"; phaseKey: string; sessionId: string }
   | { kind: "setup_failed"; error: string };
+
+type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" } | { kind: "stopping" };
 
 export class Engine {
   readonly record: PrdRecord;
@@ -98,6 +138,8 @@ export class Engine {
   startError: string | undefined;
   /** The last successful read of the plan in this run. */
   plan: PhasePlan | undefined;
+  /** Set once a stop begins (Ctrl+C, a closed terminal, a signal); from then on nothing is judged. */
+  stopping: InterruptCause | undefined;
 
   private readonly options: EngineOptions;
   private readonly now: () => Date;
@@ -110,12 +152,33 @@ export class Engine {
   private quiet = false;
   /** `kiln run` already ran the check before the pull-request session and it failed. */
   private pullRequestPrecheckDone = false;
+  /** Aborted when a stop begins: every git and gh call still running ends, and new ones fail at once. */
+  private readonly abort = new AbortController();
+  /** The live session process's controls, while one runs. */
+  private control: SessionControl | undefined;
+  /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
+  private pendingResume: string | undefined;
+  /** The phase whose check is running, for the line a stop prints. */
+  private activeCheck: string | undefined;
+  private readonly sleepReader: SleepReader;
+  private sleepTimer: NodeJS.Timeout | undefined;
+  private sleepReading: Promise<void> | undefined;
+  /** When the last sleep reading found the computer had slept (milliseconds since the epoch). */
+  private lastWakeAt: number | undefined;
+  private stopPromise: Promise<StopReport> | undefined;
+  /** A left-over session process being stopped, which a stop waits for so none is left behind. */
+  private orphanStop: Promise<void> | undefined;
+  /** An interrupted session between its verdict and its resumed process, for the line a stop prints. */
+  private interruptedKey: string | undefined;
+  private skipStopWait: (() => void) | undefined;
+  private closed = false;
 
   constructor(options: EngineOptions) {
     this.options = options;
     this.record = options.record;
     this.now = options.now ?? (() => new Date());
-    this.git = { git: options.tools.git, env: options.env };
+    this.git = { git: options.tools.git, env: options.env, signal: this.abort.signal };
+    this.sleepReader = options.sleepReader ?? platformSleepReader();
   }
 
   get paths() {
@@ -132,6 +195,11 @@ export class Engine {
 
   get isUnderway(): boolean {
     return this.record.startedAt !== undefined && this.record.setupCompletedAt !== undefined;
+  }
+
+  /** Why keep-awake can't work, shown with the setting. */
+  get keepAwakeError(): string | undefined {
+    return this.options.keepAwake?.error;
   }
 
   /** Called on every change, so a server can push a fresh snapshot. */
@@ -184,6 +252,7 @@ export class Engine {
       record.baseCommit = fields.startCommit;
       this.save();
       const setup = await this.finishSetup();
+      if (this.stopping) return refuse("Kiln is stopping.");
       if (!setup.ok) return { ok: false, status: 409, reason: this.startError ?? setup.error };
     } finally {
       this.settingUp = false;
@@ -250,9 +319,185 @@ export class Engine {
       if (value !== undefined) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
     this.save();
+    if (change.keepAwake !== undefined) this.updateKeepAwake();
     if (fixedFields.length > 0) await this.runFieldChecks();
     this.changed();
     return { ok: true };
+  }
+
+  // ---- Stopping: Ctrl+C, a closed terminal and signals -----------------------------------
+
+  /**
+   * The stop sequence (AC-KEEP-02; technical design, "Stopping a session"): marks a live run
+   * interrupted first, so the record is right even if Kiln is killed partway; sends the session
+   * the interrupt request; waits up to 30 seconds for it to exit; then ends its whole tree; and
+   * releases keep-awake. From the first step on, nothing is judged. A second call (a second
+   * Ctrl+C) skips the rest of the wait.
+   *
+   *   const report = await engine.stop("sigint");
+   *   report.text  // "Interrupted phase 2b, Store credit."
+   */
+  stop(cause: InterruptCause): Promise<StopReport> {
+    if (this.stopPromise) {
+      this.skipStopWait?.();
+      return this.stopPromise;
+    }
+    this.stopPromise = this.runStop(cause);
+    return this.stopPromise;
+  }
+
+  private async runStop(cause: InterruptCause): Promise<StopReport> {
+    const report = this.describeStop();
+    this.stopping = cause;
+
+    // 1. The interruption is written on the live run before anything else.
+    const session = this.current?.session;
+    const run = session?.runs.at(-1);
+    if (session && run && run.endedAt === undefined) {
+      run.interruptedBy = cause;
+      run.interruptedAt = this.now().toISOString();
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
+
+    // 2. Every git and gh call still running ends; the session gets the interrupt request.
+    this.abort.abort();
+    const control = this.control;
+    control?.interrupt();
+
+    // 3 and 4. Up to 30 seconds for it to exit, then its whole tree is ended.
+    if (control) {
+      const skipped = new Promise<void>((resolve) => (this.skipStopWait = resolve));
+      const exited = await raceTimeout(control.closed, this.options.stopWaitMs ?? STOP_WAIT_MS, skipped);
+      if (!exited) {
+        control.endTree("SIGTERM");
+        if (process.platform !== "win32" && !(await raceTimeout(control.closed, this.options.killGraceMs ?? KILL_GRACE_MS))) control.endTree("SIGKILL");
+      }
+    }
+    // A left-over process being stopped is seen through, so none is left behind (AC-KEEP-02).
+    if (this.orphanStop) await this.orphanStop;
+    // The engine loop winds down, recording the run's end and judging nothing.
+    await raceTimeout(this.settled(), 10_000);
+
+    // 5. Keep-awake is released; the caller closes the rest and prints the line.
+    this.close();
+    return report;
+  }
+
+  /** The line a stop prints, for what Kiln is doing as it begins (UI-010 item 3). */
+  private describeStop(): StopReport {
+    const { record } = this;
+    const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : `phase ${this.judgedId(key)}`);
+    const run = this.current?.session?.runs.at(-1);
+    // A live run, or an interrupted session about to be resumed: either way its phase is interrupted.
+    const interrupted = this.current?.session && run && run.endedAt === undefined ? this.current.phaseKey : this.interruptedKey;
+    if (interrupted !== undefined) {
+      const kept = "Its session and uncommitted work are kept.";
+      if (interrupted === PR_PHASE_KEY) return { text: "Interrupted the pull-request session.", grey: kept };
+      const judged = this.judgedId(interrupted);
+      return { text: `Interrupted phase ${judged}, ${this.titleOf(judged)}.`, grey: kept };
+    }
+    if (this.activeCheck !== undefined) return { text: `Kiln stopped while checking ${name(this.activeCheck)}.`, grey: "kiln run checks it again." };
+    if (this.settingUp || (record.startedAt !== undefined && record.setupCompletedAt === undefined)) {
+      return { text: "Kiln stopped before phase 1 started.", grey: "kiln run picks it back up." };
+    }
+    if (record.startedAt === undefined) return { text: "Kiln stopped.", grey: "Nothing was started." };
+    if (record.completedAt) return { text: "Kiln stopped.", grey: `${this.paths.featureName} is complete.` };
+    const stopped = this.stoppedPhaseKey();
+    if (stopped !== undefined) {
+      const subject = stopped === PR_PHASE_KEY ? "The pull request" : `Phase ${this.judgedId(stopped)}`;
+      return { text: "Kiln stopped.", grey: `${subject} still needs you; kiln run checks it again.` };
+    }
+    if (record.pause.activeSince !== undefined) return { text: `Kiln stopped while paused before ${name(this.nextKeyFromRecordedPlan())}.` };
+    // Between phases: the moment after a Done and before the next session spawns.
+    return { text: `Kiln stopped before ${name(this.nextKeyFromRecordedPlan())} started.`, grey: "kiln run picks it back up." };
+  }
+
+  /**
+   * Never two processes on one session: when the session's latest run is still alive (the same
+   * PID and process start time), it is stopped before anything else touches the session. Its
+   * stdin closed with the Kiln that started it, so it can't be sent the interrupt request; on
+   * macOS and Linux it gets SIGINT to its group, the stop proof gate 1 showed leaves it
+   * resumable, then the same wait and forced end as a stop.
+   */
+  private async stopLiveProcess(session: SessionRecord): Promise<void> {
+    this.orphanStop = this.stopLeftOverProcess(session);
+    try {
+      await this.orphanStop;
+    } finally {
+      this.orphanStop = undefined;
+    }
+  }
+
+  private async stopLeftOverProcess(session: SessionRecord): Promise<void> {
+    const run = session.runs.at(-1);
+    if (run?.pid === undefined || !(await isProcessLive(run.pid, run.processStartTime))) return;
+    const pid = run.pid;
+    const gone = async (ms: number) => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        if (!(await isProcessLive(pid, run.processStartTime))) return true;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      return !(await isProcessLive(pid, run.processStartTime));
+    };
+    if (process.platform !== "win32") endProcessTree(pid, "SIGINT");
+    if (await gone(this.options.stopWaitMs ?? STOP_WAIT_MS)) return;
+    endProcessTree(pid, "SIGTERM");
+    if (process.platform !== "win32" && !(await gone(this.options.killGraceMs ?? KILL_GRACE_MS))) endProcessTree(pid, "SIGKILL");
+  }
+
+  /** Releases keep-awake and stops reading sleep; for when Kiln exits. */
+  close(): void {
+    this.closed = true;
+    if (this.sleepTimer) clearInterval(this.sleepTimer);
+    this.sleepTimer = undefined;
+    this.updateKeepAwake();
+  }
+
+  /** Keep-awake is held while a session's process runs and the setting is on, and released otherwise. */
+  private updateKeepAwake(): void {
+    const on = !this.closed && this.stopping === undefined && this.record.settings.keepAwake && this.current?.processRunning === true;
+    this.options.keepAwake?.set(on);
+  }
+
+  /** Reads the suspend record every 10 seconds from the first session or check on. */
+  private watchSleep(): void {
+    if (this.sleepTimer || this.closed) return;
+    this.sleepTimer = setInterval(() => void this.readSleep(true), this.options.sleepCheckMs ?? SLEEP_CHECK_MS);
+    this.sleepTimer.unref();
+  }
+
+  /**
+   * Takes a sleep reading and records each sleep found on the run still working, so it belongs
+   * to that run and never to a run started later. A reading already under way is joined.
+   * `save` is false at the start of handling a process's end, whose one write carries it.
+   */
+  private readSleep(save: boolean): Promise<void> {
+    this.sleepReading ??= (async () => {
+      try {
+        if (this.stopping) return;
+        const sleeps = await this.sleepReader.next();
+        if (sleeps.length === 0) return;
+        this.lastWakeAt = Date.now();
+        const detectedAt = this.now().toISOString();
+        const session = this.current?.session;
+        const runIndex = (session?.runs.length ?? 0) - 1;
+        if (!session || runIndex < 0 || session.runs[runIndex]!.endedAt !== undefined) return;
+        for (const sleep of sleeps) session.sleeps.push({ at: sleep.at, seconds: sleep.seconds, detectedAt, run: runIndex });
+        if (save) writeSessionRecord(this.options.stateDirectory, session);
+      } finally {
+        this.sleepReading = undefined;
+      }
+    })();
+    return this.sleepReading;
+  }
+
+  private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed"): void {
+    if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event });
+    else {
+      const judged = this.judgedId(phaseKey);
+      this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event });
+    }
   }
 
   // ---- `kiln run` on a feature underway --------------------------------------------------
@@ -304,14 +549,26 @@ export class Engine {
       // A session with no run never started; the loop launches it as planned, with the same session ID.
       if (run !== undefined) {
         if (run.endedAt === undefined || run.interruptedBy !== undefined) {
-          return { kind: "interrupted", phaseKey: latest.phaseKey, sessionId: latest.session.sessionId };
+          this.interruptedKey = latest.phaseKey;
+          // Never two processes on one session: one a killed Kiln left running is stopped first.
+          await this.stopLiveProcess(latest.session);
+          // Interrupted: the check first; only a failing check resumes it (AC-KEEP-04).
+          const verdict = await this.checkInterrupted(latest.phaseKey);
+          if (verdict.kind === "complete") return { kind: "complete" };
+          if (verdict.kind === "resume") {
+            this.pendingResume = latest.phaseKey;
+            return { kind: "resume", phaseKey: latest.phaseKey, sessionId: latest.session.sessionId };
+          }
+          if (verdict.kind !== "stopping") this.interruptedKey = undefined;
+          if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
+        } else {
+          // It ended on its own, and Kiln stopped before recording the verdict: judged as after any session.
+          this.current = { phaseKey: latest.phaseKey, session: latest.session, commits: [], processRunning: false };
+          const verdict = await this.judgeEndedSession(latest.phaseKey, false);
+          if (verdict.kind === "complete") return { kind: "complete" };
+          if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
+          if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
         }
-        // It ended on its own, and Kiln stopped before recording the verdict: judged as after any session.
-        this.current = { phaseKey: latest.phaseKey, session: latest.session, commits: [], processRunning: false };
-        const verdict = await this.judgeEndedSession(latest.phaseKey, false);
-        if (verdict.kind === "complete") return { kind: "complete" };
-        if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
-        doneFirst = { phaseId: verdict.judgedId, byPerson: false };
       }
     }
     const withDone = <T extends object>(decision: T) => (doneFirst ? { ...decision, doneFirst } : decision);
@@ -322,8 +579,8 @@ export class Engine {
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
     const leaf = nextLeaf(read.plan);
     if (!leaf) {
-      const check = await this.pullRequestCheck();
-      if (check.passed) {
+      const check = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (check.passed && !this.stopping) {
         this.complete(check.pullRequest!, false);
         return withDone({ kind: "complete" as const });
       }
@@ -356,8 +613,15 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (!this.isUnderway || record.completedAt) return;
+      if (this.stopping || !this.isUnderway || record.completedAt) return;
       if (this.stoppedPhaseKey() !== undefined) return;
+      if (this.pendingResume !== undefined) {
+        const key = this.pendingResume;
+        this.pendingResume = undefined;
+        await this.resumeSession(key);
+        if ((await this.settleSession(key)).kind !== "done") return;
+        continue;
+      }
       if (record.pause.activeSince !== undefined) return;
 
       const read = this.readPlan();
@@ -370,7 +634,8 @@ export class Engine {
       this.changed();
       if (!leaf && !this.pullRequestPrecheckDone) {
         // A gh error here starts the pull-request session without showing it; that session's own check decides.
-        const check = await this.pullRequestCheck();
+        const check = await this.pullRequestCheck(PR_PHASE_KEY);
+        if (this.stopping) return;
         if (check.passed) {
           this.complete(check.pullRequest!, false);
           return;
@@ -405,9 +670,10 @@ export class Engine {
       worktreePath: this.worktreePath,
       branch: record.settings.featureBranch,
     });
+    if (this.stopping) return "stopped";
     this.emit({ kind: "phase", at: this.now(), phaseId: leafId, title: leaf?.title ?? leafId, event: "started" });
-    await this.runSession(leafId, "phase", prompt);
-    const verdict = await this.judgeEndedSession(leafId, false);
+    await this.launchSession(leafId, "phase", prompt);
+    const verdict = await this.settleSession(leafId);
     return verdict.kind === "done" ? "done" : "stopped";
   }
 
@@ -422,15 +688,15 @@ export class Engine {
       github: record.repository.github,
     });
     this.emit({ kind: "pull_request", at: this.now(), event: "started" });
-    await this.runSession(PR_PHASE_KEY, "pull_request", prompt);
-    await this.judgeEndedSession(PR_PHASE_KEY, false);
+    await this.launchSession(PR_PHASE_KEY, "pull_request", prompt);
+    await this.settleSession(PR_PHASE_KEY);
   }
 
   /**
-   * Runs one session for a phase. The session record is written before spawning; a session
+   * Launches one session for a phase. The session record is written before spawning; a session
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
-  private async runSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string): Promise<void> {
+  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     let session = this.latestSession(phaseKey);
     if (!session || session.runs.length > 0) {
@@ -452,21 +718,61 @@ export class Engine {
       facts.sessionIds.push(session.sessionId);
       this.save();
     }
+    await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort), prompt, "launch");
+  }
 
+  /**
+   * Resumes an interrupted session with its full history (AC-KEEP-04): the same session ID, its
+   * own concrete model and recorded effort, and the resume prompt as its first message.
+   */
+  private async resumeSession(phaseKey: string): Promise<void> {
+    const session = this.latestSession(phaseKey);
+    if (!session) return;
+    await this.stopLiveProcess(session);
+    if (this.stopping) return;
+    const runIndex = session.runs.length - 1;
+    const run = session.runs[runIndex]!;
+    const recorded = run.interruptedBy !== undefined && run.interruptedAt !== undefined;
+    const time = recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
+    const prompt = resumePrompt({
+      ...(recorded ? { cause: run.interruptedBy! } : {}),
+      time: time.replace(/\.\d+Z$/, "Z"),
+      ...(phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}` }),
+    });
+    this.emitSessionEvent(phaseKey, "resumed");
+    await this.runProcess(phaseKey, session, resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort), prompt, "resume");
+  }
+
+  /** Runs one process of a session, holding keep-awake while it runs and reading sleep around it. */
+  private async runProcess(phaseKey: string, session: SessionRecord, args: string[], prompt: string, cause: SessionRun["cause"]): Promise<void> {
+    if (this.stopping) return;
+    this.watchSleep();
+    await this.readSleep(true);
+    if (this.stopping) return;
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
+    this.interruptedKey = undefined;
+    this.updateKeepAwake();
     this.changed();
     await runSessionProcess({
       claude: this.options.tools.claude,
-      args: launchArguments(session.sessionId, session.model, session.effort),
+      args,
       cwd: this.worktreePath,
       env: this.options.env,
       prompt,
-      cause: "launch",
+      cause,
       stateDirectory: this.options.stateDirectory,
       record: session,
       now: this.now,
+      exitGraceMs: this.options.exitGraceMs ?? (process.platform === "win32" ? WINDOWS_EXIT_GRACE_MS : 0),
       onReader: (reader) => (current.reader = reader),
+      onSpawned: (control) => {
+        this.control = control;
+        // A stop that began while the process was being started still reaches it.
+        if (this.stopping) control.interrupt();
+      },
+      beforeEnd: () => this.readSleep(false),
+      stopping: () => this.stopping !== undefined,
       onOutput: (lines) => {
         current.latestLine = lines[lines.length - 1]!;
         for (const listener of this.outputListeners) listener(session.sessionId, lines);
@@ -475,8 +781,32 @@ export class Engine {
       },
       onRecordChange: () => this.changed(),
     });
+    this.control = undefined;
     current.processRunning = false;
-    await this.refreshCommits(current, true);
+    this.updateKeepAwake();
+    if (!this.stopping) await this.refreshCommits(current, true);
+  }
+
+  /**
+   * After a session's process ended: a run a sleep cut off is checked and, when the check fails,
+   * resumed, until a run ends on its own; that run is judged by its check alone.
+   */
+  private async settleSession(phaseKey: string): Promise<Verdict> {
+    for (;;) {
+      if (this.stopping) return { kind: "stopping" };
+      const run = this.latestSession(phaseKey)?.runs.at(-1);
+      if (run?.interruptedBy !== "sleep") return this.judgeEndedSession(phaseKey, false);
+      this.emitSessionEvent(phaseKey, "interrupted");
+      this.interruptedKey = phaseKey;
+      const verdict = await this.checkInterrupted(phaseKey);
+      if (verdict.kind !== "resume") {
+        this.interruptedKey = undefined;
+        this.current = undefined;
+        this.changed();
+        return verdict;
+      }
+      await this.resumeSession(phaseKey);
+    }
   }
 
   /** Reads the current phase's commits from Git while it works, at most every 5 seconds. */
@@ -491,31 +821,62 @@ export class Engine {
 
   // ---- Verdicts --------------------------------------------------------------------------
 
-  /** Judges a phase after its session ended on its own: its check alone decides (AC-DONE-02, AC-STOP-01). */
-  private async judgeEndedSession(phaseKey: string, byPerson: boolean): Promise<{ kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" }> {
+  /**
+   * Judges a phase after its session ended on its own: its check alone decides (AC-DONE-02,
+   * AC-STOP-01). A resumed run that started and ended without its stream reporting the
+   * session's `init` couldn't resume it (AC-KEEP-05): a failing check is then `not_resumable`.
+   */
+  private async judgeEndedSession(phaseKey: string, byPerson: boolean): Promise<Verdict> {
     try {
+      const session = this.latestSession(phaseKey);
+      const runIndex = (session?.runs.length ?? 0) - 1;
+      const run = session?.runs[runIndex];
+      const notResumable = session !== undefined && run?.cause === "resume" && run.pid !== undefined && !runReportedInit(this.options.stateDirectory, session, runIndex);
       if (phaseKey === PR_PHASE_KEY) {
-        const check = await this.pullRequestCheck();
+        const check = await this.pullRequestCheck(PR_PHASE_KEY);
+        if (this.stopping) return { kind: "stopping" };
         if (check.passed) {
           this.complete(check.pullRequest!, byPerson);
           return { kind: "complete" };
         }
-        this.recordStop(PR_PHASE_KEY, "pull_request_check", [check.check]);
+        this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", [check.check]);
         this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
         return { kind: "stopped" };
       }
       const outcome = await this.doneCheck(phaseKey);
+      if (this.stopping) return { kind: "stopping" };
       if (outcome.passed) {
         await this.recordDone(phaseKey, outcome, byPerson);
         return { kind: "done", judgedId: outcome.judgedLeafId };
       }
-      this.recordStop(phaseKey, "done_check", outcome.checks);
+      this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
       this.emit({ kind: "phase", at: this.now(), phaseId: outcome.judgedLeafId, title: this.titleOf(outcome.judgedLeafId), event: "stopped" });
       return { kind: "stopped" };
     } finally {
-      this.current = undefined;
-      this.changed();
+      if (!this.stopping) {
+        this.current = undefined;
+        this.changed();
+      }
     }
+  }
+
+  /**
+   * An interrupted session's check, before any resume (AC-KEEP-04, AC-DONE-03): a pass is Done
+   * (or the PRD complete) and nothing is resumed; a failure means resume it.
+   */
+  private async checkInterrupted(phaseKey: string): Promise<Verdict | { kind: "resume" }> {
+    if (phaseKey === PR_PHASE_KEY) {
+      const check = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (this.stopping) return { kind: "stopping" };
+      if (!check.passed) return { kind: "resume" };
+      this.complete(check.pullRequest!, false);
+      return { kind: "complete" };
+    }
+    const outcome = await this.doneCheck(phaseKey);
+    if (this.stopping) return { kind: "stopping" };
+    if (!outcome.passed) return { kind: "resume" };
+    await this.recordDone(phaseKey, outcome, false);
+    return { kind: "done", judgedId: outcome.judgedLeafId };
   }
 
   /** Check again, or `kiln run` on a stopped phase: the stop's own check, run again. */
@@ -535,7 +896,8 @@ export class Engine {
       return "cleared";
     }
     if (phaseKey === PR_PHASE_KEY) {
-      const check = await this.pullRequestCheck();
+      const check = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (this.stopping) return "still_stopped";
       if (check.passed) {
         this.complete(check.pullRequest!, true);
         return "complete";
@@ -544,6 +906,7 @@ export class Engine {
       return "still_stopped";
     }
     const outcome = await this.doneCheck(phaseKey);
+    if (this.stopping) return "still_stopped";
     if (!outcome.passed) {
       this.updateStop(phaseKey, outcome.checks);
       return "still_stopped";
@@ -554,28 +917,42 @@ export class Engine {
   }
 
   private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome> {
-    const outcome = await runDoneCheck({
-      git: this.git,
-      mainCheckoutPath: this.paths.mainCheckoutPath,
-      worktreePath: this.worktreePath,
-      prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
-      branch: this.record.settings.featureBranch,
-      launchedLeafId: phaseKey,
-      ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }),
-    });
-    if (outcome.plan.ok) this.acceptPlan(outcome.plan.plan);
-    return outcome;
+    this.activeCheck = phaseKey;
+    // A wake during the check restarts its origin retry, so the sleep watch runs through it.
+    this.watchSleep();
+    try {
+      const outcome = await runDoneCheck({
+        git: this.git,
+        mainCheckoutPath: this.paths.mainCheckoutPath,
+        worktreePath: this.worktreePath,
+        prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
+        branch: this.record.settings.featureBranch,
+        launchedLeafId: phaseKey,
+        lastWakeAt: () => this.lastWakeAt,
+        ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }),
+      });
+      if (outcome.plan.ok && !this.stopping) this.acceptPlan(outcome.plan.plan);
+      return outcome;
+    } finally {
+      this.activeCheck = undefined;
+    }
   }
 
-  private pullRequestCheck() {
-    return runPullRequestCheck({
-      gh: this.options.tools.gh,
-      env: this.options.env,
-      mainCheckoutPath: this.paths.mainCheckoutPath,
-      github: this.record.repository.github,
-      branch: this.record.settings.featureBranch,
-      baseBranch: this.record.settings.baseBranch,
-    });
+  private async pullRequestCheck(phaseKey?: string) {
+    if (phaseKey !== undefined) this.activeCheck = phaseKey;
+    try {
+      return await runPullRequestCheck({
+        gh: this.options.tools.gh,
+        env: this.options.env,
+        mainCheckoutPath: this.paths.mainCheckoutPath,
+        github: this.record.repository.github,
+        branch: this.record.settings.featureBranch,
+        baseBranch: this.record.settings.baseBranch,
+        signal: this.abort.signal,
+      });
+    } finally {
+      if (phaseKey !== undefined) this.activeCheck = undefined;
+    }
   }
 
   private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean): Promise<void> {
@@ -661,7 +1038,8 @@ export class Engine {
   private async finishSetup(): Promise<{ ok: true } | { ok: false; error: string }> {
     const input = { git: this.git, paths: this.paths, record: this.record, save: () => this.save(), now: this.now };
     const outcome = await addWorktree(input);
-    if (outcome.ok) return outcome;
+    // A step stopped by Ctrl+C, a closed terminal or a signal hasn't failed: the record is kept.
+    if (outcome.ok || this.stopping) return outcome;
     await undoFailedSetup(input);
     this.startError = `Couldn’t set up the worktree: ${outcome.error}`;
     this.emit({ kind: "message", text: this.startError });
@@ -677,6 +1055,11 @@ export class Engine {
   latestSession(phaseKey: string): SessionRecord | undefined {
     const id = this.record.phases[phaseKey]?.sessionIds.at(-1);
     return id === undefined ? undefined : this.sessionRecord(phaseKey, id);
+  }
+
+  /** A run's last output time: its last saved event's arrival, or its start when it saved none. */
+  runLastOutputAt(session: SessionRecord, runIndex: number): string | undefined {
+    return runLastOutputAt(this.options.stateDirectory, session, runIndex);
   }
 
   /** Every output line of a session saved so far. */
@@ -741,6 +1124,8 @@ export class Engine {
   }
 
   private save(): void {
+    // Once a stop begins, nothing is judged: the next `kiln run` judges from the record.
+    if (this.stopping) return;
     writePrdRecord(this.options.stateDirectory, this.record);
     this.changed();
   }
@@ -756,4 +1141,15 @@ export class Engine {
 
 function refuse(reason: string): CommandResult {
   return { ok: false, status: 409, reason };
+}
+
+/** True when `promise` settles within `ms`; false on the timeout or when `skip` resolves first. */
+async function raceTimeout(promise: Promise<unknown>, ms: number, skip?: Promise<void>): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), ms)));
+  try {
+    return await Promise.race([promise.then(() => true), timeout, ...(skip ? [skip.then(() => false)] : [])]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

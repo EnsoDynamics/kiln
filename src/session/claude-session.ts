@@ -3,13 +3,15 @@
 // and the run's end recorded (technical design, "Starting a phase's session", "Output and
 // progress").
 
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { spawnDetached } from "../platform/helper-process.js";
+import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { sessionDirectory, writeSessionRecord, PR_PHASE_KEY, type SessionRecord, type SessionRun } from "../state/records.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type StreamEvent } from "./session-output.js";
+import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
 
 /** The flags every session gets (technical design, "Starting a phase's session"). */
 export function launchArguments(sessionId: string, model: string, effort: string | undefined): string[] {
@@ -32,6 +34,20 @@ export function launchArguments(sessionId: string, model: string, effort: string
     "--permission-prompts",
     "none",
   ];
+}
+
+/**
+ * The flags that continue an interrupted session headlessly (technical design, "Resuming"):
+ * the same output and permission flags, the session's own concrete model, and the effort it
+ * recorded, left out when it recorded none.
+ *
+ *   resumeArguments("7c1e9f2a-…", "claude-opus-5-5", "high")
+ *   // ["-p", "--input-format", "stream-json", "--resume", "7c1e9f2a-…", "--model", "claude-opus-5-5", "--effort", "high", "--output-format", …]
+ */
+export function resumeArguments(sessionId: string, model: string, effort: string | undefined): string[] {
+  const launch = launchArguments(sessionId, model, effort);
+  launch.splice(launch.indexOf("--session-id"), 1, "--resume");
+  return launch;
 }
 
 /**
@@ -66,6 +82,36 @@ export interface SessionProcessOptions {
   onRecordChange?: () => void;
   /** Given the run's output reader once, so a caller can ask whether the reviewer is working. */
   onReader?: (reader: SessionOutputReader) => void;
+  /** Given the live process's controls once it has started. */
+  onSpawned?: (control: SessionControl) => void;
+  /**
+   * Run at the start of handling the process's end, before anything about the end is
+   * written: the sleep reading, so a sleep is recorded before the exit it may have caused.
+   */
+  beforeEnd?: () => Promise<void>;
+  /** True once a stop has begun: the run's end is then recorded and nothing about it judged. */
+  stopping?: () => boolean;
+  /**
+   * How long to wait after the process closes before handling its end. On Windows a Ctrl+C
+   * reaches the session as well as Kiln, and the session's exit can arrive first; the wait lets
+   * Kiln's own signal handler mark the run interrupted before its end is recorded.
+   */
+  exitGraceMs?: number;
+}
+
+/** What Kiln can do to a session's live process (technical design, "Stopping a session"). */
+export interface SessionControl {
+  pid: number;
+  /**
+   * Writes the interrupt control request to the session's stdin, the message the Agent SDK's
+   * `interrupt()` sends, then closes stdin: Claude Code ends the turn, stops the tool it was
+   * running and exits, leaving the session resumable.
+   */
+  interrupt(): void;
+  /** Ends the process with its whole tree: a signal to its group, or taskkill on Windows. */
+  endTree(signal: NodeJS.Signals): void;
+  /** Resolves once the process has closed. */
+  closed: Promise<void>;
 }
 
 export interface SessionFiles {
@@ -82,6 +128,27 @@ export function sessionFiles(stateDirectory: string, record: Pick<SessionRecord,
 
 export function readOutputLines(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId">): OutputLine[] {
   return readJsonLines<OutputLine>(sessionFiles(stateDirectory, record).output);
+}
+
+/**
+ * The saved events that arrived during one run: `events.jsonl` holds every run of the
+ * session, so a run's events are those from its `startedAt` to the next run's.
+ */
+export function eventsOfRun(stateDirectory: string, record: SessionRecord, runIndex: number): SavedEvent[] {
+  const run = record.runs[runIndex];
+  if (!run) return [];
+  const until = record.runs[runIndex + 1]?.startedAt;
+  return readJsonLines<SavedEvent>(sessionFiles(stateDirectory, record).events).filter((saved) => saved.at >= run.startedAt && (until === undefined || saved.at < until));
+}
+
+/** A run's last output time: the arrival of its last saved event, or its start when it saved none. */
+export function runLastOutputAt(stateDirectory: string, record: SessionRecord, runIndex: number): string | undefined {
+  return eventsOfRun(stateDirectory, record, runIndex).at(-1)?.at ?? record.runs[runIndex]?.startedAt;
+}
+
+/** Whether the run's stream reported the session's `init` event. */
+export function runReportedInit(stateDirectory: string, record: SessionRecord, runIndex: number): boolean {
+  return eventsOfRun(stateDirectory, record, runIndex).some((saved) => saved.event.type === "system" && saved.event.subtype === "init");
 }
 
 /**
@@ -127,21 +194,36 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   }
 
   const closed = new Promise<[number | null, NodeJS.Signals | null]>((resolve) => child.once("close", (exitCode, exitSignal) => resolve([exitCode, exitSignal])));
-  const run: SessionRun = { pid: child.pid, startedAt, cause: options.cause };
+  const pid = child.pid;
+  const run: SessionRun = { pid, startedAt, cause: options.cause };
   // The run is recorded at once, so a Kiln stopped from here on leaves it, never a session with no run.
   record.runs.push(run);
   saveRecord();
-  // Output waits in the pipe until a listener reads it, so nothing is lost while this is read.
-  const startTime = await processStartTime(child.pid);
-  if (startTime !== undefined) {
-    run.processStartTime = startTime;
-    saveRecord();
-  }
 
   child.stdin!.on("error", () => {
     // The process exited before reading its input; its exit is recorded below.
   });
   child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
+  // The controls are handed over at once, so a stop from here on can always reach the process.
+  options.onSpawned?.({
+    pid,
+    interrupt: () => {
+      if (child.stdin!.writableEnded || child.stdin!.destroyed) return;
+      child.stdin!.write(`${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`);
+      child.stdin!.end();
+    },
+    endTree: (signal) => endProcessTree(pid, signal),
+    closed: closed.then(() => undefined),
+  });
+  // Output waits in the pipe until a listener reads it, so nothing is lost while this is read.
+  const startTime = await processStartTime(pid);
+  if (startTime !== undefined) {
+    run.processStartTime = startTime;
+    saveRecord();
+  }
+
+  /** When each model response of this run arrived, for the sleep verdict. */
+  const modelResponses: string[] = [];
 
   let stdoutBuffer = "";
   let stderrBuffer = "";
@@ -157,6 +239,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     }
     if (isPartialDelta(event)) return;
     appendJsonLine(files.events, { at, event });
+    if (isModelResponse(event)) modelResponses.push(at);
 
     const stepsBefore = reader.steps.length;
     const skillBefore = reader.lastSkill;
@@ -208,6 +291,18 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   readStdoutLine(stdoutBuffer);
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
 
+  if (options.exitGraceMs) await new Promise((resolve) => setTimeout(resolve, options.exitGraceMs));
+  await options.beforeEnd?.();
+  // The end, its sleep reading and any sleep verdict are one write, so a record never holds a
+  // run's end without the verdict that was due. A stop's own interruptedBy stands.
+  const runIndex = record.runs.indexOf(run);
+  if (run.interruptedBy === undefined && !options.stopping?.()) {
+    const interruption = sleepInterruption(record.sleeps, runIndex, modelResponses);
+    if (interruption) {
+      run.interruptedBy = "sleep";
+      run.interruptedAt = interruption.at;
+    }
+  }
   const endedAt = now().toISOString();
   run.endedAt = endedAt;
   if (code !== null) run.exitCode = code;

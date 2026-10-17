@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync, mkdirSync 
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { findExecutable, runHelper } from "./helper-process.js";
+import { findExecutable, runHelper, STOPPING_FAILURE } from "./helper-process.js";
 
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kiln-helper-")));
 // Windows holds a folder while a process killed in it is still exiting, so removal retries.
@@ -57,3 +57,31 @@ describe("runHelper", () => {
     expect(result.failure).toMatch(/ENOENT/);
   });
 });
+
+describe("a helper call when Kiln stops", () => {
+  const node = process.execPath;
+
+  it("fails at once when the stop has already begun, and ends a running call, reading as the stop's result", async () => {
+    const stopped = new AbortController();
+    stopped.abort();
+    expect(await runHelper(node, ["-e", "process.exit(0)"], { cwd: root, signal: stopped.signal })).toMatchObject({ exitCode: null, failure: STOPPING_FAILURE });
+
+    const stopping = new AbortController();
+    const began = Date.now();
+    const running = runHelper(node, ["-e", "setTimeout(() => {}, 30000)"], { cwd: root, signal: stopping.signal });
+    setTimeout(() => stopping.abort(), 200);
+    expect(await running).toMatchObject({ exitCode: null, failure: STOPPING_FAILURE });
+    expect(Date.now() - began).toBeLessThan(5_000);
+  });
+
+  it("reads a call the Ctrl+C ended before Kiln's handler ran as the stop's, on Windows, where the call shares Kiln's console", async () => {
+    // The console's Ctrl+C ends the call (exit 130 here) a moment before Kiln's handler aborts.
+    const stopping = new AbortController();
+    const result = runHelper(node, ["-e", "process.exit(130)"], { cwd: root, signal: stopping.signal });
+    setTimeout(() => stopping.abort(), 400);
+    if (process.platform === "win32") expect(await result).toMatchObject({ exitCode: null, failure: STOPPING_FAILURE });
+    // On macOS and Linux the call is in its own process group, so a Ctrl+C never reaches it: an exit is its own.
+    else expect(await result).toMatchObject({ exitCode: 130 });
+  });
+});
+
