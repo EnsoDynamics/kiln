@@ -24,7 +24,7 @@ It replaces the loop a person runs by hand today: start a session with `implemen
 - a dedicated worktree and feature branch;
 - a push after every phase and one PR at the end;
 - a command line that stays in the foreground until you press Ctrl+C or close the terminal, and a local web view it serves;
-- macOS and Linux;
+- macOS, Linux and Windows (Windows added on 2026-10-17; see the PRD's AC-INSTALL-03 and the technical design's Windows section);
 - GitHub-hosted repositories, where the pull request opens.
 
 Everything else waits for later and is recorded, with the reasoning, in [Kiln ideas after v1](kiln-after-v1-ideas.md).

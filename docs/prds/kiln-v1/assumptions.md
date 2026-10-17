@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-15
+**Last Updated**: 2026-10-17
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -26,129 +26,27 @@ The requirements are in the [Kiln v1 PRD](kiln-v1-prd.md); the screens are the [
 
 ## Screen Behavior Assumptions
 
-### UI-001. Does a usage limit turn amber at 80% used?
+### UI-002. Until the phase is done, does "Keep going" cancel a requested pause, worded as below? — ⏳ PENDING (Ruled 2026-10-17 — we read your words; updated 2026-10-17; 85% confidence)
 
-**Assumption**: A Claude usage limit in the usage panel on Running and Paused turns **amber at 80% used or more**, with the note to switch accounts (AC-WATCH-08). Below 80% it stays in the normal color, and the one-line summary on Documents found never turns amber.
+**We read your words**: your answer settled that a requested pause **can be cancelled until the phase is done**, and the requirements now say so (AC-VIEW-03). What's left is the **wording of the control**, which no mockup draws.
 
-**Example**: In the Running and Paused mockups (fictional sample data), the 5-hour window at **82%** is amber with "Close to the limit", while the weekly limit at 41% and the weekly Fable limit at 6% are not.
+**Assumption**: Pressing **Pause after this phase** turns the button into **"Keep going"**. Pressing Keep going **cancels the pause** and puts the button and its line back as drawn. While the pause is requested, the line beside the button reads:
+- **Running**, in the Pause Kiln panel: **"Kiln pauses once phase 2b, Store credit, is done, including its commit and push. Keep going cancels the pause."**
+- **Phase detail**, under the button: **"Kiln pauses once phase 2b is done, including its commit and push. Keep going cancels the pause."**
 
-**Evidence**: The mockups only show that the line falls somewhere between 41% and 82%; neither the mockups nor the architecture proposal name a number. The alternative is to follow Claude Code's own warning level, which its usage report carries for each limit, so Kiln's amber would match whatever Claude Code itself warns about.
+The header **doesn't change** until the pause takes effect: it keeps reading "Implementing phase 2b" until phase 2b is Done and Kiln shows Paused. From then on there is nothing to cancel, and **Start** carries on.
 
-**Confirm or Correct**:
-- [ ] Correct — amber at 80% used
-- [ ] Wrong — amber when Claude Code's own usage report marks the limit as a warning
-- [ ] Wrong — a different threshold: _______________
+At **Needs you**, which shows no pause controls (UI-006), a pause requested before the stop **still holds** once the phase is Done; Start then carries on.
 
-**Confidence**: 70% | **Impact if Wrong**: 🟢 LOW
+**Example**: In the Running mockup (fictional sample data), phase 2b, Store credit, is at Deliverable review. Pressing Pause turns the button into "Keep going" with the line above. Pressing Keep going before phase 2b is Done brings back "Pause after this phase", and phase 3 starts after phase 2b as usual.
 
----
-
-### UI-002. Once "Pause after this phase" is pressed, does the pause stand until the phase is done?
-
-**Assumption**: Once the person presses **Pause after this phase**, the **request can't be taken back**. On Running and Phase detail the button is replaced by a **grey, unavailable "Pausing after this phase"**, and the line beside it says when Kiln pauses:
-- **Running**, in the Pause Kiln panel: **"Kiln pauses once phase 2b, Store credit, is done, including its commit and push. Then it starts no new phase until you press Start."** (drawn: "Phase 2b, Store credit, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start.")
-- **Phase detail**, under the button: **"Kiln pauses once phase 2b is done, including its commit and push."** (drawn: "Phase 2b still finishes its commit and push. Nothing is cut off mid-step.")
-
-The header **doesn't change** until the pause takes effect: it keeps reading "Implementing phase 2b" until phase 2b is Done and Kiln shows Paused. To carry on, the person presses Start once Kiln has paused (AC-VIEW-03).
-
-**Example**: In the Running mockup (fictional sample data), phase 2b, Store credit, is at Deliverable review. Pressing Pause there turns the button grey, reading "Pausing after this phase", while the header still reads "Implementing phase 2b" and the phase plan still shows phase 3 as Planned.
-
-**Evidence**: No mockup draws the moment between pressing Pause and the phase being Done. The Running and Phase detail screens say only that the current phase finishes its commit and push first and that no phase starts until Start, so this is the reading that adds no control the mockups don't show. The new lines keep the drawn wording ("including its commit and push") and change only what was a promise about pressing the button into a statement of what Kiln will do. The header stays because phase 2b is still being implemented; the pause is only a request until then.
-
-The alternative lost because it adds a control: the button turns into "Keep going", which cancels the pause. Its advantage is real: a pause pressed by mistake before leaving the machine would otherwise leave the feature idle until the person returns.
+**Why your 2026-10-17 answer didn't close this**: You wrote: "I don't see why you couldn't change your desire to pause or not after the current phase is done … if you clicked it by accident or change your mind before the phase ended, it seems like you should be able to adjust it." **You're not missing anything**: a requested pause is only a note Kiln reads once the phase is Done, so cancelling it costs nothing. The button wording comes from the alternative this entry listed ("Keep going"); only the line beside it is new.
 
 **Confirm or Correct**:
-- [ ] Correct — the pause stands; press Start once paused to carry on
-- [ ] Wrong — the person can cancel the pause until the current phase is Done
-- [ ] Wrong — different approach: _______________
+- [ ] Correct — "Keep going" cancels the pause, with these lines
+- [ ] Wrong — corrections to the wording: _______________
 
-**Confidence**: 60% | **Impact if Wrong**: 🟢 LOW
-
----
-
-### UI-003. When the feature branch's name is already taken, does Documents found ask for another name?
-
-**Assumption**: When a branch with the feature branch's name **already exists**, in the repository or on `origin` (the base branch included), Documents found says so **beside the Feature branch field**, and **Start stays unavailable** until the person enters a name no branch has. Kiln never works on a branch it didn't create (AC-START-07).
-
-**Example**: In the Documents found mockup (fictional sample data), the field holds the default `feature/customer-returns`. If a branch of that name were left over from earlier work, the field would say the branch already exists, and Start would wait until the person entered, say, `feature/customer-returns-2`.
-
-**Evidence**: No mockup draws this case. That Kiln creates a new branch is settled (architecture proposal: Kiln creates the branch "from the base branch before the first session"), so the only question is where the person hears about a taken name. Documents found is where the name is set and changed, and the only place that can catch a taken name the person types. The alternative is a terminal error before the browser opens, like the other start checks (AC-START-02): it catches a taken default name sooner, but not one typed on Documents found, so the browser would still need its own message.
-
-The [technical design](technical-design.md) covers a feature whose record was lost and a worktree path already in use.
-
-**Confirm or Correct**:
-- [ ] Correct — say so beside the Feature branch field; Start waits for a name no branch has
-- [ ] Wrong — also stop in the terminal when the default name is taken, before the browser opens
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 75% | **Impact if Wrong**: 🟢 LOW
-
----
-
-### UI-004. Does a new PRD start on the latest Opus at high effort?
-
-**Assumption**: On Documents found, the Model field starts at **the latest Opus model** and Effort at **high**, for every PRD, whatever Claude Code itself would use on that machine. The Model list offers **the models Claude Code offers the signed-in account**. The person can change both before Start (AC-START-06).
-
-**Example**: In the Documents found mockup (fictional sample data), Model shows **Opus 5.5**, chosen from the sample account's models (Opus, Fable and Sonnet), and Effort shows **High**.
-
-**Evidence**: The mockup preselects Opus and High but can't say whether that is a fixed default or this machine's own setting. The architecture proposal names only the `--model` and `--effort` flags, with no default.
-
-A fixed strong default suits phases that run for hours unattended and must pass review and test hardening; the cost is using plan limits faster, which the usage panel shows (AC-WATCH-08). The alternative is to start from the model and effort Claude Code uses on that machine, so Kiln matches the person's own setup; it lost because that setup is often tuned for interactive work, and the mockup draws Opus at high.
-
-**Confirm or Correct**:
-- [ ] Correct — the latest Opus at high effort; the list offers what Claude Code offers the signed-in account
-- [ ] Wrong — start from the model and effort Claude Code uses on that machine
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 60% | **Impact if Wrong**: 🟢 LOW
-
----
-
-### UI-005. Does Kiln wait for a usage limit to reset?
-
-**Assumption**: **No.** Kiln starts the next phase on whichever account is signed in, **even when a limit is at 100%**, and a session that runs into a limit is **handled like any other stop**: if the phase fails the done check, it goes to **Needs you**, showing how the session ended, word for word (AC-STOP-02). The person then switches accounts with `claude auth login`, or waits for the reset, and finishes the phase as for any other stop (AC-WATCH-08, AC-STOP-05, AC-STOP-07).
-
-**Example**: In the Running mockup (fictional sample data), the 5-hour window is at **82%** and resets in 1h 12m. If phase 3 started and the window reached 100% partway through, phase 3 would go to Needs you; Kiln would not hold it until the window resets.
-
-**Evidence**: The architecture proposal and the after-v1 ideas don't mention waiting for a reset. The PRD's own rules lead here: Kiln doesn't rerun a stopped phase (AC-STOP-01) and never resumes a session that ended on its own (AC-KEEP-04), and the mockups' answer to a nearly used limit is to switch accounts. No mockup draws a waiting state.
-
-The alternative is to **wait for the reset** before starting the next phase when the pre-phase usage check shows a limit at 100%. Its advantage is real for overnight work: the feature would carry on after the reset instead of sitting at Needs you until morning. It lost because it adds a state and screen copy no mockup shows, and it covers only the start of a phase, not a limit reached mid-session.
-
-**Confirm or Correct**:
-- [ ] Correct — don't wait; a limit stop goes to Needs you like any other
-- [ ] Wrong — wait for the reset before starting the next phase when a limit is at 100%
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 60% | **Impact if Wrong**: 🟡 MEDIUM
-
----
-
-### UI-006. While Kiln is stopped at Needs you, does the browser show only the Needs you screen?
-
-**Assumption**: While Kiln is stopped at **Needs you**, the browser shows **only the Needs you screen as drawn**: **no phase plan, no settings and no Claude account panel**. The Kiln mark leads back to that same screen, for example from the full session output.
-
-A phase plan row in the **Needs you** state (AC-WATCH-01) appears **only when the view loses Kiln while it is stopped at Needs you**. The Disconnected screen then shows:
-- the header **"Needs you · Phase <n> · <title> · Stopped <time>"** (AC-WATCH-02)
-- **no current-phase panel**, since that panel is only for a phase being implemented (AC-WATCH-03)
-- the phase plan, with that phase's row in **amber Needs you**
-- the settings
-
-Running `kiln run` again runs that phase's check (AC-CLI-01) and, if it still fails, returns to the Needs you screen.
-
-**Example**: One Needs you mockup (fictional sample data) shows "Needs you · Phase 2b · Store credit · Stopped 11:52 AM". If the terminal running Kiln were then closed, the Disconnected screen would carry that same header, no "Last seen" panel for phase 2b, and phase 2b's row in amber **Needs you** where the Disconnected mockup shows Interrupted.
-
-**Evidence**: A Needs you row can't appear beside Running, Paused or Complete: **no later phase starts** after a stop (AC-STOP-01), and a pause takes effect **only once that phase is Done** (AC-VIEW-03). Both Needs you mockups draw no plan, settings or account panel, and the screens must match the mockups with no exceptions (AC-LOOK-01); the settings and account requirements (AC-WATCH-07, AC-WATCH-08) don't list Needs you. The Kiln mark links to the progress view on every screen, which here is Needs you itself.
-
-The question arose because the plan's list of states includes Needs you, yet no drawn screen shows a plan beside a stopped phase. The Disconnected mockup was drawn for a disconnect **while a phase was being implemented**, so we're surer of the live screen (**about 95%**) than of the disconnected one (**about 70%**).
-
-The alternative is to keep the Needs you screen up and only mark it disconnected. It lost because only the Disconnected screen carries the required wording that **nothing is running** and that `kiln run` **picks up where it left off** (AC-VIEW-07).
-
-**Confirm or Correct**:
-- [ ] Correct — Needs you shows only its own screen; the plan's Needs you row appears only on Disconnected
-- [ ] Wrong — when the view loses Kiln at Needs you, keep the Needs you screen and mark it disconnected
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 85% | **Impact if Wrong**: 🟡 MEDIUM
+**Confidence**: 85% | **Impact if Wrong**: 🟢 LOW
 
 ---
 
@@ -207,46 +105,6 @@ Each variant **changes as little drawn copy as possible**, and every sentence st
 - [ ] Wrong — corrections to the wording: _______________
 
 **Confidence**: 80% | **Impact if Wrong**: 🟡 MEDIUM
-
----
-
-### UI-008. Does a pause pressed during the last phase hold before the pull-request session?
-
-**Assumption**: A **Pause after this phase** pressed during the **last phase** holds **before the pull-request session**, just as it holds before any other phase: Kiln shows Paused, and the pull-request session starts only when the person presses **Start the pull request**. The pause is **dropped only when the pull request is already open**, because then nothing would start and Kiln completes.
-
-**Example**: The Paused mockup (fictional sample data) reads "Paused after phase 2a · Next: phase 2b, Store credit". Had the person pressed Pause during phase 4, the sample feature's last phase, the same screen would read **"Paused after phase 4 · Next: the pull request"**, with "5 of 5 phases done" and a **Start the pull request** button.
-
-**Evidence**: A pause holds every start until the person presses Start (AC-VIEW-03), and the pull-request session is handled as one last phase (AC-PR-05), which rules out pausing only **during** it. The usual reason to pause, **switching accounts near a usage limit** (AC-WATCH-08), applies to the pull-request session as much as to any phase. Dropping the pause would silently ignore a request the person can't take back (UI-002).
-
-The alternative is to drop the pause and open the pull request straight away, since that session is short and finishes the feature. It lost because the person asked Kiln not to start anything, and nothing on screen would tell them Kiln started anyway.
-
-**Confirm or Correct**:
-- [ ] Correct — hold before the pull-request session; drop the pause only when the pull request is already open
-- [ ] Wrong — drop the pause and open the pull request straight away
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 88% | **Impact if Wrong**: 🟢 LOW
-
----
-
-### UI-009. Does Change edit the model and effort in place, saving each choice at once?
-
-**Assumption**: On Running and Paused, pressing **Change** opens, **in place inside the settings panel**, the same **Model** list and **Effort** buttons drawn on Documents found, including Model's error line. **Each choice is saved at once**; there is **no Save button**. While the editor is open, Change reads **"Done"**, and pressing it closes the editor.
-
-The **keep-awake checkbox saves when toggled** and applies at once, its label reading **"On"** or **"Off"**. During the pull-request session, the settings note names that session in place of "phase <n>": **"Model and effort changes apply from the next phase; the pull-request session keeps what it started with."**
-
-**Example**: In the Running mockup (fictional sample data), the settings panel shows "Opus 5.5 · high effort" with Change, and phase 2b is working at high effort. Pressing Change and choosing **Medium** saves it at once: phase 2b's panel and Details **still show high effort**, and phase 3 starts at medium.
-
-**Evidence**: No mockup draws Change opened or keep-awake switched off. Reusing the Documents found controls gives the person nothing new to learn, and the drawn settings note already says when a change applies ("phase 2b keeps what it started with"), so no separate confirmation is needed. **"Done"** and **"Off"** are the smallest additions the mockups leave open.
-
-The alternative is an editor with Save and Cancel buttons. It lost because each setting is one choice that is easy to change back, and a Save step is one a person could forget before leaving the machine.
-
-**Confirm or Correct**:
-- [ ] Correct — edit in place; each choice and the keep-awake checkbox save at once
-- [ ] Wrong — the editor has Save and Cancel buttons
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
 
 ---
 
@@ -329,7 +187,7 @@ In "Ran … to …", each end follows the rule on its own, and a day shared by b
 | `origin` not on GitHub | "origin isn't on GitHub: <url>" |
 | A tool missing | "gh isn't on the PATH." (likewise `claude` and `git`) |
 
-On **Windows** the frame is the same with one line, **"Kiln runs on macOS and Linux."** When documents are also missing, the drawn lines come first and these follow, before the drawn closing line.
+When documents are also missing, the drawn lines come first and these follow, before the drawn closing line.
 
 **11. The line under each started progress step** on Phase detail. A step not yet started keeps its drawn line ("Starts when the session calls the test-hardening skill"). A started step shows one line, with **the time it started and what Kiln saw** on the right:
 
@@ -433,28 +291,16 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 
 ---
 
-## Platform Assumptions
-
-### PLAT-001. On Linux desktops other than GNOME, is it acceptable that keep-awake also blocks a sleep the person asks for?
-
-**Assumption**: **Yes.** On Linux desktops **other than GNOME** with a recent system manager (**systemd 257 or newer**), while a session works, Kiln's keep-awake also **refuses a sleep the person asks for from the menu**. **Closing the lid still sleeps** the computer. Kiln's screens keep the drawn wording, **"Stops idle sleep only"**, which is exact on macOS and on GNOME.
-
-**Example**: On a KDE laptop with a recent Linux release, a phase is running and the person chooses Sleep from the menu: the computer **stays awake**. Once the feature reaches Needs you, pauses or completes, Sleep works again. Closing the lid instead puts it to sleep, as the screens say. On Ubuntu's standard GNOME desktop, the same menu choice sleeps at once.
-
-**Evidence**: On those desktops, the only hold their automatic sleep respects is one the system also applies to a sleep the person asks for; recent systemd versions stopped exempting the person's own requests. No other mechanism stops their automatic sleep without also blocking a requested one. GNOME has its own hold that stops only automatic sleep, and Kiln uses it there. The person can still sleep the computer by closing the lid, or by pausing or stopping Kiln.
-
-The alternative is to **qualify AC-KEEP-07 for Linux** in the PRD and on the screens, saying that outside GNOME a sleep from the menu is also blocked. It lost because it adds platform-specific copy to every screen that shows keep-awake, for a case that affects only some Linux desktops and is easy to get around.
-
-**Confirm or Correct**:
-- [ ] Correct — accept the blocked menu sleep on those desktops; keep the drawn wording
-- [ ] Wrong — qualify AC-KEEP-07 for Linux in the PRD and on the screens
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 70% | **Impact if Wrong**: 🟢 LOW
-
----
-
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| UI-001 | A usage limit turns amber at 80% used, on Running and Paused only | 2026-10-17 | PRD AC-WATCH-08; Technical Design, Account and Usage |
+| UI-003 | A feature branch name already taken is flagged beside its field and holds Start | 2026-10-17 | PRD AC-START-07; Technical Design, Worktree and Branch Setup. Deleting the old branch yourself frees the name |
+| UI-004 | A new PRD starts on the latest Opus at high effort; the list offers the account's models | 2026-10-17 | PRD AC-START-06; Technical Design, Account and Usage |
+| UI-005 | Kiln never waits for a usage limit to reset; a limit stop is a Needs you like any other | 2026-10-17 | PRD AC-WATCH-08; Technical Design, Account and Usage |
+| UI-006 | At Needs you the browser shows only the Needs you screen; the plan's Needs you row shows only on Disconnected | 2026-10-17 | Technical Design, HTTP API |
+| UI-008 | A pause pressed during the last phase holds before the pull-request session | 2026-10-17 | Technical Design, engine loop and Snapshot |
+| UI-009 | Change edits model and effort in place, each choice and keep-awake saved at once | 2026-10-17 | Technical Design, Snapshot (Settings and each phase's model) |
+| PLAT-001 | Outside GNOME on Linux, keep-awake may also block a sleep chosen from the menu; screens keep "Stops idle sleep only" | 2026-10-17 | Technical Design, Keep-awake |
+| PLAT-002 | Windows is in v1, not a later release (decided over the proposed deferral) | 2026-10-17 | PRD AC-INSTALL-03; Technical Design, Windows |

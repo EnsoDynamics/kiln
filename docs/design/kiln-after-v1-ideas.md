@@ -65,10 +65,6 @@ When a phase ends without being done, Kiln could ask the stopped session itself,
 
 In v1, `kiln run` runs in the foreground of its terminal, and closing the terminal interrupts Kiln until `kiln run` picks it back up. A background service (launchd, systemd or a Windows service) would keep Kiln going with no terminal open. Worth building only if real use shows that interruptions from closed terminals cost more than the cheap resume makes them.
 
-## Windows
-
-v1 runs on macOS and Linux. Windows needs its own process-group cleanup on Ctrl+C and its own way to prevent idle sleep.
-
 ## Notifications
 
 System notifications when a phase needs you and when the PR is ready, so you hear about a stop without watching the browser tab. v1 shows everything in the browser view only.
@@ -80,6 +76,8 @@ A screen that lists a repository's PRDs, or accepts a dropped PRD folder, as a w
 ## More terminal commands
 
 `kiln status`, `kiln logs`, `kiln open` and `kiln pause`. In v1 the browser view does all of these, and `kiln run` is the only command.
+
+Business feedback (2026-10-17) widens this: any action the browser view offers should later be possible from outside it, including from a chat bot the person drives from a phone. The v1 technical design keeps that open ("Control From Outside the Browser"); reaching Kiln from off the machine needs its own design.
 
 ## An end-of-PRD summary
 
