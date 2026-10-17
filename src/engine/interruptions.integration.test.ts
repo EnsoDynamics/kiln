@@ -376,12 +376,18 @@ describe("a sleep while Kiln keeps running", () => {
       JSON.stringify({
         sessions: [
           // The network isn't back after the wake: the session gives up with no model response.
-          { actions: [{ skill: IMPLEMENT }, { text: "Building the intake form." }, { touch: slept }, { waitForFile: `${slept}.found` }, { stderr: "API Error: Connection error." }, { exit: 1 }] },
+          { actions: [{ skill: IMPLEMENT }, { text: "Building the intake form." }, { waitForFile: `${slept}.found` }, { stderr: "API Error: Connection error." }, { exit: 1 }] },
           landingSession(),
         ],
       }),
     );
     await h.engine.start({ refinementConfirmed: true });
+    // The computer sleeps only once Kiln has read the session's last response before it.
+    await waitFor(() => {
+      const session = h.engine.latestSession("1");
+      return session !== undefined && h.engine.outputLines(session).some((line) => line.text === "Building the intake form.");
+    });
+    writeFileSync(slept, "");
     await h.engine.settled();
 
     const session = sessionOf(h, "1");
