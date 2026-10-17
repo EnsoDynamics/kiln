@@ -1,5 +1,6 @@
-// The built `kiln run` on a feature already underway, as a person runs it: it re-checks a stop
-// and carries on, says a PRD is already running, and shows a completed feature from its record.
+// `kiln run` on a feature already underway, as a person runs it: it re-checks a stop and carries
+// on, says a PRD is already running, and shows a completed feature from its record, staying in
+// the foreground with its browser view served until Ctrl+C (AC-KEEP-01).
 
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -18,7 +19,7 @@ afterEach(() => harness?.cleanup());
 
 function kilnEnv(h: Harness): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(h.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  return { ...env, PATH: [join(h.sandbox.root, "bin"), h.env.PATH ?? h.env.Path ?? ""].join(delimiter) };
+  return { ...env, PATH: [join(h.sandbox.root, "bin"), h.env.PATH ?? h.env.Path ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41140-41159" };
 }
 
 /**
@@ -36,7 +37,37 @@ function kilnRun(h: Harness) {
   return { exitCode: result.status, stdout: withoutKeepAwakeError(result.stdout), stderr: result.stderr };
 }
 
+/**
+ * `kiln run` in this process until its output shows `until`, then Ctrl+C, as a person stops a
+ * Kiln that would otherwise stay in the foreground. The stop's own line is the output's last.
+ */
+async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean) {
+  let stdout = "";
+  let stderr = "";
+  const signals = new EventEmitter();
+  /** Each browser open: the address, and how many sessions had been launched by then. */
+  const opened: { address: string; claudeCalls: number }[] = [];
+  const done = runKilnCommand(["run", "docs/prds/customer-returns"], {
+    cwd: h.repository,
+    env: kilnEnv(h),
+    stdout: { write: (text: string) => (stdout += text) },
+    stderr: { write: (text: string) => (stderr += text) },
+    signals,
+    openBrowser: async (address) => {
+      opened.push({ address, claudeCalls: h.claudeCalls().length });
+      return undefined;
+    },
+  });
+  await waitFor(() => until(withoutKeepAwakeError(stdout)), 40_000);
+  // What Kiln does next settles before the stop, so the stop's line says where it waits.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  signals.emit("SIGINT");
+  const exitCode = await done;
+  return { exitCode, stdout: withoutKeepAwakeError(stdout), stderr, opened };
+}
+
 const time = String.raw`[ \d]\d:\d\d`;
+const opened = String.raw` Opened http://127\.0\.0\.1:\d+/customer-returns`;
 
 describe("kiln run on a feature underway", () => {
   it("checks a stopped phase again, and carries on with the next phase once the person has finished it", async () => {
@@ -49,23 +80,30 @@ describe("kiln run on a feature underway", () => {
     expect(h.engine.record.phases["1"]!.stop).toBeDefined();
 
     // Nothing changed yet: it still needs the person, and nothing starts (AC-STOP-08).
-    const still = kilnRun(h);
-    expect(still.stdout.split("\n").slice(0, 2)).toEqual(["Customer returns  ·  2 of 4 phases done  ·  phase 1 needs you", "● Phase 1 still needs you."]);
+    const still = await kilnRunUntil(h, (stdout) => stdout.includes("● Phase 1 still needs you."));
+    const stillLines = still.stdout.trimEnd().split("\n");
+    expect(stillLines[0]).toBe("Customer returns  ·  2 of 4 phases done  ·  phase 1 needs you");
+    expect(stillLines[1]).toMatch(new RegExp(`^● Phase 1 still needs you\\.${opened}$`));
+    expect(stillLines.at(-1)).toBe("Kiln stopped. Phase 1 still needs you; kiln run checks it again.");
     expect(h.claudeCalls()).toHaveLength(1);
 
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
-    const result = kilnRun(h);
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("Returns dashboard  stopped"));
     expect(result.stderr).toBe("");
     const lines = result.stdout.trimEnd().split("\n");
     expect(lines[0]).toBe("Customer returns  ·  2 of 4 phases done  ·  phase 1 needs you");
-    expect(lines[1]).toBe("● Phase 1 is done, finished by you. Starting phase 2b, Store credit.");
+    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is done, finished by you\\. Starting phase 2b, Store credit\\.${opened}$`));
     expect(lines[2]).toMatch(new RegExp(`^${time}  2b  Store credit       started$`));
     expect(lines[3]).toMatch(new RegExp(`^${time}  2b  Store credit       done · pushed [0-9a-f]{7}$`));
     expect(lines[4]).toMatch(new RegExp(`^${time}  3   Returns dashboard  started$`));
     expect(lines[5]).toMatch(new RegExp(`^${time}  3   Returns dashboard  stopped$`));
-    expect(lines[6]).toBe("  This build of Kiln has no browser view yet, so it exits here; kiln run checks again and carries on.");
-    expect(result.exitCode).toBe(0);
+    // Kiln waited at Needs you in the foreground until Ctrl+C (AC-KEEP-01).
+    expect(lines[6]).toBe("Kiln stopped. Phase 3 still needs you; kiln run checks it again.");
+    expect(lines).toHaveLength(7);
+    expect(result.exitCode).toBe(130);
     expect(h.claudeCalls()).toHaveLength(3);
+    // The browser opened on the address the ● line gives, before the next phase's session spawned (AC-START-03).
+    expect(result.opened).toEqual([{ address: /Opened (\S+)$/.exec(lines[1]!)![1], claudeCalls: 1 }]);
   });
 
   it("says the PRD is already running, with its address, and starts nothing, while another kiln run holds it", async () => {
@@ -79,17 +117,23 @@ describe("kiln run on a feature underway", () => {
 
     const holder = spawn(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), stdio: "ignore" });
     const exited = new Promise((resolve) => holder.once("exit", resolve));
+    let holderAddress: string | undefined;
     const deadline = Date.now() + 30_000;
     while (h.claudeCalls().length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
     expect(h.claudeCalls()).toHaveLength(2);
 
     try {
       const second = kilnRun(h);
-      expect(second.stdout).toMatch(/^Customer returns is already running at http:\/\/127\.0\.0\.1:47\d\d\/customer-returns\n$/);
+      expect(second.stdout).toMatch(/^Customer returns is already running at http:\/\/127\.0\.0\.1:\d+\/customer-returns\n$/);
       expect(second.exitCode).toBe(1);
       expect(h.claudeCalls()).toHaveLength(2);
+      holderAddress = /at (\S+)\n/.exec(second.stdout)![1];
+      // The address it gives is the holder's own browser view.
+      expect((await fetch(holderAddress!)).status).toBe(200);
     } finally {
       writeFileSync(release, "");
+      // The holder stays in the foreground at Needs you; it is stopped as a person would.
+      holder.kill(process.platform === "win32" ? undefined : "SIGINT");
       await exited;
     }
   });
@@ -100,9 +144,12 @@ describe("kiln run on a feature underway", () => {
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     const ghCalls = h.ghCalls().length;
-    const result = kilnRun(h);
-    expect(result.stdout).toBe("Customer returns  ·  4 of 4 phases done  ·  complete\n● Pull request #218 is ready for review.\n");
-    expect(result.exitCode).toBe(0);
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("ready for review"));
+    const lines = result.stdout.trimEnd().split("\n");
+    expect(lines[0]).toBe("Customer returns  ·  4 of 4 phases done  ·  complete");
+    expect(lines[1]).toMatch(new RegExp(`^● Pull request #218 is ready for review\\.${opened}$`));
+    expect(lines[2]).toBe("Kiln stopped. Customer returns is complete.");
+    expect(result.exitCode).toBe(130);
     expect(h.ghCalls()).toHaveLength(ghCalls);
   });
 });
@@ -143,7 +190,7 @@ describe("Ctrl+C and a closed terminal", () => {
 
     // A runner whose logind refuses keep-awake adds its one error line, which this test isn't about.
     const lines = withoutKeepAwakeError(stdout).trimEnd().split("\n");
-    expect(lines[1]).toBe("● Phase 1 is done, finished by you. Starting phase 2b, Store credit.");
+    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is done, finished by you\\. Starting phase 2b, Store credit\\.${opened}$`));
     expect(lines[2]).toMatch(new RegExp(`^${time}  2b  Store credit       started$`));
     expect(lines.at(-1)).toBe("Interrupted phase 2b, Store credit. Its session and uncommitted work are kept.");
     expect(lines).toHaveLength(4);
@@ -152,10 +199,10 @@ describe("Ctrl+C and a closed terminal", () => {
     expect(run).toMatchObject({ interruptedBy: "sigint", endedAt: expect.any(String) });
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
 
-    const result = kilnRun(h);
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("Store credit       done"));
     const next = result.stdout.trimEnd().split("\n");
     expect(next[0]).toBe("Customer returns  ·  2 of 4 phases done  ·  phase 2b was interrupted");
-    expect(next[1]).toBe(`● Resuming phase 2b’s session ${session.sessionId.slice(0, 8)}.`);
+    expect(next[1]).toMatch(new RegExp(`^● Resuming phase 2b’s session ${session.sessionId.slice(0, 8)}\\.${opened}$`));
     expect(next[2]).toMatch(new RegExp(`^${time}  2b  Store credit       resumed$`));
     expect(next[3]).toMatch(new RegExp(`^${time}  2b  Store credit       done · pushed [0-9a-f]{7}$`));
     expect(h.claudeCalls()[2]!.args).toContain("--resume");

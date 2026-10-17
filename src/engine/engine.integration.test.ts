@@ -404,6 +404,8 @@ describe("pausing between phases", () => {
     await h.engine.settled();
 
     expect(h.claudeCalls()).toHaveLength(1);
+    // A pause taking effect prints no line (AC-START-09): phase 1's done line is the last.
+    expect(h.events.at(-1)).toMatchObject({ kind: "phase", phaseId: "1", event: "done" });
     const snapshot = buildSnapshot(h.engine);
     expect(snapshot.feature.state).toBe("paused");
     expect(snapshot.pause).toEqual({ pending: false, active: true });

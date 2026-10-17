@@ -25,7 +25,7 @@ export interface RepositoryPaths {
  * otherwise origin's default branch, and the latest Opus at high effort.
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
-  const base = origin?.branches.has("develop") ? "develop" : (origin?.defaultBranch ?? "");
+  const base = origin === undefined ? "" : defaultBaseBranch(origin);
   return {
     worktreePath: join(dirname(paths.mainCheckoutPath), `${paths.repositoryName}-kiln`, paths.folderName),
     featureBranch: `feature/${paths.folderName}`,
@@ -34,6 +34,11 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     effort: "high",
     keepAwake: true,
   };
+}
+
+/** The base a PRD starts from: `develop` when origin has it, otherwise origin's default branch, else none. */
+export function defaultBaseBranch(origin: OriginBranches): string {
+  return origin.branches.has("develop") ? "develop" : (origin.defaultBranch ?? "");
 }
 
 /** The base field's list: `develop`, then origin's default branch, then the rest by name. */
@@ -50,7 +55,7 @@ export function expandHome(path: string): string {
   return path;
 }
 
-export type FieldErrors = Partial<Record<"worktreePath" | "featureBranch" | "baseBranch", string>>;
+export type FieldErrors = Partial<Record<"worktreePath" | "featureBranch" | "baseBranch" | "model", string>>;
 
 export interface FieldCheckInput {
   git: GitContext;

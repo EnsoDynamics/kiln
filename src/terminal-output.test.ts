@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDocumentsFound, formatStartFailure, terminalColors } from "./terminal-output.js";
+import { formatDocumentsFound, formatStartFailure, terminalColors, formatOpenedLine } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -60,5 +60,30 @@ describe("formatDocumentsFound", () => {
     expect(formatDocumentsFound("Gift cards", { assumptions: false, phaseDocCount: 1 }, plain)).toBe(
       "Gift cards  ·  PRD, technical design, 1 phase doc  ·  all checks passed",
     );
+  });
+});
+
+describe("the not-started ● line (AC-START-09)", () => {
+  const plain = terminalColors({ isTTY: false }, {});
+  it("says the view was opened, to review it there, and to keep the terminal open", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", undefined, plain).split("\n")).toEqual([
+      "● Opened http://127.0.0.1:4700/customer-returns. Review it there and press Start.",
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+  });
+
+  it("colors the ● and the address red and the rest grey, as drawn", () => {
+    const colors = terminalColors({ isTTY: true }, {});
+    const [line] = formatOpenedLine("http://127.0.0.1:4700/customer-returns", undefined, colors).split("\n");
+    expect(line).toBe(`${colors.red("●")} Opened ${colors.red("http://127.0.0.1:4700/customer-returns")}${colors.grey(". Review it there and press Start.")}`);
+  });
+
+  it("gives the address and why when the browser couldn't be opened", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", "xdg-open isn’t on the PATH", plain).split("\n")).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4700/x. Review it there and press Start.",
+      "✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open http://127.0.0.1:4700/x yourself.",
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", "no display", plain, true)).toBe("✗ Couldn’t open the browser: no display. Open http://127.0.0.1:4700/x yourself.");
   });
 });

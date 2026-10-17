@@ -39,11 +39,12 @@ export function formatSummaryLine(engine: Engine, colors: TerminalColors): strin
 }
 
 /**
- * The ● line: what Kiln does next. Until the browser view exists, it names no address.
+ * The ● line: what Kiln does next, then "Opened <address>" with no closing period, as drawn.
+ * With no address (the browser couldn't be opened) it ends at what Kiln does next.
  *
- *   ● Phase 2b is done, finished by you. Starting phase 3, Returns dashboard.
+ *   ● Phase 2b is done, finished by you. Starting phase 3, Returns dashboard. Opened http://127.0.0.1:4700/customer-returns
  */
-export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, colors: TerminalColors): string {
+export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, colors: TerminalColors, openedAddress?: string): string {
   const titled = (key: string) => `${phaseName(key)}, ${engine.titleOf(key)}`;
   let text: string;
   switch (decision.kind) {
@@ -81,5 +82,5 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
   }
   const doneFirst = "doneFirst" in decision ? decision.doneFirst : undefined;
   if (doneFirst) text = `${capitalized(phaseName(doneFirst.phaseId))} is done${doneFirst.byPerson ? ", finished by you" : ""}. ${text}`;
-  return `${colors.red("●")} ${text}`;
+  return `${colors.red("●")} ${text}${openedAddress === undefined ? "" : ` Opened ${colors.red(openedAddress)}`}`;
 }

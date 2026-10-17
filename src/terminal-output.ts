@@ -113,6 +113,26 @@ export function formatStartedLine(at: Date, branch: string, baseBranch: string, 
 }
 
 /**
+ * The ● line for a feature not started, as drawn, then the grey line under it:
+ *
+ *   ● Opened http://127.0.0.1:4700/customer-returns. Review it there and press Start.
+ *     Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.
+ *
+ * When the browser couldn't be opened, the line gives the address alone and an amber line says
+ * why. `addressGiven` is set when the ● line above already printed the address.
+ */
+export function formatOpenedLine(address: string, openError: string | undefined, colors: TerminalColors, addressGiven = false): string {
+  const failure = openError === undefined ? [] : [`${colors.amber("✗")} Couldn’t open the browser: ${openError}. Open ${address} yourself.`];
+  if (addressGiven) return failure.join("\n");
+  const opened = openError === undefined ? `Opened ${colors.red(address)}` : `Kiln’s view is at ${colors.red(address)}`;
+  return [
+    `${colors.red("●")} ${opened}${colors.grey(". Review it there and press Start.")}`,
+    ...failure,
+    colors.grey("  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up."),
+  ].join("\n");
+}
+
+/**
  * The first line for a feature not started, as drawn:
  *
  *   Customer returns  ·  PRD, technical design, assumptions, 6 phase docs  ·  all checks passed

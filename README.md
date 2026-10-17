@@ -4,7 +4,7 @@ Kiln runs an [Enso Method](https://github.com/EnsoDynamics/enso-method) phase pl
 
 The Enso Method works without Kiln. Kiln automates the loop a person otherwise runs by hand.
 
-Status: in development. `kiln run <PRD directory>` checks a PRD's documents and phase plan, and carries a feature already underway forward phase by phase to its pull request. Start is pressed in the browser view, which doesn't exist yet, so a new feature can't be started from the command line.
+Status: in development. `kiln run <PRD directory>` checks a PRD's documents and phase plan, opens a local browser view on what it found, and, once Start is pressed there, carries the feature forward phase by phase to its pull request, staying in its terminal until Ctrl+C. The browser view's progress screens (watching a phase, pausing, Needs you and Complete) aren't built yet; the terminal reports each phase.
 
 ## Requirements
 

@@ -35,9 +35,59 @@
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
+
+// Kiln's helper calls, which aren't sessions and take no scenario: the account, `/usage` and
+// the Agent SDK's model list. Each is logged with its working directory to
+// <scenario>.helpers.jsonl. KILN_STANDIN_ACCOUNT names a JSON file to print for
+// `auth status --json`; KILN_STANDIN_MODELS one holding { "models": [ … ] } or { "fail": "…" }.
+// Without them, the account is signed in on a Max plan and the usage and models are proof
+// gate 1's recordings.
+const fixtures = fileURLToPath(new URL("../fixtures/proof-gate-1/", import.meta.url));
+const logHelper = (kind) => scenarioPath && appendFileSync(`${scenarioPath}.helpers.jsonl`, `${JSON.stringify({ kind, args, cwd: process.cwd() })}\n`);
+const isSession = args.includes("--session-id") || args.includes("--resume");
+if (args[0] === "auth" && args[1] === "status") {
+  logHelper("account");
+  const account = process.env.KILN_STANDIN_ACCOUNT;
+  process.stdout.write(account ? readFileSync(account, "utf8") : JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "alex@acme-shop.dev", subscriptionType: "max" }));
+  process.stdout.write("", () => process.exit(0));
+  await new Promise(() => {});
+}
+if (!isSession && args[0] === "-p" && args[1] === "/usage") {
+  logHelper("usage");
+  process.stdout.write(readFileSync(join(fixtures, "usage-report-idle.jsonl"), "utf8"), () => process.exit(0));
+  await new Promise(() => {});
+}
+if (!isSession && args.includes("--input-format")) {
+  logHelper("models");
+  const modelsPath = process.env.KILN_STANDIN_MODELS;
+  const answer = modelsPath ? JSON.parse(readFileSync(modelsPath, "utf8")) : { models: JSON.parse(readFileSync(join(fixtures, "supported-models.json"), "utf8")).models };
+  if (answer.fail) {
+    process.stderr.write(`${answer.fail}\n`);
+    process.stderr.write("", () => process.exit(1));
+    await new Promise(() => {});
+  }
+  // The Agent SDK's initialize request; its answer carries the model list, as Claude Code's does.
+  let buffer = "";
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk.toString("utf8");
+    let newline;
+    while ((newline = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      const message = line.trim() ? JSON.parse(line) : undefined;
+      if (message?.type === "control_request" && message.request?.subtype === "initialize") {
+        const response = { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models: answer.models, account: {} };
+        process.stdout.write(`${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } })}\n`);
+      }
+    }
+  });
+  process.stdin.on("end", () => process.exit(0));
+  await new Promise(() => {});
+}
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const sessionId = flag("--session-id") ?? flag("--resume");
 const model = args[args.indexOf("--model") + 1];
@@ -106,7 +156,9 @@ if (session.noInit) {
 const phaseDoc = /implement `([^`]+)`/.exec(prompt)?.[1] ?? /Carry on with `([^`]+)`/.exec(prompt)?.[1];
 const branch = /on branch `([^`]+)`/.exec(prompt)?.[1] ?? /from `([^`]+)` into/.exec(prompt)?.[1] ?? git("symbolic-ref", "--short", "HEAD").trim();
 
-emit({ type: "system", subtype: "init", model: model === "opus" ? "claude-opus-5-5" : model, permissionMode: "auto", claude_code_version: "2.1.299-stand-in" });
+// An alias resolves to its concrete model, as in proof gate 1's model list.
+const concrete = { opus: "claude-opus-5-5", fable: "claude-fable-5-1", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" };
+emit({ type: "system", subtype: "init", model: concrete[model] ?? model, permissionMode: "auto", claude_code_version: "2.1.299-stand-in" });
 
 let exitCode = 0;
 let resultSent = false;

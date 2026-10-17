@@ -107,3 +107,22 @@ export function installStandIns(directory: string): { claude: string; gh: string
   };
   return { claude: install("claude", "claude-stand-in.mjs"), gh: install("gh", "gh-stand-in.mjs") };
 }
+
+/**
+ * A bare repository that Git reaches as `git@github.com:<owner>/<name>.git`, so the start
+ * checks see origin on GitHub while every fetch and push stays on this machine: the sandbox's
+ * GIT_SSH_COMMAND runs the requested `git-upload-pack` or `git-receive-pack` against
+ * `<sandbox>/github/<owner>/<name>.git` instead of connecting anywhere. Returns the URL.
+ */
+export function createGithubOrigin(sandbox: Sandbox, owner: string, name: string): { url: string; bare: string } {
+  const github = join(sandbox.root, "github");
+  const bare = join(github, owner, `${name}.git`);
+  mkdirSync(join(github, owner), { recursive: true });
+  git(sandbox, sandbox.root, "init", "-q", "--bare", "-b", "develop", bare);
+  const script = join(sandbox.root, "ssh-stand-in.sh");
+  // git runs it as `<script> [options] git@github.com "git-upload-pack 'owner/name.git'"`.
+  writeFileSync(script, `#!/bin/sh\nfor last; do :; done\ncd '${github.replace(/\\/g, "/")}' && eval "git \${last#git-}"\n`);
+  chmodSync(script, 0o755);
+  sandbox.env.GIT_SSH_COMMAND = `sh '${script.replace(/\\/g, "/")}'`;
+  return { url: `git@github.com:${owner}/${name}.git`, bare };
+}

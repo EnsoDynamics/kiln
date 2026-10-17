@@ -1,5 +1,7 @@
 # Phase 4: The local browser view, up to pressing Start
 
+**Closed:** 2026-10-17
+
 **Parent PRD:** docs/prds/kiln-v1/kiln-v1-prd.md
 **Technical design:** docs/prds/kiln-v1/technical-design.md — relevant sections: "The Local Server", "HTTP API", "Snapshot" (Documents found and "Paths shown"), "Account and Usage", "Worktree and Branch Setup" (the field checks and the base check on view connect), "Where a Feature Stands" ("Startup order"), "Control From Outside the Browser", "Command line" (the terminal lines)
 

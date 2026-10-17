@@ -268,6 +268,28 @@ An unlisted saved model gets no message because Kiln **can't tell** whether the 
 
 ---
 
+### UI-012. When Kiln can't open the browser, does the terminal give the address and say why, worded as below? — ⏳ PENDING (Added 2026-10-17 — new question; 80% confidence)
+
+**Assumption**: The terminal mockup draws only the case where the browser opens ("● Opened <address>. Review it there and press Start."). When it **can't be opened** (for example a Linux machine with no `xdg-open`), Kiln **doesn't claim it opened**. It prints the address in the drawn line's place, then **one amber ✗ line saying why**, then the drawn grey line:
+
+- **"● Kiln’s view is at <address>. Review it there and press Start."**
+- **"✗ Couldn’t open the browser: <the reason>. Open <address> yourself."**
+
+For a feature already underway, the ● line ends at what Kiln does next, with no "Opened <address>", and the same ✗ line follows it.
+
+**Example**: In the terminal mockup (fictional sample data), had the browser failed to open for Customer returns, the lines would read "● Kiln’s view is at http://127.0.0.1:4700/customer-returns. Review it there and press Start." then "✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open http://127.0.0.1:4700/customer-returns yourself."
+
+**Evidence**: "Opened" would be untrue when nothing opened. The ✗ line reuses the **amber ✗** of the drawn start-check failure, since amber marks what needs the person. Kiln carries on either way: the view is served, and the person can open the address themselves. The alternative was to print the drawn line regardless; it lost because the terminal would say something Kiln didn't do.
+
+**Confirm or Correct**:
+- [ ] Correct — use this wording
+- [ ] Wrong — print the drawn "Opened" line regardless
+- [ ] Wrong — corrections to the wording: _______________
+
+**Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
+
+---
+
 ## Workflow Assumptions
 
 ### WORK-001. Does a draft pull request count as open?

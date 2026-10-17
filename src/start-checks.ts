@@ -28,6 +28,8 @@ export interface StartCheckReport {
   problems: string[];
   found: { assumptions: boolean; phaseDocCount: number };
   plan: PhasePlan | undefined;
+  /** `<owner>/<name>` on GitHub, parsed from origin's URL, when it is there. */
+  github?: string;
 }
 
 export function startChecksPassed(report: StartCheckReport): boolean {
@@ -81,13 +83,15 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   if (ghAuth && ghAuth.exitCode === null) problems.push(`Couldn't check gh's sign-in: ${ghAuth.failure}`);
   else if (ghAuth && ghAuth.exitCode !== 0) problems.push("gh isn't signed in to github.com. Run gh auth login.");
 
+  const github = originUrl.exitCode === 0 ? parseGithubOrigin(originUrl.stdout) : undefined;
   if (originUrl.exitCode !== 0) problems.push("The checkout has no origin remote.");
-  else if (!parseGithubOrigin(originUrl.stdout)) problems.push(`origin isn't on GitHub: ${originUrl.stdout.trim()}`);
+  else if (!github) problems.push(`origin isn't on GitHub: ${originUrl.stdout.trim()}`);
 
   return {
     missingDocuments,
     problems,
     found: { assumptions: fileNames.includes("assumptions.md"), phaseDocCount: phaseFileNames.length },
     plan,
+    ...(github ? { github: `${github.owner}/${github.name}` } : {}),
   };
 }

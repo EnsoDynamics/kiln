@@ -1,29 +1,47 @@
 // Runs the built `kiln` command as a person would, against real temporary repositories.
 
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { symlinkSync } from "node:fs";
 import { dirname, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runKilnCommand } from "./kiln-command.js";
 import { findExecutable } from "./platform/helper-process.js";
+import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
-import { commitFiles, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
+import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 let sandbox: Sandbox;
 let repository: string;
 let pathWithStandIns: string;
 
-function kiln(args: string[], cwd = repository, path = pathWithStandIns) {
-  // Windows spells it Path; a copied environment must carry exactly one PATH key.
+/** Windows spells it Path; a copied environment must carry exactly one PATH key. */
+function envWithPath(path: string): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(sandbox.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: { ...env, PATH: path }, encoding: "utf8", timeout: 50_000 });
+  return { ...env, PATH: path, KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41120-41139" };
+}
+
+function kiln(args: string[], cwd = repository, path = pathWithStandIns) {
+  const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: envWithPath(path), encoding: "utf8", timeout: 50_000 });
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** `kiln run` in this process until it serves Documents found, then Ctrl+C. */
+async function kilnUntilServing(args: string[], cwd = repository) {
+  let stdout = "";
+  let stderr = "";
+  const signals = new EventEmitter();
+  const done = runKilnCommand(args, { cwd, env: envWithPath(pathWithStandIns), stdout: { write: (text: string) => (stdout += text) }, stderr: { write: (text: string) => (stderr += text) }, signals });
+  await waitFor(() => stdout.includes("Kiln works in this terminal"));
+  signals.emit("SIGINT");
+  return { exitCode: await done, stdout, stderr };
 }
 
 beforeAll(() => {
   sandbox = createSandbox();
-  repository = createRepository(sandbox, "acme-shop", "https://github.com/acme/acme-shop.git");
+  repository = createRepository(sandbox, "acme-shop", createGithubOrigin(sandbox, "acme", "acme-shop").url);
   commitFiles(sandbox, repository, `docs/prds/${FOLDER}`, prdDirectoryFiles());
   commitFiles(sandbox, repository, "docs/prds/gift-cards", { "gift-cards-prd.md": "# PRD: Gift cards\n" });
   const standIns = join(sandbox.root, "bin");
@@ -34,17 +52,18 @@ beforeAll(() => {
 afterAll(() => sandbox.cleanup());
 
 describe("kiln run", () => {
-  it("prints what it found and exits 0 when every start check passes", () => {
-    const result = kiln(["run", `docs/prds/${FOLDER}/`]);
+  it("prints what it found and serves Documents found when every start check passes", async () => {
+    const result = await kilnUntilServing(["run", `docs/prds/${FOLDER}/`]);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n")[0]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
-    expect(result.exitCode).toBe(0);
+    expect(result.stdout.split("\n")[1]).toMatch(/^● Opened http:\/\/127\.0\.0\.1:\d+\/customer-returns\. Review it there and press Start\.$/);
+    expect(result.exitCode).toBe(130);
   });
 
-  it("accepts the PRD file and works from inside the repository", () => {
-    const result = kiln(["run", `prds/${FOLDER}/${FOLDER}-prd.md`], join(repository, "docs"));
+  it("accepts the PRD file and works from inside the repository", async () => {
+    const result = await kilnUntilServing(["run", `prds/${FOLDER}/${FOLDER}-prd.md`], join(repository, "docs"));
     expect(result.stdout.split("\n")[0]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode).toBe(130);
   });
 
   it("stops in the terminal with the drawn frame when documents are missing, and starts nothing", () => {

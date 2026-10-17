@@ -3,17 +3,24 @@
 // (AC-CLI-01; technical design, "Where a Feature Stands").
 
 import { basename, dirname, resolve } from "node:path";
+import { ClaudeInfo } from "./account/claude-info.js";
 import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
+import { originBranches } from "./engine/git-reads.js";
+import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
+import { defaultSettings, prdTreeAtHead } from "./engine/worktree-setup.js";
 import { findExecutable, WINDOWS_CTRL_C_GRACE_MS } from "./platform/helper-process.js";
 import { KeepAwake } from "./platform/keep-awake.js";
+import { openBrowser } from "./platform/open-browser.js";
+import type { PhasePlan } from "./plan/phase-plan.js";
 import { featureNameFor, resolvePrdPath, type PrdLocation } from "./prd-location.js";
+import { startLocalServer, type LocalServer } from "./server/local-server.js";
 import { runStartChecks, startChecksPassed } from "./start-checks.js";
+import { newPrdRecord } from "./state/new-record.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
-import { NewerSchemaError, readPrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
+import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
-import { formatDocumentsFound, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
 import { formatDecisionLine, formatSummaryLine } from "./underway-output.js";
-import { PR_TITLE } from "./engine/snapshot.js";
 
 export interface CommandContext {
   cwd: string;
@@ -22,6 +29,14 @@ export interface CommandContext {
   stderr: { write(text: string): unknown; isTTY?: boolean };
   /** Where SIGINT, SIGHUP and SIGTERM arrive: the process itself, or a stand-in in tests. */
   signals?: { on(event: NodeJS.Signals, listener: () => void): unknown; off(event: NodeJS.Signals, listener: () => void): unknown };
+  /**
+   * Opens the browser view; resolves with why it couldn't, or undefined. The platform's opener
+   * unless a test gives one; `KILN_NO_BROWSER=1` leaves the browser alone, for tests that run
+   * the built command.
+   */
+  openBrowser?: (address: string) => Promise<string | undefined>;
+  /** Called once the browser view is served, with its address; for tests. */
+  onServing?: (address: string) => void;
 }
 
 /** Exit code for a command line Kiln can't act on: no path, an unknown command, a path that isn't one PRD. */
@@ -42,6 +57,10 @@ const STOP_SIGNALS = ["SIGINT", "SIGHUP", "SIGTERM"] as const;
  */
 class StopControl {
   engine: Engine | undefined;
+  /** The local server, closed once the engine's stop is done and before the lock is released. */
+  server: LocalServer | undefined;
+  /** The account and model-list calls, ended when a stop begins. */
+  claude: ClaudeInfo | undefined;
   /** What a stop prints when no engine is running yet. */
   fallback: StopReport = { text: "Kiln stopped.", grey: "Nothing was started." };
   cause: (typeof STOP_SIGNALS)[number] | undefined;
@@ -71,8 +90,11 @@ class StopControl {
       return;
     }
     this.cause = signal;
+    this.claude?.close();
     const stopped = this.engine ? this.engine.stop(cause) : Promise.resolve(this.fallback);
-    void stopped.then((report) => {
+    void stopped.then(async (report) => {
+      // Step 5 of the stop: keep-awake was released by the engine; the server closes next.
+      await this.server?.close();
       this.report = report;
       this.resolveDone(EXIT_SIGNALLED[cause]);
     });
@@ -125,19 +147,25 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   // The first step after resolving the PRD: its instance lock, which settles its port (AC-MULTI-04).
   const root = stateRoot(context.env);
   const stateDirectory = prdStateDirectory(root, location.mainCheckoutPath, location.repositoryName, location.prdDirectoryFromRoot);
-  const lock = await takeInstanceLock(root, stateDirectory);
+  const range = portRange(context.env);
+  const lock = await takeInstanceLock(root, stateDirectory, { range });
   if (!lock.taken) {
     if (lock.reason === "already_running") {
       context.stdout.write(`${location.featureName} is already running at ${viewAddress(lock.port, location.folderName)}\n`);
     } else if (lock.reason === "port_in_use") {
       context.stderr.write(`kiln: port ${lock.port}, kept for ${location.featureName}, is in use by another program. Free it and run kiln run again.\n`);
     } else {
-      context.stderr.write(`kiln: every port from ${PORT_RANGE.first} to ${PORT_RANGE.last} is in use by a running kiln or another program.\n`);
+      context.stderr.write(`kiln: every port from ${range.first} to ${range.last} is in use by a running kiln or another program.\n`);
     }
     return EXIT_START_CHECKS_FAILED;
   }
 
+  // The account, usage and model-list calls start now and are never awaited (Startup order).
+  const claude = new ClaudeInfo({ claude: tools.claude ?? "claude", env: context.env, cwd: stateDirectory });
+  claude.start();
   const stop = new StopControl(context);
+  stop.claude = claude;
+  const run: KilnRun = { location, tools, context, stop, claude, stateDirectory, port: lock.port };
   try {
     let record: PrdRecord | undefined;
     try {
@@ -147,49 +175,32 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
       context.stderr.write(`kiln: ${error.message}\n`);
       return EXIT_START_CHECKS_FAILED;
     }
-    const work = record?.startedAt === undefined ? notStarted(location, tools, context, stop) : underway(location, tools, record, stateDirectory, context, stop);
+    const work = record?.startedAt === undefined ? notStarted(run, record) : underway(run, record);
     return await Promise.race([work, stop.done]);
   } finally {
+    claude.close();
+    await stop.server?.close();
     lock.release();
     stop.finish();
   }
 }
 
-/** A feature not started: the start checks, then what Kiln found (AC-START-02). */
-async function notStarted(location: PrdLocation, tools: { git: string; gh: string | undefined; claude: string | undefined }, context: CommandContext, stop: StopControl): Promise<number> {
-  const errColors = terminalColors(context.stderr, context.env);
-  const report = await runStartChecks(location, tools, context.env);
-  // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
-  // runs; a moment's wait lets the stop be seen before a failure is reported.
-  if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
-  if (stop.stopping) return stop.done;
-  if (!startChecksPassed(report)) {
-    context.stderr.write(`${formatStartFailure(location.featureName, location.prdDirectoryFromRoot, report, errColors)}\n`);
-    return EXIT_START_CHECKS_FAILED;
-  }
-  const outColors = terminalColors(context.stdout, context.env);
-  context.stdout.write(`${formatDocumentsFound(location.featureName, report.found, outColors)}\n`);
-  // Start is pressed in the browser view, which comes with the local server (Phase 4 of Kiln v1).
-  context.stdout.write(`${outColors.grey("  This build of Kiln has no browser view to press Start in yet. Nothing was started.")}\n`);
-  return 0;
+interface KilnRun {
+  location: PrdLocation;
+  tools: { git: string; gh: string | undefined; claude: string | undefined };
+  context: CommandContext;
+  stop: StopControl;
+  claude: ClaudeInfo;
+  stateDirectory: string;
+  port: number;
 }
 
-/** A feature underway: finish any setup, judge what the record says, and carry on (AC-CLI-01). */
-async function underway(
-  location: PrdLocation,
-  tools: { git: string; gh: string | undefined; claude: string | undefined },
-  record: PrdRecord,
-  stateDirectory: string,
-  context: CommandContext,
-  stop: StopControl,
-): Promise<number> {
+/** An engine over the PRD's record, with keep-awake for the sessions it runs. */
+function makeEngine(run: KilnRun, record: PrdRecord, write: (line: string) => void, start?: { prdTree: string | undefined; plan: PhasePlan | undefined }): Engine {
+  const { location, tools, context } = run;
   const colors = terminalColors(context.stdout, context.env);
-  // Nothing more is printed once a stop begins; its own line comes last.
-  const write = (line: string) => {
-    if (!stop.stopping) context.stdout.write(`${line}\n`);
-  };
   const keepAwake = new KeepAwake({ featureName: location.featureName, env: context.env, onError: (message) => write(`${colors.amber("✗")} ${message}`) });
-  const engine = new Engine({
+  const engine: Engine = new Engine({
     paths: {
       mainCheckoutPath: location.mainCheckoutPath,
       repositoryName: location.repositoryName,
@@ -200,30 +211,116 @@ async function underway(
     // A missing gh or claude fails its call, and so the check or session that needed it, as git's errors do.
     tools: { git: tools.git, gh: tools.gh ?? "gh", claude: tools.claude ?? "claude" },
     env: context.env,
-    stateDirectory,
+    stateDirectory: run.stateDirectory,
     record,
+    ...(start?.prdTree === undefined ? {} : { prdTree: start.prdTree }),
+    ...(start?.plan === undefined ? {} : { startPlan: start.plan }),
     onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
     keepAwake,
+    claude: run.claude,
   });
-  stop.engine = engine;
-  try {
-    if (record.completedAt === undefined) {
-      const prepared = await engine.prepare();
-      if (stop.stopping) return await stop.done;
-      if (!prepared.ok) return notStarted(location, tools, context, stop);
-    }
-    write(formatSummaryLine(engine, colors));
-    const decision = await engine.decide();
-    if (stop.stopping) return await stop.done;
-    write(formatDecisionLine(decision, engine, colors));
-    await engine.continue();
-    if (stop.stopping) return await stop.done;
-    // Without the browser view nothing can press Start or Check again, so Kiln exits once it waits.
-    if (!engine.record.completedAt) write(colors.grey("  This build of Kiln has no browser view yet, so it exits here; kiln run checks again and carries on."));
-    return 0;
-  } finally {
-    if (!stop.stopping) engine.close();
+  run.stop.engine = engine;
+  return engine;
+}
+
+/** Nothing more is printed once a stop begins; its own line comes last. */
+function terminalWriter(run: KilnRun): (line: string) => void {
+  return (line) => {
+    if (!run.stop.stopping) run.context.stdout.write(`${line}\n`);
+  };
+}
+
+/** Serves the browser view, then opens it; resolves with why the browser couldn't be opened. */
+async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters<typeof startLocalServer>[0]["documents"]): Promise<{ address: string; openError: string | undefined }> {
+  const server = await startLocalServer({
+    engine,
+    ...(documents ? { documents } : {}),
+    port: run.port,
+    folderName: run.location.folderName,
+    featureName: run.location.featureName,
+    token: engine.record.token,
+  });
+  run.stop.server = server;
+  run.context.onServing?.(server.address);
+  const open = run.context.openBrowser ?? ((address: string) => (run.context.env.KILN_NO_BROWSER === "1" ? Promise.resolve(undefined) : openBrowser(address, run.context.env)));
+  return { address: server.address, openError: await open(server.address) };
+}
+
+/**
+ * A feature not started: the start checks (AC-START-02), then Documents found, served by an
+ * engine over the PRD's record, written now if this is the PRD's first `kiln run`. Kiln then
+ * waits in the foreground for Start, and works on from there (AC-KEEP-01).
+ */
+async function notStarted(run: KilnRun, record: PrdRecord | undefined, startError?: string): Promise<number> {
+  const { location, tools, context, stop } = run;
+  const errColors = terminalColors(context.stderr, context.env);
+  const report = await runStartChecks(location, tools, context.env);
+  // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
+  // runs; a moment's wait lets the stop be seen before a failure is reported.
+  if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
+  if (stop.stopping) return stop.done;
+  if (!startChecksPassed(report)) {
+    context.stderr.write(`${formatStartFailure(location.featureName, location.prdDirectoryFromRoot, report, errColors)}\n`);
+    return EXIT_START_CHECKS_FAILED;
   }
+
+  const git = { git: tools.git, env: context.env };
+  const paths = { mainCheckoutPath: location.mainCheckoutPath, repositoryName: location.repositoryName, folderName: location.folderName, prdDirectoryFromRoot: location.prdDirectoryFromRoot };
+  const prdTree = await prdTreeAtHead(git, location.checkoutRoot, location.prdDirectoryFromRoot);
+  if (record === undefined) {
+    // The PRD's first kiln run: its record, with the default settings (AC-START-07, UI-004).
+    const origin = await originBranches(git, location.mainCheckoutPath);
+    record = newPrdRecord({
+      mainCheckoutPath: location.mainCheckoutPath,
+      repositoryName: location.repositoryName,
+      github: report.github!,
+      prdDirectoryFromRoot: location.prdDirectoryFromRoot,
+      featureName: location.featureName,
+      settings: defaultSettings(paths, origin.ok ? origin.value : undefined),
+    });
+  } else {
+    record.repository.github = report.github!;
+  }
+  if (stop.stopping) return stop.done;
+  writePrdRecord(run.stateDirectory, record);
+
+  const write = terminalWriter(run);
+  const engine = makeEngine(run, record, write, { prdTree, plan: report.plan });
+  if (startError !== undefined) engine.startError = startError;
+  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, report.found.phaseDocCount, report.found.assumptions);
+  const outColors = terminalColors(context.stdout, context.env);
+  write(formatDocumentsFound(location.featureName, report.found, outColors));
+  const { address, openError } = await serveAndOpen(run, engine, documents);
+  write(formatOpenedLine(address, openError, outColors));
+  // Kiln lives in its terminal until Ctrl+C or a closed terminal (AC-KEEP-01); Start comes from the view.
+  return stop.done;
+}
+
+/** A feature underway: finish any setup, judge what the record says, serve the view, and carry on (AC-CLI-01). */
+async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
+  const { context, stop } = run;
+  const colors = terminalColors(context.stdout, context.env);
+  const write = terminalWriter(run);
+  const engine = makeEngine(run, record, write);
+  if (record.completedAt === undefined) {
+    const prepared = await engine.prepare();
+    if (stop.stopping) return await stop.done;
+    if (!prepared.ok) {
+      // Setup failed and was undone, so the feature isn't underway: Documents found, showing git's error.
+      engine.close();
+      return notStarted(run, engine.record, engine.startError);
+    }
+  }
+  write(formatSummaryLine(engine, colors));
+  const decision = await engine.decide();
+  if (stop.stopping) return await stop.done;
+  const { address, openError } = await serveAndOpen(run, engine);
+  write(formatDecisionLine(decision, engine, colors, openError === undefined ? address : undefined));
+  if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
+  // Only once the view is served and opened does a session spawn or resume.
+  await engine.continue();
+  // Kiln stays in the foreground, through Needs you, a pause and Complete, until Ctrl+C (AC-KEEP-01).
+  return stop.done;
 }
 
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
@@ -238,6 +335,15 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
     case "message":
       return `${colors.amber("✗")} ${event.text}`;
   }
+}
+
+/**
+ * The ports Kiln assigns from: 4700 to 4799. `KILN_PORT_RANGE=<first>-<last>` narrows it, for
+ * tests that run several sandboxes at once, each with its own port registry.
+ */
+function portRange(env: NodeJS.ProcessEnv): { first: number; last: number } {
+  const match = /^(\d+)-(\d+)$/.exec(env.KILN_PORT_RANGE ?? "");
+  return match ? { first: Number(match[1]), last: Number(match[2]) } : PORT_RANGE;
 }
 
 function usageError(context: CommandContext, message?: string): number {

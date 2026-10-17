@@ -1,0 +1,35 @@
+/* The Enso Method website's dark theme (PRD AC-LOOK-04): Instrument Serif headings, Inter body
+   text, JetBrains Mono for code. Each color has one role: red is Kiln's accent, amber what needs
+   the person, green done, passed or connected. */
+:root {
+  --bg: #12110e;
+  --panel: #1b1a16;
+  --field: #12110e;
+  --text: #ede8dd;
+  --muted: #bdb6a8;
+  --dim: #8c8577;
+  --red: #e2694f;
+  --red-hover: #f0866e;
+  --amber: #e6b450;
+  --amber-border: rgba(230, 180, 80, 0.55);
+  --green: #9cc49a;
+  --line: rgba(237, 232, 221, 0.12);
+  --line-strong: rgba(237, 232, 221, 0.18);
+  --line-stronger: rgba(237, 232, 221, 0.24);
+  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+html, body { margin: 0; background: var(--bg); }
+body {
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--red); }
+a:hover { color: var(--red-hover); }
+input, select, button { font: inherit; }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.mono { font-family: var(--mono); }

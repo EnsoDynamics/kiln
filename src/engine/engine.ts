@@ -5,6 +5,8 @@
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { randomUUID } from "node:crypto";
+import type { ClaudeInfoSource } from "../account/claude-info.js";
+import { autoModeError, effortFor, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
 import type { PhasePlan } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
 import type { KeepAwakeHolder } from "../platform/keep-awake.js";
@@ -42,7 +44,7 @@ import {
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestCheck, type DoneCheckOutcome } from "./checks.js";
 import { firstParentCommits, firstParentCount, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
-import { addWorktree, checkFields, expandHome, undoFailedSetup, type FieldErrors, type RepositoryPaths } from "./worktree-setup.js";
+import { addWorktree, baseBranchChoices, checkFields, defaultBaseBranch, expandHome, undoFailedSetup, type FieldErrors, type RepositoryPaths } from "./worktree-setup.js";
 
 export interface EngineTools {
   git: string;
@@ -83,6 +85,10 @@ export interface EngineOptions {
   killGraceMs?: number;
   /** The wait before a session's end is handled; on Windows a Ctrl+C reaches the session too ([Windows]). */
   exitGraceMs?: number;
+  /** The account and the model list, which arrive after startup (technical design, "Startup order"). */
+  claude?: ClaudeInfoSource;
+  /** The plan the start checks read in the checkout, recorded when Start is pressed (not started only). */
+  startPlan?: PhasePlan;
 }
 
 /** What a stop leaves to print (UI-010 item 3): the first sentence, then the grey rest. */
@@ -134,6 +140,10 @@ export class Engine {
   checking = false;
   /** Field messages from the last field check, before Start. */
   fieldErrors: FieldErrors = {};
+  /** The base check before Start: running, passed, or failed with the base field's message. */
+  baseCheck: "checking" | "ok" | "error" | undefined;
+  /** The base field's list, from origin's branches: `develop`, origin's default branch, then the rest. */
+  baseBranches: string[] | undefined;
   /** git's message from a failed setup, held in memory only, cleared by the next Start. */
   startError: string | undefined;
   /** The last successful read of the plan in this run. */
@@ -172,6 +182,10 @@ export class Engine {
   private interruptedKey: string | undefined;
   private skipStopWait: (() => void) | undefined;
   private closed = false;
+  /** Counts field checks, so only the latest one's result is shown. */
+  private fieldCheckRun = 0;
+  private fieldChecksRunning = 0;
+  private readonly offClaude: (() => void) | undefined;
 
   constructor(options: EngineOptions) {
     this.options = options;
@@ -179,6 +193,36 @@ export class Engine {
     this.now = options.now ?? (() => new Date());
     this.git = { git: options.tools.git, env: options.env, signal: this.abort.signal };
     this.sleepReader = options.sleepReader ?? platformSleepReader();
+    this.offClaude = options.claude?.onChange(() => this.modelsChanged());
+  }
+
+  get claude(): ClaudeInfoSource | undefined {
+    return this.options.claude;
+  }
+
+  /** The model list's entry for a model, when the list has loaded and offers it. */
+  modelEntry(value: string): ModelEntry | undefined {
+    return this.options.claude?.models?.find((entry) => entry.value === value);
+  }
+
+  /** Every field message now: the last field check's, and Model's when its model can't run in auto mode. */
+  get currentFieldErrors(): FieldErrors {
+    const model = autoModeError(this.modelEntry(this.record.settings.model));
+    return model === undefined ? this.fieldErrors : { ...this.fieldErrors, model };
+  }
+
+  /** When the model list loads, a saved effort the model doesn't take moves to one it does (UI-011). */
+  private modelsChanged(): void {
+    this.matchEffortToModel();
+    this.changed();
+  }
+
+  private matchEffortToModel(): void {
+    const { settings } = this.record;
+    const effort = effortFor(settings.effort, this.modelEntry(settings.model));
+    if (effort === settings.effort) return;
+    settings.effort = effort;
+    this.save();
   }
 
   get paths() {
@@ -237,6 +281,9 @@ export class Engine {
     }
     if (record.startedAt !== undefined || this.settingUp) return refuse("Kiln isn't waiting for Start.");
     if (body.refinementConfirmed !== true) return { ok: false, status: 400, reason: "Confirm the documents have been through requirements refinement first." };
+    if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
+    const modelError = this.currentFieldErrors.model;
+    if (modelError !== undefined) return { ok: false, status: 409, reason: modelError, fieldErrors: { model: modelError } };
 
     this.settingUp = true;
     this.startError = undefined;
@@ -250,6 +297,8 @@ export class Engine {
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       record.baseCommit = fields.startCommit;
+      // The plan as Documents found showed it, until the worktree's own copy is read.
+      if (this.options.startPlan) record.plan = recordedPlan(this.options.startPlan);
       this.save();
       const setup = await this.finishSetup();
       if (this.stopping) return refuse("Kiln is stopping.");
@@ -315,12 +364,22 @@ export class Engine {
       return { ok: false, status: 400, reason: `Effort must be one of ${EFFORT_LEVELS.join(", ")}.` };
     }
     if (change.model !== undefined && change.model.trim() === "") return { ok: false, status: 400, reason: "Choose a model." };
+    if (change.effort !== undefined) {
+      const levels = effortLevelsFor(this.modelEntry(change.model ?? this.record.settings.model));
+      if (levels !== null && !levels.includes(change.effort)) {
+        return { ok: false, status: 400, reason: levels.length === 0 ? "This model takes no effort setting." : `This model takes ${levels.join(", ")}.` };
+      }
+    }
+    // Paths are stored absolute (technical design, "Paths shown"); a leading ~ is expanded.
+    if (change.worktreePath !== undefined) change = { ...change, worktreePath: expandHome(change.worktreePath) };
     for (const [field, value] of Object.entries(change)) {
       if (value !== undefined) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
+    if (change.model !== undefined) this.matchEffortToModel();
     this.save();
     if (change.keepAwake !== undefined) this.updateKeepAwake();
-    if (fixedFields.length > 0) await this.runFieldChecks();
+    // Only a base change makes the view say Kiln is checking the base on origin (UI-010 item 4).
+    if (fixedFields.length > 0) await this.runFieldChecks(change.baseBranch !== undefined);
     this.changed();
     return { ok: true };
   }
@@ -397,8 +456,9 @@ export class Engine {
       return { text: `Interrupted phase ${judged}, ${this.titleOf(judged)}.`, grey: kept };
     }
     if (this.activeCheck !== undefined) return { text: `Kiln stopped while checking ${name(this.activeCheck)}.`, grey: "kiln run checks it again." };
-    if (this.settingUp || (record.startedAt !== undefined && record.setupCompletedAt === undefined)) {
-      return { text: "Kiln stopped before phase 1 started.", grey: "kiln run picks it back up." };
+    // Setup is under way once Start is recorded; a stop during the base check before that recorded nothing.
+    if (record.startedAt !== undefined && record.setupCompletedAt === undefined) {
+      return { text: `Kiln stopped before ${name(this.nextKeyFromRecordedPlan())} started.`, grey: "kiln run picks it back up." };
     }
     if (record.startedAt === undefined) return { text: "Kiln stopped.", grey: "Nothing was started." };
     if (record.completedAt) return { text: "Kiln stopped.", grey: `${this.paths.featureName} is complete.` };
@@ -449,6 +509,7 @@ export class Engine {
   /** Releases keep-awake and stops reading sleep; for when Kiln exits. */
   close(): void {
     this.closed = true;
+    this.offClaude?.();
     if (this.sleepTimer) clearInterval(this.sleepTimer);
     this.sleepTimer = undefined;
     this.updateKeepAwake();
@@ -700,7 +761,10 @@ export class Engine {
     const facts = this.record.phases[phaseKey]!;
     let session = this.latestSession(phaseKey);
     if (!session || session.runs.length > 0) {
-      const { model, effort } = this.record.settings;
+      const { model } = this.record.settings;
+      const entry = this.modelEntry(model);
+      // A model that takes no effort gets no --effort, and its record says so (UI-011).
+      const effort = entry !== undefined && !entry.supportsEffort ? undefined : effortFor(this.record.settings.effort, entry);
       session = {
         schemaVersion: SCHEMA_VERSION,
         sessionId: randomUUID(),
@@ -708,8 +772,8 @@ export class Engine {
         kind,
         createdAt: this.now().toISOString(),
         model,
-        modelDisplayName: modelNameFromId(model),
-        effort,
+        modelDisplayName: modelNameFromId(entry?.resolvedModel ?? model),
+        ...(effort === undefined ? {} : { effort }),
         runs: [],
         sleeps: [],
         steps: [],
@@ -1020,18 +1084,58 @@ export class Engine {
 
   // ---- Setup -----------------------------------------------------------------------------
 
-  private async runFieldChecks() {
-    const origin = await originBranches(this.git, this.paths.mainCheckoutPath);
-    const outcome = await checkFields({
-      git: this.git,
-      paths: this.paths,
-      settings: this.record.settings,
-      prdTree: this.options.prdTree ?? "",
-      origin,
-      createdBranch: this.record.createdBranch,
-    });
-    this.fieldErrors = outcome.errors;
-    return outcome;
+  /**
+   * The base check, before Start, whenever a view connects to the event stream, unless a check
+   * or setup is already running (technical design, "Worktree and Branch Setup").
+   */
+  checkBase(): void {
+    if (this.record.startedAt !== undefined || this.settingUp || this.fieldChecksRunning > 0 || this.stopping) return;
+    void this.runFieldChecks(true);
+  }
+
+  /**
+   * The field checks, the base check among them, asking origin directly. Only the latest run's
+   * result is shown; while any runs, Start is unavailable.
+   */
+  private async runFieldChecks(announce = true) {
+    const run = ++this.fieldCheckRun;
+    this.fieldChecksRunning++;
+    if (announce) {
+      this.baseCheck = "checking";
+      this.changed();
+    }
+    try {
+      const { settings } = this.record;
+      const origin = await originBranches(this.git, this.paths.mainCheckoutPath);
+      if (run === this.fieldCheckRun) {
+        if (origin.ok) {
+          this.baseBranches = baseBranchChoices(origin.value);
+          // A base left empty because origin couldn't be read when the record was made is chosen now.
+          const base = defaultBaseBranch(origin.value);
+          if (settings.baseBranch === "" && base !== "" && this.record.startedAt === undefined) {
+            settings.baseBranch = base;
+            this.save();
+          }
+        } else this.baseBranches = settings.baseBranch === "" ? [] : [settings.baseBranch];
+      }
+      const outcome = await checkFields({
+        git: this.git,
+        paths: this.paths,
+        settings,
+        prdTree: this.options.prdTree ?? "",
+        origin,
+        createdBranch: this.record.createdBranch,
+      });
+      if (run === this.fieldCheckRun) {
+        this.fieldErrors = outcome.errors;
+        this.baseCheck = outcome.errors.baseBranch === undefined ? "ok" : "error";
+      }
+      return outcome;
+    } finally {
+      this.fieldChecksRunning--;
+      if (run === this.fieldCheckRun && this.baseCheck === "checking") this.baseCheck = undefined;
+      this.changed();
+    }
   }
 
   /** Adds the worktree, or finishes an interrupted setup; a failure puts the feature back to not started. */

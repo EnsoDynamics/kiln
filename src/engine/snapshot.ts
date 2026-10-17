@@ -1,8 +1,10 @@
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
-// engine's record, the plan as last read and what the engine is doing. This phase builds it for
-// the states the engine reaches; the account, usage and model list join it in Phase 4.
+// engine's record, the plan as last read, what the engine is doing, and the account and model
+// list once they have arrived.
 
 import { readFileSync } from "node:fs";
+import type { AccountView } from "../account/claude-account.js";
+import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
@@ -58,14 +60,20 @@ export interface Snapshot {
     model: { value: string; displayName: string };
     effort: Effort;
     effortLevels: Effort[] | null;
+    modelListError?: string;
     keepAwake: boolean;
     keepAwakeError?: string;
     worktreePath: string;
     featureBranch: string;
     baseBranch: string;
+    /** Not started only: the base field's list and whether the base check is running. */
+    baseBranches?: string[];
+    baseCheck?: "checking" | "ok" | "error";
     fixed: boolean;
     fieldErrors: FieldErrors;
   };
+  /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
+  models?: { value: string; displayName: string }[];
   phases: PhaseView[];
   current?: {
     phaseId: string;
@@ -101,6 +109,8 @@ export interface Snapshot {
     steps?: StepView[];
   };
   pause: { pending: boolean; active: boolean };
+  /** The signed-in account and its usage, once the first calls return (Startup order). */
+  account?: AccountView;
   pullRequest?: PullRequestFacts;
 }
 
@@ -128,6 +138,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
   const needsYou = stoppedKey === undefined ? undefined : needsYouView(engine, stoppedKey);
   const current = state === "implementing" ? currentView(engine) : undefined;
   const settings = record.settings;
+  const entry = engine.modelEntry(settings.model);
+  const claude = engine.claude;
 
   const snapshot: Snapshot = {
     feature: {
@@ -144,19 +156,24 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     },
     settings: {
       agent: "Claude Code",
-      model: { value: settings.model, displayName: settings.model },
+      // A saved alias the list doesn't offer, or any model before the list loads, is named as saved.
+      model: { value: settings.model, displayName: entry?.displayName ?? settings.model },
       effort: settings.effort,
-      effortLevels: null,
+      effortLevels: effortLevelsFor(entry),
+      ...optional("modelListError", claude?.modelListError),
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       worktreePath: displayPath(settings.worktreePath),
       featureBranch: settings.featureBranch,
       baseBranch: settings.baseBranch,
+      ...(state === "not_started" ? { ...optional("baseBranches", engine.baseBranches), ...optional("baseCheck", engine.baseCheck) } : {}),
       fixed: engine.isUnderway,
-      fieldErrors: engine.fieldErrors,
+      fieldErrors: engine.currentFieldErrors,
     },
+    ...optional("models", claude?.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: phaseViews(engine, state),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
+    ...optional("account", claude?.account),
     ...optional("pullRequest", record.pullRequest),
     ...optional("current", current),
     ...optional("needsYou", needsYou),
