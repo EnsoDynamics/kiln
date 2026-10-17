@@ -5,7 +5,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { findExecutable, runHelper } from "./helper-process.js";
 
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kiln-helper-")));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// Windows holds a folder while a process killed in it is still exiting, so removal retries.
+afterAll(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe("findExecutable", () => {
   it("finds the first match on the PATH and nothing for a name that isn't there", () => {
@@ -44,7 +45,7 @@ describe("runHelper", () => {
 
   it("ends a call that runs past its timeout and reports the timeout as its failure", async () => {
     const started = Date.now();
-    const result = await runHelper(node, ["-e", "setTimeout(() => {}, 30000)"], { cwd: root, timeoutMs: 300 });
+    const result = await runHelper(node, ["-e", "setTimeout(() => {}, 30000)"], { cwd: tmpdir(), timeoutMs: 300 });
     expect(result.exitCode).toBeNull();
     expect(result.failure).toBe("timed out after 0.3 seconds");
     expect(Date.now() - started).toBeLessThan(5000);

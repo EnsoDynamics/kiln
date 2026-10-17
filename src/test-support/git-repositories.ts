@@ -27,7 +27,7 @@ export function createSandbox(): Sandbox {
     GIT_COMMITTER_EMAIL: "kiln-test@example.com",
     NO_COLOR: "1",
   };
-  return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 5 }) };
+  return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
 }
 
 export function git(sandbox: Sandbox, cwd: string, ...args: string[]): string {
