@@ -215,12 +215,6 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     endTree: (signal) => endProcessTree(pid, signal),
     closed: closed.then(() => undefined),
   });
-  // Output waits in the pipe until a listener reads it, so nothing is lost while this is read.
-  const startTime = await processStartTime(pid);
-  if (startTime !== undefined) {
-    run.processStartTime = startTime;
-    saveRecord();
-  }
 
   /** When each model response of this run arrived, for the sleep verdict. */
   const modelResponses: string[] = [];
@@ -286,6 +280,15 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     saveLines(reader.stderrLines(stderrBuffer.slice(0, lastNewline), now().toISOString()));
     stderrBuffer = stderrBuffer.slice(lastNewline + 1);
   });
+
+  // Read only once the output is being read: on Windows it is a PowerShell call taking a second
+  // or more, and a session that exits meanwhile (an early stop, a resume with no transcript)
+  // must still have every line it wrote saved before its end is handled.
+  const startTime = await processStartTime(pid);
+  if (startTime !== undefined) {
+    run.processStartTime = startTime;
+    saveRecord();
+  }
 
   const [code, signal] = await closed;
   readStdoutLine(stdoutBuffer);
