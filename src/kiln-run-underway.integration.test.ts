@@ -19,7 +19,7 @@ function kilnEnv(h: Harness): NodeJS.ProcessEnv {
 }
 
 function kilnRun(h: Harness) {
-  const result = spawnSync(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), encoding: "utf8" });
+  const result = spawnSync(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), encoding: "utf8", timeout: 50_000 });
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 

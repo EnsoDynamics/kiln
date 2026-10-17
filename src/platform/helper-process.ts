@@ -92,16 +92,19 @@ export function runHelper(executable: string, args: string[], options: HelperOpt
 }
 
 /**
- * Spawns a process detached, in its own process group, with stdout and stderr piped, so the
- * terminal's Ctrl+C reaches only Kiln. Node refuses to spawn a .cmd or .bat file directly on
- * Windows, so those go through cmd.exe with their arguments quoted for it.
+ * Spawns a process with stdout and stderr piped. On macOS and Linux it is detached, in its own
+ * process group, so the terminal's Ctrl+C reaches only Kiln. On Windows it stays in Kiln's
+ * console: Node's detached spawn there gives the child no console at all, so the program a
+ * .cmd shim starts gets a new console in place of Kiln's pipes, and PowerShell's output is lost
+ * (technical design, "Windows"). Node refuses to spawn a .cmd or .bat file directly on Windows,
+ * so those go through cmd.exe with their arguments quoted for it.
  */
 export function spawnDetached(executable: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; stdin: "ignore" | "pipe" }): ChildProcess {
   const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable);
   return spawn(viaShell ? quoteForCmd(executable) : executable, viaShell ? args.map(quoteForCmd) : args, {
     cwd: options.cwd,
     env: options.env,
-    detached: true,
+    detached: process.platform !== "win32",
     windowsHide: true,
     shell: viaShell,
     stdio: [options.stdin, "pipe", "pipe"],

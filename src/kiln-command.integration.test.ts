@@ -17,7 +17,7 @@ let pathWithStandIns: string;
 function kiln(args: string[], cwd = repository, path = pathWithStandIns) {
   // Windows spells it Path; a copied environment must carry exactly one PATH key.
   const env = Object.fromEntries(Object.entries(sandbox.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: { ...env, PATH: path }, encoding: "utf8" });
+  const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: { ...env, PATH: path }, encoding: "utf8", timeout: 50_000 });
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
