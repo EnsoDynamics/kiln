@@ -21,9 +21,19 @@ function kilnEnv(h: Harness): NodeJS.ProcessEnv {
   return { ...env, PATH: [join(h.sandbox.root, "bin"), h.env.PATH ?? h.env.Path ?? ""].join(delimiter) };
 }
 
+/**
+ * A runner whose logind refuses keep-awake (Linux CI) adds Kiln's one honest error line for it;
+ * these tests are about the other lines, so it is left out of what they compare.
+ */
+const withoutKeepAwakeError = (stdout: string) =>
+  stdout
+    .split("\n")
+    .filter((line) => !line.startsWith("✗ Can’t keep this computer awake"))
+    .join("\n");
+
 function kilnRun(h: Harness) {
   const result = spawnSync(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), encoding: "utf8", timeout: 50_000 });
-  return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+  return { exitCode: result.status, stdout: withoutKeepAwakeError(result.stdout), stderr: result.stderr };
 }
 
 const time = String.raw`[ \d]\d:\d\d`;
@@ -132,7 +142,7 @@ describe("Ctrl+C and a closed terminal", () => {
     expect(await exited).toBe(130);
 
     // A runner whose logind refuses keep-awake adds its one error line, which this test isn't about.
-    const lines = stdout.trimEnd().split("\n").filter((line) => !line.startsWith("✗ Can’t keep this computer awake"));
+    const lines = withoutKeepAwakeError(stdout).trimEnd().split("\n");
     expect(lines[1]).toBe("● Phase 1 is done, finished by you. Starting phase 2b, Store credit.");
     expect(lines[2]).toMatch(new RegExp(`^${time}  2b  Store credit       started$`));
     expect(lines.at(-1)).toBe("Interrupted phase 2b, Store credit. Its session and uncommitted work are kept.");
@@ -143,7 +153,7 @@ describe("Ctrl+C and a closed terminal", () => {
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
 
     const result = kilnRun(h);
-    const next = result.stdout.trimEnd().split("\n").filter((line) => !line.startsWith("✗ Can’t keep this computer awake"));
+    const next = result.stdout.trimEnd().split("\n");
     expect(next[0]).toBe("Customer returns  ·  2 of 4 phases done  ·  phase 2b was interrupted");
     expect(next[1]).toBe(`● Resuming phase 2b’s session ${session.sessionId.slice(0, 8)}.`);
     expect(next[2]).toMatch(new RegExp(`^${time}  2b  Store credit       resumed$`));
@@ -172,7 +182,7 @@ describe("Ctrl+C and a closed terminal", () => {
     const h = await underwayAtPhase2b(working);
     const result = await runAndSignal(h, working(h), "SIGINT");
     expect(result.code).toBe(130);
-    expect(result.stdout.trimEnd().split("\n").at(-1)).toBe("Interrupted phase 2b, Store credit. Its session and uncommitted work are kept.");
+    expect(withoutKeepAwakeError(result.stdout).trimEnd().split("\n").at(-1)).toBe("Interrupted phase 2b, Store credit. Its session and uncommitted work are kept.");
     const run = h.reopenFromDisk().latestSession("2b")!.runs[0]!;
     expect(run.interruptedBy).toBe("sigint");
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);

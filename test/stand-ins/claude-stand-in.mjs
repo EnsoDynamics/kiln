@@ -64,6 +64,10 @@ const interrupt = (by) => {
   onInterrupt();
 };
 let session;
+// On Windows writes to a pipe are asynchronous, so exiting at once can lose the last events;
+// the stand-in exits only once stdout and stderr have flushed, as Claude Code's own output does.
+const exitAfterFlush = (code) =>
+  new Promise(() => process.stdout.write("", () => process.stderr.write("", () => process.exit(code))));
 const firstLine = new Promise((resolve) => {
   process.stdin.on("data", (chunk) => {
     stdinText += chunk.toString("utf8");
@@ -94,7 +98,7 @@ if (session.noInit) {
   const error = `No conversation found with session ID: ${sessionId}`;
   emit({ type: "result", subtype: "error_during_execution", is_error: true, errors: [error] });
   process.stderr.write(`${error}\n`);
-  process.exit(1);
+  await exitAfterFlush(1);
 }
 
 // A resumed session's prompt names its phase doc as "Carry on with `…`" and no branch: the
@@ -111,10 +115,10 @@ const endInterrupted = (toolUseId) => {
   if (toolUseId) toolResult(toolUseId, "The user doesn't want to proceed with this tool use. The tool use was rejected.", true);
   emit({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] } });
   emit({ type: "result", subtype: "error_during_execution", is_error: true });
-  process.exit(interruptBy === "sigint" ? 0 : 1);
+  return exitAfterFlush(interruptBy === "sigint" ? 0 : 1);
 };
 for (const action of session.actions) {
-  if (interruptBy !== undefined) endInterrupted();
+  if (interruptBy !== undefined) await endInterrupted();
   if (action.work) {
     const id = toolCall("Bash", { command: action.work });
     // The running tool is a real child process, as Claude Code's Bash tool is; its PID is
@@ -128,7 +132,7 @@ for (const action of session.actions) {
       // Gives up once the test's sandbox is gone, so a failed test leaves no process behind.
       setInterval(() => existsSync(scenarioPath) || process.exit(1), 200);
     });
-    endInterrupted(id);
+    await endInterrupted(id);
   } else if (action.touch) {
     writeFileSync(action.touch, "");
   } else if (action.sleepFor) {
@@ -216,4 +220,4 @@ for (const action of session.actions) {
 }
 // Claude Code keeps reading its input after a result; Kiln closes stdin and then it exits.
 if (resultSent && !stdinClosed) await stdinEnd;
-process.exit(exitCode);
+await exitAfterFlush(exitCode);

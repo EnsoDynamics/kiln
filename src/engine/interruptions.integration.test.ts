@@ -255,7 +255,9 @@ describe("resuming", () => {
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     await h.engine.stop("sigint");
-    renameSync(h.tools.claude, `${h.tools.claude}.gone`);
+    // claude is gone by the time Kiln resumes. A path with no extension, so that on Windows Node
+    // spawns it directly rather than through cmd.exe, which would start and report it missing.
+    h.tools.claude = join(h.sandbox.root, "bin", "no-such-claude");
 
     const engine = h.reopenFromDisk();
     await engine.prepare();
