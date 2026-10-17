@@ -7,7 +7,7 @@ import { networkInterfaces } from "node:os";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { isPortFree } from "../state/instance-lock.js";
-import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 
 let harness: Harness | undefined;
@@ -15,6 +15,8 @@ let server: LocalServer | undefined;
 afterEach(async () => {
   await server?.close();
   server = undefined;
+  // A base check a connecting view started may still be running git in the repository.
+  if (harness) await waitFor(() => harness!.engine.baseCheck !== "checking");
   harness?.cleanup();
 });
 

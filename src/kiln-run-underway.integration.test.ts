@@ -212,14 +212,19 @@ describe("Ctrl+C and a closed terminal", () => {
   async function runAndSignal(h: Harness, working: string, signal: NodeJS.Signals) {
     const signals = new EventEmitter();
     let stdout = "";
+    let finished: number | undefined;
     const done = runKilnCommand(["run", "docs/prds/customer-returns"], {
       cwd: h.repository,
       env: kilnEnv(h),
       stdout: { write: (text: string) => (stdout += text) },
-      stderr: { write: () => true },
+      stderr: { write: (text: string) => (stdout += text) },
       signals,
+    }).then((code) => (finished = code));
+    // A kiln run that ends before the session works says why, rather than leaving a bare timeout.
+    await waitFor(() => {
+      if (finished !== undefined) throw new Error(`kiln run ended with ${finished} before the session worked:\n${stdout}`);
+      return existsSync(working);
     });
-    await waitFor(() => existsSync(working));
     signals.emit(signal);
     return { code: await done, stdout };
   }

@@ -31,7 +31,10 @@ export function createSandbox(): Sandbox {
     XDG_STATE_HOME: join(root, "state"),
     LOCALAPPDATA: join(root, "state"),
   };
-  return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
+  // On Windows a folder can't be removed while a process that just ended still holds it; taskkill
+  // returns before the tree it ends is gone, so cleanup waits up to 10 seconds there.
+  const retries = process.platform === "win32" ? 50 : 10;
+  return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: retries, retryDelay: 200 }) };
 }
 
 export function git(sandbox: Sandbox, cwd: string, ...args: string[]): string {
