@@ -14,3 +14,6 @@ The browser view, including how an interrupted or not-resumable phase is drawn a
 
 ## Phase dependencies
 2 (the engine's session runner, its record on disk, the done check and Needs you stops)
+
+## Phase-specific notes
+- Don't start this phase until proof gate 1's two sleep recordings are in `test/fixtures/proof-gate-1/` (Phase 1's pending human action): telling a sleep that cut a session off from one it survived is built and tested from them, and a sleep behaving other than the design says comes back as a product decision first. Gate 1's other recordings (interrupt, SIGINT to the group, both resumes, a missing transcript) are there, with what they showed in `docs/design/kiln-proof-gates-1-and-2-results.md`.

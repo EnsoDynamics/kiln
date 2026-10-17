@@ -20,3 +20,7 @@ None.
 - Gates 1 and 2 run on macOS in this phase; their Windows run is Phase 6's. Gate 1's sleep items need the computer actually asleep: if the session can't do that itself, they are this phase's human action for Doug.
 - A gate item that doesn't behave as the design says comes back as a product decision (PRD, "Depends On"); it is surfaced, never worked around, before Phase 2 builds on it.
 - CI runs the unit and Git integration tests on macOS, Linux and Windows runners from this phase on, which is how AC-INSTALL-03 is held until Phase 6's Windows run.
+- Until Phase 4 serves the browser view, `kiln run` on a PRD that passes every start check prints the drawn "all checks passed" line, then says it can't start phases yet, and exits 0.
+
+## Pending human actions
+- Doug: run proof gate 1's two sleep items on macOS and add their recordings to `test/fixtures/proof-gate-1/`, as [the gate results](../../design/kiln-proof-gates-1-and-2-results.md) ("Not yet run: the sleep items") give. Everything else in this phase is done; it gets its `**Closed:**` line when the recordings are in. Phase 2 doesn't need them and can start; Phase 3 can't.

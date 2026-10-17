@@ -1,0 +1,43 @@
+{
+  "command": [
+    "claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--session-id",
+    "6ebaa77b-323c-4b4f-afee-271b1a243203",
+    "--model",
+    "sonnet",
+    "--effort",
+    "low",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--forward-subagent-text",
+    "--permission-mode",
+    "auto",
+    "--permission-prompts",
+    "none"
+  ],
+  "cwd": "/tmp/kiln-gates/repo",
+  "startedAt": "2026-10-17T18:42:53.841Z",
+  "pid": 19622,
+  "init": {
+    "at": "2026-10-17T18:42:54.552Z",
+    "model": "claude-sonnet-5-5",
+    "session_id": "6ebaa77b-323c-4b4f-afee-271b1a243203",
+    "permissionMode": "auto",
+    "claude_code_version": "2.1.299"
+  },
+  "interruptSentAt": "2026-10-17T18:43:33.846Z",
+  "interruptReason": "after 40000 ms",
+  "result": {
+    "at": "2026-10-17T18:43:33.870Z",
+    "subtype": "error_during_execution",
+    "is_error": true
+  },
+  "endedAt": "2026-10-17T18:43:34.196Z",
+  "exitCode": 1,
+  "signal": null
+}

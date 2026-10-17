@@ -16,6 +16,7 @@ Ctrl+C handling, resuming an interrupted session, sleep and keep-awake (Phase 3)
 1 (the package, the plan reader and start checks, and the stream-json recordings from proof gates 1 and 2 used as fixtures)
 
 ## Phase-specific notes
+- Phase 1 has no Closed line only because proof gate 1's sleep recordings, its pending human action, aren't in yet; this phase doesn't use them and can start. Gate 1 and 2 results, and what they changed in the design: `docs/design/kiln-proof-gates-1-and-2-results.md`.
 - The engine's whole command interface is built here, as the design gives it: start, pause after this phase, cancel a pause, check again and change settings, with the engine loop's pause handling. Phases 4 and 5 only add the controls that call it; Phase 3 needs the paused state to release keep-awake.
 - The engine produces the Snapshot the screens will render from; this phase builds it for the states it can reach, without any server.
 - The instance lock takes the PRD's port with it, as the design gives, so the "already running" message can name the address even though nothing serves on it until Phase 4.

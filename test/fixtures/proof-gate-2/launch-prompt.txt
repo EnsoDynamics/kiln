@@ -1,0 +1,9 @@
+Use the implement-from-requirements skill to implement `docs/prds/greeting-cli/phase-1-greet-by-name.md` of the `Greeting cli` PRD (`docs/prds/greeting-cli/greeting-cli-prd.md`).
+
+Work only in this worktree, `/tmp/kiln-gate2/greeting-tool-kiln/greeting-cli`, on branch `feature/greeting-cli`. Kiln created this worktree and branch for this PRD; it is not a shared checkout and not a parallel-session worktree. Don't switch branches, create another branch or worktree, or land work on any other branch, whatever other instructions say.
+
+You are authorized, without asking, to commit to `feature/greeting-cli`, push it to origin (`git push -u origin feature/greeting-cli`), and run refactor-pass after the feature commit. You are not authorized to open a pull request, merge, deploy, or touch any other branch.
+
+Nobody is watching this session and nobody can answer a question. If you need a decision you can't make, stop and put the question in your final message.
+
+You're finished when `docs/prds/greeting-cli/phase-1-greet-by-name.md` has its `**Closed:**` line and everything is committed and pushed to `origin/feature/greeting-cli`.
