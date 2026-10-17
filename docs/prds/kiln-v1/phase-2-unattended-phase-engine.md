@@ -1,5 +1,7 @@
 # Phase 2: The engine that runs a PRD's phases to a pull request
 
+**Closed:** 2026-10-17
+
 **Parent PRD:** docs/prds/kiln-v1/kiln-v1-prd.md
 **Technical design:** docs/prds/kiln-v1/technical-design.md — relevant sections: "Dependencies" (detached helper calls and their timeouts), "Design Decisions", "Where a Feature Stands" (all but its interrupted-session branches), "A plan that breaks after Start", "Sessions" ("Starting a phase's session", "The prompts", "Output and progress"), "The Done Check", "Worktree and Branch Setup", "Ports and one Kiln per PRD", "Kiln's State on Disk", "Snapshot"
 

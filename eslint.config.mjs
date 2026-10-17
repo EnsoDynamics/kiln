@@ -6,7 +6,7 @@ export default defineConfig([
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'test/stand-ins/**/*.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly', setTimeout: 'readonly' } },
   },
   globalIgnores(['dist/**', 'node_modules/**', 'test/fixtures/**']),

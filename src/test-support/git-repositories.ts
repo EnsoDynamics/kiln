@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface Sandbox {
   root: string;
@@ -26,6 +27,9 @@ export function createSandbox(): Sandbox {
     GIT_COMMITTER_NAME: "Kiln Test",
     GIT_COMMITTER_EMAIL: "kiln-test@example.com",
     NO_COLOR: "1",
+    // Kiln's state goes in the sandbox, never the person's own state folder.
+    XDG_STATE_HOME: join(root, "state"),
+    LOCALAPPDATA: join(root, "state"),
   };
   return { root, env, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
 }
@@ -73,4 +77,33 @@ export function writeStandIn(directory: string, name: string, exitCode: number, 
   writeFileSync(path, `#!/bin/sh\n${guard}${stderr ? `echo '${stderr}' >&2\n` : ""}exit ${exitCode}\n`);
   chmodSync(path, 0o755);
   return path;
+}
+
+/** A bare repository standing in for GitHub as `origin`. */
+export function createBareOrigin(sandbox: Sandbox, name: string): string {
+  const path = join(sandbox.root, `${name}.git`);
+  git(sandbox, sandbox.root, "init", "-q", "--bare", "-b", "develop", path);
+  return path;
+}
+
+/**
+ * Installs the stand-in `claude` and `gh` (test/stand-ins/) in a folder as commands: a shell
+ * script on macOS and Linux, a .cmd file on Windows, each running the script with this Node.
+ */
+export function installStandIns(directory: string): { claude: string; gh: string } {
+  mkdirSync(directory, { recursive: true });
+  const standIns = fileURLToPath(new URL("../../test/stand-ins/", import.meta.url));
+  const install = (name: string, script: string) => {
+    const target = join(standIns, script);
+    if (process.platform === "win32") {
+      const path = join(directory, `${name}.cmd`);
+      writeFileSync(path, `@"${process.execPath}" "${target}" %*\r\n`);
+      return path;
+    }
+    const path = join(directory, name);
+    writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${target}" "$@"\n`);
+    chmodSync(path, 0o755);
+    return path;
+  };
+  return { claude: install("claude", "claude-stand-in.mjs"), gh: install("gh", "gh-stand-in.mjs") };
 }

@@ -7,6 +7,8 @@ export interface TerminalColors {
   amber(text: string): string;
   grey(text: string): string;
   lightGrey(text: string): string;
+  red(text: string): string;
+  green(text: string): string;
 }
 
 const rgb = (red: number, green: number, blue: number) => (text: string) => `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
@@ -15,9 +17,15 @@ const rgb = (red: number, green: number, blue: number) => (text: string) => `\x1
 export function terminalColors(stream: { isTTY?: boolean }, env: NodeJS.ProcessEnv): TerminalColors {
   if (!stream.isTTY || (env.NO_COLOR !== undefined && env.NO_COLOR !== "")) {
     const plain = (text: string) => text;
-    return { amber: plain, grey: plain, lightGrey: plain };
+    return { amber: plain, grey: plain, lightGrey: plain, red: plain, green: plain };
   }
-  return { amber: rgb(230, 180, 80), grey: rgb(140, 133, 119), lightGrey: rgb(189, 182, 168) };
+  return {
+    amber: rgb(230, 180, 80),
+    grey: rgb(140, 133, 119),
+    lightGrey: rgb(189, 182, 168),
+    red: rgb(226, 105, 79),
+    green: rgb(156, 196, 154),
+  };
 }
 
 export const USAGE = [
@@ -50,6 +58,55 @@ export function formatStartFailure(featureName: string, prdDirectoryFromRoot: st
     ),
   );
   return lines.join("\n");
+}
+
+/** A terminal time: local, 12-hour, no day, right-aligned in five columns (` 9:17`, `11:04`). */
+export function terminalTime(at: Date): string {
+  const hours = at.getHours() % 12 === 0 ? 12 : at.getHours() % 12;
+  return `${hours}:${String(at.getMinutes()).padStart(2, "0")}`.padStart(5);
+}
+
+export interface PlanColumns {
+  idWidth: number;
+  titleWidth: number;
+}
+
+/** Column widths for phase lines: the longest id and title in the plan, plus two spaces, as drawn. */
+export function planColumns(plan: { id: string; title: string }[]): PlanColumns {
+  return {
+    idWidth: Math.max(2, ...plan.map((phase) => phase.id.length)) + 2,
+    titleWidth: Math.max(0, ...plan.map((phase) => phase.title.length)) + 2,
+  };
+}
+
+export type PhaseLineEvent =
+  | { kind: "started" }
+  | { kind: "stopped" }
+  | { kind: "done"; pushedSha: string }
+  | { kind: "opened"; number: number };
+
+/**
+ * One line per phase event, as drawn: the time and id in grey, the title, then the event in
+ * its color (started red, done green, stopped amber).
+ *
+ *   10:09  1   Return intake      done · pushed a1c4e09
+ */
+export function formatPhaseLine(at: Date, id: string, title: string, event: PhaseLineEvent, columns: PlanColumns, colors: TerminalColors): string {
+  const pad = (text: string, width: number) => (text.length + 2 > width ? `${text}  ` : text.padEnd(width));
+  const what =
+    event.kind === "started"
+      ? colors.red("started")
+      : event.kind === "stopped"
+        ? colors.amber("stopped")
+        : event.kind === "done"
+          ? colors.green("done") + colors.grey(` · pushed ${event.pushedSha.slice(0, 7)}`)
+          : colors.green("opened") + colors.grey(` #${event.number}`);
+  return `${colors.grey(`${terminalTime(at)}  ${pad(id, columns.idWidth)}`)}${pad(title, columns.titleWidth)}${what}`;
+}
+
+/** ` 9:17  Started  ·  feature/customer-returns from develop` */
+export function formatStartedLine(at: Date, branch: string, baseBranch: string, colors: TerminalColors): string {
+  return `${colors.grey(`${terminalTime(at)}  `)}Started${colors.grey(`  ·  ${branch} from ${baseBranch}`)}`;
 }
 
 /**

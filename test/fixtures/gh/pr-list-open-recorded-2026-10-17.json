@@ -1,0 +1,36 @@
+[
+  {
+    "additions": 15,
+    "baseRefName": "trunk",
+    "commits": [
+      {
+        "oid": "1156f977ff6d12d592bc152987b9d9b378f6718d",
+        "messageHeadline": "fix(issue create): resolve --type before creating the issue"
+      }
+    ],
+    "deletions": 7,
+    "headRefName": "fix/issue-create-resolve-type-before-create",
+    "isCrossRepository": true,
+    "isDraft": false,
+    "number": 14727,
+    "title": "fix(issue create): resolve --type before creating the issue",
+    "url": "https://github.com/cli/cli/pull/14727"
+  },
+  {
+    "additions": 3,
+    "baseRefName": "trunk",
+    "commits": [
+      {
+        "oid": "f3e2147f249b228e8a2cbca68c47fc6ef99d3747",
+        "messageHeadline": "Fix help text that references nonexistent flags"
+      }
+    ],
+    "deletions": 3,
+    "headRefName": "bagtoad/fix-help-text-flag-references",
+    "isCrossRepository": false,
+    "isDraft": false,
+    "number": 14719,
+    "title": "Fix help text that references nonexistent flags",
+    "url": "https://github.com/cli/cli/pull/14719"
+  }
+]

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
@@ -64,10 +64,6 @@ function isExecutableFile(candidate: string): boolean {
 export function runHelper(executable: string, args: string[], options: HelperOptions): Promise<HelperResult> {
   const timeoutMs = options.timeoutMs ?? HELPER_TIMEOUT_MS;
   const env = { ...(options.env ?? process.env), GIT_TERMINAL_PROMPT: "0" };
-  // Node refuses to spawn a .cmd or .bat file directly on Windows; those go through cmd.exe.
-  const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable);
-  const command = viaShell ? quoteForCmd(executable) : executable;
-  const commandArgs = viaShell ? args.map(quoteForCmd) : args;
 
   return new Promise((resolve) => {
     let stdout = "";
@@ -80,25 +76,35 @@ export function runHelper(executable: string, args: string[], options: HelperOpt
       resolve(result);
     };
 
-    const child = spawn(command, commandArgs, {
-      cwd: options.cwd,
-      env,
-      detached: true,
-      windowsHide: true,
-      shell: viaShell,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawnDetached(executable, args, { cwd: options.cwd, env, stdin: "ignore" });
     const timer = setTimeout(() => {
       endProcessGroup(child.pid);
       finish({ exitCode: null, stdout, stderr, failure: `timed out after ${timeoutMs / 1000} seconds` });
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
-    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+    child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
+    child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
     child.on("error", (error) => finish({ exitCode: null, stdout, stderr, failure: error.message }));
     child.on("close", (code, signal) =>
       finish(code === null ? { exitCode: null, stdout, stderr, failure: `ended by ${signal}` } : { exitCode: code, stdout, stderr }),
     );
+  });
+}
+
+/**
+ * Spawns a process detached, in its own process group, with stdout and stderr piped, so the
+ * terminal's Ctrl+C reaches only Kiln. Node refuses to spawn a .cmd or .bat file directly on
+ * Windows, so those go through cmd.exe with their arguments quoted for it.
+ */
+export function spawnDetached(executable: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; stdin: "ignore" | "pipe" }): ChildProcess {
+  const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable);
+  return spawn(viaShell ? quoteForCmd(executable) : executable, viaShell ? args.map(quoteForCmd) : args, {
+    cwd: options.cwd,
+    env: options.env,
+    detached: true,
+    windowsHide: true,
+    shell: viaShell,
+    stdio: [options.stdin, "pipe", "pipe"],
   });
 }
 
