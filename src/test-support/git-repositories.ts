@@ -40,8 +40,9 @@ export function createSandbox(): Sandbox {
     } catch (error) {
       // Name what still holds the folder, so a failure says which process outlived its test.
       if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EBUSY") throw error;
-      const processes = spawnSync("powershell", ["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*kiln-test-*' } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)\" }"], { encoding: "utf8" });
-      throw new Error(`${(error as Error).message}\nProcesses still naming a test sandbox:\n${processes.stdout}`);
+      const list = "Get-CimInstance Win32_Process | Where-Object { @('node.exe','cmd.exe','git.exe','sh.exe','bash.exe','sleep.exe','git-upload-pack.exe') -contains $_.Name } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)\" }";
+      const processes = spawnSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" });
+      throw new Error(`${(error as Error).message}\nTest process ${process.pid}; processes that may hold it:\n${processes.stdout}`);
     }
   };
   return { root, env, cleanup };

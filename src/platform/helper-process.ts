@@ -146,15 +146,24 @@ export function spawnDetached(executable: string, args: string[], options: { cwd
  * so a .cmd shim's real process goes too.
  *
  *   endProcessTree(child.pid, "SIGTERM")
+ *   await endProcessTree(child.pid, "SIGTERM")  // on Windows, once taskkill has finished
  */
-export function endProcessTree(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) return;
+export function endProcessTree(pid: number | undefined, signal: NodeJS.Signals): Promise<void> {
+  if (pid === undefined) return Promise.resolve();
   try {
-    if (process.platform === "win32") spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" }).on("error", () => {});
-    else process.kill(-pid, signal);
+    if (process.platform === "win32") {
+      // Resolves once taskkill has ended the tree, for a caller that must not outlive it.
+      return new Promise((resolve) => {
+        const taskkill = spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" });
+        taskkill.on("error", () => resolve());
+        taskkill.on("exit", () => resolve());
+      });
+    }
+    process.kill(-pid, signal);
   } catch {
     // Already gone.
   }
+  return Promise.resolve();
 }
 
 function quoteForCmd(value: string): string {

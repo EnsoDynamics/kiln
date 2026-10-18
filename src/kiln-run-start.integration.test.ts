@@ -298,7 +298,10 @@ describe("kiln run on a feature not started", () => {
     const giftScenario = join(f.sandbox.root, "gift-scenario.json");
     writeFileSync(giftScenario, JSON.stringify({ sessions: [landingSession("src/gifts-1.txt"), landingSession("src/gifts-2.txt"), landingSession("src/gifts-3.txt"), pullRequestSession(219)] }));
     const returns = startKiln(f, FOLDER);
-    const gifts = startKiln({ ...f, env: { ...f.env, KILN_STANDIN_SCENARIO: giftScenario } }, "gift-cards");
+    // Its own gh state too: the stand-in rewrites its file whole, so two sessions sharing one could lose a pull request.
+    const giftGhState = join(f.sandbox.root, "gift-gh-state.json");
+    writeFileSync(giftGhState, JSON.stringify({ pulls: [] }));
+    const gifts = startKiln({ ...f, env: { ...f.env, KILN_STANDIN_SCENARIO: giftScenario, KILN_STANDIN_GH_STATE: giftGhState } }, "gift-cards");
     const addresses = await Promise.all([returns.address, gifts.address]);
     const pressed = await Promise.all(
       addresses.map(async (address) => {
@@ -307,7 +310,9 @@ describe("kiln run on a feature not started", () => {
       }),
     );
     expect(pressed.map((answer) => answer.status)).toEqual([200, 200]);
-    await waitFor(() => returns.lines().some((line) => line.includes("opened #218")) && gifts.lines().some((line) => line.includes("opened #219")), 60_000);
+    await waitFor(() => returns.lines().some((line) => line.includes("opened #218")) && gifts.lines().some((line) => line.includes("opened #219")), 60_000).catch((error: Error) => {
+      throw new Error(`${error.message}\nCustomer returns:\n${returns.stdout()}\nGift cards:\n${gifts.stdout()}`);
+    });
     // Neither PRD touched the other's branch.
     const files = (branch: string) => git(f.sandbox, f.repository, "ls-tree", "-r", "--name-only", branch);
     expect(files("feature/customer-returns")).toContain("src/returns-3.txt");
@@ -316,7 +321,7 @@ describe("kiln run on a feature not started", () => {
     expect(files("feature/gift-cards")).not.toContain("src/returns-1.txt");
     for (const kiln of [returns, gifts]) kiln.signals.emit("SIGINT");
     expect(await Promise.all([returns.done, gifts.done])).toEqual([130, 130]);
-  });
+  }, 120_000);
 
   it("stops during Start's setup with the engine's own line, and refuses Start and the fixed fields while setup runs", async () => {
     const f = createFeature([landingSession()]);

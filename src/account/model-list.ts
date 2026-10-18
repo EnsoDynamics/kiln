@@ -120,7 +120,7 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
         // When the SDK ends the child it ends the whole tree, so a .cmd shim's claude goes with it on Windows.
         const spawned = child;
         spawned.kill = (signal?: NodeJS.Signals | number) => {
-          endProcessTree(spawned.pid, typeof signal === "string" ? signal : "SIGTERM");
+          void endProcessTree(spawned.pid, typeof signal === "string" ? signal : "SIGTERM");
           return true;
         };
         spawnOptions.signal.addEventListener("abort", () => endProcessTree(spawned.pid, "SIGTERM"), { once: true });
@@ -147,7 +147,7 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
     finished.abort();
     // The SDK ends only the process it spawned; on Windows that is the .cmd shim's cmd.exe, and
     // the claude it started lives on. Its whole tree goes, so no helper outlives the call.
-    endProcessTree(child?.pid, "SIGTERM");
+    await endProcessTree(child?.pid, "SIGTERM");
   }
 }
 
