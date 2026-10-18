@@ -156,7 +156,8 @@ log(`Kiln is at ${address}`);
 
 // A view connects, as the browser would; its base check runs.
 const view = await fetch(`${origin}/api/events?token=${encodeURIComponent(token)}`);
-void view.body.pipeTo(new WritableStream());
+// The stream ends when Kiln stops at the end of the gate; that is expected, not a failure.
+view.body.pipeTo(new WritableStream()).catch(() => undefined);
 await until("the base check", async () => (await snapshot()).settings.baseCheck === "ok", 120_000);
 log(`settings: ${JSON.stringify(await api("POST", "/api/settings", { model, effort }))}`);
 log(`start: ${JSON.stringify(await api("POST", "/api/start", { refinementConfirmed: true }))}`);
@@ -191,9 +192,12 @@ log(`claude --resume exited ${resumed}`);
 
 // ---- Check again ----------------------------------------------------------------------------
 log(`check again: ${JSON.stringify(await api("POST", "/api/check-again"))}`);
-const after = await until("the check to settle", async () => {
+// The pause requested while the phase worked holds once it is Done (AC-VIEW-03). With no leaf
+// left, Kiln first checks GitHub for a pull request (up to 2 minutes), then pauses before the
+// pull-request session (UI-008).
+const after = await until("Kiln to pause", async () => {
   const now = await snapshot();
-  return now.needsYou?.checking ? undefined : now;
+  return now.feature.state === "paused" || now.feature.state === "needs_you" ? now : undefined;
 }, 5 * 60_000);
 writeFileSync(join(out, "snapshot-after-check-again.json"), JSON.stringify(after, null, 2));
 screenshot("after-check-again.png");

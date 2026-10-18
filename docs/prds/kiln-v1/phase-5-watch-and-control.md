@@ -18,7 +18,7 @@ The real-feature proof, the Windows checks and publishing to npm (Phase 6).
 2 (the engine's Needs you stops, check-again command and pull-request facts); 3 (the interrupted and not-resumable states the screens draw); 4 (the server, event stream, account and usage data, and the shared screen frame)
 
 ## Phase-specific notes
-- Proof gate 3 (architecture proposal) runs at the end of this phase, against the real Claude Code, once Needs you exists.
+- Proof gate 3 (architecture proposal) ran at the end of this phase, against the real Claude Code: every item held ([results](../../design/kiln-proof-gate-3-results.md)).
 
 ## Inherited from Phase 4
 - The server is `src/server/local-server.ts`; every API route in the technical design's "HTTP API" table exists, including `GET /api/sessions/{id}/output`. The event stream sends `snapshot`, `output` and `heartbeat`; it sends no `partial` yet, because the engine has no hook for partial-message deltas. Add one in the engine's `onOutput` path (`src/session/claude-session.ts` drops the deltas today).
