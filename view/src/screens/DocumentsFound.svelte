@@ -5,6 +5,8 @@
   // may not do (AC-START-08), and Start.
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
+  import CodeText from "../components/CodeText.svelte";
+  import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
   import { changeSettings, start, type PageConfig } from "../lib/api.js";
   import {
@@ -21,7 +23,7 @@
     startState,
   } from "../lib/documents-found.js";
 
-  let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
+  let { snapshot, config, connected, lastSeenAt, now = Date.now() }: { snapshot: Snapshot; config: PageConfig; connected: boolean; lastSeenAt?: number | undefined; now?: number } = $props();
 
   const documents = $derived(snapshot.documents!);
   const settings = $derived(snapshot.settings);
@@ -82,6 +84,7 @@
     <span class="pill">Not started</span>
     <span class="lead">Review what Kiln found and how it will deliver, then start.</span>
   </FeatureHeader>
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept={false} prdFolder={snapshot.feature.prdFolder} {now} />{/if}
 
   <div class="columns">
     <section class="panel found" aria-labelledby="found-h">
@@ -170,7 +173,7 @@
       <div class="pair">
         <div class="field">
           <span class="label">Agent</span>
-          <span class="agent">Claude Code{#if account.error}<span class="message">{account.error}</span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+          <span class="agent">Claude Code{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
         </div>
         <div class="field">
           <label for="model">Model</label>
@@ -214,7 +217,7 @@
     <div class="column">
       <span class="explain">Kiln can’t tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes.</span>
       <label for="refined" class="refined">
-        <input id="refined" type="checkbox" bind:checked={refined} disabled={documents.starting === true} />
+        <input id="refined" type="checkbox" bind:checked={refined} disabled={!connected || documents.starting === true} />
         <span>These documents have been through requirements refinement</span>
       </label>
     </div>

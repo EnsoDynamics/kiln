@@ -14,6 +14,12 @@ export interface OutputLine {
   text: string;
 }
 
+/** A piece of text a session is writing, before its finished line arrives. */
+export interface PartialText {
+  source: "claude" | "reviewer" | "subagent";
+  text: string;
+}
+
 /** A stream-json event as Claude Code writes it; only the fields Kiln reads are typed. */
 export interface StreamEvent {
   type?: string;
@@ -132,6 +138,18 @@ export class SessionOutputReader {
       }
     }
     return lines;
+  }
+
+  /**
+   * The text a partial-message delta adds, labeled as its finished line will be: a text delta
+   * only; tool input, thinking and every other delta give none.
+   */
+  partialText(event: StreamEvent): PartialText | undefined {
+    const inner = event.event as { type?: string; delta?: { type?: string; text?: unknown } } | undefined;
+    if (inner?.type !== "content_block_delta" || inner.delta?.type !== "text_delta" || typeof inner.delta.text !== "string" || inner.delta.text === "") return undefined;
+    const parent = event.parent_tool_use_id ?? undefined;
+    const source = parent === undefined ? "claude" : this.reviewerCalls.has(parent) ? "reviewer" : "subagent";
+    return { source, text: inner.delta.text };
   }
 
   stderrLines(text: string, at: string): OutputLine[] {

@@ -1,0 +1,611 @@
+// The browser view in a real browser (technical design, Testing Approach, "The view"): each
+// mockup screen rendered by headless Chrome from a fixture Snapshot carrying that mockup's
+// sample data, under Kiln's own Content Security Policy, with its copy checked against the
+// mockup's; the Disconnected and reconnect behavior against a server that stops and returns;
+// and a final message holding raw HTML shown as text (PRD AC-STOP-02).
+//
+// Set KILN_SCREENSHOTS=<folder> to also write each screen and its mockup as PNGs side by side,
+// for comparing them by eye (AC-LOOK-01).
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Snapshot } from "../engine/snapshot.js";
+import { isPortFree } from "../state/instance-lock.js";
+import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
+import { serveViewFixture } from "../test-support/view-fixture-server.js";
+import {
+  completeSnapshot,
+  needsYouCrashedSnapshot,
+  needsYouMessageSnapshot,
+  pausedSnapshot,
+  PHASE_DETAIL_LINES,
+  RUNNING_NOW,
+  runningSnapshot,
+} from "../test-support/sample-snapshots.js";
+
+const MOCKUPS = new URL("../../docs/design/mockups/", import.meta.url);
+const TIME_ZONE = "America/New_York";
+let port = 41200;
+let chrome: HeadlessChrome;
+
+/** The next free port in this file's range, 41200 to 41299. */
+async function nextPort(): Promise<number> {
+  while (port < 41300) {
+    const candidate = port++;
+    if (await isPortFree(candidate)) return candidate;
+  }
+  throw new Error("No free port for the browser tests in 41200-41299.");
+}
+
+beforeAll(async () => {
+  chrome = await launchChrome();
+});
+afterAll(async () => {
+  await chrome?.close();
+});
+
+async function waitUntil(condition: () => boolean, ms = 10_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting.");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Clicks the first button or link whose text is exactly `label`. */
+const click = (page: BrowserPage, label: string) => page.evaluate(`[...document.querySelectorAll("button, a")].find((e) => e.textContent.trim() === ${JSON.stringify(label)}).click()`);
+
+/** Replaces the clipboard with a recorder, so a test can read what each Copy button copied. */
+const recordClipboard = (page: BrowserPage) => page.evaluate(`window.__copied = []; Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text) => { window.__copied.push(text); } } }); true`);
+/** The text of the element with the largest font on the screen (AC-LOOK-02). */
+const largestText = (page: BrowserPage) =>
+  page.evaluate<string>(`[...document.querySelectorAll("body *")].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).sort((a, b) => parseFloat(getComputedStyle(b).fontSize) - parseFloat(getComputedStyle(a).fontSize))[0].textContent.trim()`);
+const copied = (page: BrowserPage) => page.evaluate<string[]>("window.__copied");
+
+/** The page's words, one space between them, the way a person reads them; eyebrows' capitals aside. */
+const words = async (page: BrowserPage) => flat(await page.evaluate<string>("document.body.innerText"));
+const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+async function openScreen(snapshot: Snapshot, path = "", clock = RUNNING_NOW, output = PHASE_DETAIL_LINES, refuse?: Record<string, string>) {
+  const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot, output, ...(refuse ? { refuse } : {}) });
+  const page = await chrome.open(`${server.address}${path}`, { clock, timeZone: TIME_ZONE });
+  await page.waitFor(`document.querySelector("h1")`);
+  return { server, page };
+}
+
+async function saveScreenshots(name: string, page: BrowserPage, mockup: string, clock: number) {
+  const folder = process.env.KILN_SCREENSHOTS;
+  if (!folder) return;
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, `${name}-view.png`), await page.screenshot());
+  const drawn = await chrome.open(pathToFileURL(new URL(mockup, MOCKUPS).pathname).href, { clock, timeZone: TIME_ZONE });
+  await drawn.waitFor(`document.fonts.status === "loaded"`, 15_000).catch(() => undefined);
+  writeFileSync(join(folder, `${name}-mockup.png`), await drawn.screenshot());
+  await drawn.close();
+}
+
+/** Each screen with the mockup it is drawn from, and lines of its copy that must read as drawn. */
+const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: string; clock?: number; copy: string[] }[] = [
+  {
+    name: "running",
+    mockup: "kiln-screen-running.html",
+    snapshot: runningSnapshot,
+    copy: [
+      "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Implementing phase 2b 2 of 5 phases done",
+      "2b Now implementing · phase 2b of 5 Store credit Claude Code · Opus 5.5 · high effort Started 10:58 AM · 49 min",
+      "Build Deliverable review Test hardening Commit Refactor pass Push",
+      "Seen in the session: deliverable-review skill started · 2 min ago Watch live",
+      "11:46:58 reviewer The credit multiplier is applied before rounding; checking that against… Details",
+      "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
+      "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
+      "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code Change Keep awake While a session works Closing the lid can still put the computer to sleep. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
+      "Pause Kiln Phase 2b, Store credit, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start. Pause after this phase",
+      "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
+    ],
+  },
+  {
+    name: "phase-detail-live",
+    mockup: "kiln-screen-phase-detail-live.html",
+    snapshot: runningSnapshot,
+    path: "/phase/2b",
+    copy: [
+      "All phases 2b Store credit Implementing Phase 2b of 5 · Claude Code · Started 10:58 AM · 49 min",
+      "Session output LIVE Latest of 1,284 lines Load earlier",
+      "11:44:02 tool Bash pytest tests/returns -k store_credit -q 11:44:09 out 23 passed in 4.81s 11:44:15 claude AC-RET-08 to AC-RET-10 have passing tests. Running deliverable review now. 11:44:16 skill Skill deliverable-review",
+      "Progress Read from the session’s tool calls and Git Build implement-from-requirements skill started 10:58 skill call Deliverable review deliverable-review skill started; its reviewer subagent is working 11:44 skill call Test hardening Starts when the session calls the test-hardening skill Commit Kiln sees the session’s first git commit",
+      "Pause after this phase Phase 2b still finishes its commit and push. Nothing is cut off mid-step.",
+      "Session Session ID 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Model and effort Opus 5.5 · high effort Started 10:58 AM · 49 min If the phase stops before it’s done, Kiln hands you the command that opens this exact session.",
+      "Commits None for this phase yet. The feature commit comes after test hardening.",
+    ],
+  },
+  {
+    name: "paused",
+    mockup: "kiln-screen-paused.html",
+    snapshot: pausedSnapshot,
+    copy: [
+      "Customer returns Paused 2 of 5 phases done",
+      "Paused after phase 2a Next: phase 2b, Store credit Phase 2a, Card refunds, finished with its commit and push at 10:57 AM. Nothing is running. Change the model or effort first if you want; they apply to phase 2b. Start phase 2b",
+      "2b Store credit phase-2b-store-credit.md Next",
+      "Close to the limit. Switch accounts before you start the next phase.",
+      "To switch accounts, run claude auth login in another terminal, then press Start. The next phase uses whichever account is signed in.",
+      "Settings for this PRD Model and effort changes apply from the next phase you start.",
+      "Kiln Connected Kiln is waiting in your terminal. Keep it open; Ctrl+C there closes Kiln, and kiln run picks up where it left off.",
+    ],
+  },
+  {
+    name: "needs-you-ended-with-message",
+    mockup: "kiln-screen-needs-you-ended-with-message.html",
+    snapshot: needsYouMessageSnapshot,
+    clock: Date.parse("2026-10-17T15:53:00Z"),
+    copy: [
+      "Customer returns Needs you Phase 2b · Store credit · Stopped 11:52 AM",
+      "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier",
+      "Last message from Claude Code Critical finding, stopping to surface: the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s 0042_store_credits clashes with it.",
+      "Full session output · 612 lines",
+      "Pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command Full history, right where it stopped. Kiln stays out of it.",
+      "2 Finish the phase with Claude, the way you normally would Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
+      "3 Come back and check again Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase. Session can’t be opened? Copy a prompt for a fresh session instead",
+      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    ],
+  },
+  {
+    name: "needs-you-crashed",
+    mockup: "kiln-screen-needs-you-crashed.html",
+    snapshot: needsYouCrashedSnapshot,
+    clock: Date.parse("2026-10-17T17:22:00Z"),
+    copy: [
+      "Needs you Phase 3 · Returns dashboard · Stopped 1:21 PM",
+      "Phase 3 ended before it was done. The session exited with an error and no final message. These are the last lines it wrote. exit 1 1:21 PM last skill seen: test-hardening, 6 min earlier",
+      "13:20:51 claude Running the dashboard Playwright suite. It needs the dev server on 5173; starting it. 13:20:52 tool Bash npm run dev & 13:20:55 stderr Error: listen EADDRINUSE: address already in use :::5173 13:21:03 exit Process exited with code 1",
+      "Full session output · 2,031 lines",
+      "Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Everything committed Yes Latest commit a41c9e2, tree clean Pushed Not yet a41c9e2 isn’t on origin yet Check again Checked 1:21 PM.",
+    ],
+  },
+  {
+    name: "complete",
+    mockup: "kiln-screen-complete.html",
+    snapshot: completeSnapshot,
+    clock: Date.parse("2026-10-17T19:00:00Z"),
+    copy: [
+      "Customer returns PR ready for review 5 of 5 phases done · 5h 38m · Finished 2:55 PM",
+      "Pull request #218 · feature/customer-returns → develop Customer returns: intake, refund routing, dashboard and restock 17 commits · +2,184 −312 Open on GitHub Human review is next. Kiln stops at “PR ready” and doesn’t merge.",
+      "2b Store credit phase-2b-store-credit.md 1h 19m · finished by you · pushed 7f3a91c Done",
+      "4 Restock check-in phase-4-restock-check-in.md 58m · pushed 0c4d8a2 Done Details PR Final pull request pull request session 9m Opened #218",
+      "Settings for this PRD Set before the first phase. Agent Claude Code Each phase’s Details show the model and effort it ran with. Worktree ~/devel/acme-shop-kiln/customer-returns Kiln keeps it until you remove it.",
+      "Kiln Connected Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay.",
+    ],
+  },
+];
+
+describe("each screen in a real browser, from its mockup's sample data", () => {
+  for (const screen of SCREENS) {
+    it(`renders ${screen.name} as drawn, under Kiln's Content Security Policy (AC-LOOK-01)`, async () => {
+      const clock = screen.clock ?? RUNNING_NOW;
+      const { server, page } = await openScreen(screen.snapshot(), screen.path ?? "", clock);
+      try {
+        await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.copy[0]!.split(" ").slice(-3).join(" "))})`);
+        const text = await words(page);
+        for (const line of screen.copy) expect(text).toContain(flat(line));
+        // The feature name is the largest text on the screen (AC-LOOK-02).
+        expect(await largestText(page)).toBe("Customer returns");
+        expect(page.problems).toEqual([]);
+        await saveScreenshots(screen.name, page, screen.mockup, clock);
+      } finally {
+        await page.close();
+        await server.close();
+      }
+    });
+  }
+
+  it("draws a usage meter's width without an inline style, which the policy would block (AC-WATCH-08)", async () => {
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`document.querySelector('[role="meter"]')`);
+      const widths = await page.evaluate<string[]>(`[...document.querySelectorAll('[role="meter"] > div')].map((fill) => (fill.getBoundingClientRect().width / fill.parentElement.getBoundingClientRect().width).toFixed(2))`);
+      expect(widths).toEqual(["0.82", "0.41", "0.06"]);
+      // The near limit is amber; the others are drawn in the muted tone (UI-001).
+      const colors = await page.evaluate<string[]>(`[...document.querySelectorAll('[role="meter"] > div')].map((fill) => getComputedStyle(fill).backgroundColor)`);
+      expect(colors).toEqual(["rgb(230, 180, 80)", "rgb(189, 182, 168)", "rgb(189, 182, 168)"]);
+      expect(page.problems).toEqual([]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("shows a final message's raw HTML as text, never as markup (AC-STOP-02)", async () => {
+    const snapshot = needsYouMessageSnapshot();
+    snapshot.needsYou!.finalMessage = 'Stopping here. <img src=x onerror="document.title=\'pwned\'"><script>document.title="pwned"</script> **Done**';
+    const { server, page } = await openScreen(snapshot);
+    try {
+      await page.waitFor(`document.body.innerText.includes("Stopping here.")`);
+      const text = await words(page);
+      expect(text).toContain(flat(`Stopping here. <img src=x onerror="document.title='pwned'"><script>document.title="pwned"</script> Done`));
+      expect(await page.evaluate<number>(`document.querySelectorAll("main img, main script").length`)).toBe(0);
+      expect(await page.evaluate<string>("document.title")).toBe("Customer returns · Kiln");
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+});
+
+describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
+  it("says plainly it is disconnected, keeps the last snapshot with the phase shown as Interrupted, and restores the live view when Kiln returns", async () => {
+    const thePort = await nextPort();
+    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+    const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
+      expect(await words(page)).toMatch(/Connected to Kiln · updated \ds ago/i);
+
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      const lost = await words(page);
+      expect(lost).toMatch(/Disconnected from Kiln · last seen 11:4\d AM/i);
+      expect(lost).toContain(flat("Interrupted in phase 2b 2 of 5 phases done"));
+      expect(lost).toMatch(/Kiln isn’t running Nothing is being worked on\. This page shows what Kiln last saw, at 11:4\d AM, in phase 2b\. Its work is kept\. To pick up where it left off, run this in a terminal: kiln run docs\/prds\/customer-returns\/ Copy command/i);
+      expect(lost).toContain(flat("Last seen · phase 2b of 5 Store credit"));
+      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md 49m Interrupted"));
+      expect(lost).toContain(flat("Settings for this PRD Settings can be changed again once Kiln is running."));
+      expect(lost).toContain(flat("Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again."));
+      expect(await largestText(page)).toBe("Customer returns");
+      // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
+      expect(lost).not.toContain(flat("Pause Kiln"));
+      expect(lost).not.toContain(flat("Claude account"));
+      expect(lost).not.toContain(flat("Watch live"));
+      expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter((b) => ["Change"].includes(b.textContent.trim())).map((b) => b.disabled)`)).toEqual([true]);
+      expect(await page.evaluate<boolean>(`document.querySelector('input[type="checkbox"]').disabled`)).toBe(true);
+
+      server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
+      const back = await words(page);
+      expect(back).toContain(flat("Implementing phase 2b"));
+      expect(back).toContain(flat("Pause Kiln"));
+      expect(back).not.toContain(flat("Kiln isn’t running"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("keeps a live Phase detail on screen once disconnected, with its controls gone", async () => {
+    const thePort = await nextPort();
+    const server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
+    const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("LIVE")`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      const text = await words(page);
+      expect(text).toContain(flat("All phases 2b Store credit Interrupted"));
+      expect(text).toContain(flat("23 passed in 4.81s"));
+      expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
+      expect(text).not.toContain(flat("Load earlier"));
+      expect(text).not.toContain(flat("Pause after this phase"));
+      expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
+    } finally {
+      await page.close();
+    }
+  });
+});
+
+describe("live output and the phase route", () => {
+  it("shows Claude's text as it is written, then its finished line in its place (AC-WATCH-05)", async () => {
+    const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
+    try {
+      await page.waitFor(`document.body.innerText.includes("Read src/returns/models.py")`);
+      const sessionId = runningSnapshot().current!.sessionId;
+      server.send("partial", { sessionId, source: "reviewer", text: "The credit multiplier " });
+      server.send("partial", { sessionId, source: "reviewer", text: "is applied before rounding" });
+      await page.waitFor(`document.body.innerText.includes("The credit multiplier is applied before rounding")`);
+      server.send("output", { sessionId, lines: [{ line: 1284, at: "2026-10-17T15:46:58Z", source: "reviewer", text: "The credit multiplier is applied before rounding; checking that against the spec." }] });
+      await page.waitFor(`document.body.innerText.includes("checking that against the spec.")`);
+      const text = await words(page);
+      expect(text.match(/the credit multiplier is applied before rounding/g)).toHaveLength(1);
+      expect(text).toContain(flat("11:46:58 reviewer The credit multiplier is applied before rounding; checking that against the spec."));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("shows a stopped phase's Full session output: no LIVE badge, live text or pause, its time stopped at the session's end, and a way back to Needs you (AC-WATCH-10, UI-010 item 2)", async () => {
+    const stopped = PHASE_DETAIL_LINES.map((line) => ({ ...line, line: line.line - 680 }));
+    const { server, page } = await openScreen(needsYouMessageSnapshot(), "/phase/2b", Date.parse("2026-10-17T16:30:00Z"), stopped);
+    try {
+      await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
+      const text = await words(page);
+      expect(text).toContain(flat("Needs you 2b Store credit Needs you Phase 2b of 5 · Claude Code · Started 10:58 AM · 54 min"));
+      expect(text).toContain(flat("Session output Latest of 612 lines Load earlier"));
+      expect(text).toContain(flat("Progress Read from the session’s tool calls and Git Build implement-from-requirements skill started 10:58 skill call Deliverable review deliverable-review skill started 11:44 skill call"));
+      expect(text).toContain(flat("Session Session ID 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Model and effort Opus 5.5 · high effort Started 10:58 AM · 54 min Commits None for this phase."));
+      expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
+      expect(text).not.toContain(flat("Pause after this phase"));
+      expect(text).not.toContain(flat("its reviewer subagent is working"));
+      // The stopped step keeps the current-step drawing, without the spinner.
+      expect(await page.evaluate<number>(`document.querySelectorAll(".progress .spin").length`)).toBe(0);
+      await page.evaluate(`[...document.querySelectorAll("a")].find((a) => a.textContent.trim() === "Needs you").click()`);
+      await page.waitFor(`location.pathname === "/customer-returns" && document.body.innerText.includes("Phase 2b ended before it was done.")`);
+      expect(page.problems).toEqual([]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("keeps the lines already loaded when the live Phase detail turns into Full session output", async () => {
+    const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
+    try {
+      await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
+      server.send("snapshot", needsYouMessageSnapshot());
+      await page.waitFor(`document.querySelector("main a")?.textContent.trim() === "Needs you"`);
+      expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
+      expect(await words(page)).toContain(flat("11:44:09 out 23 passed in 4.81s"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("fetches the lines it missed while the event stream was down, once Kiln is back (AC-WATCH-05)", async () => {
+    const thePort = await nextPort();
+    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
+    const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Read src/returns/models.py")`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      const missed = [
+        { line: 1284, at: "2026-10-17T15:46:58Z", source: "reviewer" as const, text: "The credit multiplier is applied before rounding." },
+        { line: 1285, at: "2026-10-17T15:47:30Z", source: "claude" as const, text: "Fixing the rounding order." },
+      ];
+      server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: [...PHASE_DETAIL_LINES, ...missed], heartbeatMs: 500 });
+      await page.waitFor(`document.body.innerText.includes("Fixing the rounding order.")`, 20_000);
+      const text = await words(page);
+      expect(text).toContain(flat("11:46:22 reviewer Read src/returns/models.py 11:46:58 reviewer The credit multiplier is applied before rounding. 11:47:30 claude Fixing the rounding order."));
+      expect(text.match(/read src\/returns\/models\.py/g)).toHaveLength(1);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("turns a phase route that no longer applies into the progress view", async () => {
+    const { server, page } = await openScreen(pausedSnapshot(), "/phase/2b");
+    try {
+      await page.waitFor(`location.pathname === "/customer-returns"`);
+      expect(await words(page)).toContain(flat("Next: phase 2b, Store credit"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Pause after this phase, then Keep going, to Kiln (AC-VIEW-02, AC-VIEW-03)", async () => {
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after this phase"))`);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after this phase")).click()`);
+      await waitUntil(() => server.commands.length === 1);
+      const pending = runningSnapshot();
+      pending.pause = { pending: true, active: false };
+      server.send("snapshot", pending);
+      await page.waitFor(`document.body.innerText.includes("Keep going cancels the pause.")`);
+      expect(await words(page)).toContain(flat("Pause Kiln Kiln pauses once phase 2b, Store credit, is done, including its commit and push. Keep going cancels the pause. Keep going"));
+      // The header doesn't change until the pause takes effect (UI-002).
+      expect(await words(page)).toContain(flat("Implementing phase 2b"));
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Keep going")).click()`);
+      await waitUntil(() => server.commands.length === 2);
+      expect(server.commands).toEqual(["POST /api/pause", "DELETE /api/pause"]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+});
+
+describe("the controls, in a real browser", () => {
+  it("copies the resume command, and reveals and copies the fresh-session prompt (AC-STOP-05, AC-STOP-06)", async () => {
+    const snapshot = needsYouMessageSnapshot();
+    const { server, page } = await openScreen(snapshot, "", Date.parse("2026-10-17T15:53:00Z"));
+    try {
+      await page.waitFor(`document.body.innerText.includes("Copy command")`);
+      await recordClipboard(page);
+      await click(page, "Copy command");
+      await page.waitFor(`window.__copied.length === 1`);
+      expect(await copied(page)).toEqual([snapshot.needsYou!.resumeCommand]);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Copy a prompt for a fresh session instead")).click()`);
+      await page.waitFor(`window.__copied.length === 2`);
+      expect((await copied(page))[1]).toBe(snapshot.needsYou!.freshSessionPrompt);
+      // The prompt is shown too, with its own Copy prompt.
+      expect(await words(page)).toContain(flat(`Prompt copied ${snapshot.needsYou!.freshSessionPrompt} Copy prompt`));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Check again, and shows Kiln's reason when it refuses (AC-STOP-07, AC-VIEW-02)", async () => {
+    const { server, page } = await openScreen(needsYouMessageSnapshot(), "", Date.parse("2026-10-17T15:53:00Z"), PHASE_DETAIL_LINES, { "POST /api/check-again": "Kiln is already checking." });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Check again")`);
+      await click(page, "Check again");
+      await page.waitFor(`document.body.innerText.includes("Kiln is already checking.")`);
+      expect(server.commands).toEqual(["POST /api/check-again"]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Start from Paused (AC-VIEW-02, AC-VIEW-03)", async () => {
+    const { server, page } = await openScreen(pausedSnapshot());
+    try {
+      await page.waitFor(`document.body.innerText.includes("Start phase 2b")`);
+      await click(page, "Start phase 2b");
+      await waitUntil(() => server.commands.length === 1);
+      expect(server.commands).toEqual(["POST /api/start {}"]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("changes the model and effort in place with Change, and keep-awake with its checkbox, each saved at once (AC-VIEW-08, UI-009)", async () => {
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`document.body.innerText.includes("Change")`);
+      await click(page, "Change");
+      await page.waitFor(`document.querySelector("#change-model")`);
+      expect(await words(page)).toContain(flat("Model and effort Opus 5.5 · high effort Claude Code Done Model Opus 5.5 Fable 5.1 Sonnet 5.5 Effort Low Medium High Extra high Max"));
+      await page.evaluate(`const select = document.querySelector("#change-model"); select.value = "fable"; select.dispatchEvent(new Event("change", { bubbles: true })); true`);
+      await click(page, "Max");
+      await page.evaluate(`document.querySelector('input[type="checkbox"]').click()`);
+      await waitUntil(() => server.commands.length === 3);
+      expect(server.commands).toEqual(['POST /api/settings {"model":"fable"}', 'POST /api/settings {"effort":"max"}', 'POST /api/settings {"keepAwake":false}']);
+      await click(page, "Done");
+      await page.waitFor(`!document.querySelector("#change-model")`);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("loads earlier output on request, before the lines already shown (AC-WATCH-05)", async () => {
+    const many = Array.from({ length: 250 }, (_, index) => ({ line: index + 1, at: "2026-10-17T15:40:00Z", source: "out" as const, text: `output line ${index + 1}.` }));
+    const snapshot = runningSnapshot();
+    snapshot.current!.latestLine = many.at(-1)!;
+    const { server, page } = await openScreen(snapshot, "/phase/2b", RUNNING_NOW, many);
+    try {
+      await page.waitFor(`document.body.innerText.includes("output line 250.")`);
+      expect(await words(page)).toContain(flat("Latest of 250 lines Load earlier"));
+      expect(await words(page)).not.toContain(flat("output line 50."));
+      await click(page, "Load earlier");
+      await page.waitFor(`document.body.innerText.includes("output line 1.")`);
+      const text = await words(page);
+      expect(text.indexOf(flat("output line 1."))).toBeLessThan(text.indexOf(flat("output line 51.")));
+      // Every line is there now, so nothing earlier is offered.
+      expect(text).not.toContain(flat("Load earlier"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("links to the live output, the full output and the pull request (AC-WATCH-03, AC-WATCH-10, AC-PR-04)", async () => {
+    const hrefOf = (page: BrowserPage, label: string) => page.evaluate<string>(`[...document.querySelectorAll("a")].find((a) => a.textContent.trim().startsWith(${JSON.stringify(label)})).getAttribute("href")`);
+    for (const [snapshot, label, href] of [
+      [runningSnapshot(), "Watch live", "/customer-returns/phase/2b"],
+      [needsYouMessageSnapshot(), "Full session output", "/customer-returns/phase/2b"],
+      [completeSnapshot(), "Open on GitHub", "https://github.com/acme/acme-shop/pull/218"],
+    ] as const) {
+      const { server, page } = await openScreen(snapshot);
+      try {
+        await page.waitFor(`document.body.innerText.includes(${JSON.stringify(label)})`);
+        expect(await hrefOf(page, label)).toBe(href);
+      } finally {
+        await page.close();
+        await server.close();
+      }
+    }
+  });
+
+  it("lists the commits made for a stopped phase on its Full session output (AC-WATCH-06)", async () => {
+    const { server, page } = await openScreen(needsYouCrashedSnapshot(), "/phase/3", Date.parse("2026-10-17T17:22:00Z"), []);
+    try {
+      await page.waitFor(`document.body.innerText.includes("Returns dashboard")`);
+      const text = await words(page);
+      expect(text).toContain(flat("Commits a41c9e2 feat(returns): returns dashboard (phase 3)"));
+      expect(text).toContain(flat("Test hardening test-hardening skill started 13:15 skill call"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+});
+
+describe("what the screens never claim (AC-WATCH-11)", () => {
+  it("shows an acceptance criterion's label only inside the session's own words", async () => {
+    const complete = completeSnapshot();
+    complete.pullRequest!.title = "Customer returns (AC-RET-01 to AC-RET-14)";
+    for (const [snapshot, path] of [
+      [runningSnapshot(), "/phase/2b"],
+      [needsYouMessageSnapshot(), ""],
+      [complete, ""],
+    ] as const) {
+      const { server, page } = await openScreen(snapshot, path);
+      try {
+        await page.waitFor(`document.querySelector("h1")`);
+        await page.waitFor(`document.body.innerText.includes("Customer returns")`);
+        const outside = await page.evaluate<string[]>(`(() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          const found = [];
+          while (walker.nextNode()) {
+            const node = walker.currentNode;
+            if (/AC-[A-Z]+-\\d+/.test(node.textContent) && !node.parentElement.closest(".lines, .latest, .final, .pr h2")) found.push(node.textContent.trim());
+          }
+          return found;
+        })()`);
+        expect(outside).toEqual([]);
+      } finally {
+        await page.close();
+        await server.close();
+      }
+    }
+  });
+});
+
+describe("the look (AC-LOOK-04)", () => {
+  it("gives each color one role and draws the Enso Method's type", async () => {
+    const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
+    try {
+      await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
+      const style = (selector: string, property: string) => page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`);
+      expect(await style("h1", "fontFamily")).toMatch(/^"Instrument Serif"/);
+      expect(await style("body", "fontFamily")).toMatch(/^Inter/);
+      expect(await style(".lines", "fontFamily")).toMatch(/^"JetBrains Mono"/);
+      // Red: the phase in progress and links.
+      expect(await style(".circle", "backgroundColor")).toBe("rgb(226, 105, 79)");
+      expect(await style(".pill", "backgroundColor")).toBe("rgb(226, 105, 79)");
+      // Session output labels as the mockups color them (UI-010 item 1: subagent like tool).
+      const labels = await page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll(".lines .source")].map((label) => [label.textContent, getComputedStyle(label).color]))`);
+      expect(labels).toEqual({ tool: "rgb(140, 133, 119)", out: "rgb(156, 196, 154)", claude: "rgb(226, 105, 79)", skill: "rgb(237, 232, 221)", reviewer: "rgb(230, 180, 80)" });
+    } finally {
+      await page.close();
+      await server.close();
+    }
+    const running = await openScreen(runningSnapshot());
+    try {
+      await running.page.waitFor(`document.querySelector(".watch")`);
+      const style = (selector: string, property: string) => running.page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`);
+      expect(await style(".watch", "color")).toBe("rgb(226, 105, 79)");
+      expect(await style('input[type="checkbox"]', "accentColor")).toBe("rgb(226, 105, 79)");
+      // Green: done and connected.
+      expect(await style("[data-phase='1'] .pill", "color")).toBe("rgb(156, 196, 154)");
+      expect(await style(".dot.connected", "backgroundColor")).toBe("rgb(156, 196, 154)");
+    } finally {
+      await running.page.close();
+      await running.server.close();
+    }
+  });
+});
+
+describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
+  it("shows Disconnected once no heartbeat has come for 15 seconds", async () => {
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 0 });
+    const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
+      const connectedAt = Date.now();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 25_000);
+      expect(Date.now() - connectedAt).toBeGreaterThan(12_000);
+      expect(await words(page)).toContain(flat("Interrupted in phase 2b"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  }, 60_000);
+});

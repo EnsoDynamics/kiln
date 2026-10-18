@@ -1,5 +1,7 @@
 # Phase 5: Watching Kiln work and handling stops in the browser
 
+**Closed:** 2026-10-17
+
 **Parent PRD:** docs/prds/kiln-v1/kiln-v1-prd.md
 **Technical design:** docs/prds/kiln-v1/technical-design.md — relevant sections: "HTTP API" (the phase route, "Needs you on screen", "Connection"), "Snapshot", "Output line", "Sessions" ("Output and progress", "How a session ended"), "Account and Usage", "Engine loop" (pause), "Testing Approach" ("The view")
 

@@ -1,6 +1,7 @@
 // How the view talks to Kiln: the token the server wrote into the page, sent with every API
 // request (technical design, "Local security"), and the engine's commands as plain requests.
 
+import type { OutputLine } from "../../../src/session/session-output.js";
 import type { Settings } from "../../../src/state/records.js";
 
 export interface PageConfig {
@@ -32,3 +33,14 @@ async function send(config: PageConfig, method: "POST" | "DELETE", path: string,
 
 export const changeSettings = (config: PageConfig, change: Partial<Settings>) => send(config, "POST", "/api/settings", change);
 export const start = (config: PageConfig, refinementConfirmed: boolean) => send(config, "POST", "/api/start", refinementConfirmed ? { refinementConfirmed: true } : {});
+export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
+export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");
+export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
+
+/** A page of a session's output: the lines before `before` (all, when absent), at most `limit` (AC-WATCH-05, AC-WATCH-10). */
+export async function outputPage(config: PageConfig, sessionId: string, before?: number, limit = 200): Promise<{ lines: OutputLine[]; total: number }> {
+  const query = new URLSearchParams({ limit: String(limit), ...(before === undefined ? {} : { before: String(before) }) });
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/output?${query}`, { headers: { "X-Kiln-Token": config.token } });
+  if (!response.ok) throw new Error(`Couldn't load the session's output: ${response.status} ${response.statusText}`);
+  return (await response.json()) as { lines: OutputLine[]; total: number };
+}

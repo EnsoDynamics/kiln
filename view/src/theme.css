@@ -4,6 +4,7 @@
 :root {
   --bg: #12110e;
   --panel: #1b1a16;
+  --deep: #0d0c0a;
   --field: #12110e;
   --text: #ede8dd;
   --muted: #bdb6a8;
@@ -33,3 +34,22 @@ a:hover { color: var(--red-hover); }
 input, select, button { font: inherit; }
 input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
 .mono { font-family: var(--mono); }
+
+/* Shared by the progress screens (the Running, Paused, Needs you, Phase detail and Complete mockups). */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: clamp(20px, 3vw, 28px); display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; }
+.eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: var(--sans); font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: transparent; color: var(--text); border: 1px solid var(--line-stronger); }
+.button:hover { color: var(--text); }
+.button.solid { background: var(--text); color: var(--bg); border-color: var(--text); }
+.button.solid:hover { color: var(--bg); }
+.button.wide { width: 100%; }
+.button.small { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.button:disabled { opacity: 0.4; cursor: not-allowed; }
+.code-inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.page-main { max-width: 1120px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 32px) 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px; }
+.page-main.roomy { gap: 40px; }
+.columns-main { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.column-wide { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 28px; }
+.column-side { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+details > summary { list-style: none; cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }

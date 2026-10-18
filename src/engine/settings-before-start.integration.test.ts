@@ -34,6 +34,9 @@ class ModelList implements ClaudeInfoSource {
     this.models = models;
     for (const listener of this.listeners) listener();
   }
+  refreshAccount() {
+    return Promise.resolve();
+  }
   onChange(listener: () => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

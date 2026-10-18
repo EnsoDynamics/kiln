@@ -123,3 +123,27 @@ describe("lastResultLine", () => {
     expect(lastResultLine(content)).toBe(expected);
   });
 });
+
+describe("live text from partial-message deltas (AC-WATCH-05)", () => {
+  const delta = (delta: Record<string, unknown>, parent: string | null = null): StreamEvent => ({ type: "stream_event", parent_tool_use_id: parent, event: { type: "content_block_delta", index: 0, delta } });
+
+  it("labels a text delta as its finished line will be: Claude's, the reviewer's, or a subagent's", () => {
+    const reader = new SessionOutputReader();
+    expect(reader.partialText(delta({ type: "text_delta", text: "Building " }))).toEqual({ source: "claude", text: "Building " });
+    // An Agent call made during Deliverable review is the reviewer's; one made before it is a plain subagent.
+    reader.readEvent(assistant([{ type: "tool_use", id: "early", name: "Agent", input: { description: "explore" } }]), at);
+    reader.readEvent(assistant([{ type: "tool_use", id: "s1", name: "Skill", input: { skill: "deliverable-review" } }]), at);
+    reader.readEvent(assistant([{ type: "tool_use", id: "rev", name: "Agent", input: { description: "fresh-eyes reviewer" } }]), at);
+    expect(reader.partialText(delta({ type: "text_delta", text: "Reading" }, "rev"))).toEqual({ source: "reviewer", text: "Reading" });
+    expect(reader.partialText(delta({ type: "text_delta", text: "Looking" }, "early"))).toEqual({ source: "subagent", text: "Looking" });
+  });
+
+  it("gives no live text for tool input, thinking, signatures, empty text or other stream events", () => {
+    const reader = new SessionOutputReader();
+    expect(reader.partialText(delta({ type: "input_json_delta", partial_json: "{\"command\":" }))).toBeUndefined();
+    expect(reader.partialText(delta({ type: "thinking_delta", thinking: "hmm" }))).toBeUndefined();
+    expect(reader.partialText(delta({ type: "signature_delta", signature: "abc" }))).toBeUndefined();
+    expect(reader.partialText(delta({ type: "text_delta", text: "" }))).toBeUndefined();
+    expect(reader.partialText({ type: "stream_event", event: { type: "message_stop" } })).toBeUndefined();
+  });
+});

@@ -104,9 +104,17 @@ export interface Snapshot {
     checking?: true;
     resumeCommand?: string;
     freshSessionPrompt: string;
+    /** `cd <worktree>` then `claude`: how a fresh session starts when there is nothing to resume (UI-007). */
+    freshSessionCommand: string;
     outputLineCount?: number;
     sessionEndedAt?: string;
     steps?: StepView[];
+    /** The stopped session, for Full session output (AC-WATCH-06, AC-WATCH-10). */
+    sessionId?: string;
+    model?: string;
+    effort?: Effort;
+    sessionStartedAt?: string;
+    commits?: { sha: string; subject: string }[];
   };
   pause: { pending: boolean; active: boolean };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
@@ -272,10 +280,18 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
           ran,
         );
 
+  const freshSessionCommand = claudeCommand(engine.worktreePath);
   const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
-  if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false) };
+  if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
 
   const run = session.runs.at(-1);
+  const sessionFacts = {
+    sessionId: session.sessionId,
+    model: session.modelDisplayName,
+    ...optional("effort", session.effort),
+    ...optional("sessionStartedAt", session.runs[0]?.startedAt),
+    commits: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+  };
   const everStarted = session.runs.some((candidate) => candidate.pid !== undefined);
   const lines = engine.outputLines(session);
   const endedAt = run?.endedAt ?? stop.at;
@@ -288,10 +304,12 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     const stoppedAt = interrupted?.interruptedAt ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
     return {
       ...base,
+      ...sessionFacts,
       stoppedAt,
       ...(lastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
       lastLines: lines.slice(-10),
       freshSessionPrompt: prompts(true),
+      freshSessionCommand,
       outputLineCount: lines.length,
       sessionEndedAt: endedAt,
       steps: stepStates(session.steps),
@@ -300,6 +318,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const finalMessage = run?.result?.text?.trim() ? run.result.text : undefined;
   return {
     ...base,
+    ...sessionFacts,
     stoppedAt: endedAt,
     ...optional("finalMessage", finalMessage),
     ...optional("exitCode", run?.exitCode),
@@ -309,6 +328,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(everStarted ? { resumeCommand: resumeCommand(engine.worktreePath, session.sessionId) } : {}),
     freshSessionPrompt: prompts(everStarted),
+    freshSessionCommand,
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
     steps: stepStates(session.steps),
@@ -321,11 +341,17 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
  * On Windows, the PowerShell form.
  */
 export function resumeCommand(worktreePath: string, sessionId: string, platform: NodeJS.Platform = process.platform): string {
-  if (platform === "win32") return `cd '${worktreePath.replace(/'/g, "''")}'; claude --resume ${sessionId}`;
+  return claudeCommand(worktreePath, `--resume ${sessionId}`, platform);
+}
+
+/** `cd <worktree>` then `claude`, with any arguments: the path quoted as `resumeCommand` gives. */
+export function claudeCommand(worktreePath: string, args?: string, platform: NodeJS.Platform = process.platform): string {
+  const claude = args === undefined ? "claude" : `claude ${args}`;
+  if (platform === "win32") return `cd '${worktreePath.replace(/'/g, "''")}'; ${claude}`;
   const shown = displayPath(worktreePath);
   const quote = (text: string) => (text === "" || /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`);
   const path = shown === "~" ? "~" : shown.startsWith("~/") ? `~/${quote(shown.slice(2))}` : quote(shown);
-  return `cd ${path}\nclaude --resume ${sessionId}`;
+  return `cd ${path}\n${claude}`;
 }
 
 function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {

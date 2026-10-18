@@ -397,7 +397,7 @@ All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local 
 |---|---|
 | `GET /<PRD folder name>` and `GET /<PRD folder name>/…` | The view (client-side routes: progress at the root; Phase detail and Full session output at `/<PRD folder name>/phase/<id>`) |
 | `GET /api/snapshot` | The current `Snapshot` |
-| `GET /api/events` | Server-sent events: `snapshot` on connect and on every change, `output` (new `OutputLine`s for working sessions), `partial` (live text), `heartbeat` every 5 seconds |
+| `GET /api/events` | Server-sent events: `snapshot` on connect and on every change, `output` (`{ sessionId, lines: [OutputLine] }`, new lines of a working session), `partial` (`{ sessionId, source: claude \| reviewer \| subagent, text }`, a text delta, labelled as its finished line will be; the view appends deltas of one source until a finished line from that source replaces them), `heartbeat` every 5 seconds. After the stream comes back, the view pages the output it missed from `GET /api/sessions/{sessionId}/output` |
 | `GET /api/sessions/{sessionId}/output?before={line}&limit={n}` | A page of a session's output (Load earlier, full output) |
 | `POST /api/settings` | `{ model?, effort?, keepAwake?, worktreePath?, featureBranch?, baseBranch? }` → the settings with any field errors; an effort outside the snapshot's `effortLevels` is a field error; worktree and branches only before Start (AC-START-06, AC-VIEW-08) |
 | `POST /api/start` | Before the first phase: `{ refinementConfirmed: true }`, refused until the settings validate (AC-START-05). When paused: no body |
@@ -452,9 +452,14 @@ Snapshot:
                                                             states, see While Kiln is busy between states)
   needsYou?: { phaseId, kind: done_check | pull_request_check | not_resumable | plan, stoppedAt, stoppedAtIsLastOutput?,
              finalMessage?, exitCode?, signal?, spawnError?: { code, message }, lastSkill?: { name, at }, lastLines?: [ OutputLine ],
-             checks: [ { name, passed, fact } ], checkedAt, checking?: true, resumeCommand?, freshSessionPrompt, outputLineCount?,
-             sessionEndedAt?, steps?: [ { name, state, startedAt? } ] }       (steps as last recorded; for Full session output;
-                                                                               checking: Check again's check under way)
+             checks: [ { name, passed, fact } ], checkedAt, checking?: true, resumeCommand?, freshSessionPrompt,
+             freshSessionCommand, outputLineCount?, sessionEndedAt?, steps?: [ { name, state, startedAt? } ],
+             sessionId?, model?, effort?, sessionStartedAt?, commits?: [ { sha, subject } ] }
+                                                                   (freshSessionCommand: `cd <worktree>` then `claude`, quoted as
+                                                                    resumeCommand is, for UI-007's fresh-session step 1;
+                                                                    steps, sessionId to commits: the stopped session, for Full
+                                                                    session output; commits read from Git when the stop is recorded
+                                                                    and on each check; checking: Check again's check under way)
   pause: { pending, active }
   account?: { email?, plan?, updatedAt, limits: [ { label, shortLabel, percent, resetsAt, nearLimit } ], error?, limitsError? }
                                                            (absent until the first account and usage calls return, Startup order)

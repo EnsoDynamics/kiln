@@ -187,6 +187,30 @@ describe("the local server", () => {
     abort.abort();
   });
 
+  it("streams a working session's live text, then its finished line (AC-WATCH-05)", async () => {
+    const landing = landingSession();
+    const session = { actions: [landing.actions[0]!, { partial: "Building " }, { partial: "the phase." }, { text: "Building the phase." }, ...landing.actions.slice(1)] };
+    const { h, origin, token } = await serve([session]);
+    const abort = new AbortController();
+    const response = await fetch(`${origin}/api/events?token=${token}`, { signal: abort.signal });
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let text = "";
+    const data = (event: string) => [...text.matchAll(new RegExp(`^event: ${event}\\ndata: (.*)$`, "gm"))].map((match) => JSON.parse(match[1]!));
+    // A connecting view runs the base check, which Start waits out.
+    await waitFor(() => h.engine.baseCheck === "ok");
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    while (!data("output").some((event) => event.lines.some((line: { text: string }) => line.text === "Building the phase."))) text += (await reader.read()).value ?? "";
+    const sessionId = h.engine.latestSession("1")!.sessionId;
+    expect(data("partial")).toEqual([
+      { sessionId, source: "claude", text: "Building " },
+      { sessionId, source: "claude", text: "the phase." },
+    ]);
+    // The live text comes before its finished line, which replaces it.
+    expect(text.indexOf("event: partial")).toBeLessThan(text.indexOf('"text":"Building the phase."'));
+    abort.abort();
+    await h.engine.settled();
+  });
+
   it("passes the engine's refusals on, with their reasons and field messages", async () => {
     const { h, origin, token } = await serve();
     const post = async (path: string, body?: unknown, method = "POST") => {

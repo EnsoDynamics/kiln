@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentsFoundSnapshot } from "../test-support/sample-snapshot.js";
+import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { accountLines, assumptionsLine, designLine, effortDisabled, modelOptions, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {

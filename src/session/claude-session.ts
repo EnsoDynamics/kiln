@@ -10,7 +10,7 @@ import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { sessionDirectory, writeSessionRecord, PR_PHASE_KEY, type SessionRecord, type SessionRun } from "../state/records.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
-import { isPartialDelta, SessionOutputReader, type OutputLine, type StreamEvent } from "./session-output.js";
+import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
 
 /** The flags every session gets (technical design, "Starting a phase's session"). */
@@ -78,6 +78,8 @@ export interface SessionProcessOptions {
   now?: () => Date;
   /** Called with each batch of new output lines, as they are saved. */
   onOutput?: (lines: OutputLine[]) => void;
+  /** Live text from partial-message deltas, never saved (technical design, "Output and progress"). */
+  onPartial?: (partial: PartialText) => void;
   /** Called whenever the session record changes (a run added, steps, init, the end). */
   onRecordChange?: () => void;
   /** Given the run's output reader once, so a caller can ask whether the reviewer is working. */
@@ -231,7 +233,11 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       appendJsonLine(files.events, { at, event: { unparsed: text } });
       return;
     }
-    if (isPartialDelta(event)) return;
+    if (isPartialDelta(event)) {
+      const partial = reader.partialText(event);
+      if (partial) options.onPartial?.(partial);
+      return;
+    }
     appendJsonLine(files.events, { at, event });
     if (isModelResponse(event)) modelResponses.push(at);
 

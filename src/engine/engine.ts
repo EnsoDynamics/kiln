@@ -23,7 +23,7 @@ import {
   type SessionControl,
 } from "../session/claude-session.js";
 import { phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
-import type { OutputLine, SessionOutputReader } from "../session/session-output.js";
+import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
 import {
   EFFORT_LEVELS,
   PR_PHASE_KEY,
@@ -146,6 +146,8 @@ export class Engine {
   baseBranches: string[] | undefined;
   /** git's message from a failed setup, held in memory only, cleared by the next Start. */
   startError: string | undefined;
+  /** The stopped phase's commits, as last read from Git (Full session output). */
+  stoppedCommits: { phaseKey: string; commits: { sha: string; subject: string }[] } | undefined;
   /** The last successful read of the plan in this run. */
   plan: PhasePlan | undefined;
   /** Set once a stop begins (Ctrl+C, a closed terminal, a signal); from then on nothing is judged. */
@@ -157,7 +159,9 @@ export class Engine {
   private driving: Promise<void> | undefined;
   private readonly listeners = new Set<() => void>();
   private readonly outputListeners = new Set<(sessionId: string, lines: OutputLine[]) => void>();
+  private readonly partialListeners = new Set<(sessionId: string, partial: PartialText) => void>();
   private lastCommitRefresh = 0;
+  private stoppedCommitsReading: Promise<void> | undefined;
   /** True while `kiln run` decides; its ● line stands in for the terminal lines. */
   private quiet = false;
   /** `kiln run` already ran the check before the pull-request session and it failed. */
@@ -258,9 +262,15 @@ export class Engine {
     return () => this.outputListeners.delete(listener);
   }
 
+  /** Live text of a working session as it is written, replaced in the view by the finished line (AC-WATCH-05). */
+  onPartial(listener: (sessionId: string, partial: PartialText) => void): () => void {
+    this.partialListeners.add(listener);
+    return () => this.partialListeners.delete(listener);
+  }
+
   /** Resolves once the engine has nothing left to do until a command arrives. */
   async settled(): Promise<void> {
-    while (this.driving) await this.driving;
+    while (this.driving || this.stoppedCommitsReading) await (this.driving ?? this.stoppedCommitsReading);
   }
 
   // ---- Commands --------------------------------------------------------------------------
@@ -707,6 +717,8 @@ export class Engine {
         this.activatePause();
         return;
       }
+      // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
+      void this.options.claude?.refreshAccount();
       if (!leaf) {
         await this.runPullRequestSession();
         return;
@@ -842,6 +854,9 @@ export class Engine {
         for (const listener of this.outputListeners) listener(session.sessionId, lines);
         void this.refreshCommits(current, false);
         this.changed();
+      },
+      onPartial: (partial) => {
+        for (const listener of this.partialListeners) listener(session.sessionId, partial);
       },
       onRecordChange: () => this.changed(),
     });
@@ -1060,6 +1075,7 @@ export class Engine {
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false });
     facts.stop = { kind, at, checks, checkedAt: at };
     this.save();
+    this.readStoppedCommits(phaseKey);
   }
 
   private updateStop(phaseKey: string, checks: CheckResult[]): void {
@@ -1067,6 +1083,27 @@ export class Engine {
     stop.checks = checks;
     stop.checkedAt = this.now().toISOString();
     this.save();
+    this.readStoppedCommits(phaseKey);
+  }
+
+  private readStoppedCommits(phaseKey: string): void {
+    const reading = this.refreshStoppedCommits(phaseKey).finally(() => {
+      if (this.stoppedCommitsReading === reading) this.stoppedCommitsReading = undefined;
+    });
+    this.stoppedCommitsReading = reading;
+  }
+
+  /** The stopped phase's commits so far, read from Git when it stops and on each check, for Full session output (AC-WATCH-06). */
+  private async refreshStoppedCommits(phaseKey: string): Promise<void> {
+    const start = this.record.phases[phaseKey]?.startCommit;
+    if (phaseKey === PR_PHASE_KEY || start === undefined || this.stopping) return;
+    try {
+      const commits = await firstParentCommits(this.git, this.worktreePath, start, `refs/heads/${this.record.settings.featureBranch}`);
+      this.stoppedCommits = { phaseKey, commits };
+      this.changed();
+    } catch {
+      // The worktree may be gone; the stop's own checks already say so, and Commits shows none.
+    }
   }
 
   /**

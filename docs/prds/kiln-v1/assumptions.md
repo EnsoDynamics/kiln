@@ -50,7 +50,9 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 
 ---
 
-### UI-007. Do the Needs you screens nobody drew reuse the drawn layout and change only these lines?
+### UI-007. Do the Needs you screens nobody drew reuse the drawn layout and change only these lines? — ⏳ PENDING (updated 2026-10-17; 80% confidence)
+
+*Updated 2026-10-17, as built in Phase 5: item 2's line when no time was recorded, and item 3's step numbers, its "phase <n>" in lowercase, and its side column.*
 
 **Assumption**: Four kinds of **Needs you** stop have no mockup. Each **reuses the drawn Needs you layout** and changes **only the lines below**; everything else stays as drawn. This is screen copy: please confirm it or correct the wording.
 
@@ -65,7 +67,7 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 
 **2. An interrupted session can't be resumed** (AC-KEEP-05):
 - Headline unchanged: "Phase <n> ended before it was done."
-- Line under it: **"Kiln was interrupted at <time> while this session was working, and couldn't resume it. These are the last lines it wrote."** If Kiln was shut down so abruptly that it recorded no time, the line says **"last output at <time>"** in place of "interrupted at <time>".
+- Line under it: **"Kiln was interrupted at <time> while this session was working, and couldn't resume it. These are the last lines it wrote."** If Kiln was shut down so abruptly that it recorded no time, it reads **"Kiln was interrupted while this session was working, and couldn't resume it. Its last output was at <time>. These are the last lines it wrote."**
 - **No exit code or last-skill row**: AC-KEEP-05 shows when the session was interrupted in place of that list.
 - Step 1 becomes **"Start a fresh Claude Code session in the worktree"**: the commands `cd <worktree>` and `claude`, then the fresh-session prompt with a **Copy prompt** button and the note **"Points the new session at <phase doc>."**
 - The **"Session can't be opened?"** link is removed, since step 1 already offers the fresh session.
@@ -75,9 +77,9 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 - Headline: **"Phase <n> hasn't started."**
 - Line under it: **"Kiln read the phase plan and found the problem shown on the right."**
 - **No session ran, so nothing about one appears**: none of AC-STOP-02's list (last message, exit code, last skill seen, last lines of output), no Full session output link, and no step 1 with AC-STOP-05's resume command. Beyond the lines listed here, the screen shows only the plan problem, the fresh-session prompt link and **Check again**.
-- Step 2 becomes **"Fix the phase plan"**, with **"Kiln only checks that the plan reads: every phase file has its own phase number, every `## Split into` row has a file, and every phase file is listed."**
-- Step 3 keeps **"Come back and check again"**, with the text **"Kiln reads the plan again. If it reads, Kiln starts Phase <n>, or pauses first if you pressed Pause."**
-- Side column: one row, **"Phase plan reads · Not yet · <problem>"**, for example "Phase plan reads · Not yet · phase-2-refund-routing.md lists 2c, which has no file".
+- With no step 1, the two steps are numbered **1 and 2**. Step 1 is **"Fix the phase plan"**, with **"Kiln only checks that the plan reads: every phase file has its own phase number, every `## Split into` row has a file, and every phase file is listed."**
+- Step 2 keeps **"Come back and check again"**, with the text **"Kiln reads the plan again. If it reads, Kiln starts phase <n>, or pauses first if you pressed Pause."** ("the pull request" in place of "phase <n>" when the stop is on it).
+- Side column: headed **"Kiln continues when"**, even when the stop is on the pull request, with one row, **"Phase plan reads · Not yet · <problem>"**, for example "Phase plan reads · Not yet · phase-2-refund-routing.md lists 2c, which has no file", and **no footnote** under Check again, since this isn't the check Kiln runs after a phase.
 
 **4. Claude Code couldn't be started** (Kiln couldn't launch `claude` for the session, for example because it isn't installed). When no earlier attempt of that session ever ran:
 - Headline unchanged: "Phase <n> ended before it was done."
@@ -108,9 +110,11 @@ Each variant **changes as little drawn copy as possible**, and every sentence st
 
 ---
 
-### UI-010. Is the screen and terminal copy nobody drew worded and colored as below?
+### UI-010. Is the screen and terminal copy nobody drew worded and colored as below? — ⏳ PENDING (updated 2026-10-17; 75% confidence)
 
-**Assumption**: Twelve small pieces of copy have no mockup, or have only one case drawn. This is screen copy: please confirm it or correct the wording.
+*Updated 2026-10-17: item 13 added in Phase 5.*
+
+**Assumption**: Thirteen small pieces of copy have no mockup, or have only one case drawn. This is screen copy: please confirm it or correct the wording.
 
 **1. The `subagent` label** in session output uses **the same grey as the `tool` label**.
 
@@ -204,6 +208,8 @@ When documents are also missing, the drawn lines come first and these follow, be
 - Some closed: **"4 phases to implement, in this order · 1 already closed"**
 - One left: **"1 phase to implement · 4 already closed"**
 - All closed: **"No phases left to implement · all 5 already closed"**
+
+**13. A phase stopped at Needs you in the phase plan**, which shows only on the Disconnected layout (UI-006). Its number sits in an **amber-outlined circle**, as an Interrupted phase's does, and its pill is **amber with the warning mark, reading "Needs you"**, as the header's Needs you pill is drawn.
 
 **Example**: The lines above use the mockups' fictional sample data (item 10 uses the terminal mockup's **Gift cards**): the feature **Customer returns**, stopped at **phase 2b, Store credit**, with **phase 3, Returns dashboard**, next and pull request **#218** at the end. Had the Needs you mockup's stop at 11:52 AM been looked at the next morning, its header would read "Needs you · Phase 2b · Store credit · Stopped yesterday 11:52 AM". Had phase 1, Return intake, been finished by hand before Start, Documents found would list it as "1 Return intake closed" and read "4 phases to implement, in this order · 1 already closed".
 

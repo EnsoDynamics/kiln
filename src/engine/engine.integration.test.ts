@@ -9,6 +9,7 @@ import { createHarness, landingSession, pullRequestSession, type Harness } from 
 import { git } from "../test-support/git-repositories.js";
 import { writeSessionRecord } from "../state/records.js";
 import { buildSnapshot } from "./snapshot.js";
+import type { ClaudeInfoSource } from "../account/claude-info.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -192,6 +193,11 @@ describe("a phase that doesn't land", () => {
     expect(snapshot.needsYou!.lastLines).toBeUndefined();
     expect(snapshot.needsYou!.freshSessionPrompt).toContain("A previous session stopped partway through this phase; check the worktree's state before you start.");
     expect(snapshot.phases.find((phase) => phase.id === "1")?.state).toBe("needs_you");
+    // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
+    expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "high", sessionStartedAt: session.runs[0]!.startedAt });
+    expect(snapshot.needsYou!.commits).toEqual([{ sha: git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim(), subject: "feat: intake" }]);
+    // A fresh session starts in the worktree (UI-007): the path needs no quoting here, and isn't under the home folder.
+    expect(snapshot.needsYou!.freshSessionCommand).toBe(process.platform === "win32" ? `cd '${h.engine.worktreePath}'; claude` : `cd ${h.engine.worktreePath}\nclaude`);
 
     // The person finishes it outside Kiln (AC-RUN-07); Check again finds it done, finished by them (AC-STOP-07).
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
@@ -809,3 +815,30 @@ async function waitFor(condition: () => boolean, timeoutMs = 20_000): Promise<vo
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
+
+describe("the account before each phase (AC-WATCH-09)", () => {
+  it("is read again just before each phase's session starts, the pull request's included, without waiting for it", async () => {
+    const refreshedBefore: number[] = [];
+    const claude: ClaudeInfoSource = {
+      account: undefined,
+      models: undefined,
+      modelListError: undefined,
+      onChange: () => () => undefined,
+      // Never resolves: the engine starts the session without waiting for the account.
+      refreshAccount: () => {
+        refreshedBefore.push(harness!.claudeCalls().length);
+        return new Promise<void>(() => undefined);
+      },
+    };
+    harness = await createHarness({
+      sessions: [landingSession("src/intake.txt"), landingSession("src/credit.txt"), landingSession("src/dashboard.txt"), pullRequestSession(218)],
+      engineOptions: { claude },
+    });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.record.completedAt).toBeDefined();
+    // Phases 1, 2b and 3, then the pull-request session: each refresh comes before that session's launch.
+    expect(refreshedBefore).toEqual([0, 1, 2, 3]);
+  });
+});

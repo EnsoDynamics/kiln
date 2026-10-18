@@ -18,9 +18,13 @@ describe("the top bar", () => {
     expect(page).toMatch(/<span class="dot [^"]*\bconnected\b[^"]*">/);
   });
 
-  it("says plainly when the view isn't connected to Kiln", () => {
-    const page = html({ connected: false, lastEventAt: 10_000, now: 30_000 });
-    expect(text(page)).toBe("kiln Disconnected from Kiln The Enso Method");
+  it("says plainly when the view isn't connected to Kiln, and when it last saw Kiln (AC-VIEW-07)", () => {
+    process.env.TZ = "America/New_York";
+    const lastSeen = Date.parse("2026-10-17T15:47:00Z");
+    const page = html({ connected: false, lastEventAt: lastSeen, now: lastSeen + 20_000 });
+    expect(text(page)).toBe("kiln Disconnected from Kiln · last seen 11:47 AM The Enso Method");
+    // Amber marks a disconnected Kiln (AC-LOOK-04).
+    expect(page).toMatch(/<span class="lost[^"]*">Disconnected from Kiln<\/span>/);
     expect(page).not.toMatch(/\bconnected"/);
   });
 });

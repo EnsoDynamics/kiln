@@ -3,7 +3,7 @@
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
-import { documentsFoundSnapshot } from "../test-support/sample-snapshot.js";
+import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 
 const config = { token: "t", base: "/customer-returns" };
@@ -103,7 +103,10 @@ describe("Documents found", () => {
   });
 
   it("shows the not-signed-in line in place of the account and usage", () => {
-    const words = text(html(documentsFoundSnapshot({ account: { updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } })));
-    expect(words).toContain("Agent Claude Code Not signed in to Claude Code. Run `claude auth login`. Model");
+    const page = html(documentsFoundSnapshot({ account: { updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
+    const words = text(page);
+    expect(words).toContain("Agent Claude Code Not signed in to Claude Code. Run claude auth login . Model");
+    // The command is drawn as code, not with its backticks (UI-010 item 7).
+    expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
   });
 });

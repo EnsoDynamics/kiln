@@ -54,7 +54,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".png": "image/png",
 };
 
-const SECURITY_HEADERS: Record<string, string> = {
+export const SECURITY_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
   // Only Kiln's own origin; nothing the view loads leaves the machine (AC-INSTALL-02).
@@ -113,6 +113,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const offChange = engine.onChange(onChange);
       const offClaude = engine.claude?.onChange(onChange);
       const offOutput = engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) }));
+      const offPartial = engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) }));
       const heartbeat = setInterval(() => void stream.writeSSE({ event: "heartbeat", data: new Date().toISOString() }), options.heartbeatMs ?? HEARTBEAT_MS);
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
@@ -124,6 +125,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       offChange();
       offClaude?.();
       offOutput();
+      offPartial();
       streams.delete(stream);
     }),
   );
