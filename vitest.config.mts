@@ -7,9 +7,10 @@ export default defineConfig({
   test: {
     // Tests sit beside the code they test. `*.integration.test.ts` runs real git against
     // temporary repositories and the built `kiln` command, from `npm run test:integration`,
-    // which builds first; this default suite needs nothing but Node.
+    // which builds first; `*.package.test.ts` installs the packed package, from
+    // `npm run test:package`. This default suite needs nothing but Node.
     include: ['src/**/*.test.ts', 'view/src/**/*.test.ts'],
-    exclude: ['src/**/*.integration.test.ts'],
+    exclude: ['src/**/*.integration.test.ts', 'src/**/*.package.test.ts'],
     environment: 'node',
   },
 });

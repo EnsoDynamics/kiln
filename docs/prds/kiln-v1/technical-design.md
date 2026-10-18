@@ -571,7 +571,7 @@ Git and the phase documents stay the record of what is done; Kiln's record remem
 - **Package:** `@ensodynamics/kiln`, providing the `kiln` command; installed with `npm install -g @ensodynamics/kiln` (AC-INSTALL-01). The unscoped name `kiln` is taken on npm. The `ensodynamics` organization doesn't exist on npm yet; creating it before the first publish is a pending human action in the PRD.
 - **Contents:** the compiled CLI, engine and server; the built view with its fonts; the prompt templates.
 - **Platforms:** macOS, Linux and Windows (AC-INSTALL-03); Windows specifics in [Windows](#windows).
-- **Release:** a GitHub Actions workflow in `EnsoDynamics/kiln` publishes to npm with provenance on a version tag; nothing is published from a laptop.
+- **Release:** a GitHub Actions workflow in `EnsoDynamics/kiln` (`release.yml`) publishes to npm with provenance on a version tag on `main`, after CI's checks on all three platforms; nothing is published from a laptop. npm records provenance only from a public repository (REL-001). A trusted publisher (npm's OIDC publishing) can be set up only on a package that already exists, so the first publish authenticates with a granular token in the `NPM_TOKEN` secret and later ones through the trusted publisher; the workflow needs no change between them. Steps: [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
 
 ## Windows
 
@@ -585,7 +585,7 @@ v1 runs on Windows as well as macOS and Linux (AC-INSTALL-03). Every operating-s
 | Sleep readings | The System log's Kernel-Power events, read through PowerShell on the 10-second tick: event 42 (entering sleep, with its time) and event 107 (resumed). A pair newer than the last reading is a sleep of that span | No |
 | Process start time | `Get-Process` through PowerShell ([Ports and one Kiln per PRD](#ports-and-one-kiln-per-prd)) | No |
 | Opening the browser | `cmd /c start "" <address>` | No |
-| State directory | `%LOCALAPPDATA%\kiln`, with an access list for its owner only in place of mode `0700` | No |
+| State directory | `%LOCALAPPDATA%\kiln`, inside the person's own profile, whose inherited access list (the person, `SYSTEM` and `Administrators`) stands in for mode `0700` | No |
 | Paths | Separators normalized before any path comparison (the PRD directory's place under `docs/`, the worktree path check, the state key) | No |
 | The resume command | PowerShell form: `cd '<worktree>'; claude --resume <session ID>`, quoted with single quotes, a `'` written `''` | No |
 
@@ -621,7 +621,8 @@ A later version may let another client take every action the browser view offers
 - **Pause (AC-VIEW-03):** against the stand-in `claude`: Keep going before the phase is Done lets the next phase start; Keep going once the pause is active returns 409; a pause requested before a Needs you holds after Check again passes.
 - **The view (AC-LOOK, AC-WATCH):** each mockup screen rendered in a real browser from a fixture `Snapshot` carrying that mockup's sample data, and compared with the mockup rendered alongside it, plus the Disconnected and reconnect behavior against a server that stops and returns, and a final message containing raw HTML shown as text (AC-STOP-02).
 - **Windows:** CI runs the unit tests, the Git integration tests and the engine tests with the stand-in `claude` on a Windows runner as well. Before release, a person on Windows runs proof gate 1's session, interrupt, resume and sleep checks, the keep-awake check, and AC-PROOF-01.
-- **The release:** AC-PROOF-01 and AC-PROOF-02, a real three-to-five-phase feature with a real pull request.
+- **The package (AC-INSTALL-01):** `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed `kiln` on a real temporary repository: it prints its usage and serves the view, its scripts, styles and bundled fonts. CI runs it on all three platforms (`npm run test:package`).
+- **The release:** AC-PROOF-01 and AC-PROOF-02, a real three-to-five-phase feature with a real pull request: the proof feature Word tally (`scripts/proof-run/`), run by a person on Windows and on macOS or Linux ([Kiln proof run steps](../../design/kiln-proof-run-steps.md)). Before that, `scripts/exploration/proof-rehearsal-real-feature.mjs` runs the same feature on macOS with the real Claude Code and GitHub stood in for.
 
 ## Integration Points
 

@@ -1,0 +1,55 @@
+name: Release
+
+# Publishes @ensodynamics/kiln to npm when a version tag (v1.0.0) is pushed on main, after the
+# same checks CI runs on macOS, Linux and Windows. Nothing is published from a laptop
+# (technical design, "Package and Distribution"); the steps are in
+# docs/release/kiln-npm-release-steps.md.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm trusted publishing (OIDC) and provenance.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install --global npm@11
+      - run: npm ci
+      - name: The tag names package.json's version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match package.json's $version." >&2
+            exit 1
+          fi
+      - name: The tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Tag $GITHUB_REF_NAME isn't on main; release from main." >&2
+            exit 1
+          fi
+      # prepack builds dist/. Provenance needs a public repository (assumption REL-001).
+      # NPM_TOKEN is for the first publish only, before the package exists for a trusted
+      # publisher to be set up on npmjs.com; once that is set up, the secret is deleted and
+      # npm authenticates through GitHub's OIDC token instead.
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,8 +1,8 @@
 {
   "name": "@ensodynamics/kiln",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Runs an Enso Method phase plan end to end: one unattended Claude Code session per phase, checked in Git, with a local browser view.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "kiln": "dist/cli.js"
@@ -19,12 +19,17 @@
     "type": "git",
     "url": "git+https://github.com/EnsoDynamics/kiln.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && vite build --config view/vite.config.ts --logLevel warn",
+    "prepack": "npm run build",
     "lint": "eslint",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig view/tsconfig.json --threshold warning",
     "test": "vitest run",
     "test:integration": "npm run build && vitest run --config vitest.integration.config.mts",
+    "test:package": "vitest run --config vitest.package.config.mts",
     "audit": "node scripts/audit-dependencies.mjs",
     "verify": "npm run audit && npm run lint && npm run typecheck && npm test && npm run test:integration"
   },

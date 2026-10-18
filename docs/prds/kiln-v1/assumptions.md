@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-17
+**Last Updated**: 2026-10-18
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -316,6 +316,27 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 85% | **Impact if Wrong**: 🟡 MEDIUM
+
+---
+
+## Release Assumptions
+
+### REL-001. Is Kiln released as open source under the MIT license, from a public GitHub repository? — ⏳ PENDING (Added 2026-10-18 — new question; 70% confidence)
+
+**Assumption**: Kiln is released **under the MIT license**, the Enso Method's license, with the copyright line **"Copyright (c) 2026 Enso Dynamics"**, and **`EnsoDynamics/kiln` is made public before the first release**. The package is published to npm as a **public** package.
+
+**Example**: Today `EnsoDynamics/kiln` is **private** and its `package.json` says `"license": "UNLICENSED"`, while `EnsoDynamics/enso-method` is **public under MIT**. The release build now says `"license": "MIT"` with a `LICENSE` file naming Enso Dynamics, the organization that owns the repository, rather than a person (the Enso Method's own license names its author), and the release steps make the repository public before the first tag.
+
+**Evidence**: The technical design says the release **publishes "with provenance"**, and npm records provenance **only for packages published from a public repository**; a private one makes that publish fail. Every published npm package's code is readable by anyone who installs it, so a private repository hides little. Kiln is the Enso Method's optional companion, and the method itself is MIT.
+
+The alternative was to keep the repository private and the package `UNLICENSED`, publishing without provenance. It lost because it drops the design's provenance and would publish code nobody may legally reuse beside a method everyone may.
+
+**Confirm or Correct**:
+- [ ] Correct — MIT, public repository, public npm package
+- [ ] Wrong — keep the repository private and publish `UNLICENSED`, without provenance
+- [ ] Wrong — a different license or approach: _______________
+
+**Confidence**: 70% | **Impact if Wrong**: 🟡 MEDIUM
 
 ---
 

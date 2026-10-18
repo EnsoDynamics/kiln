@@ -9,7 +9,6 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
 import { isPortFree } from "../state/instance-lock.js";
@@ -80,7 +79,7 @@ async function saveScreenshots(name: string, page: BrowserPage, mockup: string, 
   if (!folder) return;
   mkdirSync(folder, { recursive: true });
   writeFileSync(join(folder, `${name}-view.png`), await page.screenshot());
-  const drawn = await chrome.open(pathToFileURL(new URL(mockup, MOCKUPS).pathname).href, { clock, timeZone: TIME_ZONE });
+  const drawn = await chrome.open(new URL(mockup, MOCKUPS).href, { clock, timeZone: TIME_ZONE });
   await drawn.waitFor(`document.fonts.status === "loaded"`, 15_000).catch(() => undefined);
   writeFileSync(join(folder, `${name}-mockup.png`), await drawn.screenshot());
   await drawn.close();

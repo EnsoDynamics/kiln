@@ -232,4 +232,8 @@ None. The [technical design](technical-design.md) settles the architecture propo
 
 ## Pending human actions
 
-- Doug: create the `ensodynamics` organization on npm before Kiln's first publish, so the package can be `@ensodynamics/kiln` (technical design, "Package and Distribution").
+- Doug: create the `ensodynamics` organization on npm before Kiln's first publish, so the package can be `@ensodynamics/kiln` (technical design, "Package and Distribution"); step 1 of [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
+- Doug: create the proof repository and run the proof feature on macOS (AC-PROOF-01, AC-PROOF-02), parts A and B of [Kiln proof run steps](../../design/kiln-proof-run-steps.md), recording results in [Kiln proof run results](../../design/kiln-proof-run-results.md).
+- A person on Windows: the proof run and the Windows checks, parts C and D of the same steps.
+- A person on Ubuntu GNOME and on KDE: the keep-awake check, part E of the same steps (PLAT-001).
+- Doug: confirm or correct REL-001 ([assumptions](assumptions.md)), then release: steps 2 to 7 of the release steps, once the proof has held.

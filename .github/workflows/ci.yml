@@ -4,11 +4,14 @@ on:
   push:
     branches: [develop, main]
   pull_request:
+  # The release workflow runs these same checks before it publishes.
+  workflow_call:
 
 # Kiln v1 runs on macOS, Linux and Windows (PRD AC-INSTALL-03). Until the Windows run of the
 # proof gates before release, these runners are how that criterion is held: every push runs
 # the unit tests and the integration tests (real git against temporary repositories, and the
-# built `kiln` command) on all three.
+# built `kiln` command) on all three, then installs the package npm would publish and runs
+# that `kiln` (AC-INSTALL-01).
 jobs:
   verify:
     strategy:
@@ -24,3 +27,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: npm run test:package

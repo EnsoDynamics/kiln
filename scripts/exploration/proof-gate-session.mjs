@@ -62,7 +62,10 @@ for (const key of Object.keys(env)) {
 
 const started = new Date();
 // On Windows claude is claude.cmd, which Node only starts through a shell; every argument here is a plain flag.
-const child = spawn("claude", claudeArgs, { cwd, env, detached: true, windowsHide: true, shell: process.platform === "win32", stdio: ["pipe", "pipe", "pipe"] });
+// It isn't detached there: a detached child on Windows gets a console of its own, and the
+// claude.cmd it runs never reads the prompt (technical design, "Windows").
+const windows = process.platform === "win32";
+const child = spawn("claude", claudeArgs, { cwd, env, detached: !windows, windowsHide: true, shell: windows, stdio: ["pipe", "pipe", "pipe"] });
 const log = createWriteStream(out);
 const errLog = createWriteStream(`${out}.stderr`);
 const meta = { command: ["claude", ...claudeArgs], cwd, startedAt: started.toISOString(), pid: child.pid };
