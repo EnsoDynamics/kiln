@@ -17,7 +17,7 @@ afterEach(async () => {
   server = undefined;
   // A base check a connecting view started may still be running git in the repository.
   if (harness) await waitFor(() => harness!.engine.baseCheck !== "checking");
-  harness?.cleanup();
+  await harness?.cleanup();
 });
 
 async function freePort(): Promise<number> {

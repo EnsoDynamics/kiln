@@ -11,7 +11,8 @@ export interface Sandbox {
   root: string;
   /** Environment for every git call in the test and for Kiln itself: no global or system Git config. */
   env: NodeJS.ProcessEnv;
-  cleanup(): void;
+  /** Removes the sandbox; on Windows it waits out processes still ending. */
+  cleanup(): Promise<void>;
 }
 
 export function createSandbox(): Sandbox {
@@ -31,18 +32,26 @@ export function createSandbox(): Sandbox {
     XDG_STATE_HOME: join(root, "state"),
     LOCALAPPDATA: join(root, "state"),
   };
-  // On Windows a folder can't be removed while a process that just ended still holds it; taskkill
-  // returns before the tree it ends is gone, so cleanup waits up to 10 seconds there.
-  const retries = process.platform === "win32" ? 50 : 10;
-  const cleanup = () => {
-    try {
-      rmSync(root, { recursive: true, force: true, maxRetries: retries, retryDelay: 200 });
-    } catch (error) {
-      // Name what still holds the folder, so a failure says which process outlived its test.
-      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EBUSY") throw error;
-      const list = "Get-CimInstance Win32_Process | Where-Object { @('node.exe','cmd.exe','git.exe','sh.exe','bash.exe','sleep.exe','git-upload-pack.exe') -contains $_.Name } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)\" }";
-      const processes = spawnSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" });
-      throw new Error(`${(error as Error).message}\nTest process ${process.pid}; processes that may hold it:\n${processes.stdout}`);
+  // On Windows a folder can't be removed while a process that just ended still holds it, and
+  // taskkill returns before the tree it ends is gone. rmSync's own retries don't cover an EBUSY
+  // on its first rmdir, so cleanup retries for up to 10 seconds itself, then names what may hold it.
+  const cleanup = async () => {
+    const deadline = Date.now() + (process.platform === "win32" ? 10_000 : 0);
+    for (;;) {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (process.platform !== "win32" || (code !== "EBUSY" && code !== "EPERM")) throw error;
+        if (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          continue;
+        }
+        const list = "Get-CimInstance Win32_Process | Where-Object { @('node.exe','cmd.exe','git.exe','sh.exe','bash.exe','sleep.exe','powershell.exe') -contains $_.Name } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)\" }";
+        const processes = spawnSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" });
+        throw new Error(`${(error as Error).message}\nTest process ${process.pid}; processes that may hold it:\n${processes.stdout}`);
+      }
     }
   };
   return { root, env, cleanup };

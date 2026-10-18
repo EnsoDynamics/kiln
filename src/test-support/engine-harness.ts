@@ -45,7 +45,7 @@ export interface Harness {
   engineFor(folder: string): Promise<Engine>;
   /** The git calls Kiln itself made, when `logGit` is on: one argument list per call. */
   kilnGitCalls(): string[];
-  cleanup(): void;
+  cleanup(): Promise<void>;
 }
 
 export interface HarnessOptions {
