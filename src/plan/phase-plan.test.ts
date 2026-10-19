@@ -33,6 +33,9 @@ describe("readPhasePlan", () => {
       ["2b", "Store credit", false],
       ["3", "Returns dashboard", false],
     ]);
+    // A closing run of # is dropped only after a space (CommonMark); one that ends the last word stays (AC-LOOK-03).
+    const hashes = readPhasePlan(files({ "phase-1-c.md": "# Phase 1: Port to C#\n", "phase-2-d.md": "# Phase 2: Docs ##\n" }));
+    expect(hashes.phases.map((phase) => phase.title)).toEqual(["Port to C#", "Docs"]);
     const notClosed = readPhasePlan(files({ "phase-1-x.md": "# Phase 1: X\n\n## Notes\n**Closed:** 2026-10-10\n" }));
     expect(notClosed.phases[0]?.closed).toBe(false);
   });

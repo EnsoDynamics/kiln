@@ -381,6 +381,9 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const startedAt = firstSession?.runs[0]?.startedAt;
     if (startedAt && session) {
       view.sessionStartedAt = startedAt;
+      // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
+      const read = engine.stoppedCommits;
+      const stopped = view.state === "needs_you" && read?.phaseKey === key ? read?.commits : undefined;
       view.details = {
         from: startedAt,
         ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt),
@@ -388,8 +391,8 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
         ...optional("effort", session.effort),
         worktree: displayPath(record.settings.worktreePath),
         branch: record.settings.featureBranch,
-        ...optional("commitCount", facts?.commitCount),
-        ...optional("latestCommit", facts?.pushedSha),
+        ...optional("commitCount", stopped ? stopped.length : facts?.commitCount),
+        ...optional("latestCommit", stopped ? stopped[0]?.sha : facts?.pushedSha),
         sessionId: session.sessionId,
       };
     }

@@ -73,6 +73,12 @@ describe("a plan row", () => {
       "Session 9b0e3d72-1c5a-4f6e-b8d2-3a7c6e0f9d15",
     ]);
   });
+
+  it("says a phase that stopped before committing has no commits yet (AC-WATCH-01)", () => {
+    const details = { ...runningSnapshot().phases[2]!.details!, commitCount: 0 };
+    delete details.latestCommit;
+    expect(detailRows(details, now).find((row) => row.term === "Commits")?.value).toBe("None yet for this phase");
+  });
 });
 
 describe("the model and effort", () => {

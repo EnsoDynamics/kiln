@@ -198,6 +198,23 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
     });
   }
 
+  it("draws the Kiln panel's tick at the size the mockup renders it (AC-LOOK-01)", async () => {
+    const tickSize = `(({ width, height }) => [width, height])(TICK.getBoundingClientRect())`;
+    const drawn = await chrome.open(new URL("kiln-screen-running.html", MOCKUPS).href, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    await drawn.waitFor(`document.readyState === "complete"`);
+    const mockupSize = await drawn.evaluate<number[]>(tickSize.replace("TICK", `[...document.querySelectorAll("span")].find((e) => e.getAttribute("style")?.includes("background: rgba(156, 196, 154, 0.12)"))`));
+    await drawn.close();
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`document.querySelector(".tick")`);
+      expect(mockupSize).toEqual([24, 24]);
+      expect(await page.evaluate<number[]>(tickSize.replace("TICK", `document.querySelector(".tick")`))).toEqual(mockupSize);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
   it("draws a usage meter's width without an inline style, which the policy would block (AC-WATCH-08)", async () => {
     const { server, page } = await openScreen(runningSnapshot());
     try {

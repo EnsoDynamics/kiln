@@ -195,7 +195,10 @@ describe("a phase that doesn't land", () => {
     expect(snapshot.phases.find((phase) => phase.id === "1")?.state).toBe("needs_you");
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
     expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "high", sessionStartedAt: session.runs[0]!.startedAt });
-    expect(snapshot.needsYou!.commits).toEqual([{ sha: git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim(), subject: "feat: intake" }]);
+    const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
+    expect(snapshot.needsYou!.commits).toEqual([{ sha: head, subject: "feat: intake" }]);
+    // The stopped row's Details, drawn on the Disconnected layout, has the same commits (AC-WATCH-01).
+    expect(snapshot.phases.find((phase) => phase.id === "1")?.details).toMatchObject({ commitCount: 1, latestCommit: head });
     // A fresh session starts in the worktree (UI-007): the path needs no quoting here, and isn't under the home folder.
     expect(snapshot.needsYou!.freshSessionCommand).toBe(process.platform === "win32" ? `cd '${h.engine.worktreePath}'; claude` : `cd ${h.engine.worktreePath}\nclaude`);
 

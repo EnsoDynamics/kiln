@@ -22,6 +22,6 @@
   .lost { border-color: var(--amber-border); }
   .status { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--amber); }
   .status.connected { color: var(--green); }
-  .tick { width: 22px; height: 22px; border-radius: 999px; background: rgba(156, 196, 154, 0.12); border: 1px solid rgba(156, 196, 154, 0.45); display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+  .tick { width: 24px; height: 24px; border-radius: 999px; background: rgba(156, 196, 154, 0.12); border: 1px solid rgba(156, 196, 154, 0.45); display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
   p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
 </style>

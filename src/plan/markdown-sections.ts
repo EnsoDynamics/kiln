@@ -16,11 +16,14 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   });
 }
 
-/** The heading's text when the line is an ATX heading of exactly `level` (`## Title` for 2). */
+/**
+ * The heading's text when the line is an ATX heading of exactly `level` (`## Title` for 2). A
+ * closing run of `#` is dropped only after a space, as CommonMark has it: `# Port to C#` keeps its `#`.
+ */
 export function headingText(line: MarkdownLine, level: number): string | undefined {
   if (line.inCodeFence) return undefined;
-  const match = new RegExp(`^#{${level}}\\s+(.*?)\\s*#*\\s*$`).exec(line.text);
-  return match ? match[1] : undefined;
+  const match = new RegExp(`^#{${level}}\\s+(.*?)\\s*$`).exec(line.text);
+  return match ? match[1]!.replace(/(^|\s+)#+$/, "") : undefined;
 }
 
 function headingLevel(line: MarkdownLine): number | undefined {
