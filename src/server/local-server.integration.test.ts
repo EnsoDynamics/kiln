@@ -2,12 +2,15 @@
 // and closed to other web pages (PRD AC-VIEW-01, AC-VIEW-06), one address per PRD
 // (AC-MULTI-02), and the HTTP API reaching the engine only through its commands.
 
+import { writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { networkInterfaces } from "node:os";
 import { connect } from "node:net";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isPortFree } from "../state/instance-lock.js";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
+import { git } from "../test-support/git-repositories.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 
 let harness: Harness | undefined;
@@ -115,6 +118,11 @@ describe("the local server", () => {
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: `http://localhost:${port}` }, "POST", change)).status).toBe(403);
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: "null" }, "POST", change)).status).toBe(403);
     expect((await raw(port, "/api/start", { Host: host, Origin: `http://${host}` }, "POST", JSON.stringify({ refinementConfirmed: true }))).status).toBe(403);
+    // Every control and every read: Start, Pause, Keep going and Check again from another site, and output without the token.
+    for (const [method, path] of [["POST", "/api/start"], ["POST", "/api/pause"], ["DELETE", "/api/pause"], ["POST", "/api/check-again"]] as const) {
+      expect((await raw(port, path, { Host: host, "X-Kiln-Token": token, Origin: "https://evil.example" }, method, JSON.stringify({ refinementConfirmed: true }))).status, `${method} ${path}`).toBe(403);
+    }
+    expect((await raw(port, "/api/sessions/any/output", { Host: host })).status).toBe(403);
     expect(h.engine.record.settings.effort).toBe("high");
     expect(h.engine.record.startedAt).toBeUndefined();
 
@@ -135,8 +143,10 @@ describe("the local server", () => {
       expect(Object.keys(response.headers).filter((name) => name.startsWith("access-control-"))).toEqual([]);
       expect(response.headers["cache-control"]).toBe("no-store");
       expect(response.headers["x-content-type-options"]).toBe("nosniff");
-      expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
-      expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+      // Nothing the view loads or sends leaves the machine (AC-INSTALL-02): every source is Kiln's own origin.
+      expect(response.headers["content-security-policy"]).toBe(
+        "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      );
     }
   });
 
@@ -237,10 +247,51 @@ describe("the local server", () => {
     // A session's full output pages by line number.
     const sessionId = h.engine.latestSession("1")!.sessionId;
     const page = await fetch(`${origin}/api/sessions/${sessionId}/output?limit=2`, { headers: { "X-Kiln-Token": token } });
-    const output = (await page.json()) as { lines: { line: number }[]; total: number };
+    const output = (await page.json()) as { lines: { line: number; at: string }[]; total: number };
     expect(output.lines).toHaveLength(2);
     expect(output.lines.at(-1)!.line).toBe(output.total);
+    // Earlier output loads page by page, each line timestamped (AC-WATCH-05, AC-WATCH-10).
+    const pageBefore = async (before: number, limit: number) =>
+      (await (await fetch(`${origin}/api/sessions/${sessionId}/output?before=${before}&limit=${limit}`, { headers: { "X-Kiln-Token": token } })).json()) as typeof output;
+    expect((await pageBefore(output.total, 1)).lines.map((line) => line.line)).toEqual([output.total - 1]);
+    expect((await pageBefore(3, 200)).lines.map((line) => line.line)).toEqual([1, 2]);
+    expect((await pageBefore(1, 200)).lines).toEqual([]);
+    const all = await pageBefore(output.total + 1, 1000);
+    expect(all.lines.map((line) => line.line)).toEqual(Array.from({ length: output.total }, (_, index) => index + 1));
+    for (const line of all.lines) expect(new Date(line.at).toISOString()).toBe(line.at);
     expect((await fetch(`${origin}/api/sessions/nope/output`, { headers: { "X-Kiln-Token": token } })).status).toBe(404);
+  });
+
+  it("carries out each control the view sends: Pause, Keep going, Check again, and Start after a pause (AC-VIEW-02, AC-VIEW-03)", async () => {
+    const { h, origin, token } = await serve([]);
+    const release = join(h.sandbox.root, "release");
+    // Phase 1 closes and commits but doesn't push, so it stops at Needs you; 2b then lands.
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, { close: true }, { commit: "feat: intake" }, { result: "Done." }] }, landingSession("src/credit.txt")] }));
+    const send = async (method: string, path: string, body?: unknown) =>
+      (await fetch(`${origin}${path}`, { method, headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })).status;
+
+    expect(await send("POST", "/api/start", { refinementConfirmed: true })).toBe(200);
+    await waitFor(() => h.claudeCalls().length === 1);
+    expect(await send("POST", "/api/pause")).toBe(200);
+    expect(h.engine.record.pause.requestedAt).toBeDefined();
+    expect(await send("DELETE", "/api/pause")).toBe(200);
+    expect(h.engine.record.pause.requestedAt).toBeUndefined();
+    expect(await send("POST", "/api/pause")).toBe(200);
+
+    writeFileSync(release, "");
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
+    expect(await send("POST", "/api/check-again")).toBe(200);
+    await h.engine.settled();
+    expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, doneAt: expect.any(String) });
+    // The pause pressed before the stop holds once the phase is Done; Start with no body carries on.
+    expect(h.engine.record.pause.activeSince).toBeDefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(await send("POST", "/api/start")).toBe(200);
+    await waitFor(() => h.claudeCalls().length === 2);
+    expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+    await h.engine.settled();
   });
 
   it("closes every open event stream when it closes", async () => {

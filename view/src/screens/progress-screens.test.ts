@@ -7,9 +7,13 @@ process.env.TZ = "America/New_York";
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import { completeSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { stepStates } from "../../../src/session/session-output.js";
+import { completeSnapshot, documentsFoundSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import Complete from "./Complete.svelte";
+import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import Paused from "./Paused.svelte";
+import PhaseDetail from "./PhaseDetail.svelte";
 import Running from "./Running.svelte";
 
 const strip = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "");
@@ -103,7 +107,8 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
 describe("Running during the pull-request session (AC-PR-05)", () => {
   it("offers no pause, shows no progress steps and names the pull request", () => {
     const snapshot = runningSnapshot();
-    snapshot.current = { ...snapshot.current!, phaseId: "pr", steps: [] };
+    // The six unreached steps the engine sends for the pull-request session: the view is what hides them.
+    snapshot.current = { ...snapshot.current!, phaseId: "pr", steps: stepStates([]) };
     snapshot.feature.currentPhaseId = "pr";
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "implementing", sessionStartedAt: "2026-10-17T15:40:00Z", finishedByPerson: false });
     const words = text(running(snapshot));
@@ -136,5 +141,103 @@ describe("a Needs you stop seen while disconnected (UI-006)", () => {
     expect(words).toContain("2b Store credit phase-2b-store-credit.md Needs you");
     expect(words).toContain("Settings can be changed again once Kiln is running.");
     for (const absent of ["Now implementing", "Last seen ·", "Claude account", "Pause Kiln", "Check again"]) expect(words).not.toContain(absent);
+  });
+});
+
+describe("Needs you says nothing of its own about why (AC-STOP-04, AC-STOP-02)", () => {
+  const section = (page: string, pattern: RegExp) => text(pattern.exec(page)![0]);
+  it.each([
+    [
+      "a session that ended with a final message",
+      needsYouMessageSnapshot,
+      "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier Last message from Claude Code Critical finding, stopping to surface: the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s 0042_store_credits clashes with it. The store-credit tests pass here, but the migration won’t apply once this branch meets develop. Recommendation: rebase feature/customer-returns on develop and renumber this migration to 0043. Nothing for 2b is committed yet. Full session output · 612 lines",
+      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    ],
+    [
+      "a session that crashed with no final message",
+      needsYouCrashedSnapshot,
+      "Phase 3 ended before it was done. The session exited with an error and no final message. These are the last lines it wrote. exit 1 1:21 PM last skill seen: test-hardening, 6 min earlier 13:20:51 claude Running the dashboard Playwright suite. It needs the dev server on 5173; starting it. 13:20:52 tool Bash npm run dev & 13:20:55 stderr Error: listen EADDRINUSE: address already in use :::5173 13:21:03 exit Process exited with code 1 Full session output · 2,031 lines",
+      "Kiln continues when Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Everything committed Yes Latest commit a41c9e2, tree clean Pushed Not yet a41c9e2 isn’t on origin yet Check again Checked 1:21 PM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    ],
+  ])("shows %s with only fixed statements, the recorded facts and the session's own words, whole", (_name, make, ended, side) => {
+    const page = needsYou(make());
+    expect(section(page, /<section class="card ended[\s\S]*?<\/section>/)).toBe(ended);
+    expect(section(page, /<aside[\s\S]*?<\/aside>/)).toBe(side);
+  });
+});
+
+describe("the disconnected view on every screen (AC-VIEW-07)", () => {
+  const lastSeenAt = RUNNING_NOW - 5 * 60_000;
+  const banner = "Kiln isn’t running Nothing is being worked on. This page shows what Kiln last saw, at 11:42 AM.";
+  const pickUp = "To pick up where it left off, run this in a terminal: kiln run docs/prds/customer-returns/";
+  const kilnPanel = "Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again.";
+
+  it("says plainly on Paused and Complete that nothing is running, how to pick up, and shows Kiln as disconnected", () => {
+    for (const words of [
+      text(strip(render(Paused, { props: { snapshot: pausedSnapshot(), connected: false, now: RUNNING_NOW, lastSeenAt } }).body)),
+      text(strip(render(Complete, { props: { snapshot: completeSnapshot(), connected: false, now: RUNNING_NOW, lastSeenAt } }).body)),
+    ]) {
+      expect(words).toContain(`${banner} Its work is kept. ${pickUp}`);
+      expect(words).toContain(kilnPanel);
+      expect(words).not.toContain("Kiln Connected");
+    }
+  });
+
+  it("says so on Documents found too, without claiming any work is kept, since none has started", () => {
+    const words = text(strip(render(DocumentsFound, { props: { snapshot: documentsFoundSnapshot(), config: { token: "t", base: "/customer-returns" }, connected: false, now: RUNNING_NOW, lastSeenAt } }).body));
+    expect(words).toContain(`${banner} ${pickUp}`);
+    expect(words).not.toContain("Its work is kept.");
+  });
+});
+
+describe("the Complete screen (AC-PR-04)", () => {
+  it("counts a pull request of 100 commits or more as 100+, as gh's list stops there", () => {
+    const snapshot = completeSnapshot();
+    snapshot.pullRequest = { ...snapshot.pullRequest!, commits: 100 };
+    const words = text(strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
+    expect(words).toContain("100+ commits · +2,184 −312");
+  });
+});
+
+describe("Phase detail", () => {
+  const detail = (snapshot: Snapshot) => text(strip(render(PhaseDetail, { props: { snapshot, phaseId: snapshot.current!.phaseId, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
+
+  it("says, while a pause is pending, that Kiln pauses once this phase is done and Keep going cancels it (AC-VIEW-03, UI-002)", () => {
+    const snapshot = runningSnapshot();
+    snapshot.pause = { pending: true, active: false };
+    expect(detail(snapshot)).toContain("Keep going Kiln pauses once phase 2b is done, including its commit and push. Keep going cancels the pause.");
+  });
+
+  it("labels the repository and the PRD folder above the feature name (AC-LOOK-05)", () => {
+    expect(detail(runningSnapshot())).toMatch(/^Repository acme-shop PRD folder docs\/prds\/customer-returns\/ Customer returns /);
+  });
+
+  it("offers no pause and shows no progress steps during the pull-request session (AC-PR-05)", () => {
+    const snapshot = runningSnapshot();
+    // The six unreached steps the engine sends for the pull-request session: the view is what hides them.
+    snapshot.current = { ...snapshot.current!, phaseId: "pr", steps: stepStates([]) };
+    snapshot.feature.currentPhaseId = "pr";
+    snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "implementing", sessionStartedAt: "2026-10-17T15:40:00Z", finishedByPerson: false });
+    const words = detail(snapshot);
+    expect(words).toContain("Final pull request");
+    for (const absent of ["Pause", "Deliverable review", "Test hardening", "Refactor pass"]) expect(words, absent).not.toContain(absent);
+  });
+});
+
+describe("Running's current-phase panel and phase plan (AC-WATCH-03, AC-WATCH-01)", () => {
+  it("puts the current phase above the phase plan, with its own Details, collapsed", () => {
+    const page = running(runningSnapshot());
+    const now = /<section class="now[\s\S]*?<\/section>/.exec(page)![0];
+    expect(page.indexOf('<section class="now')).toBeLessThan(page.indexOf('<section class="plan'));
+    expect(now).toMatch(/<details(?![^>]*\bopen\b)[^>]*>/);
+    const words = text(now);
+    for (const row of ["Model Opus 5.5 · high effort", "Worktree ~/devel/acme-shop-kiln/customer-returns", "Branch feature/customer-returns", "Commits None yet for this phase", "Session 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04"]) expect(words).toContain(row);
+  });
+
+  it("stops an interrupted phase's time when the view lost Kiln, however long ago that was", () => {
+    const lostAt = RUNNING_NOW;
+    const later = (minutes: number) => text(strip(render(Running, { props: { snapshot: runningSnapshot(), connected: false, now: RUNNING_NOW + minutes * 60_000, lastSeenAt: lostAt } }).body));
+    expect(later(0)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
+    expect(later(90)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
   });
 });

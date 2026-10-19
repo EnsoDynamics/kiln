@@ -11,6 +11,7 @@
 //   { "partial": "Buil" }                                     a partial-message delta (stream_event)
 //   { "close": true }                                         Closed line on the prompt's phase doc
 //   { "write": { "path": "src/a.txt", "content": "…" } }      a file in the worktree, relative to it
+//   { "stage": "src/a.txt" }                                  a Bash call running git add on that path, without committing
 //   { "commit": "feat: x" }                                   a Bash call running git add -A and git commit
 //   { "push": true }                                          a Bash call running git push -u origin <branch>
 //   { "split": [ { "id": "2a", "slug": "first", "title": "First" }, … ] }   splits the launched phase
@@ -207,6 +208,8 @@ for (const action of session.actions) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, action.write.content);
     toolResult(toolCall("Write", { file_path: path }), "Written.");
+  } else if (action.stage) {
+    toolResult(toolCall("Bash", { command: `git add ${action.stage}` }), git("add", "--", action.stage));
   } else if (action.commit) {
     const id = toolCall("Bash", { command: `git add -A && git commit -q -F - <<'EOF'\n${action.commit}\nEOF` });
     git("add", "-A");

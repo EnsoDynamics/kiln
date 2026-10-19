@@ -19,7 +19,15 @@ if (args[0] === "pr" && args[1] === "list") {
   }
   const head = option("--head");
   const base = option("--base");
-  process.stdout.write(`${JSON.stringify(state.pulls.filter((pull) => pull.headRefName === head && pull.baseRefName === base))}\n`);
+  // As gh does: --state filters (a pull request with no "state" is open; gh's default is open),
+  // and --json prints only the fields asked for.
+  const wanted = option("--state") ?? "open";
+  const fields = option("--json")?.split(",");
+  const pulls = state.pulls
+    .filter((pull) => pull.headRefName === head && pull.baseRefName === base)
+    .filter((pull) => wanted === "all" || (pull.state ?? "open") === wanted)
+    .map((pull) => (fields ? Object.fromEntries(fields.filter((field) => field in pull).map((field) => [field, pull[field]])) : pull));
+  process.stdout.write(`${JSON.stringify(pulls)}\n`);
   process.exit(0);
 }
 process.stderr.write(`gh stand-in: unsupported ${args.join(" ")}\n`);

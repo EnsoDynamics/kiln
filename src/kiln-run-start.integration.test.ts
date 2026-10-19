@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { Socket } from "node:net";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,33 @@ interface Feature {
 
 let feature: Feature | undefined;
 afterEach(() => feature?.sandbox.cleanup());
+
+/**
+ * Records every socket this process opens to anything but this machine, until `stop()`. Kiln
+ * runs in this process here, so this is Kiln's own network use (AC-INSTALL-02); what `git`, `gh`
+ * and `claude` send happens in their own processes.
+ */
+function recordOffMachineConnections(): { hosts: string[]; stop: () => void } {
+  const hosts: string[] = [];
+  const real = Socket.prototype.connect;
+  const local = (host: string) => host === "localhost" || host === "::1" || host.startsWith("127.");
+  Socket.prototype.connect = function (this: Socket, ...args: unknown[]) {
+    // net.connect() hands the socket its arguments already normalized, as one array.
+    const [first, second] = Array.isArray(args[0]) ? (args[0] as unknown[]) : args;
+    // connect(path) is a local pipe or socket file; connect(port, host) and connect({ host }) default to localhost.
+    const host = typeof first === "string" ? "localhost" : typeof first === "number" ? (typeof second === "string" ? second : "localhost") : ((first as { path?: string; host?: string }).path ? "localhost" : ((first as { host?: string }).host ?? "localhost"));
+    if (!local(host)) hosts.push(host);
+    return real.apply(this, args as Parameters<typeof real>);
+  } as typeof real;
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    Socket.prototype.connect = real;
+  };
+  afterEach(stop);
+  return { hosts, stop };
+}
 
 /** A repository whose origin is "on GitHub", the fixture PRD pushed to develop, and the stand-ins. */
 function createFeature(sessions: ScenarioSession[], folders = [FOLDER]): Feature {
@@ -137,6 +165,7 @@ async function tokenFromPage(address: string): Promise<{ token: string; html: st
 describe("kiln run on a feature not started", () => {
   it("prints what it found and the address, opens the view on Documents found, and starts nothing until Start", async () => {
     const f = createFeature([landingSession("src/intake.txt"), landingSession("src/credit.txt"), landingSession("src/dashboard.txt"), pullRequestSession(218)]);
+    const network = recordOffMachineConnections();
     const kiln = startKiln(f);
     const address = await kiln.address;
     await waitFor(() => kiln.lines().length >= 3);
@@ -264,6 +293,9 @@ describe("kiln run on a feature not started", () => {
     // The server closes with Kiln, and the instance lock is released.
     await expect(fetch(address)).rejects.toThrow();
     expect(existsSync(join(stateDirectoryOf(f), "instance.lock"))).toBe(false);
+    // From kiln run to Complete, Kiln itself connected to nothing off this machine (AC-INSTALL-02).
+    network.stop();
+    expect(network.hosts).toEqual([]);
   });
 
   it("stops on Ctrl+C at Documents found with nothing started, closing the view", async () => {

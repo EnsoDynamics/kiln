@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPhasePlan } from "../plan/phase-plan.js";
@@ -10,7 +10,7 @@ import { PHASES } from "../test-support/fixture-documents.js";
 import { judgedLeaf, nextLeaf } from "./plan-reading.js";
 import { resumeCommand } from "./snapshot.js";
 import { baseBranchChoices, defaultSettings, displayPath } from "./worktree-setup.js";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const plain = terminalColors({ isTTY: false }, {});
 const plan = readPhasePlan(Object.entries(PHASES).map(([fileName, markdown]) => ({ fileName, markdown })));
@@ -43,6 +43,9 @@ describe("the terminal's phase lines", () => {
     const line = formatPhaseLine(at(9, 17), "1", "Return intake", { kind: "started" }, planColumns(mockupPlan), colors);
     expect(line).toContain("\x1b[38;2;226;105;79mstarted");
     expect(formatPhaseLine(at(9, 17), "1", "x", { kind: "stopped" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;230;180;80mstopped");
+    // Green for done: a phase's push and the pull request opened.
+    expect(formatPhaseLine(at(9, 17), "1", "x", { kind: "done", pushedSha: "a1c4e09f" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;156;196;154mdone");
+    expect(formatPhaseLine(at(14, 55), "PR", "Final pull request", { kind: "opened", number: 218 }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;156;196;154mopened");
     // The terminal mockup draws resumed in the accent red; an interrupted phase is amber (AC-LOOK-04).
     expect(formatPhaseLine(at(11, 4), "2b", "x", { kind: "resumed" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;226;105;79mresumed");
     expect(formatPhaseLine(at(11, 4), "2b", "x", { kind: "interrupted" }, planColumns(mockupPlan), colors)).toContain("\x1b[38;2;230;180;80minterrupted");
@@ -128,10 +131,25 @@ describe("the keep-awake hold", () => {
     expect(keepAwakeMissingMessage("systemd-inhibit")).toBe("Can’t keep this computer awake: systemd-inhibit isn’t available.");
   });
 
-  it("holds a sleep block with a reason naming the feature, around a command that ends with Kiln", () => {
-    const tool = keepAwakeTool("linux", { PATH: process.env.PATH ?? "", XDG_CURRENT_DESKTOP: "KDE" }, 77, "Customer returns");
-    if (!tool.ok) return; // systemd-inhibit isn't on this machine; the missing case is above
-    expect(tool.args).toEqual(["--what=sleep", "--mode=block", "--who=Kiln", `--why=${reason}`, "sh", "-c", "while kill -0 77 2>/dev/null; do sleep 5; done"]);
+  it("holds a sleep block with a reason naming the feature, around a command that ends with Kiln, under GNOME's tool or systemd's", () => {
+    // Stand-in tools on PATH, so the arguments are pinned on every machine, whichever tool it has.
+    const bin = mkdtempSync(join(tmpdir(), "kiln-keep-awake-"));
+    try {
+      for (const name of ["gnome-session-inhibit", "systemd-inhibit"]) {
+        const file = join(bin, process.platform === "win32" ? `${name}.cmd` : name);
+        writeFileSync(file, "");
+        chmodSync(file, 0o755);
+      }
+      const until = ["sh", "-c", "while kill -0 77 2>/dev/null; do sleep 5; done"];
+      const gnome = keepAwakeTool("linux", { PATH: bin, XDG_CURRENT_DESKTOP: "ubuntu:GNOME" }, 77, "Customer returns");
+      expect(gnome).toMatchObject({ ok: true, command: expect.stringMatching(/gnome-session-inhibit/) });
+      expect(gnome.ok && gnome.args).toEqual(["--inhibit", "suspend", "--app-id", "kiln", "--reason", reason, ...until]);
+      const systemd = keepAwakeTool("linux", { PATH: bin, XDG_CURRENT_DESKTOP: "KDE" }, 77, "Customer returns");
+      expect(systemd).toMatchObject({ ok: true, command: expect.stringMatching(/systemd-inhibit/) });
+      expect(systemd.ok && systemd.args).toEqual(["--what=sleep", "--mode=block", "--who=Kiln", `--why=${reason}`, ...until]);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   it("is PowerShell holding SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) until Kiln's process ends, on Windows", () => {

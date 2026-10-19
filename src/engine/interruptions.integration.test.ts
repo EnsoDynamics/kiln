@@ -37,9 +37,21 @@ describe("Ctrl+C while a session works", () => {
     harness = await createHarness({ sessions: [], logGit: process.platform !== "win32" });
     const h = harness;
     const working = flagIn(h, "working");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), landingSession("src/intake.txt")] }));
+    // Work in progress of every kind: a new file, a changed tracked file and a staged one.
+    const { actions } = workingSession(working);
+    const leftOver = [{ write: { path: "README.md", content: "# acme-shop, half edited\n" } }, { write: { path: "src/staged.txt", content: "staged\n" } }, { stage: "src/staged.txt" }];
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [...actions.slice(0, 3), ...leftOver, ...actions.slice(3)] }, landingSession("src/intake.txt")] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
+    const worktree = h.engine.worktreePath;
+    const workState = () => ({
+      status: git(h.sandbox, worktree, "status", "--porcelain", "--untracked-files=all"),
+      unstaged: git(h.sandbox, worktree, "diff"),
+      staged: git(h.sandbox, worktree, "diff", "--cached"),
+      files: ["src/partial.txt", "README.md", "src/staged.txt"].map((path) => readWorktreeFile(h, path)),
+    });
+    const workBefore = workState();
+    expect(workBefore.status.split("\n").filter(Boolean).sort()).toEqual([" M README.md", "?? src/partial.txt", "A  src/staged.txt"]);
 
     const report = await h.engine.stop("sigint");
     expect(report).toEqual({ text: "Interrupted phase 1, Return intake.", grey: "Its session and uncommitted work are kept." });
@@ -55,15 +67,16 @@ describe("Ctrl+C while a session works", () => {
     expect(await isProcessLive(run!.pid!, run!.processStartTime)).toBe(false);
     // Nothing was judged: no Needs you, no Done (technical design, "Once a stop begins").
     expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], startCommit: expect.any(String), finishedByPerson: false });
-    // The work in progress stays exactly as it was (AC-KEEP-03).
-    expect(readWorktreeFile(h, "src/partial.txt")).toBe("half done\n");
-    expect(git(h.sandbox, h.engine.worktreePath, "status", "--porcelain")).toContain("src/");
+    // The work in progress stays exactly as it was (AC-KEEP-03), staged and unstaged alike.
+    expect(workState()).toEqual(workBefore);
 
     // The next kiln run: the done check fails, so it resumes that same session (AC-KEEP-04).
     const engine = h.reopenFromDisk();
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "resume", phaseKey: "1", sessionId: session.sessionId });
     expect(h.claudeCalls()).toHaveLength(1);
+    // Its check, before anything resumes, left the work as it was too.
+    expect(workState()).toEqual(workBefore);
     await engine.continue();
 
     const resumed = h.claudeCalls()[1]!;
@@ -100,6 +113,44 @@ describe("Ctrl+C while a session works", () => {
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "start_phase", phaseId: "2b", doneFirst: { phaseId: "1", byPerson: false } });
     expect(h.claudeCalls()).toHaveLength(1);
+  });
+
+  it("holds a pause pressed before the interruption once the resumed session's phase is Done (AC-VIEW-03)", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const working = flagIn(h, "working");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), landingSession("src/intake.txt"), landingSession("src/credit.txt")] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => existsSync(working));
+    expect(h.engine.pause()).toEqual({ ok: true });
+    await h.engine.stop("sigint");
+
+    const engine = h.reopenFromDisk();
+    await engine.prepare();
+    expect((await engine.decide()).kind).toBe("resume");
+    await engine.continue();
+    expect(engine.record.phases["1"]!.doneAt).toBeDefined();
+    expect(buildSnapshot(engine).feature.state).toBe("paused");
+    expect(h.claudeCalls()).toHaveLength(2);
+  });
+
+  // AC-DONE-03: the check before a resume is the whole done check, so one failing part is enough to resume.
+  it.each([
+    ["closed and committed, not pushed", [{ close: true }, { commit: "feat: intake" }]],
+    ["closed, committed and pushed, with a file left over", [{ close: true }, { commit: "feat: intake" }, { push: true }, { write: { path: "stray.txt", content: "x" } }]],
+  ])("resumes an interrupted phase that fails only one part of the done check: %s", async (_name, landed) => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const working = flagIn(h, "working");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [...landed, { touch: working }, { work: "npm test" }] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => existsSync(working));
+    await h.engine.stop("sigint");
+
+    const engine = h.reopenFromDisk();
+    await engine.prepare();
+    expect(await engine.decide()).toEqual({ kind: "resume", phaseKey: "1", sessionId: sessionOf(h, "1").sessionId });
+    expect(engine.record.phases["1"]!.doneAt).toBeUndefined();
   });
 
   it("ends the session's whole tree when it doesn't exit after the interrupt, and the session still resumes", async () => {
@@ -208,7 +259,7 @@ describe("resuming", () => {
     harness = await createHarness({ sessions: [] });
     const h = harness;
     const working = flagIn(h, "working");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), { noInit: true, actions: [] }] }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), { noInit: true, actions: [] }, landingSession("src/credit.txt")] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     await h.engine.stop("sigint");
@@ -228,6 +279,22 @@ describe("resuming", () => {
     expect(needsYou.lastLines!.map((line) => line.text)).toContain(`No conversation found with session ID: ${sessionOf(h, "1").sessionId}`);
     expect(needsYou.freshSessionPrompt).toContain("A previous session stopped partway through this phase; check the worktree's state before you start.");
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 resumed", "1 stopped"]);
+
+    // The person finishes it outside Kiln, in the worktree (AC-RUN-07); Check again counts it as theirs and carries on.
+    const worktree = engine.worktreePath;
+    const doc = join(worktree, "docs/prds/customer-returns/phase-1-return-intake.md");
+    const lines = readFileSync(doc, "utf8").split("\n");
+    lines.splice(1, 0, "", "**Closed:** 2026-10-18");
+    writeFileSync(doc, lines.join("\n"));
+    git(h.sandbox, worktree, "add", "-A");
+    git(h.sandbox, worktree, "commit", "-q", "-m", "feat: intake, finished by hand");
+    git(h.sandbox, worktree, "push", "-q", "-u", "origin", "feature/customer-returns");
+    expect(await engine.checkAgain()).toEqual({ ok: true });
+    await engine.settled();
+    expect(engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, doneAt: expect.any(String) });
+    expect(engine.record.phases["1"]!.stop).toBeUndefined();
+    expect(phaseEvents(h).slice(4, 6)).toEqual(["1 done", "2b started"]);
+    expect(h.claudeCalls()[2]!.prompt).toContain("implement `docs/prds/customer-returns/phase-2b-store-credit.md`");
   });
 
   it("judges a resumed run that ended on its own by its done check alone: Needs you, never another resume", async () => {

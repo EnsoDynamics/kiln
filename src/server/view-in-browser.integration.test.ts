@@ -13,9 +13,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
+import { createHarness, landingSession, waitFor } from "../test-support/engine-harness.js";
+import { startLocalServer } from "./local-server.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import {
   completeSnapshot,
+  documentsFoundSnapshot,
   needsYouCrashedSnapshot,
   needsYouMessageSnapshot,
   pausedSnapshot,
@@ -25,6 +28,8 @@ import {
 } from "../test-support/sample-snapshots.js";
 
 const MOCKUPS = new URL("../../docs/design/mockups/", import.meta.url);
+const AMBER = "rgb(230, 180, 80)";
+const GREEN = "rgb(156, 196, 154)";
 const TIME_ZONE = "America/New_York";
 let port = 41200;
 let chrome: HeadlessChrome;
@@ -87,6 +92,19 @@ async function saveScreenshots(name: string, page: BrowserPage, mockup: string, 
 
 /** Each screen with the mockup it is drawn from, and lines of its copy that must read as drawn. */
 const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: string; clock?: number; copy: string[] }[] = [
+  {
+    // The view's own choice of screen: a feature not started, with what Kiln found, opens on Documents found (AC-START-03).
+    name: "documents-found",
+    mockup: "kiln-screen-documents-found.html",
+    snapshot: documentsFoundSnapshot,
+    copy: [
+      "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
+      "PRD customer-returns-prd.md 14 acceptance criteria, AC-RET-01 to AC-RET-14 Technical design technical-design.md Cites all 14 criteria",
+      "Every phase cites its criteria Dependencies point backward Working tree is clean",
+      "Keep this computer awake while a session works Stops idle sleep only.",
+      "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start",
+    ],
+  },
   {
     name: "running",
     mockup: "kiln-screen-running.html",
@@ -287,6 +305,32 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
     }
   });
 
+  it("turns Needs you into the Disconnected layout, with no Check again, and back when Kiln returns (UI-006)", async () => {
+    const thePort = await nextPort();
+    const clock = Date.parse("2026-10-17T15:53:00Z");
+    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: needsYouMessageSnapshot(), heartbeatMs: 500 });
+    const page = await chrome.open(server.address, { clock, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Check again")`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      const lost = await words(page);
+      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
+      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md Needs you"));
+      expect(lost).not.toContain(flat("Check again"));
+      expect(lost).not.toContain(flat("Pick it up yourself"));
+
+      server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: needsYouMessageSnapshot(), heartbeatMs: 500 });
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
+      const back = await words(page);
+      expect(back).toContain(flat("Check again"));
+      expect(back).not.toContain(flat("Kiln isn’t running"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
   it("keeps a live Phase detail on screen once disconnected, with its controls gone", async () => {
     const thePort = await nextPort();
     const server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
@@ -470,6 +514,56 @@ describe("the controls, in a real browser", () => {
     }
   });
 
+  it("saves each Documents found setting as it changes, and sends Start only once refinement is confirmed (AC-START-05, AC-START-06, AC-VIEW-02)", async () => {
+    const { server, page } = await openScreen(documentsFoundSnapshot());
+    try {
+      await page.waitFor(`document.querySelector("#refined")`);
+      const type = (id: string, value: string) =>
+        page.evaluate(`(() => { const input = document.querySelector("#${id}"); input.focus(); input.value = ${JSON.stringify(value)}; input.dispatchEvent(new Event("input", { bubbles: true })); input.blur(); return true; })()`);
+      const choose = (id: string, value: string) =>
+        page.evaluate(`(() => { const select = document.querySelector("#${id}"); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
+      await type("worktree", "~/elsewhere/returns");
+      await type("branch", "feature/returns-v2");
+      await choose("base", "main");
+      await choose("model", "sonnet");
+      await click(page, "Max");
+      await page.evaluate(`document.querySelector("#awake").click()`);
+      await waitUntil(() => server.commands.length >= 6);
+      expect(server.commands).toEqual([
+        'POST /api/settings {"worktreePath":"~/elsewhere/returns"}',
+        'POST /api/settings {"featureBranch":"feature/returns-v2"}',
+        'POST /api/settings {"baseBranch":"main"}',
+        'POST /api/settings {"model":"sonnet"}',
+        'POST /api/settings {"effort":"max"}',
+        'POST /api/settings {"keepAwake":false}',
+      ]);
+
+      // Start stays unavailable until the person confirms the documents were refined.
+      expect(await page.evaluate<boolean>(`document.querySelector("button.start").disabled`)).toBe(true);
+      await page.evaluate(`document.querySelector("#refined").click()`);
+      await page.waitFor(`!document.querySelector("button.start").disabled`);
+      await click(page, "Start");
+      await waitUntil(() => server.commands.length === 7);
+      expect(server.commands.at(-1)).toBe('POST /api/start {"refinementConfirmed":true}');
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Pause after this phase from the live Phase detail too (AC-VIEW-02)", async () => {
+    const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
+    try {
+      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after this phase"))`);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after this phase")).click()`);
+      await waitUntil(() => server.commands.length === 1);
+      expect(server.commands).toEqual(["POST /api/pause"]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
   it("changes the model and effort in place with Change, and keep-awake with its checkbox, each saved at once (AC-VIEW-08, UI-009)", async () => {
     const { server, page } = await openScreen(runningSnapshot());
     try {
@@ -547,25 +641,37 @@ describe("what the screens never claim (AC-WATCH-11)", () => {
   it("shows an acceptance criterion's label only inside the session's own words", async () => {
     const complete = completeSnapshot();
     complete.pullRequest!.title = "Customer returns (AC-RET-01 to AC-RET-14)";
-    for (const [snapshot, path] of [
-      [runningSnapshot(), "/phase/2b"],
-      [needsYouMessageSnapshot(), ""],
-      [complete, ""],
+    // Every screen that shows a session or its outcome, connected and not.
+    for (const [snapshot, path, connected] of [
+      [runningSnapshot(), "", true],
+      [runningSnapshot(), "", false],
+      [runningSnapshot(), "/phase/2b", true],
+      [pausedSnapshot(), "", true],
+      [needsYouMessageSnapshot(), "", true],
+      [needsYouCrashedSnapshot(), "", true],
+      [needsYouCrashedSnapshot(), "/phase/3", true],
+      [complete, "", true],
     ] as const) {
       const { server, page } = await openScreen(snapshot, path);
       try {
         await page.waitFor(`document.querySelector("h1")`);
         await page.waitFor(`document.body.innerText.includes("Customer returns")`);
+        if (!connected) {
+          await server.close();
+          await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`);
+        }
+        // A criterion's label, or a claim that criteria are met or tested, only inside the session's own words.
         const outside = await page.evaluate<string[]>(`(() => {
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
           const found = [];
           while (walker.nextNode()) {
             const node = walker.currentNode;
-            if (/AC-[A-Z]+-\\d+/.test(node.textContent) && !node.parentElement.closest(".lines, .latest, .final, .pr h2")) found.push(node.textContent.trim());
+            const claim = /AC-[A-Z]+-\\d+/.test(node.textContent) || /\\bcriteri(on|a)\\b.*\\b(met|tested|pass(ed|es|ing)?|covered|proven)\\b/i.test(node.textContent);
+            if (claim && !node.parentElement.closest(".lines, .latest, .final, .pr h2")) found.push(node.textContent.trim());
           }
           return found;
         })()`);
-        expect(outside).toEqual([]);
+        expect(outside, `${snapshot.feature.state} ${path}`).toEqual([]);
       } finally {
         await page.close();
         await server.close();
@@ -602,9 +708,50 @@ describe("the look (AC-LOOK-04)", () => {
       // Green: done and connected.
       expect(await style("[data-phase='1'] .pill", "color")).toBe("rgb(156, 196, 154)");
       expect(await style(".dot.connected", "backgroundColor")).toBe("rgb(156, 196, 154)");
+      // Amber, once Kiln is gone: the disconnected Kiln and the phase it was working on, now Interrupted.
+      await running.server.close();
+      await running.page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`);
+      expect(await style(".lost", "color")).toBe(AMBER);
+      expect(await style("[data-phase='2b'] .pill", "color")).toBe(AMBER);
     } finally {
       await running.page.close();
       await running.server.close();
+    }
+
+    // Amber what needs the person, green what passed: Needs you and its checks.
+    const stopped = await openScreen(needsYouMessageSnapshot(), "", Date.parse("2026-10-17T15:53:00Z"));
+    try {
+      await stopped.page.waitFor(`document.querySelector(".verdict")`);
+      const verdicts = await stopped.page.evaluate<[string, string][]>(`[...document.querySelectorAll(".verdict")].map((v) => [v.textContent, getComputedStyle(v).color])`);
+      expect(verdicts).toEqual([["Not yet", AMBER], ["Not yet", AMBER], ["Yes", GREEN]]);
+      expect(await stopped.page.evaluate<string>(`getComputedStyle(document.querySelector("main .pill")).backgroundColor`)).toBe(AMBER);
+    } finally {
+      await stopped.page.close();
+      await stopped.server.close();
+    }
+
+    // The crashed session's stderr and exit labels, as the crashed mockup colors them.
+    const crashed = await openScreen(needsYouCrashedSnapshot(), "", Date.parse("2026-10-17T17:22:00Z"));
+    try {
+      await crashed.page.waitFor(`document.querySelector(".lines .source")`);
+      const labels = await crashed.page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll(".lines .source")].map((label) => [label.textContent, getComputedStyle(label).color]))`);
+      expect(labels).toMatchObject({ stderr: AMBER, exit: "rgb(237, 232, 221)" });
+    } finally {
+      await crashed.page.close();
+      await crashed.server.close();
+    }
+
+    // Amber the confirmation still to give, green the checks that passed: Documents found.
+    const found = await openScreen(documentsFoundSnapshot());
+    try {
+      await found.page.waitFor(`document.querySelector("#refined")`);
+      expect(await found.page.evaluate<string>(`getComputedStyle(document.querySelector("#refined")).accentColor`)).toBe(AMBER);
+      const marks = await found.page.evaluate<string[]>(`[...document.querySelectorAll(".checks svg")].map((mark) => getComputedStyle(mark).stroke)`);
+      expect(marks.length).toBe(3);
+      for (const mark of marks) expect(mark).toBe(GREEN);
+    } finally {
+      await found.page.close();
+      await found.server.close();
     }
   });
 });
@@ -624,4 +771,88 @@ describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
       await server.close();
     }
   }, 60_000);
+});
+
+describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)", () => {
+  it("connects with the page's token and Origin, its controls reach the engine, and the engine's changes reach it without a reload", async () => {
+    const harness = await createHarness({ sessions: [] });
+    const release = join(harness.sandbox.root, "release");
+    writeFileSync(harness.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }] }));
+    await harness.engine.start({ refinementConfirmed: true });
+    await waitFor(() => harness.claudeCalls().length === 1);
+    const server = await startLocalServer({ engine: harness.engine, port: await nextPort(), folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
+    const page = await chrome.open(server.address, { timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
+      await page.waitFor(`document.body.innerText.includes("Implementing phase 1")`);
+      // The person's click reaches the engine through the real API, with the page's own token and Origin.
+      await page.evaluate(`document.querySelector('input[type="checkbox"]').click()`);
+      await waitFor(() => harness.engine.record.settings.keepAwake === false);
+      await page.waitFor(`document.body.innerText.includes("to sleep.\\nOff")`);
+      // A change the engine makes reaches the open page.
+      await harness.engine.changeSettings({ keepAwake: true });
+      await page.waitFor(`document.querySelector('input[type="checkbox"]').checked === true`);
+      expect(page.problems).toEqual([]);
+      // Closing the browser mid-phase has no effect on Kiln: the phase still lands (AC-KEEP-01).
+      await page.close();
+      writeFileSync(release, "");
+      await harness.engine.settled();
+      expect(harness.engine.record.phases["1"]?.doneAt).toBeDefined();
+    } finally {
+      await page.close().catch(() => undefined);
+      await server.close();
+      writeFileSync(release, "");
+      await harness.engine.settled();
+      await harness.cleanup();
+    }
+  });
+});
+
+describe("the progress screen's layout (AC-WATCH-01, AC-WATCH-03)", () => {
+  it("lists every phase at one level, a split phase's children included, under a current-phase panel as wide as the page's content", async () => {
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`document.querySelector("[data-phase='2b']")`);
+      const rows = await page.evaluate<[string, number][]>(`[...document.querySelectorAll("[data-phase]")].map((row) => [row.dataset.phase, Math.round(row.getBoundingClientRect().left)])`);
+      expect(rows.map(([id]) => id)).toEqual(["1", "2", "2a", "2b", "3", "4"]);
+      expect(new Set(rows.map(([, left]) => left)).size).toBe(1);
+      const widths = await page.evaluate<{ now: number; content: number; nowBottom: number; planTop: number }>(`(() => {
+        const main = document.querySelector("main");
+        const style = getComputedStyle(main);
+        const now = document.querySelector("section.now").getBoundingClientRect();
+        return { now: Math.round(now.width), content: Math.round(main.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)), nowBottom: now.bottom, planTop: document.querySelector("section.plan").getBoundingClientRect().top };
+      })()`);
+      expect(widths.now).toBe(widths.content);
+      expect(widths.nowBottom).toBeLessThanOrEqual(widths.planTop);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+});
+
+describe("the look, beyond the progress screen (AC-LOOK-04)", () => {
+  it("draws the dark theme, an error in amber, and a subagent's label in the tool's grey", async () => {
+    const found = await openScreen(documentsFoundSnapshot({ settings: { fieldErrors: { featureBranch: "That branch already exists." } } }));
+    try {
+      await found.page.waitFor(`document.body.innerText.includes("That branch already exists.")`);
+      const style = (selector: string, property: string) => found.page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`);
+      expect(await style("body", "backgroundColor")).toBe("rgb(18, 17, 14)");
+      expect(await found.page.evaluate<string>(`getComputedStyle([...document.querySelectorAll(".message")].find((m) => m.textContent.includes("That branch already exists."))).color`)).toBe(AMBER);
+    } finally {
+      await found.page.close();
+      await found.server.close();
+    }
+    const lines = [...PHASE_DETAIL_LINES, { line: PHASE_DETAIL_LINES.length + 1, at: "2026-10-17T15:46:59Z", source: "subagent" as const, text: "Reading the store-credit tests." }];
+    const detail = await openScreen(runningSnapshot(), "/phase/2b", RUNNING_NOW, lines);
+    try {
+      await detail.page.waitFor(`document.body.innerText.includes("Reading the store-credit tests.")`);
+      const labels = await detail.page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll(".lines .source")].map((label) => [label.textContent, getComputedStyle(label).color]))`);
+      expect(labels.subagent).toBe(labels.tool);
+      expect(labels.tool).toBe("rgb(140, 133, 119)");
+    } finally {
+      await detail.page.close();
+      await detail.server.close();
+    }
+  });
 });

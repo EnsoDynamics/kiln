@@ -86,6 +86,15 @@ describe("SessionOutputReader", () => {
     expect(stepStates(reader.steps).find((step) => step.state === "current")?.name).toBe("Push");
   });
 
+  it("starts no step for a subagent's own skill calls or git commands, only the session's", () => {
+    const reader = new SessionOutputReader();
+    reader.readEvent(assistant([{ type: "tool_use", id: "s", name: "Skill", input: { skill: "enso-method:implement-from-requirements" } }]), "2026-10-17T18:00:01.000Z");
+    reader.readEvent(assistant([{ type: "tool_use", id: "agent", name: "Agent", input: { description: "Harden the tests" } }]), "2026-10-17T18:00:02.000Z");
+    reader.readEvent(assistant([{ type: "tool_use", id: "t", name: "Skill", input: { skill: "enso-method:test-hardening" } }], "agent"), "2026-10-17T18:00:03.000Z");
+    reader.readEvent(assistant([{ type: "tool_use", id: "g", name: "Bash", input: { command: "git commit -m wip" } }], "agent"), "2026-10-17T18:00:04.000Z");
+    expect(reader.steps.map((step) => step.name)).toEqual(["Build"]);
+  });
+
   it("says the reviewer is working while a Deliverable review Agent call has no result", () => {
     const reader = new SessionOutputReader();
     reader.readEvent(assistant([{ type: "tool_use", id: "s", name: "Skill", input: { skill: "enso-method:deliverable-review" } }]), at);

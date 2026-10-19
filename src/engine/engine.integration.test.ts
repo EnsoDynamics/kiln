@@ -93,8 +93,14 @@ describe("the engine from Start to the pull request", () => {
     expect(originTip(h, "develop")).toBe(developBefore);
     expect(git(h.sandbox, h.repository, "status", "--porcelain", "--untracked-files=all")).toBe("");
     expect(git(h.sandbox, worktree, "log", "--format=%s", `${developBefore}..HEAD`).trim().split("\n")).toEqual(["feat: the phase", "feat: the phase", "feat: the phase"]);
-    // Every gh call names the repository (technical design, Dependencies).
-    for (const call of h.ghCalls()) expect(call.slice(0, 4)).toEqual(["pr", "list", "--repo", "github.com/acme/acme-shop"]);
+    // Every gh call is the one read AC-PR-02 makes: this repository, this branch into the base, open, ready-for-review facts.
+    expect(h.ghCalls().length).toBeGreaterThan(0);
+    for (const call of h.ghCalls()) {
+      expect(call).toEqual([
+        "pr", "list", "--repo", "github.com/acme/acme-shop", "--head", "feature/customer-returns", "--base", "develop", "--state", "open",
+        "--json", "number,title,url,isDraft,isCrossRepository,headRefName,baseRefName,additions,deletions,commits",
+      ]);
+    }
 
     // Each phase's record: the pushed commit origin holds, one commit each, and its session's facts.
     expect(record.phases["3"]!.pushedSha).toBe(originTip(h, "feature/customer-returns"));
@@ -106,7 +112,18 @@ describe("the engine from Start to the pull request", () => {
     expect(session.steps.map((step) => step.name)).toEqual(["Build", "Deliverable review", "Commit", "Refactor pass", "Push"]);
 
     const snapshot = buildSnapshot(h.engine);
-    expect(snapshot.feature).toMatchObject({ name: "Customer returns", state: "complete", phasesDone: 4, phasesTotal: 4 });
+    // AC-WATCH-02: Complete's total time and finish come from when the PRD started and completed.
+    expect(snapshot.feature).toMatchObject({ name: "Customer returns", state: "complete", phasesDone: 4, phasesTotal: 4, startedAt: record.startedAt, completedAt: record.completedAt });
+    // AC-WATCH-01: a Done row's time, pushed commit and who finished it, and its Details, from the record and Git.
+    const firstSession = h.engine.latestSession("1")!;
+    expect(snapshot.phases[0]).toMatchObject({
+      state: "done",
+      doneAt: record.phases["1"]!.doneAt,
+      pushedSha: record.phases["1"]!.pushedSha,
+      finishedByPerson: false,
+      sessionStartedAt: firstSession.runs[0]!.startedAt,
+      details: { from: firstSession.runs[0]!.startedAt, to: record.phases["1"]!.doneAt, worktree: worktree, latestCommit: record.phases["1"]!.pushedSha, sessionId: firstSession.sessionId },
+    });
     expect(snapshot.phases.map((phase) => [phase.id, phase.state])).toEqual([
       ["1", "done"],
       ["2", "split"],
@@ -117,6 +134,13 @@ describe("the engine from Start to the pull request", () => {
     ]);
     expect(snapshot.phases.find((phase) => phase.id === "2a")?.details).toBeUndefined();
     expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "high", branch: "feature/customer-returns", commitCount: 1 });
+    // AC-PR-04, AC-PR-05: the Complete screen's pull request, from the record, and the pull-request session's own row.
+    expect(snapshot.pullRequest).toEqual(record.pullRequest);
+    expect(snapshot.pullRequest).toMatchObject({ number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
+    const prRow = snapshot.phases.at(-1)!;
+    expect(prRow).toMatchObject({ id: "pr", title: "Final pull request", file: "pull request session", state: "done" });
+    expect(prRow.details).toBeUndefined();
+    expect(prRow.pushedSha).toBeUndefined();
   });
 
   it("follows a phase that splits itself: judges its first child, then carries on with the next unclosed leaf", async () => {
@@ -148,6 +172,81 @@ describe("the engine from Start to the pull request", () => {
     expect(rows.slice(0, 3)).toEqual([["1", "split"], ["1a", "done"], ["1b", "done"]]);
     // The launched leaf's session shows on its judged leaf's row.
     expect(buildSnapshot(h.engine).phases[1]!.details?.sessionId).toBe(h.engine.latestSession("1")!.sessionId);
+  });
+});
+
+describe("the snapshot while a phase works", () => {
+  it("shows the feature's state, every row with its title, and the current phase's session, steps and commits; settings apart from them", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const reached = join(h.sandbox.root, "reached");
+    const release = join(h.sandbox.root, "release");
+    const working = [
+      { skill: "enso-method:implement-from-requirements" },
+      { write: { path: "src/intake.txt", content: "wip\n" } },
+      { commit: "feat: intake, first part" },
+      // Kiln reads the phase's commits from Git at most every 5 seconds while its session works.
+      { sleepFor: 5_100 },
+      { text: "Carrying on with the intake form." },
+      { touch: reached },
+      { waitForFile: release },
+      { close: true },
+      { commit: "feat: intake" },
+      { push: true },
+      { result: "Phase landed." },
+    ];
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: working }, { actions: [{ result: "Stop here." }] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => existsSync(reached) && buildSnapshot(h.engine).current?.commits.length === 1, 15_000);
+
+    const snapshot = buildSnapshot(h.engine);
+    const session = h.engine.latestSession("1")!;
+    const startedAt = session.runs[0]!.startedAt;
+    // AC-WATCH-02: implementing phase 1, with 2a (closed before Start) counted as done.
+    expect(snapshot.feature).toMatchObject({ state: "implementing", currentPhaseId: "1", phasesDone: 1, phasesTotal: 4 });
+    expect(snapshot.feature.stoppedAt).toBeUndefined();
+    // AC-WATCH-01, AC-LOOK-03: every phase in plan order, its title word for word, its state; no pull-request row while a leaf is open (AC-PR-05).
+    expect(snapshot.phases.map((phase) => [phase.id, phase.title, phase.file, phase.state])).toEqual([
+      ["1", "Return intake", "phase-1-return-intake.md", "implementing"],
+      ["2", "Refunds", "phase-2-refunds.md", "split"],
+      ["2a", "Card refunds", "phase-2a-card-refunds.md", "done"],
+      ["2b", "Store credit", "phase-2b-store-credit.md", "planned"],
+      ["3", "Returns dashboard", "phase-3-returns-dashboard.md", "planned"],
+    ]);
+    expect(snapshot.phases[0]!.sessionStartedAt).toBe(startedAt);
+    // AC-WATCH-03, AC-WATCH-06: the current phase's session, what was last seen, its latest line and its commits read from Git.
+    const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
+    expect(snapshot.current).toMatchObject({
+      phaseId: "1",
+      sessionId: session.sessionId,
+      model: "Opus 5.5",
+      effort: "high",
+      startedAt,
+      seenInSession: { text: "first git commit seen" },
+      latestLine: { text: "Carrying on with the intake form." },
+      commits: [{ sha: head, subject: "feat: intake, first part" }],
+    });
+    // AC-WATCH-04: Build is finished and Commit current; the steps the session never called stay unreached.
+    expect(snapshot.current!.steps.map((step) => [step.name, step.state])).toEqual([
+      ["Build", "finished"],
+      ["Deliverable review", "unreached"],
+      ["Test hardening", "unreached"],
+      ["Commit", "current"],
+      ["Refactor pass", "unreached"],
+      ["Push", "unreached"],
+    ]);
+
+    // AC-WATCH-07: a settings change shows in the settings; the working phase keeps what it started with.
+    expect(await h.engine.changeSettings({ model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    const changed = buildSnapshot(h.engine);
+    expect(changed.settings).toMatchObject({ model: { value: "sonnet" }, effort: "max" });
+    expect(changed.current).toMatchObject({ model: "Opus 5.5", effort: "high" });
+
+    writeFileSync(release, "");
+    await h.engine.settled();
+    const done = buildSnapshot(h.engine).phases[0]!;
+    expect(done).toMatchObject({ state: "done", details: { model: "Opus 5.5", effort: "high", sessionId: session.sessionId } });
+    expect(h.engine.latestSession("2b")).toMatchObject({ model: "sonnet", effort: "max" });
   });
 });
 
@@ -188,9 +287,17 @@ describe("a phase that doesn't land", () => {
       finalMessage: "All done, everything is pushed.",
       exitCode: 0,
       lastSkill: { name: "implement-from-requirements" },
-      resumeCommand: expect.stringMatching(new RegExp(`${process.platform === "win32" ? "; " : "\\n"}claude --resume ${session.sessionId}$`)),
+      // AC-STOP-02: the time the session stopped is its run's end, on the screen and in the header.
+      stoppedAt: session.runs[0]!.endedAt,
     });
+    expect(snapshot.feature.stoppedAt).toBe(session.runs[0]!.endedAt);
+    // AC-STOP-05: the command changes to this PRD's worktree and reopens this session.
+    expect(snapshot.needsYou!.resumeCommand).toBe(
+      process.platform === "win32" ? `cd '${h.engine.worktreePath}'; claude --resume ${session.sessionId}` : `cd ${h.engine.worktreePath}\nclaude --resume ${session.sessionId}`,
+    );
     expect(snapshot.needsYou!.lastLines).toBeUndefined();
+    // AC-STOP-06: the fresh-session prompt points at the stopped phase's document.
+    expect(snapshot.needsYou!.freshSessionPrompt.split("\n\n")[0]).toMatch(/^Use the implement-from-requirements skill to implement `docs\/prds\/customer-returns\/phase-1-return-intake\.md` of the `Customer returns` PRD/);
     expect(snapshot.needsYou!.freshSessionPrompt).toContain("A previous session stopped partway through this phase; check the worktree's state before you start.");
     expect(snapshot.phases.find((phase) => phase.id === "1")?.state).toBe("needs_you");
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
@@ -206,8 +313,10 @@ describe("a phase that doesn't land", () => {
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
     expect(await h.engine.checkAgain()).toEqual({ ok: true });
     await h.engine.settled();
-    expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, pushedSha: expect.any(String) });
+    expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, pushedSha: expect.stringMatching(/^[0-9a-f]{40}$/) });
     expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
+    // Its row says the person finished it, with the commit they pushed (AC-WATCH-01).
+    expect(buildSnapshot(h.engine).phases[0]).toMatchObject({ id: "1", state: "done", finishedByPerson: true, pushedSha: h.engine.record.phases["1"]!.pushedSha });
     expect(phaseEvents(h).slice(3, 5)).toEqual([expect.stringMatching(/^1 done /), "2b started"]);
   });
 
@@ -223,14 +332,22 @@ describe("a phase that doesn't land", () => {
   });
 
   it("names uncommitted files, a worktree on another branch, and origin ahead of or apart from the branch", async () => {
-    harness = await createHarness({ sessions: [{ actions: [{ write: { path: "a.txt", content: "a" } }, { write: { path: "b/c.txt", content: "c" } }, { exit: 0 }] }] });
+    // New files, a changed tracked file and a staged one: everything a session can leave uncommitted.
+    const leftOver = [
+      { write: { path: "a.txt", content: "a" } },
+      { write: { path: "b/c.txt", content: "c" } },
+      { write: { path: "README.md", content: "# acme-shop, half edited\n" } },
+      { write: { path: "staged.txt", content: "staged" } },
+      { stage: "staged.txt" },
+    ];
+    harness = await createHarness({ sessions: [{ actions: [...leftOver, { exit: 0 }] }] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     const checks = () => h.engine.record.phases["1"]!.stop!.checks;
     // Setup's --no-track: the branch has no upstream until a session pushes, so a bare `git push` never targets the base.
     expect(() => git(h.sandbox, h.repository, "rev-parse", "--abbrev-ref", "feature/customer-returns@{upstream}")).toThrow();
-    expect(checks().map((check) => check.fact)).toEqual(["No Closed line in phase-1-return-intake.md", "2 files changed, not committed", "feature/customer-returns isn't on origin yet"]);
+    expect(checks().map((check) => check.fact)).toEqual(["No Closed line in phase-1-return-intake.md", "4 files changed, not committed", "feature/customer-returns isn't on origin yet"]);
     const snapshot = buildSnapshot(h.engine);
     // No final message: the last output lines show instead, ending with the exit.
     expect(snapshot.needsYou!.finalMessage).toBeUndefined();
@@ -238,13 +355,20 @@ describe("a phase that doesn't land", () => {
 
     // AC-GIT-02: Check again and the next kiln run leave the uncommitted work exactly as it is.
     const worktree = h.engine.worktreePath;
-    const statusBefore = git(h.sandbox, worktree, "status", "--porcelain", "--untracked-files=all");
+    const workState = () => ({
+      status: git(h.sandbox, worktree, "status", "--porcelain", "--untracked-files=all"),
+      unstaged: git(h.sandbox, worktree, "diff"),
+      staged: git(h.sandbox, worktree, "diff", "--cached"),
+    });
+    const before = workState();
+    expect(before.status.split("\n").filter(Boolean).sort()).toEqual([" M README.md", "?? a.txt", "?? b/c.txt", "A  staged.txt"]);
     await h.engine.checkAgain();
     const reopened = h.reopen();
     await reopened.prepare();
     expect(await reopened.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
-    expect(git(h.sandbox, worktree, "status", "--porcelain", "--untracked-files=all")).toBe(statusBefore);
+    expect(workState()).toEqual(before);
     expect(readFileSync(join(worktree, "b", "c.txt"), "utf8")).toBe("c");
+    expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("# acme-shop, half edited\n");
     expect(h.claudeCalls()).toHaveLength(1);
 
     git(h.sandbox, worktree, "add", "-A");
@@ -283,14 +407,19 @@ describe("a phase that doesn't land", () => {
 describe("the done check needs all three", () => {
   it.each([
     ["committed and pushed but a file left over", [{ close: true }, { commit: "feat: x" }, { push: true }, { write: { path: "stray.txt", content: "x" } }], [true, false, true]],
+    [
+      "committed and pushed but a tracked file changed and another staged",
+      [{ write: { path: "staged.txt", content: "1" } }, { close: true }, { commit: "feat: x" }, { push: true }, { write: { path: "README.md", content: "changed\n" } }, { write: { path: "staged.txt", content: "2" } }, { stage: "staged.txt" }],
+      [true, false, true],
+    ],
     ["committed and pushed but not closed", [{ write: { path: "a.txt", content: "a" } }, { commit: "feat: x" }, { push: true }], [false, true, true]],
   ])("stops when only one check fails: %s", async (_name, actions, passed) => {
     harness = await createHarness({ sessions: [{ actions: [...actions, { result: "Done." }] }] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases["1"]!.stop!.checks.map((check) => check.passed)).toEqual(passed);
     expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    expect(h.engine.record.phases["1"]!.stop!.checks.map((check) => check.passed)).toEqual(passed);
     expect(h.claudeCalls()).toHaveLength(1);
   });
 
@@ -304,6 +433,8 @@ describe("the done check needs all three", () => {
     expect(h.engine.record.phases["1"]!.stop!.checks[0]).toEqual({ name: "Phase doc closed", passed: false, fact: "No Closed line in phase-1a-intake-form.md" });
     expect(phaseEvents(h).at(-1)).toBe("1a stopped");
     expect(buildSnapshot(h.engine).needsYou!.phaseId).toBe("1a");
+    // The fresh-session prompt points at the leaf judged, the split's first child (AC-STOP-06).
+    expect(buildSnapshot(h.engine).needsYou!.freshSessionPrompt).toMatch(/^Use the implement-from-requirements skill to implement `docs\/prds\/customer-returns\/phase-1a-intake-form\.md` /);
   });
 });
 
@@ -421,6 +552,14 @@ describe("pausing between phases", () => {
     expect(snapshot.phases.find((phase) => phase.id === "2b")?.state).toBe("next");
     expect(h.engine.cancelPause()).toMatchObject({ ok: false, status: 409 });
 
+    // AC-VIEW-03: a kiln run while the pause is in effect stays paused and starts nothing.
+    const reopened = h.reopen();
+    await reopened.prepare();
+    expect(await reopened.decide()).toEqual({ kind: "paused", beforePhaseKey: "2b" });
+    await reopened.continue();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(buildSnapshot(reopened).feature.state).toBe("paused");
+
     expect(await h.engine.start()).toEqual({ ok: true });
     await waitFor(() => h.claudeCalls().length === 2);
     await h.engine.settled();
@@ -486,12 +625,56 @@ describe("a plan that breaks after Start", () => {
     expect(needsYou.finalMessage).toBeUndefined();
     expect(needsYou.freshSessionPrompt).not.toContain("A previous session stopped");
 
-    writeFileSync(join(prdDirectory, "phase-2b-store-credit.md"), removed);
+    // AC-STOP-07: until the plan reads, Check again and kiln run read it again and the stop stays, starting nothing.
+    const firstCheckedAt = stop.checkedAt;
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await h.engine.checkAgain();
     await h.engine.settled();
+    expect(h.engine.record.phases["2b"]!.stop).toMatchObject({ kind: "plan", checks: [{ passed: false, fact: "phase-2-refunds.md lists 2b, which has no file." }] });
+    expect(h.engine.record.phases["2b"]!.stop!.checkedAt > firstCheckedAt).toBe(true);
+    const reopened = h.reopen();
+    await reopened.prepare();
+    expect(await reopened.decide()).toEqual({ kind: "plan_stop", phaseKey: "2b" });
+    expect(h.claudeCalls()).toHaveLength(1);
+
+    writeFileSync(join(prdDirectory, "phase-2b-store-credit.md"), removed);
+    // Once the plan reads, kiln run clears the stop and starts the phase, marking nothing Done.
+    const again = h.reopen();
+    await again.prepare();
+    expect(await again.decide()).toEqual({ kind: "start_phase", phaseId: "2b" });
+    expect(again.record.phases["2b"]?.stop).toBeUndefined();
+    expect(again.record.phases["2b"]?.doneAt).toBeUndefined();
+    await again.continue();
     // Clearing a plan stop marks nothing Done: 2b then runs as its own session, and the loop goes on to 3.
     expect(h.engine.record.phases["2b"]).toMatchObject({ finishedByPerson: false, doneAt: expect.any(String) });
     expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+  });
+
+  it("holds a pause still waiting once the plan reads again, and marks nothing Done", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const release = join(h.sandbox.root, "release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, landingSession("src/b.txt")] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.claudeCalls().length === 1);
+    h.engine.pause();
+    writeFileSync(release, "");
+    await h.engine.settled();
+    const prdDirectory = join(h.engine.worktreePath, "docs", "prds", "customer-returns");
+    const removed = readFileSync(join(prdDirectory, "phase-2b-store-credit.md"), "utf8");
+    rmSync(join(prdDirectory, "phase-2b-store-credit.md"));
+    // As if Kiln stopped with the pause requested and not yet in effect: kiln run finds the broken plan first.
+    h.engine.record.pause = { requestedAt: new Date().toISOString() };
+    const engine = h.reopen();
+    await engine.prepare();
+    expect(await engine.decide()).toEqual({ kind: "plan_stop", phaseKey: "2b" });
+
+    writeFileSync(join(prdDirectory, "phase-2b-store-credit.md"), removed);
+    await engine.checkAgain();
+    await engine.settled();
+    expect(buildSnapshot(engine).feature.state).toBe("paused");
+    expect(engine.record.phases["2b"]?.doneAt).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
   });
 
   it("fails the Closed check with the plan's problem when the worktree is gone after a session, never starting the pull request", async () => {
@@ -549,6 +732,21 @@ describe("the pull request", () => {
     expect(h.engine.record.pullRequest?.number).toBe(6);
     expect(phaseEvents(h).at(-1)).toBe("PR opened #6");
     expect(phaseEvents(h)).not.toContain("PR started");
+  });
+
+  it("offers no pause while the pull-request session works (AC-PR-05)", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const release = join(h.sandbox.root, "release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("a"), landingSession("b"), landingSession("c"), { actions: [{ waitForFile: release }, ...pullRequestSession(40).actions] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.claudeCalls().length === 4);
+    expect(buildSnapshot(h.engine).current?.phaseId).toBe("pr");
+    expect(h.engine.pause()).toMatchObject({ ok: false, status: 409 });
+    expect(buildSnapshot(h.engine).pause).toEqual({ pending: false, active: false });
+    writeFileSync(release, "");
+    await h.engine.settled();
+    expect(h.engine.record.pullRequest?.number).toBe(40);
   });
 
   it("stops at Needs you when the pull-request session opens nothing", async () => {
@@ -843,5 +1041,21 @@ describe("the account before each phase (AC-WATCH-09)", () => {
     expect(h.engine.record.completedAt).toBeDefined();
     // Phases 1, 2b and 3, then the pull-request session: each refresh comes before that session's launch.
     expect(refreshedBefore).toEqual([0, 1, 2, 3]);
+  });
+
+  it("never waits for a limit to reset: a used-up limit still starts the next phase (AC-WATCH-08, UI-005)", async () => {
+    const account = {
+      email: "alex@acme-shop.dev",
+      plan: "Max",
+      updatedAt: new Date().toISOString(),
+      limits: [{ label: "5-hour window", shortLabel: "5-hour", percent: 100, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), nearLimit: true }],
+    };
+    const claude: ClaudeInfoSource = { account, models: undefined, modelListError: undefined, onChange: () => () => undefined, refreshAccount: () => Promise.resolve() };
+    harness = await createHarness({ sessions: [landingSession("src/intake.txt"), { actions: [{ result: "Stop here." }] }], engineOptions: { claude } });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(phaseEvents(h).slice(1, 4)).toEqual(["1 started", expect.stringMatching(/^1 done /), "2b started"]);
   });
 });

@@ -4,7 +4,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -42,7 +42,7 @@ function kilnRun(h: Harness) {
  * `kiln run` in this process until its output shows `until`, then Ctrl+C, as a person stops a
  * Kiln that would otherwise stay in the foreground. The stop's own line is the output's last.
  */
-async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean) {
+async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whileRunning?: (rawStdout: () => string) => Promise<void>) {
   let stdout = "";
   let stderr = "";
   const signals = new EventEmitter();
@@ -59,9 +59,13 @@ async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean) {
       return undefined;
     },
   });
-  await waitFor(() => until(withoutKeepAwakeError(stdout)), 40_000);
+  let ended = false;
+  void done.then(() => (ended = true));
+  await waitFor(() => ended || until(withoutKeepAwakeError(stdout)), 40_000);
+  expect(until(withoutKeepAwakeError(stdout)), `kiln run ended before its output showed what the test waits for:\n${stdout}${stderr}`).toBe(true);
   // What Kiln does next settles before the stop, so the stop's line says where it waits.
   await new Promise((resolve) => setTimeout(resolve, 200));
+  await whileRunning?.(() => stdout);
   signals.emit("SIGINT");
   const exitCode = await done;
   return { exitCode, stdout: withoutKeepAwakeError(stdout), stderr, opened };
@@ -76,12 +80,31 @@ describe("kiln run on a feature underway", () => {
       sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Done." }] }, landingSession("src/b.txt"), { actions: [{ result: "I need a decision on the dashboard's columns." }] }],
     });
     const h = harness;
+    // Settings chosen before Start are kept for the PRD: a later kiln run starts its sessions with them (AC-START-06).
+    expect(await h.engine.changeSettings({ model: "sonnet", effort: "max" })).toEqual({ ok: true });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop).toBeDefined();
 
     // Nothing changed yet: it still needs the person, and nothing starts (AC-STOP-08).
-    const still = await kilnRunUntil(h, (stdout) => stdout.includes("● Phase 1 still needs you."));
+    // While it waits at Needs you, its browser view and event stream are served (AC-VIEW-05).
+    let servedAtNeedsYou: { page: number; state?: string } | undefined;
+    const still = await kilnRunUntil(
+      h,
+      (stdout) => stdout.includes("● Phase 1 still needs you."),
+      async (stdout) => {
+        const address = /Opened (\S+)/.exec(stdout())![1]!;
+        const page = (await fetch(address)).status;
+        const abort = new AbortController();
+        const events = await fetch(`${new URL(address).origin}/api/events?token=${h.engine.record.token}`, { signal: abort.signal });
+        const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+        let text = "";
+        while (!/^event: snapshot\ndata: .*$/m.test(text)) text += (await reader.read()).value ?? "";
+        abort.abort();
+        servedAtNeedsYou = { page, state: JSON.parse(/^event: snapshot\ndata: (.*)$/m.exec(text)![1]!).feature.state };
+      },
+    );
+    expect(servedAtNeedsYou).toEqual({ page: 200, state: "needs_you" });
     const stillLines = still.stdout.trimEnd().split("\n");
     expect(stillLines[0]).toBe("Customer returns  ·  2 of 4 phases done  ·  phase 1 needs you");
     expect(stillLines[1]).toMatch(new RegExp(`^● Phase 1 still needs you\\.${opened}$`));
@@ -89,6 +112,9 @@ describe("kiln run on a feature underway", () => {
     expect(h.claudeCalls()).toHaveLength(1);
 
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
+    // A feature underway skips the start checks (AC-START-02): the main checkout's own changes and a missing design don't stop it.
+    writeFileSync(join(h.repository, "scratch.txt"), "the person's own work\n");
+    rmSync(join(h.repository, "docs", "prds", "customer-returns", "technical-design.md"));
     const result = await kilnRunUntil(h, (stdout) => stdout.includes("Returns dashboard  stopped"));
     expect(result.stderr).toBe("");
     const lines = result.stdout.trimEnd().split("\n");
@@ -103,6 +129,7 @@ describe("kiln run on a feature underway", () => {
     expect(lines).toHaveLength(7);
     expect(result.exitCode).toBe(130);
     expect(h.claudeCalls()).toHaveLength(3);
+    for (const call of h.claudeCalls().slice(1)) expect(call.args.join(" ")).toContain("--model sonnet --effort max");
     // The browser opened on the address the ● line gives, before the next phase's session spawned (AC-START-03).
     expect(result.opened).toEqual([{ address: /Opened (\S+)$/.exec(lines[1]!)![1], claudeCalls: 1 }]);
   });
@@ -141,6 +168,42 @@ describe("kiln run on a feature underway", () => {
     }
   });
 
+  it("serves its view on a paused feature, where Start carries on (AC-VIEW-05, AC-VIEW-02)", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const release = join(h.sandbox.root, "release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, { actions: [{ result: "Stopping here." }] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.claudeCalls().length === 1);
+    h.engine.pause();
+    writeFileSync(release, "");
+    await h.engine.settled();
+    expect(h.engine.record.pause.activeSince).toBeDefined();
+
+    let served: { page: number; state?: string; start: number } | undefined;
+    await kilnRunUntil(
+      h,
+      (stdout) => / Opened http/.test(stdout),
+      async (stdout) => {
+        const address = /Opened (\S+)/.exec(stdout())![1]!;
+        const origin = new URL(address).origin;
+        const page = (await fetch(address)).status;
+        const abort = new AbortController();
+        const events = await fetch(`${origin}/api/events?token=${h.engine.record.token}`, { signal: abort.signal });
+        const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+        let text = "";
+        while (!/^event: snapshot\ndata: .*$/m.test(text)) text += (await reader.read()).value ?? "";
+        abort.abort();
+        const state = JSON.parse(/^event: snapshot\ndata: (.*)$/m.exec(text)![1]!).feature.state;
+        const start = (await fetch(`${origin}/api/start`, { method: "POST", headers: { "X-Kiln-Token": h.engine.record.token, Origin: origin } })).status;
+        await waitFor(() => h.claudeCalls().length === 2);
+        served = { page, state, start };
+      },
+    );
+    expect(served).toEqual({ page: 200, state: "paused", start: 200 });
+    expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+  });
+
   it("shows a completed feature from its record alone", async () => {
     harness = await createHarness({ sessions: [landingSession("a"), landingSession("b"), landingSession("c"), pullRequestSession(218)] });
     const h = harness;
@@ -177,6 +240,26 @@ describe("Ctrl+C and a closed terminal", () => {
     );
     return h;
   }
+
+  // macOS and Linux: Windows's hold is a PowerShell process with no command line to find it by.
+  it.skipIf(process.platform === "win32")("keeps the computer awake while a phase's session works, and lets it sleep once Kiln stops (AC-KEEP-06)", async () => {
+    const h = await underwayAtPhase2b((harness) => join(harness.sandbox.root, "working"));
+    // Kiln's own hold, tied to this process: `caffeinate -i -w <pid>` on macOS, a wait on the pid under systemd-inhibit or gnome-session-inhibit on Linux.
+    const held = () => spawnSync("pgrep", ["-f", process.platform === "darwin" ? `caffeinate -i -w ${process.pid}$` : `while kill -0 ${process.pid} 2>`]).status === 0;
+    expect(held()).toBe(false);
+    let whileWorking: { held: boolean; saidItCant: boolean } | undefined;
+    await kilnRunUntil(
+      h,
+      () => existsSync(join(h.sandbox.root, "working")),
+      async (stdout) => {
+        // Linux runners whose logind refuses the hold get Kiln's line saying so instead.
+        whileWorking = { held: held(), saidItCant: stdout().includes("✗ Can’t keep this computer awake") };
+      },
+    );
+    expect(whileWorking!.held || whileWorking!.saidItCant).toBe(true);
+    if (process.platform === "darwin") expect(whileWorking!.held).toBe(true);
+    await waitFor(() => !held(), 10_000);
+  });
 
   it.skipIf(process.platform === "win32")("interrupts the phase in progress, prints the drawn line and exits; the next kiln run resumes that session", async () => {
     // A terminal's Ctrl+C sends SIGINT to its foreground process group: Kiln, but not the
