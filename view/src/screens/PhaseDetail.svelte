@@ -100,7 +100,7 @@
   .name { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(32px, 4vw, 42px); line-height: 1.05; color: var(--text); }
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 14px; color: var(--muted); }
-  .dot { color: var(--dim); }
+  .dot { font-size: 15px; color: var(--dim); }
   .pause { display: flex; flex-direction: column; gap: 10px; }
   .reason { font-size: 12.5px; color: var(--amber); }
   .note { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.6; text-wrap: pretty; }

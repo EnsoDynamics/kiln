@@ -2,7 +2,7 @@
 // local bare repository, the fixture PRD pushed to `develop`, the stand-in `claude` and `gh`,
 // and a fresh record, as Documents found would leave it just before Start.
 
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Engine, type EngineOptions, type TerminalEvent } from "../engine/engine.js";
 import { originBranches } from "../engine/git-reads.js";
@@ -61,10 +61,27 @@ export interface HarnessOptions {
   /** Engine options every engine this harness makes gets, such as a sleep reader or keep-awake. */
   engineOptions?: Partial<EngineOptions>;
   /**
-   * Gives Kiln a git that logs each call's arguments to `<sandbox>/kiln-git.log` before running
-   * the real one. macOS and Linux only: cmd.exe would expand the `%` in Kiln's format strings.
+   * Logs every git call Kiln makes, through git's own event trace (GIT_TRACE2_EVENT) in Kiln's
+   * environment, so it works on every platform with no wrapper for cmd.exe to expand `%` in.
    */
   logGit?: boolean;
+}
+
+/**
+ * The git calls Kiln started, from git's event trace, each as its arguments joined by spaces. A
+ * git that git itself starts (such as the checkout inside `worktree add`) has its parent's session
+ * ID before a slash in its own, so only calls with no parent are Kiln's.
+ *
+ *   kilnGitCalls(gitLog)  // ["rev-parse --show-toplevel", "status --porcelain", …]
+ */
+function kilnGitCalls(gitLog: string): string[] {
+  if (!existsSync(gitLog)) return [];
+  return readFileSync(gitLog, "utf8")
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as { event: string; sid: string; argv?: string[] })
+    .filter((event) => event.event === "start" && !event.sid.includes("/"))
+    .map((event) => event.argv!.slice(1).join(" "));
 }
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
@@ -89,17 +106,13 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const ghStatePath = join(sandbox.root, "gh-state.json");
   writeFileSync(scenarioPath, JSON.stringify({ sessions: options.sessions }));
   writeFileSync(ghStatePath, JSON.stringify({ pulls: [] }));
-  const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenarioPath, KILN_STANDIN_GH_STATE: ghStatePath };
+  const env: NodeJS.ProcessEnv = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenarioPath, KILN_STANDIN_GH_STATE: ghStatePath };
   const realGit = findExecutable("git", env)!;
+  // The harness's own git calls aren't Kiln's, so they run without the trace.
+  const gitContext = { git: realGit, env: { ...env } };
   const gitLog = join(sandbox.root, "kiln-git.log");
-  let kilnGit = realGit;
-  if (options.logGit) {
-    kilnGit = join(sandbox.root, "kiln-git");
-    writeFileSync(kilnGit, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${gitLog}'\nexec '${realGit}' "$@"\n`);
-    chmodSync(kilnGit, 0o755);
-  }
-  const tools = { git: kilnGit, gh: standIns.gh, claude: options.claude ?? standIns.claude };
-  const gitContext = { git: realGit, env };
+  if (options.logGit) env.GIT_TRACE2_EVENT = gitLog;
+  const tools = { git: realGit, gh: standIns.gh, claude: options.claude ?? standIns.claude };
   const events: TerminalEvent[] = [];
 
   const newFeature = async (name: string) => {
@@ -152,7 +165,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     reopen: () => (harness.engine = make()),
     reopenFromDisk: () => (harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!)),
     engineFor: async (name) => engineOver(await newFeature(name)),
-    kilnGitCalls: () => (existsSync(gitLog) ? readFileSync(gitLog, "utf8").split("\n").filter((line) => line !== "") : []),
+    kilnGitCalls: () => kilnGitCalls(gitLog),
     cleanup: () => sandbox.cleanup(),
   };
   harness.engine = make();

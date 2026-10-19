@@ -284,8 +284,8 @@
   select { padding: 0 10px; }
   select.model { font-family: var(--sans); font-size: 14px; }
   input:disabled, select:disabled { opacity: 0.6; }
-  .help { font-size: 12.5px; color: var(--dim); line-height: 1.55; }
-  .message { font-size: 12.5px; color: var(--amber); line-height: 1.55; }
+  .help { font-size: 12.5px; font-weight: 400; color: var(--dim); line-height: 1.55; }
+  .message { font-size: 12.5px; font-weight: 400; color: var(--amber); line-height: 1.55; }
   .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; }
   .agent { min-height: 44px; display: flex; flex-direction: column; justify-content: center; font-size: 14.5px; color: var(--text); }
   .sub { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }

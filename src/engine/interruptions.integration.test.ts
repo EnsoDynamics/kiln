@@ -26,15 +26,15 @@ const onDisk = (h: Harness) => readPrdRecord(h.stateDirectory)!;
 const sessionOf = (h: Harness, phaseKey: string): SessionRecord => h.engine.latestSession(phaseKey)!;
 const flagIn = (h: Harness, name: string) => join(h.sandbox.root, name);
 
-/** A session that starts work and runs a foreground Bash call until it is interrupted. */
-const workingSession = (flag: string, extra: Record<string, unknown> = {}) => ({
+/** A session that starts work and runs a foreground Bash call until it is interrupted, or `ctrlCFile` appears. */
+const workingSession = (flag: string, extra: Record<string, unknown> = {}, ctrlCFile?: string) => ({
   ...extra,
-  actions: [{ skill: IMPLEMENT }, { text: "Building the intake form." }, { write: { path: "src/partial.txt", content: "half done\n" } }, { touch: flag }, { work: "npm test" }],
+  actions: [{ skill: IMPLEMENT }, { text: "Building the intake form." }, { write: { path: "src/partial.txt", content: "half done\n" } }, { touch: flag }, { work: "npm test", ...(ctrlCFile ? { ctrlCFile } : {}) }],
 });
 
 describe("Ctrl+C while a session works", () => {
   it("ends the session's turn, records the interruption, keeps the work, and the next kiln run resumes that same session", async () => {
-    harness = await createHarness({ sessions: [], logGit: process.platform !== "win32" });
+    harness = await createHarness({ sessions: [], logGit: true });
     const h = harness;
     const working = flagIn(h, "working");
     // Work in progress of every kind: a new file, a changed tracked file and a staged one.
@@ -90,10 +90,8 @@ describe("Ctrl+C while a session works", () => {
     expect(sessionOf(h, "1").runs.map((r) => r.cause)).toEqual(["launch", "resume"]);
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 resumed", "1 done", "2b started", "2b stopped"]);
     // Neither the stop nor the resume touched Git destructively (AC-GIT-02).
-    if (process.platform !== "win32") {
-      expect(h.kilnGitCalls().length).toBeGreaterThan(0);
-      expect(h.kilnGitCalls().filter((call) => /(^|\s)(reset|stash|clean|push|checkout|switch|rebase)(\s|$)|branch -[dD]/.test(call))).toEqual([]);
-    }
+    expect(h.kilnGitCalls().length).toBeGreaterThan(0);
+    expect(h.kilnGitCalls().filter((call) => /(^|\s)(reset|stash|clean|push|checkout|switch|rebase)(\s|$)|branch -[dD]/.test(call))).toEqual([]);
   });
 
   it("counts an interrupted phase whose work already passes the done check as Done, without resuming it", async () => {
@@ -180,18 +178,25 @@ describe("Ctrl+C while a session works", () => {
     expect((await engine.decide()).kind).toBe("resume");
   });
 
-  it("marks the run interrupted when the session got the Ctrl+C too and exited before Kiln's handler ran", async () => {
-    // On Windows the session shares Kiln's console, so the Ctrl+C reaches it as well; here the
-    // session is sent SIGINT first, the way the console would, and Kiln's stop arrives after its exit.
-    if (process.platform === "win32") return; // Node can't send SIGINT to one process on Windows; the grace is the same code there
+  // On Windows the session shares Kiln's console, so the Ctrl+C reaches it as well; here the
+  // session gets its Ctrl+C first, the way the console would deliver it, and Kiln's stop arrives
+  // after its exit. Node can't send SIGINT to one process on Windows, so there the stand-in takes
+  // a file appearing as its Ctrl+C.
+  it.each([
+    { by: "SIGINT", skip: process.platform === "win32" },
+    { by: "a flag file", skip: false },
+  ])("marks the run interrupted when the session got the Ctrl+C too and exited before Kiln's handler ran ($by)", async ({ by, skip }) => {
+    if (skip) return;
     harness = await createHarness({ sessions: [], engineOptions: { exitGraceMs: 1_000 } });
     const h = harness;
     const working = flagIn(h, "working");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), landingSession()] }));
+    const ctrlC = flagIn(h, "ctrl-c");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working, {}, by === "a flag file" ? ctrlC : undefined), landingSession()] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     const run = sessionOf(h, "1").runs[0]!;
-    process.kill(run.pid!, "SIGINT");
+    if (by === "SIGINT") process.kill(run.pid!, "SIGINT");
+    else writeFileSync(ctrlC, "");
     await waitFor(async () => !(await isProcessLive(run.pid!, run.processStartTime)));
     await h.engine.stop("sigint");
 

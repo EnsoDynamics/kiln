@@ -9,6 +9,7 @@ import { createHarness, landingSession, pullRequestSession, type Harness } from 
 import { git } from "../test-support/git-repositories.js";
 import { writeSessionRecord } from "../state/records.js";
 import { buildSnapshot } from "./snapshot.js";
+import { launchArguments } from "../session/claude-session.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 
 let harness: Harness | undefined;
@@ -404,6 +405,47 @@ describe("a phase that doesn't land", () => {
   });
 });
 
+describe("a session that would ask (AC-RUN-05)", () => {
+  // Two real Claude Code sessions recorded with Kiln's launch flags (2026-10-19, Claude Code
+  // 2.1.299): one whose Bash call auto mode refused instead of asking, and one told to use
+  // AskUserQuestion, which a headless session doesn't offer. Each ended on its own with its
+  // question as its final message.
+  const recordings = [
+    { name: "refused-tool-call-ends-with-question", question: "Which name do you want, `alpha.txt` or `beta.txt`?" },
+    { name: "ask-user-question-unavailable", question: "Which name should it have: `alpha.txt` or `beta.txt`?" },
+  ];
+  const fixture = (file: string) => readFileSync(new URL(`../../test/fixtures/proof-gate-1/${file}`, import.meta.url), "utf8");
+
+  it.each(recordings)("$name: was recorded with the flags Kiln launches with, and asked no one", ({ name }) => {
+    const meta = JSON.parse(fixture(`${name}.meta.json`)) as { command: string[]; exitCode: number; result: { subtype: string } };
+    const sessionId = meta.command[meta.command.indexOf("--session-id") + 1]!;
+    // A change to the flags means the recording no longer shows what Kiln's sessions do: record it again.
+    expect(meta.command).toEqual(["claude", ...launchArguments(sessionId, "sonnet", "low")]);
+    expect(meta).toMatchObject({ exitCode: 0, result: { subtype: "success" } });
+    const events = fixture(`${name}.jsonl`).trim().split("\n").map((line) => (JSON.parse(line) as { event: { type: string; subtype?: string; permission_denials?: unknown[] } }).event);
+    // Nothing in it waited on a person: no control request went out for an answer.
+    expect(events.filter((event) => event.type === "control_request")).toEqual([]);
+    if (name === "refused-tool-call-ends-with-question") expect(events.at(-1)!.permission_denials).toHaveLength(1);
+  });
+
+  it.each(recordings)("$name: the run ends without input and the phase goes to Needs you with the question as the final message", async ({ name, question }) => {
+    harness = await createHarness({ sessions: [{ actions: [{ replay: `proof-gate-1/${name}.jsonl` }, { exit: 0 }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+
+    expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 stopped"]);
+    const run = h.engine.latestSession("1")!.runs[0]!;
+    expect(run).toMatchObject({ exitCode: 0, endedAt: expect.any(String) });
+    expect(run.interruptedBy).toBeUndefined();
+    const recorded = (JSON.parse(fixture(`${name}.meta.json`)) as { result: { result: string } }).result.result;
+    const needsYou = buildSnapshot(h.engine).needsYou!;
+    expect(needsYou).toMatchObject({ phaseId: "1", kind: "done_check", finalMessage: recorded });
+    expect(needsYou.finalMessage).toContain(question);
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+});
+
 describe("the done check needs all three", () => {
   it.each([
     ["committed and pushed but a file left over", [{ close: true }, { commit: "feat: x" }, { push: true }, { write: { path: "stray.txt", content: "x" } }], [true, false, true]],
@@ -439,7 +481,7 @@ describe("the done check needs all three", () => {
 });
 
 describe("Kiln's own Git changes", () => {
-  it.skipIf(process.platform === "win32")("are the worktree and branch at setup and nothing else; every other git call it makes reads", async () => {
+  it("are the worktree and branch at setup and nothing else; every other git call it makes reads", async () => {
     harness = await createHarness({ sessions: [landingSession("a"), landingSession("b"), landingSession("c"), pullRequestSession(1)], logGit: true });
     const h = harness;
     const refs = (path: string) => git(h.sandbox, path, "for-each-ref", "--format=%(refname) %(objectname)").trim().split("\n");

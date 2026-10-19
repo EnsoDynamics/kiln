@@ -18,7 +18,7 @@ function opener(script: (args: string) => string) {
   return { env: { ...sandbox.env, PATH: sandbox.root }, args };
 }
 
-// A shell-script stand-in for xdg-open; Windows opens through cmd's start, which isn't stood in for.
+// A shell-script stand-in for xdg-open; Windows opens through cmd's start, below.
 describe.skipIf(process.platform === "win32")("opening the browser view", () => {
   const address = "http://127.0.0.1:4700/customer-returns";
 
@@ -39,5 +39,25 @@ describe.skipIf(process.platform === "win32")("opening the browser view", () => 
     expect(await openBrowser(address, env, "linux")).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(10_000);
     await waitFor(() => existsSync(args));
+  });
+});
+
+// Windows opens through the real cmd.exe's start. A browser can't be stood in for there without
+// a program of its own, so start is given a batch file in the address's place: start runs it in
+// a window of its own, as it would hand a URL to the browser, and the file says it ran.
+describe.runIf(process.platform === "win32")("opening the browser view on Windows", () => {
+  it("hands the address to cmd's start and resolves once cmd exits", async () => {
+    sandbox = createSandbox();
+    const opened = join(sandbox.root, "opened");
+    const page = join(sandbox.root, "page.cmd");
+    writeFileSync(page, `@type nul > "${opened}"\r\n@exit\r\n`);
+    expect(await openBrowser(page, sandbox.env, "win32")).toBeUndefined();
+    await waitFor(() => existsSync(opened), 10_000);
+  });
+
+  it("says why when cmd can't be started", async () => {
+    sandbox = createSandbox();
+    const missing = join(sandbox.root, "missing-cmd.exe");
+    expect(await openBrowser("http://127.0.0.1:4700/customer-returns", { ...sandbox.env, ComSpec: missing }, "win32")).toMatch(/ENOENT/);
   });
 });

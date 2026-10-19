@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
+import type { OutputLine } from "../session/session-output.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { createHarness, landingSession, waitFor } from "../test-support/engine-harness.js";
@@ -90,8 +91,121 @@ async function saveScreenshots(name: string, page: BrowserPage, mockup: string, 
   await drawn.close();
 }
 
+/** A piece of text as a page draws it, and the panel behind it. */
+interface TextBox {
+  text: string;
+  box: number[];
+  color: string;
+  font: string;
+  panel: string;
+}
+
+/**
+ * Every element with text of its own: the text, its box on the page, its color and type, and the
+ * background and border of the nearest element behind it that has a background (its panel).
+ */
+const TEXT_LAYOUT = `[...document.querySelectorAll("body *")]
+  .filter((e) => e.getClientRects().length && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()))
+  .map((e) => {
+    const style = getComputedStyle(e);
+    let panel = e;
+    while (panel.parentElement && getComputedStyle(panel).backgroundColor === "rgba(0, 0, 0, 0)") panel = panel.parentElement;
+    const behind = getComputedStyle(panel);
+    const { x, y, width, height } = e.getBoundingClientRect();
+    return {
+      // How long ago the last update came is live, not drawn: the view's reads 0s.
+      text: [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" ").replace(/\\s+/g, " ").trim().replace(/^· updated \\d+s ago$/, "· updated Ns ago"),
+      box: [x, y + scrollY, width, height].map(Math.round),
+      color: style.color,
+      font: [style.fontFamily.split(",")[0].replace(/["']/g, "").trim(), style.fontSize, style.fontWeight, style.fontStyle, style.textTransform, style.letterSpacing].join(" "),
+      // A border in the panel's own color doesn't show.
+      panel: behind.borderTopWidth === "0px" || behind.borderTopColor === behind.backgroundColor ? behind.backgroundColor : [behind.backgroundColor, behind.borderTopColor, behind.borderTopWidth].join(" "),
+    };
+  })`;
+
+/** Resolves once every font face the page declares has loaded. */
+const FONTS_LOADED = `Promise.all([...document.fonts].map((face) => face.load())).then(() => document.fonts.ready).then(() => true)`;
+
+/**
+ * Swaps a mockup's Google Fonts stylesheet for the font files the view bundles (view/src/main.ts),
+ * so the comparison measures layout and type, not two builds of the same fonts, and needs no network.
+ */
+const VIEW_FONTS = ["instrument-serif/latin-400", "instrument-serif/latin-ext-400", "inter/latin-400", "inter/latin-ext-400", "inter/latin-500", "inter/latin-ext-500", "inter/latin-600", "inter/latin-ext-600", "jetbrains-mono/latin-400", "jetbrains-mono/latin-ext-400"]
+  .map((name) => new URL(`../../node_modules/@fontsource/${name}.css`, import.meta.url).href);
+const USE_VIEW_FONTS = `(async () => {
+  document.querySelector('link[href^="https://fonts.googleapis.com/"]').remove();
+  await Promise.all(${JSON.stringify(VIEW_FONTS)}.map((href) => new Promise((resolve, reject) => {
+    const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href, onload: resolve, onerror: () => reject(new Error(href)) });
+    document.head.append(link);
+  })));
+  await ${FONTS_LOADED};
+  // With subset fonts a ch falls back to 0.5em; the mockup's reference PNG measures it by the font's "0".
+  for (const element of document.querySelectorAll('[style*="ch"]')) {
+    const match = /max-width: ([\\d.]+)ch/.exec(element.getAttribute("style"));
+    if (!match) continue;
+    const zero = element.appendChild(Object.assign(document.createElement("span"), { textContent: "0", style: "position: absolute" }));
+    element.style.maxWidth = match[1] * zero.getBoundingClientRect().width + "px";
+    zero.remove();
+  }
+  return true;
+})()`;
+
+/** The text layout of a mockup, drawn with the view's fonts. */
+async function mockupLayout(mockup: string, clock: number): Promise<TextBox[]> {
+  const drawn = await chrome.open(new URL(mockup, MOCKUPS).href, { clock, timeZone: TIME_ZONE });
+  try {
+    await drawn.waitFor(`document.readyState === "complete"`);
+    await drawn.evaluate(USE_VIEW_FONTS);
+    return await drawn.evaluate<TextBox[]>(TEXT_LAYOUT);
+  } finally {
+    await drawn.close();
+  }
+}
+
+/** How far, in pixels, a text's box may sit from the mockup's: font rendering, not layout. */
+const LAYOUT_TOLERANCE = 3;
+
+/**
+ * Each mockup text the view draws somewhere else, or in another color, type or panel, or not at
+ * all; the nth occurrence of a text is matched with the nth in the view.
+ */
+function layoutDifferences(mockup: TextBox[], view: TextBox[]): string[] {
+  const unmatched = [...view];
+  const differences: string[] = [];
+  for (const drawn of mockup) {
+    const index = unmatched.findIndex((box) => box.text === drawn.text);
+    if (index === -1) {
+      differences.push(`"${drawn.text}" isn't drawn`);
+      continue;
+    }
+    const [shown] = unmatched.splice(index, 1);
+    const off = drawn.box.some((value, i) => Math.abs(value - shown!.box[i]!) > LAYOUT_TOLERANCE);
+    if (off) differences.push(`"${drawn.text}" at ${shown!.box.join(",")}, drawn at ${drawn.box.join(",")}`);
+    for (const key of ["color", "font", "panel"] as const) {
+      if (shown![key] !== drawn[key]) differences.push(`"${drawn.text}" ${key} ${shown![key]}, drawn ${drawn[key]}`);
+    }
+  }
+  return differences;
+}
+
+/** Opens the Details under a phase plan row, as a mockup draws them open. */
+const openDetails = (page: BrowserPage, phaseId: string) => page.evaluate(`document.querySelector('li[data-phase="${phaseId}"] summary').click()`);
+
 /** Each screen with the mockup it is drawn from, and lines of its copy that must read as drawn. */
-const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: string; clock?: number; copy: string[] }[] = [
+const SCREENS: {
+  name: string;
+  mockup: string;
+  snapshot: () => Snapshot;
+  path?: string;
+  clock?: number;
+  copy: string[];
+  /** Phases whose Details the mockup draws open. */
+  open?: string[];
+  /** Live text the current session is writing, sent once the screen is drawn. */
+  partial?: { source: OutputLine["source"]; text: string };
+  /** Mockup text the view draws differently on purpose, with what it draws instead. */
+  decided?: Record<string, string>;
+}[] = [
   {
     // The view's own choice of screen: a feature not started, with what Kiln found, opens on Documents found (AC-START-03).
     name: "documents-found",
@@ -108,6 +222,8 @@ const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: 
   {
     name: "running",
     mockup: "kiln-screen-running.html",
+    // The mockup draws phase 2a's Details open.
+    open: ["2a"],
     snapshot: runningSnapshot,
     copy: [
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Implementing phase 2b 2 of 5 phases done",
@@ -127,6 +243,11 @@ const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: 
     mockup: "kiln-screen-phase-detail-live.html",
     snapshot: runningSnapshot,
     path: "/phase/2b",
+    // The mockup's last line is the reviewer's text as it is being written.
+    partial: { source: "reviewer", text: "The credit multiplier is applied before rounding; checking that against " },
+    // Assumptions, item 11: Kiln can't see what the reviewer is reading, only that it works.
+    // Live text is stamped with the page's clock, 11:47:00, where the mockup's sample reads 11:46:58.
+    decided: { "deliverable-review skill started; its reviewer subagent is reading the changed files": "deliverable-review skill started; its reviewer subagent is working", "11:46:58": "11:47:00" },
     copy: [
       "All phases 2b Store credit Implementing Phase 2b of 5 · Claude Code · Started 10:58 AM · 49 min",
       "Session output LIVE Latest of 1,284 lines Load earlier",
@@ -140,6 +261,8 @@ const SCREENS: { name: string; mockup: string; snapshot: () => Snapshot; path?: 
   {
     name: "paused",
     mockup: "kiln-screen-paused.html",
+    // The mockup draws phase 2a's Details open.
+    open: ["2a"],
     snapshot: pausedSnapshot,
     copy: [
       "Customer returns Paused 2 of 5 phases done",
@@ -215,6 +338,46 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
       }
     });
   }
+
+  for (const screen of SCREENS) {
+    it(`lays out ${screen.name} as drawn: each text where the mockup puts it, in its color, type and panel (AC-LOOK-01)`, async () => {
+      const clock = screen.clock ?? RUNNING_NOW;
+      const mockup = await mockupLayout(screen.mockup, clock);
+      const { server, page } = await openScreen(screen.snapshot(), screen.path ?? "", clock);
+      try {
+        await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.copy[0]!.split(" ").slice(-3).join(" "))})`);
+        for (const phaseId of screen.open ?? []) await openDetails(page, phaseId);
+        if (screen.partial) {
+          await page.waitFor(`document.body.innerText.includes(${JSON.stringify(PHASE_DETAIL_LINES.at(-1)!.text)})`);
+          server.send("partial", { sessionId: screen.snapshot().current!.sessionId, ...screen.partial });
+          await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.partial.text.trim())})`);
+        }
+        await page.evaluate(FONTS_LOADED);
+        const decided = mockup.map((box) => ({ ...box, text: screen.decided?.[box.text] ?? box.text }));
+        expect(layoutDifferences(decided, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
+      } finally {
+        await page.close();
+        await server.close();
+      }
+    });
+  }
+
+  it("lays out disconnected as drawn, once Kiln stops while a phase works (AC-LOOK-01)", async () => {
+    const mockup = await mockupLayout("kiln-screen-disconnected.html", RUNNING_NOW);
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+    const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      // The mockup draws phase 2a's Details open.
+      await openDetails(page, "2a");
+      await page.evaluate(FONTS_LOADED);
+      expect(layoutDifferences(mockup, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
 
   it("draws the Kiln panel's tick at the size the mockup renders it (AC-LOOK-01)", async () => {
     const tickSize = `(({ width, height }) => [width, height])(TICK.getBoundingClientRect())`;

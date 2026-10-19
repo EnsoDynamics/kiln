@@ -1,0 +1,1 @@
+I haven't decided whether the new file in this repository should be named `alpha.txt` or `beta.txt`. Use the AskUserQuestion tool to ask me which, and wait for my answer before creating it.

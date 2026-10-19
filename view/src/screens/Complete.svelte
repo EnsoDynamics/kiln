@@ -49,7 +49,7 @@
   .which { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; color: var(--green); }
   .number { font-size: 14px; }
   .branches { font-size: 13px; color: var(--muted); }
-  .dot { color: var(--dim); }
+  .dot { font-size: 15px; color: var(--dim); }
   .pr h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
   .size { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 14px; color: var(--muted); }
   .open { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }

@@ -20,9 +20,11 @@
 //   { "waitForFile": "<path>" }                               blocks until the file exists
 //   { "result": "final message" }                             the result event; then waits for stdin to close
 //   { "exit": 0 }                                             the exit code (default 0)
-//   { "work": "<command>" }                                   a foreground Bash call that runs until interrupted
+//   { "work": "<command>" }                                   a foreground Bash call that runs until interrupted;
+//                                                             with "ctrlCFile": "<path>", that file appearing is a Ctrl+C
 //   { "touch": "<path>" }                                     creates the file, so a test knows the session got here
 //   { "sleepFor": 300 }                                       waits that many milliseconds
+//   { "replay": "proof-gate-1/<recording>.jsonl" }            every event a real session wrote, from test/fixtures/, but its init
 // A session may also say { "noInit": true }: a resume whose transcript is gone, as proof gate 1
 // recorded it (no init, one error result, the same line on stderr, exit 1), and
 // { "ignoreInterrupt": true }: the interrupt request and SIGINT are ignored, so only a forced
@@ -40,6 +42,8 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
+// The session's git calls are the session's, not Kiln's: they stay out of the harness's log of Kiln's.
+delete process.env.GIT_TRACE2_EVENT;
 
 // Kiln's helper calls, which aren't sessions and take no scenario: the account, `/usage` and
 // the Agent SDK's model list. Each is logged with its working directory to
@@ -183,7 +187,11 @@ for (const action of session.actions) {
       onInterrupt = resolve;
       if (interruptBy !== undefined) resolve();
       // Gives up once the test's sandbox is gone, so a failed test leaves no process behind.
-      setInterval(() => existsSync(scenarioPath) || process.exit(1), 200);
+      // A ctrlCFile that appears is the console's Ctrl+C, for Windows, where Node can't send SIGINT.
+      setInterval(() => {
+        if (!existsSync(scenarioPath)) process.exit(1);
+        if (action.ctrlCFile && existsSync(action.ctrlCFile)) interrupt("sigint");
+      }, 200);
     });
     await endInterrupted(id);
   } else if (action.touch) {
@@ -265,6 +273,14 @@ for (const action of session.actions) {
     while (!existsSync(action.waitForFile)) {
       if (!existsSync(scenarioPath)) process.exit(1);
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  } else if (action.replay) {
+    // The recording's own init is left out: the stand-in has sent one for this launch.
+    const recording = readFileSync(fileURLToPath(new URL(`../fixtures/${action.replay}`, import.meta.url)), "utf8");
+    for (const { event } of recording.trim().split("\n").map((line) => JSON.parse(line))) {
+      if (event.type === "system" && event.subtype === "init") continue;
+      emit({ ...event, session_id: sessionId });
+      if (event.type === "result") resultSent = true;
     }
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
