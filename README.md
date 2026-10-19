@@ -12,7 +12,32 @@ Kiln runs on macOS, Linux and Windows, with Node 22 or later, Git 2.29 or later,
 npm install -g @ensodynamics/kiln
 ```
 
-Then, in a repository whose PRD has been refined and split into phases with the Enso Method, `kiln run docs/prds/<name>`. Kiln checks the documents, opens its browser view on what it found, and once you press Start there, carries the feature phase by phase to one pull request, staying in its terminal until Ctrl+C. `kiln run` again picks it up wherever it stopped.
+Until that release, install it from a clone of this repository, exactly as npm will publish it:
+
+```
+npm ci
+npm pack
+npm install -g ./ensodynamics-kiln-1.0.0.tgz
+```
+
+## Run
+
+In a repository whose PRD has been refined and split into phases with the Enso Method:
+
+```
+kiln run docs/prds/<name>
+```
+
+The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) or the PRD file in it.
+
+1. Kiln checks the documents and opens its browser view on what it found: the phase documents, the base branch and the feature branch it will use.
+2. Confirm the PRD has been refined, choose the model and effort, and press **Start**.
+3. Kiln runs one Claude Code session per phase, checks in Git that each phase landed, and carries the feature to one pull request. Keep its terminal open; Ctrl+C interrupts the current phase.
+4. When a phase doesn't land, the view shows **Needs you** with what's missing and a command that reopens that exact session. Finish the phase there or any other way, then press **Check again** and Kiln carries on.
+
+`kiln run` again, after Ctrl+C or a restart, picks the feature up wherever it stopped.
+
+`kiln run` is the only command; everything else happens in the browser view. `kiln --help` shows the usage.
 
 ## Requirements
 
