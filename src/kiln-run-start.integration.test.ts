@@ -223,7 +223,7 @@ describe("kiln run on a feature not started", () => {
       model: { value: "opus", displayName: "Opus 5.5" },
       effort: "high",
       effortLevels: ["low", "medium", "high", "xhigh", "max"],
-      worktreePath: expect.stringMatching(/acme-shop-kiln[/\\]customer-returns$/),
+      worktreePath: expect.stringMatching(/\.worktrees[/\\]customer-returns[/\\]acme-shop$/),
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
       baseBranches: ["develop"],

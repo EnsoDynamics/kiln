@@ -52,8 +52,8 @@ describe("the engine from Start to the pull request", () => {
     expect(record.completedAt).toBeDefined();
     expect(record.pullRequest).toMatchObject({ number: 218, head: "feature/customer-returns", base: "develop", commits: 2, additions: 120, deletions: 4 });
 
-    // AC-START-07: one new branch from develop and one worktree beside the repository, `<repository>-kiln/<folder>`.
-    const worktree = join(h.sandbox.root, "acme-shop-kiln", "customer-returns");
+    // AC-START-07: one new branch from develop and one worktree beside the repository, `.worktrees/<folder>/<repository>`.
+    const worktree = join(h.sandbox.root, ".worktrees", "customer-returns", "acme-shop");
     expect(h.engine.worktreePath).toBe(worktree);
     expect(git(h.sandbox, worktree, "branch", "--show-current").trim()).toBe("feature/customer-returns");
     expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(2);
@@ -399,7 +399,7 @@ describe("a phase that doesn't land", () => {
     expect(needsYou).toMatchObject({ kind: "done_check", spawnError: { code: "ENOENT" } });
     expect(needsYou.resumeCommand).toBeUndefined();
     expect(needsYou.lastSkill).toBeUndefined();
-    expect(needsYou.lastLines!.map((line) => line.text)).toEqual([expect.stringMatching(/^Couldn't start claude in .*customer-returns: /)]);
+    expect(needsYou.lastLines!.map((line) => line.text)).toEqual([expect.stringMatching(/^Couldn't start claude in .*customer-returns[/\\]acme-shop: /)]);
     // Nothing ran, so the fresh-session prompt is the phase prompt unchanged.
     expect(needsYou.freshSessionPrompt).not.toContain("A previous session stopped");
   });
@@ -556,7 +556,7 @@ describe("two PRDs in one repository", () => {
     expect(await gifts.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await gifts.settled();
 
-    expect(gifts.worktreePath).toBe(join(h.sandbox.root, "acme-shop-kiln", "gift-cards"));
+    expect(gifts.worktreePath).toBe(join(h.sandbox.root, ".worktrees", "gift-cards", "acme-shop"));
     expect(gifts.worktreePath).not.toBe(h.engine.worktreePath);
     expect(gifts.stateDirectory).not.toBe(h.engine.stateDirectory);
     const calls = h.claudeCalls();
@@ -819,7 +819,7 @@ describe("Start and the settings", () => {
     expect(await h.engine.start({})).toMatchObject({ ok: false, status: 400 });
 
     git(h.sandbox, h.repository, "branch", "feature/customer-returns");
-    const taken = join(h.sandbox.root, "acme-shop-kiln", "customer-returns");
+    const taken = join(h.sandbox.root, ".worktrees", "customer-returns", "acme-shop");
     mkdirSync(taken, { recursive: true });
     writeFileSync(join(taken, "x"), "");
     const refused = await h.engine.start({ refinementConfirmed: true });

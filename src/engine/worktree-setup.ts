@@ -21,13 +21,14 @@ export interface RepositoryPaths {
 
 /**
  * The settings a PRD starts with (AC-START-07, UI-004): branch `feature/<folder>`, worktree
- * `<repository>-kiln/<folder>` beside the repository, base `develop` when origin has it,
+ * `.worktrees/<folder>/<repository>` in the folder that holds the repository, as the Enso Method
+ * places its worktrees, base `develop` when origin has it,
  * otherwise origin's default branch, and the latest Opus at high effort.
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
   const base = origin === undefined ? "" : defaultBaseBranch(origin);
   return {
-    worktreePath: join(dirname(paths.mainCheckoutPath), `${paths.repositoryName}-kiln`, paths.folderName),
+    worktreePath: join(dirname(paths.mainCheckoutPath), ".worktrees", paths.folderName, paths.repositoryName),
     featureBranch: `feature/${paths.folderName}`,
     baseBranch: base,
     model: "opus",

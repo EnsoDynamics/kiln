@@ -72,7 +72,7 @@ From `kiln-proof-word-tally`:
    - `git ls-remote --heads origin` lists only `main` and `feature/word-tally` (plus `feature/word-tally-windows` once C has run);
    - `main` on origin is still the seed commit: `git rev-parse origin/main` after a `git fetch`;
    - the repository itself is still on `main`, with `git status` clean;
-   - `git worktree list` shows the repository and one Kiln worktree, `../kiln-proof-word-tally-kiln/word-tally`.
+   - `git worktree list` shows the repository and one Kiln worktree, `../.worktrees/word-tally/kiln-proof-word-tally`.
 
 ## C. The proof run on Windows
 

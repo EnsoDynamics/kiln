@@ -212,9 +212,9 @@ describe("plan order after Start", () => {
 
 describe("the default settings", () => {
   const paths = { mainCheckoutPath: join("/work", "acme-shop"), repositoryName: "acme-shop", folderName: "customer-returns", prdDirectoryFromRoot: "docs/prds/customer-returns" };
-  it("branch feature/<folder>, worktree <repository>-kiln/<folder> beside it, base develop or else origin's default, latest Opus at high", () => {
+  it("branch feature/<folder>, worktree .worktrees/<folder>/<repository> beside it, base develop or else origin's default, latest Opus at high", () => {
     const withDevelop = defaultSettings(paths, { branches: new Map([["main", "a"], ["develop", "b"]]), defaultBranch: "main" });
-    expect(withDevelop).toEqual({ worktreePath: join("/work", "acme-shop-kiln", "customer-returns"), featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true });
+    expect(withDevelop).toEqual({ worktreePath: join("/work", ".worktrees", "customer-returns", "acme-shop"), featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");
   });

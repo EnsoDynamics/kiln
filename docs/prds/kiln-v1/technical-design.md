@@ -330,7 +330,7 @@ A check Kiln can't run at all (the worktree is gone, `git` or `gh` fails) fails 
 
 Done once, when Start is pressed on Documents found, and the only Git state Kiln ever changes (AC-GIT-01): the feature branch and its worktree. The base check's fetch adds objects but moves no ref. Kiln never resets, stashes, cleans, force-pushes or deletes (AC-GIT-02).
 
-**Defaults (AC-START-07):** branch `feature/<PRD folder name>`; worktree `<repository folder>-kiln/<PRD folder name>` beside the repository; base `develop` when origin has it, otherwise the branch origin's `HEAD` points to, both read with one `git ls-remote --symref` (below). The base field is a select listing every branch on origin: `develop`, then the branch origin's `HEAD` points to, then the rest by name.
+**Defaults (AC-START-07):** branch `feature/<PRD folder name>`; worktree `.worktrees/<PRD folder name>/<repository folder>` in the folder that holds the repository, where the Enso Method puts its worktrees; base `develop` when origin has it, otherwise the branch origin's `HEAD` points to, both read with one `git ls-remote --symref` (below). The base field is a select listing every branch on origin: `develop`, then the branch origin's `HEAD` points to, then the rest by name.
 
 **Checked when a view connects (below), as the person edits the fields, and again at Start; Start stays unavailable while any fails:**
 
