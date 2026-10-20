@@ -19,7 +19,8 @@ Kiln already notices an account switch made while it runs: it reads the signed-i
 ### Terms used in this PRD
 
 - **Needs you**, the **done check**, the **pull-request session**, **interrupted** and **ended on its own** mean what they mean in [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md#terms-used-in-this-prd).
-- A **usage-limit stop** is a Needs you whose session ended after Claude Code reported, in its structured session output, that a usage limit refused the session's request. Claude Code's report names the limit (the 5-hour window, the weekly limit, or a per-model weekly limit) and when it resets. A session whose own words mention a limit, without that report, is an ordinary stop.
+- A **run** is one start of a session's Claude Code process: the first one, or one resume of it. A session resumed twice has had three runs.
+- A **usage-limit stop** is a Needs you whose latest run ended after Claude Code reported, in its structured session output, that a usage limit refused that run's request. A refusal on an earlier run of the same session doesn't count, and neither do the session's own words mentioning a limit: either way it is an ordinary stop.
 
 ## Acceptance Criteria
 
@@ -27,21 +28,30 @@ Kiln already notices an account switch made while it runs: it reads the signed-i
 
 When a session stops before its phase is done, the person can tell Kiln to pick that same session back up instead of finishing the phase by hand. Kiln then carries on through the plan without further help.
 
-- [ ] **AC-RESUME-01 — Needs you offers Resume.** The Needs you screen offers Resume whenever the stopped session ended on its own: a phase that failed the done check, or a pull-request session with no pull request open. It is not offered at a broken-plan stop, or when an interrupted session already couldn't be resumed (Kiln v1, AC-KEEP-05). Resume is offered the same way after a restart of `kiln run` (UI-001).
-  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Resume joins the browser view's controls)
-- [ ] **AC-RESUME-02 — Resume checks first, then picks up the same session.** Pressing Resume runs the done check (or, for the pull-request session, its pull-request check) first. If it passes, the phase is Done, finished by the person, exactly as Check again would mark it. Otherwise Kiln resumes that same session, with its full history, using whichever Claude account is signed in at that moment, and tells it the session stopped before the phase was done and to carry on with the phase. The phase shows as Implementing again, and from there Kiln continues as it does after any session: the done check, then the next phase, a pause if one is waiting, or Needs you again.
+- [ ] **AC-RESUME-01 — Needs you offers Resume.** The Needs you screen offers Resume whenever the stopped session ended on its own: a phase that failed the done check, or a pull-request session with no pull request open (UI-001). It is not offered where there is no session to pick up: a broken-plan stop, a session whose first run never started (Claude Code couldn't be launched), or an interrupted session that already couldn't be resumed (Kiln v1, AC-KEEP-05). Resume is offered the same way after a restart of `kiln run`.
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Resume joins the browser view's controls) and AC-LOOK-01 in the same PRD (Needs you matches this change's mockups where they differ from v1's)
+- [ ] **AC-RESUME-02 — Resume checks first, then picks up the same session.** Pressing Resume runs the done check (or, for the pull-request session, its pull-request check) first. If it passes, Kiln continues exactly as after a passing Check again (Kiln v1, AC-STOP-07). Otherwise Kiln resumes that same session, with its full history, using whichever Claude account is signed in at that moment, and tells it the session stopped before the phase was done and to carry on with the phase. The phase shows as Implementing again, and from there Kiln continues as it does after any session. Beside Resume, the screen tells the person to close the session first if they opened it in a terminal. While Resume's or Check again's check is under way, neither can be pressed again.
   - Replaces in part: AC-KEEP-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Kiln still never resumes a session that ended on its own by itself; the person can now ask it to) and AC-STOP-08 in the same PRD (Resume is a third way, after Check again and `kiln run`, for a session to start after a stop)
-- [ ] **AC-RESUME-03 — The person can tell the session something first.** Beside Resume is an optional note. When the person writes one, it is sent to the session, in the person's own words, together with the instruction to carry on (UI-002). When it is empty, the session gets the instruction alone.
+- [ ] **AC-RESUME-03 — The person can tell the session something first.** Beside Resume is an optional note. When the person writes one, the session gets it in the person's own words, ahead of the instruction to carry on (UI-002). When it is empty, the session gets the instruction alone. When Resume's check passes and no session is resumed, the note is discarded.
 - [ ] **AC-RESUME-04 — A session that can't be picked up comes back to the person.** When Resume can't pick the session up (its transcript is gone, for example), the phase returns to Needs you as an interrupted session that can't be resumed does (Kiln v1, AC-KEEP-05): its last lines of output, the fresh-session prompt, and no Resume.
 
 ### Say Plainly When a Usage Limit Stopped the Session
 
 A usage limit is the one stop with a known way forward, and Claude Code reports it in a form Kiln can read without guessing. Needs you shows that report instead of leaving the person to work it out from the session's last words.
 
-- [ ] **AC-LIMIT-01 — A usage-limit stop says which limit and when it resets.** At a usage-limit stop, Needs you says the phase stopped at a usage limit, names the limit with the label the account panel uses ("5-hour window", "Weekly", "Weekly · Fable"), and gives its reset as a clock time and a countdown, for example "Resets at 3:40 PM, in 1h 12m". A reset on a later day carries its day ("Resets Wed 8:00 AM, in 2d 4h"). Once the reset time has passed, it says the limit reset at that time. Everything Kiln v1 shows at Needs you is still shown, the session's last message included (AC-STOP-02, AC-STOP-03).
-  - Replaces in part: AC-STOP-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a usage-limit stop states its cause, from Claude Code's report rather than from Kiln's reading of the session; every other stop is unchanged)
-- [ ] **AC-LIMIT-02 — The person sees the two ways forward.** A usage-limit stop gives two choices before Resume: wait for the reset, then press Resume; or switch to another Claude account now, then press Resume. The switch choice shows the command to run in another terminal, `claude auth login`, with `claude auth login --email <address>` as the form that fills in another account's email, as copyable text.
-- [ ] **AC-LIMIT-03 — The person sees which account Resume will use.** A usage-limit stop shows the account signed in now (email and plan) and its percent used of the limit that stopped the session, and updates both when the account changes, within Kiln v1's 5-minute refresh (AC-WATCH-09). When that limit still reads 100% on the signed-in account and its reset time hasn't passed, an amber line beside Resume says so: "This account is still at its 5-hour limit until 3:40 PM." Resume is never held by it.
+- [ ] **AC-LIMIT-01 — A usage-limit stop says which limit and when it resets.** At a usage-limit stop, Needs you says the phase stopped at a usage limit and shows the rows below. Everything Kiln v1 shows at Needs you is still shown, the session's last message included (AC-STOP-02, AC-STOP-03).
+
+  | What Claude Code's report gives | What Needs you says |
+  |---|---|
+  | A limit the account panel has a label for, and its reset time | The limit by that label ("5-hour window", "Weekly", "Weekly · Fable"), and "Resets at 3:40 PM, in 1h 12m", with the day for a later day ("Resets Wed 8:00 AM, in 2d 4h"). The countdown keeps counting while the screen is open. |
+  | A limit with no label Kiln knows | "A usage limit", with its reset as above |
+  | No reset time | The limit as above, with no reset line |
+  | A reset time that has passed | "Reset at 3:40 PM", with no countdown |
+
+  - Replaces in part: AC-STOP-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a usage-limit stop states its cause, from Claude Code's report rather than from Kiln's reading of the session; every other stop is unchanged) and assumption UI-005 in `docs/prds/kiln-v1/assumptions.md` (its "a limit stop is a Needs you like any other"; Kiln still never waits for a reset)
+- [ ] **AC-LIMIT-02 — The person sees the two ways forward.** A usage-limit stop gives two choices before Resume: wait for the reset, then press Resume; or switch to another Claude account now, then press Resume. The switch choice shows the command to run in another terminal, `claude auth login`, with `claude auth login --email <address>` as the form that fills in another account's email, as copyable text. Once the reset time has passed, the wait choice says the limit has reset and to press Resume.
+- [ ] **AC-LIMIT-03 — The person sees which account Resume will use.** A usage-limit stop shows the account signed in now (email and plan) and its percent used of the limit that stopped the session, and updates both when the account changes, within Kiln v1's 5-minute refresh (AC-WATCH-09). When that limit reads 100% on the signed-in account and the signed-in account's reset time for it hasn't passed, an amber line beside Resume says so, naming the limit by its label: "This account's 5-hour window is at 100% until 3:40 PM." Resume is never held by it.
+  - Replaces in part: AC-WATCH-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the account and the stopping limit also show at a usage-limit stop, amber at 100%)
 
 ## Out of Scope
 
@@ -49,3 +59,10 @@ A usage limit is the one stop with a known way forward, and Claude Code reports 
 - **Pausing before a limit is reached.** Kiln v1's near-limit note and Pause after this phase stay as they are.
 - **The terminal's Needs you lines.** They stay as in Kiln v1; the cause and the reset time are shown in the browser view.
 - **Switching accounts from Kiln.** Signing in stays a `claude auth login` the person runs in a terminal.
+
+## Depends On
+
+Two Claude Code behaviors the criteria rely on haven't been seen yet; the technical design proves both before anything is built on them. If either doesn't hold, it comes back as a product decision rather than a quiet change to the criteria.
+
+- **The refusal report.** Claude Code's stream-json output carries a `rate_limit_event` whose status says whether a request was allowed or refused, which limit it concerns and when that limit resets. Every saved event so far reports a request allowed, on the 5-hour window; none is a refusal, and none names a per-model weekly limit such as Fable.
+- **Resuming on another account.** `claude -p --resume` of a session started under one Claude account, run after `claude auth login` to another, picks the session up with its history on the new account.
