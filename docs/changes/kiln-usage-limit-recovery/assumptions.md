@@ -58,7 +58,7 @@
 
 ### UI-003. Make "Resume after a usage limit" a per-PRD setting, on for every new PRD? — ⏳ PENDING (Added 2026-10-21 — new question; 80% confidence)
 
-**Assumption**: **The setting belongs to each PRD, like keep-awake, and starts on.** It sits beside keep-awake on Documents found and in the settings panel, and can be switched at any time. There is no setting shared by every PRD.
+**Assumption**: **The setting belongs to each PRD, like keep-awake, and starts on.** It sits beside keep-awake on Documents found, in the settings panel and on the waiting screen, and applies from the moment it is switched. There is no setting shared by every PRD.
 
 **Evidence**: The request was for "a configuration in the settings… whether you want that or not", expecting "almost everyone would want that", hence on by default. Kiln has no settings shared across PRDs today: each PRD keeps its own (Kiln v1, AC-START-06), so a shared one would be new machinery for a setting almost nobody turns off.
 
