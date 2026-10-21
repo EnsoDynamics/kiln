@@ -73,7 +73,7 @@ describe("kiln run", () => {
     expect(result.stderr).toBe(
       [
         "✗ Can’t start Gift cards. Missing from docs/prds/gift-cards/:",
-        "    technical-design.md   the technical design",
+        "    technical-design.md   the technical design, or gift-cards-technical-design.md",
         "    phase-*.md            phase documents",
         "  Kiln needs the PRD, its technical design and its phase documents. Nothing was started.",
         "",

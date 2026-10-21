@@ -10,6 +10,7 @@ import { countAssumptions, countDesignCitations, countPrdCriteria } from "../pla
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
+import type { StartCheckReport } from "../start-checks.js";
 import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type SessionRecord, type StopKind } from "../state/records.js";
 import type { Engine } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
@@ -418,17 +419,17 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
  * What Documents found shows beside the PRD (AC-START-04), read from the checkout once per
  * `kiln run`, after the start checks passed.
  */
-export function documentsFound(prdDirectory: string, folderName: string, plan: PhasePlan, phaseDocCount: number, hasAssumptions: boolean): DocumentsFound {
+export function documentsFound(prdDirectory: string, folderName: string, plan: PhasePlan, found: StartCheckReport["found"]): DocumentsFound {
   const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
   const prdFile = `${folderName}-prd.md`;
   const criteria = countPrdCriteria(read(prdFile));
   const leaves = leavesOf(plan);
   return {
     prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
-    design: { file: "technical-design.md", criteriaCited: countDesignCitations(read("technical-design.md"), criteria.labels) },
-    assumptions: hasAssumptions ? { file: "assumptions.md", ...countAssumptions(read("assumptions.md")) } : null,
+    design: { file: found.designFile!, criteriaCited: countDesignCitations(read(found.designFile!), criteria.labels) },
+    assumptions: found.assumptionsFile ? { file: found.assumptionsFile, ...countAssumptions(read(found.assumptionsFile)) } : null,
     plan: {
-      phaseDocCount,
+      phaseDocCount: found.phaseDocCount,
       leafCount: leaves.length,
       closedCount: leaves.filter((leaf) => leaf.closed).length,
       phases: plan.phases.map((phase) => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed })),

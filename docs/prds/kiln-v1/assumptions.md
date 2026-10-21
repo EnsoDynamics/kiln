@@ -110,7 +110,7 @@ Each variant **changes as little drawn copy as possible**, and every sentence st
 
 ---
 
-### UI-010. Is the screen and terminal copy nobody drew worded and colored as below? — ⏳ PENDING (updated 2026-10-17; 75% confidence)
+### UI-010. Is the screen and terminal copy nobody drew worded and colored as below? — ⏳ PENDING (updated 2026-10-21; 75% confidence)
 
 *Updated 2026-10-17: item 13 added in Phase 5.*
 
@@ -190,6 +190,7 @@ In "Ran … to …", each end follows the rule on its own, and a day shared by b
 | `gh` not signed in | "gh isn't signed in to github.com. Run gh auth login." |
 | `origin` not on GitHub | "origin isn't on GitHub: <url>" |
 | A tool missing | "gh isn't on the PATH." (likewise `claude` and `git`) |
+| A document there under both of its names | "There are two technical designs, technical-design.md and gift-cards-technical-design.md. Keep one." (likewise "two assumptions documents") |
 
 When documents are also missing, the drawn lines come first and these follow, before the drawn closing line.
 

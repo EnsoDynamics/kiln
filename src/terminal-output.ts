@@ -40,7 +40,7 @@ export const USAGE = [
  * The start-check failure, as drawn:
  *
  *   ✗ Can’t start Gift cards. Missing from docs/prds/gift-cards/:
- *       technical-design.md   the technical design
+ *       technical-design.md   the technical design, or gift-cards-technical-design.md
  *     Kiln needs the PRD, its technical design and its phase documents. Nothing was started.
  */
 export function formatStartFailure(featureName: string, prdDirectoryFromRoot: string, report: Pick<StartCheckReport, "missingDocuments" | "problems">, colors: TerminalColors): string {
@@ -139,7 +139,7 @@ export function formatOpenedLine(address: string, openError: string | undefined,
  */
 export function formatDocumentsFound(featureName: string, found: StartCheckReport["found"], colors: TerminalColors): string {
   const documents = ["PRD", "technical design"];
-  if (found.assumptions) documents.push("assumptions");
+  if (found.assumptionsFile) documents.push("assumptions");
   documents.push(`${found.phaseDocCount} ${found.phaseDocCount === 1 ? "phase doc" : "phase docs"}`);
   return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  all checks passed`);
 }

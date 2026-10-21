@@ -287,7 +287,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const write = terminalWriter(run);
   const engine = makeEngine(run, record, write, { prdTree, plan: report.plan });
   if (startError !== undefined) engine.startError = startError;
-  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, report.found.phaseDocCount, report.found.assumptions);
+  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, report.found);
   const outColors = terminalColors(context.stdout, context.env);
   write(formatDocumentsFound(location.featureName, report.found, outColors));
   const { address, openError } = await serveAndOpen(run, engine, documents);

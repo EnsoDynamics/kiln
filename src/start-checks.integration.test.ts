@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findExecutable } from "./platform/helper-process.js";
 import { resolvePrdPath, type PrdLocation } from "./prd-location.js";
+import { documentsFound } from "./engine/snapshot.js";
 import { runStartChecks, startChecksPassed, type Tools } from "./start-checks.js";
 import { FOLDER, PHASES, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
@@ -35,7 +36,7 @@ describe("runStartChecks", () => {
     expect(report.missingDocuments).toEqual([]);
     expect(report.problems).toEqual([]);
     expect(startChecksPassed(report)).toBe(true);
-    expect(report.found).toEqual({ assumptions: true, phaseDocCount: 5 });
+    expect(report.found).toEqual({ designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 5 });
     expect(report.plan?.phases.map((phase) => phase.id)).toEqual(["1", "2", "2a", "2b", "3"]);
   });
 
@@ -46,11 +47,32 @@ describe("runStartChecks", () => {
     const report = await check();
     expect(report.missingDocuments).toEqual([
       { name: "customer-returns-prd.md", description: "the PRD" },
-      { name: "technical-design.md", description: "the technical design" },
+      { name: "technical-design.md", description: "the technical design, or customer-returns-technical-design.md" },
       { name: "phase-*.md", description: "phase documents" },
     ]);
     expect(report.problems).toEqual([]);
-    expect(report.found.assumptions).toBe(false);
+    expect(report.found.assumptionsFile).toBeUndefined();
+  });
+
+  it("takes the technical design and assumptions under the folder name too", async () => {
+    git(sandbox, repository, "mv", `${prdDirectory}/technical-design.md`, `${prdDirectory}/${FOLDER}-technical-design.md`);
+    git(sandbox, repository, "mv", `${prdDirectory}/assumptions.md`, `${prdDirectory}/${FOLDER}-assumptions.md`);
+    git(sandbox, repository, "commit", "-q", "-m", "name the documents after the folder");
+    const report = await check();
+    expect(startChecksPassed(report)).toBe(true);
+    expect(report.found).toEqual({ designFile: `${FOLDER}-technical-design.md`, assumptionsFile: `${FOLDER}-assumptions.md`, phaseDocCount: 5 });
+    const documents = documentsFound(join(repository, prdDirectory), FOLDER, report.plan!, report.found);
+    expect(documents.design.file).toBe(`${FOLDER}-technical-design.md`);
+    expect(documents.design.criteriaCited).toBeGreaterThan(0);
+    expect(documents.assumptions?.file).toBe(`${FOLDER}-assumptions.md`);
+  });
+
+  it("stops when a document is there under both names, rather than guess which is meant", async () => {
+    commitFiles(sandbox, repository, prdDirectory, { [`${FOLDER}-technical-design.md`]: "# An older draft\n" });
+    const report = await check();
+    expect(report.missingDocuments).toEqual([]);
+    expect(report.problems).toEqual([`There are two technical designs, technical-design.md and ${FOLDER}-technical-design.md. Keep one.`]);
+    expect(report.found.designFile).toBeUndefined();
   });
 
   it("reads only <folder name>-prd.md as the PRD, so another *-prd.md doesn't stand in for it", async () => {

@@ -26,10 +26,20 @@ export interface StartCheckReport {
   missingDocuments: MissingDocument[];
   /** Every other failed check, one line each, in the wording of assumptions UI-010 item 10. */
   problems: string[];
-  found: { assumptions: boolean; phaseDocCount: number };
+  /** The file names found. Either is absent when neither of its names is there, or when both are (a problem). */
+  found: { designFile?: string; assumptionsFile?: string; phaseDocCount: number };
   plan: PhasePlan | undefined;
   /** `<owner>/<name>` on GitHub, parsed from origin's URL, when it is there. */
   github?: string;
+}
+
+/**
+ * The names a document may have in the PRD directory: the bare name the Enso Method skills
+ * write (`technical-design.md`), or the same name after the folder name, as the PRD's is
+ * (`<folder>-technical-design.md`).
+ */
+function documentNames(folderName: string, bareName: string): string[] {
+  return [bareName, `${folderName}-${bareName}`];
 }
 
 export function startChecksPassed(report: StartCheckReport): boolean {
@@ -44,12 +54,25 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   const fileNames = readdirSync(location.prdDirectory);
   const phaseFileNames = fileNames.filter(isPhaseFileName);
 
+  const problems: string[] = [];
+  // Either name is the document; both at once leaves Kiln no way to tell which one is meant.
+  const presentNames = (bareName: string, description: string): string[] => {
+    const present = documentNames(location.folderName, bareName).filter((name) => fileNames.includes(name));
+    if (present.length > 1) problems.push(`There are two ${description}s, ${present.join(" and ")}. Keep one.`);
+    return present;
+  };
+  const designNames = presentNames("technical-design.md", "technical design");
+  const assumptionsNames = presentNames("assumptions.md", "assumptions document");
+  const designFile = designNames.length === 1 ? designNames[0] : undefined;
+  const assumptionsFile = assumptionsNames.length === 1 ? assumptionsNames[0] : undefined;
+
   const missingDocuments: MissingDocument[] = [];
   if (!fileNames.includes(location.prdFileName)) missingDocuments.push({ name: location.prdFileName, description: "the PRD" });
-  if (!fileNames.includes("technical-design.md")) missingDocuments.push({ name: "technical-design.md", description: "the technical design" });
+  if (designNames.length === 0) {
+    missingDocuments.push({ name: "technical-design.md", description: `the technical design, or ${location.folderName}-technical-design.md` });
+  }
   if (phaseFileNames.length === 0) missingDocuments.push({ name: "phase-*.md", description: "phase documents" });
 
-  const problems: string[] = [];
   let plan: PhasePlan | undefined;
   if (phaseFileNames.length > 0) {
     const phaseFiles = [];
@@ -90,7 +113,7 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   return {
     missingDocuments,
     problems,
-    found: { assumptions: fileNames.includes("assumptions.md"), phaseDocCount: phaseFileNames.length },
+    found: { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: phaseFileNames.length },
     plan,
     ...(github ? { github: `${github.owner}/${github.name}` } : {}),
   };

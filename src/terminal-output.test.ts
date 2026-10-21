@@ -54,10 +54,10 @@ describe("formatStartFailure", () => {
 
 describe("formatDocumentsFound", () => {
   it("reads like the drawn line", () => {
-    expect(formatDocumentsFound("Customer returns", { assumptions: true, phaseDocCount: 6 }, plain)).toBe(
+    expect(formatDocumentsFound("Customer returns", { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 6 }, plain)).toBe(
       "Customer returns  ·  PRD, technical design, assumptions, 6 phase docs  ·  all checks passed",
     );
-    expect(formatDocumentsFound("Gift cards", { assumptions: false, phaseDocCount: 1 }, plain)).toBe(
+    expect(formatDocumentsFound("Gift cards", { designFile: "technical-design.md", phaseDocCount: 1 }, plain)).toBe(
       "Gift cards  ·  PRD, technical design, 1 phase doc  ·  all checks passed",
     );
   });
