@@ -21,3 +21,7 @@ Resume on Needs you and its note (Phase 1, which this phase reuses).
 ## Carried forward from Phase 1
 - Phase 1 built the design's resume command for Resume at Needs you only: `Engine.resume()` runs the stop's check, then `resumeSession(phaseKey, person)` resumes with cause `person_resume`, holding `checking` from the press until the run starts and clearing the stop there. It did not build the design's account refresh before resuming (awaited, 30 s at most) or `run.account`; this phase adds both, with `limit_resume`, the after-a-usage-limit opening, Resume now (no note) and the end-of-wait resume through the same path.
 - Schema 3 is in place with no migrated fields; `resumeAfterUsageLimit: true` for an existing record is this phase's to add to `migrateRecord`.
+
+## Pending human actions
+- Proof gate 5 items 1 and 2 (blocks the build): not recorded as of 2026-10-22, when the signed-in account was below every limit. When an account reaches a limit, run `node scripts/exploration/proof-gate-5-usage-limit.mjs --capture` (or leave `--watch` running to capture at the first 100% reading); it writes `test/fixtures/proof-gate-5/`.
+- Proof gate 5 item 3 (gates only the switch-account wording): sign two configuration directories in to different accounts (`CLAUDE_CONFIG_DIR=<dir> claude auth login`), then run the same script with `--switch-account --config-a <dir> --config-b <dir>`.
