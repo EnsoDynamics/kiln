@@ -10,7 +10,7 @@ Kiln delivers a PRD whose phase documents name other repositories beside the PRD
 AC-REPO-01, AC-REPO-02, AC-REPO-03, AC-SPACE-01, AC-SPACE-02, AC-SPACE-04, AC-SPACE-05, AC-ADD-01, AC-ADD-02, AC-ADD-03, AC-ADD-04, AC-CHECK-01, AC-CHECK-02, AC-PRS-02, AC-PRS-03, AC-PRS-04, AC-PRS-05, AC-SHOW-01
 
 ## Out of scope for this phase
-The fourth check, Stayed in the workspace, with its confirmation, its Needs you screen, its prompt, its place in the pull-request check and in interruptions, and the `--disallowedTools PowerShell` launch flag (Phase 2); AC-SPACE-03 proved as a whole (Phase 2); real runs and Windows (Phase 3).
+The fourth check, Stayed in the workspace, with its confirmation, its Needs you screen, its prompt, its place in the pull-request check and in interruptions, and the `--disallowedTools PowerShell` launch flag (Phase 2); AC-SPACE-03 proved as a whole (Phase 2); real runs (Phase 3).
 
 ## Phase dependencies
 None.

@@ -157,13 +157,14 @@ Four screens are drawn for this change. The others it touches follow the nearest
 
 ### Proven on Real Features
 
-- [ ] **AC-PROOF-01 — Real features across repositories run end to end.** A real PRD runs from `kiln run` to "PR ready for review" with its PRD in a repository that holds no code and its phases changing at least two code repositories. In that run, one phase changes two code repositories, and one session adds a repository its phase didn't name. Every repository that changed ends with its own open pull request. Separately, a one-repository PRD's session adds a repository, and a session that edits a repository's own checkout stops at Needs you and is cleared as AC-OUTSIDE-03 says. The multi-repository run is repeated on Windows.
+- [ ] **AC-PROOF-01 — Real features across repositories run end to end.** A real PRD runs from `kiln run` to "PR ready for review" with its PRD in a repository that holds no code and its phases changing at least two code repositories. In that run, one phase changes two code repositories, and one session adds a repository its phase didn't name. Every repository that changed ends with its own open pull request. Separately, a one-repository PRD's session adds a repository, and a session that edits a repository's own checkout stops at Needs you and is cleared as AC-OUTSIDE-03 says. The runs are on macOS.
 
 ## Out of Scope
 
 - **Running phases in parallel**, and per-phase branches and workspaces (BRANCH-002). Phases still run one at a time; the Business Context says what this change keeps for parallel phases and what they will change.
 - **Cloning.** Kiln works only with repositories already checked out beside the PRD's repository; it never clones one.
 - **Repositories not on GitHub**, as in v1.
+- **A run on Windows.** Kiln's Windows behavior is built to the technical design on a best-effort basis and covered only by the automated tests, which CI also runs on Windows. Nobody runs Kiln on Windows for this change; that waits until someone with a Windows machine can.
 - **Merging in order, or checking the order.** The pull requests say the order; the person merges.
 - **Changing the Enso Method.** Having `phase-split` write each phase document's `**Repositories:**` line (AC-REPO-01) is a separate change to the Enso Method. Kiln works without it: until then a person can add the line by hand, or sessions add repositories as they find them (AC-ADD-01).
 

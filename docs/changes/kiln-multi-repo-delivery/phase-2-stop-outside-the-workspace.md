@@ -10,7 +10,7 @@ Kiln reads each session's Claude Code transcript, its subagents' included, and w
 AC-OUTSIDE-01, AC-OUTSIDE-02, AC-OUTSIDE-03, AC-OUTSIDE-04, AC-PRS-06, AC-SPACE-03, AC-SHOW-01 (also applies to this phase's work)
 
 ## Out of scope for this phase
-Usage-limit recovery's own resume points: that change isn't built, so this phase builds only what the design's "Seam With Usage-Limit Recovery" leaves to Kiln today. Real runs and Windows (Phase 3).
+Usage-limit recovery's own resume points: that change isn't built, so this phase builds only what the design's "Seam With Usage-Limit Recovery" leaves to Kiln today. Real runs (Phase 3).
 
 ## Phase dependencies
 1 (the workspace and its repositories, the per-repository done and pull-request checks, `kiln add-repository` for the prompt's add-first line, and Needs you facts named by repository)
