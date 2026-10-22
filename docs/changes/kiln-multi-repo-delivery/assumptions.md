@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-21
+**Last Updated**: 2026-10-22
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with [Kiln multi-repo delivery](kiln-multi-repo-delivery-prd.md). We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -181,6 +181,27 @@ Recognizing more Git commands costs nothing extra to read: the transcript record
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
+
+---
+
+### OUT-003. Does a session whose transcript Kiln can't find fail "Stayed in the workspace"?
+
+**Assumption**: A session that **never started**, because Claude Code couldn't be launched or a resume ended before the session began, did nothing and **passes**. A session that **ran but whose transcript Kiln can't find fails**, since Kiln can't see what it did, and Needs you says **where Kiln looked**. Once the person has checked their own checkouts, **ticking the confirmation** (OUT-001) clears it, as it clears any other change outside the workspace.
+
+**Example**: In the mockups' sample feature, a phase 2 session that ran with Claude Code set not to keep transcripts stops at Needs you with "No transcript found for session … in ~/.claude/projects", though it touched nothing outside the workspace. The person looks over their checkouts, ticks the box and presses Check again.
+
+**Evidence**: A false pass is the harm this check exists to catch (OUT-002), and a false stop costs **one tick**.
+
+A missing transcript isn't only a theoretical case. Claude Code **keeps none when the person has turned off its prompt history** (`CLAUDE_CODE_SKIP_PROMPT_HISTORY`; a session tried that way started, finished and left none). Kiln passes the person's whole environment to its sessions, so passing here would let **every session pass unread**.
+
+Claude Code also **deletes transcripts after 30 days** by default, so a phase left at Needs you that long could lose its own.
+
+**Confirm or Correct**:
+- [ ] Correct — a session that ran with no transcript fails, and the confirmation clears it
+- [ ] Wrong — let it pass, since there is nothing to read
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 85% | **Impact if Wrong**: 🟡 MEDIUM
 
 ---
 
