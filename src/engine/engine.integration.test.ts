@@ -409,6 +409,9 @@ describe("a phase that doesn't land", () => {
     expect(needsYou.lastLines!.map((line) => line.text)).toEqual([expect.stringMatching(/^Couldn't start claude in .*customer-returns[/\\]acme-shop: /)]);
     // Nothing ran, so the fresh-session prompt is the phase prompt unchanged.
     expect(needsYou.freshSessionPrompt).not.toContain("A previous session stopped");
+    // A session that never started passes Stayed in the workspace, which Needs you lists only when it failed (multi-repo AC-OUTSIDE-01).
+    expect(h.engine.record.phases["1"]!.stop!.checks.map((check) => check.name)).toEqual(["Phase doc closed", "Everything committed", "Pushed"]);
+    expect(needsYou.outside).toBeUndefined();
   });
 });
 

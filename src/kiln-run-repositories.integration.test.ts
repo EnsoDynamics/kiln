@@ -564,6 +564,114 @@ describe("kiln run on a PRD across repositories", () => {
     await kiln.done;
   });
 
+  it("starts each repository's feature branch from its own base on origin: a base the person chose, a default branch, and an origin ahead of the checkout (AC-SPACE-01)", async () => {
+    const f = createWorkspaceFeature([{ actions: [{ result: "Nothing done." }] }], { "phase-1-return-intake.md": "**Repositories:** returns-api, storefront, notifications" });
+    const commitIn = (checkout: string, file: string) => {
+      writeFileSync(join(checkout, file), `${file}\n`);
+      git(f.sandbox, checkout, "add", file);
+      git(f.sandbox, checkout, "commit", "-q", "-m", file);
+    };
+    // storefront's main is ahead of its develop; the person picks main.
+    const storefront = f.code.storefront!.checkout;
+    git(f.sandbox, storefront, "switch", "-q", "-c", "main");
+    commitIn(storefront, "main-only.txt");
+    git(f.sandbox, storefront, "push", "-q", "origin", "main");
+    git(f.sandbox, storefront, "switch", "-q", "develop");
+    // returns-api's origin is a commit ahead of the person's own checkout.
+    const returnsApi = f.code["returns-api"]!.checkout;
+    commitIn(returnsApi, "on-origin.txt");
+    git(f.sandbox, returnsApi, "push", "-q", "origin", "develop");
+    const originDevelop = git(f.sandbox, returnsApi, "rev-parse", "develop").trim();
+    git(f.sandbox, returnsApi, "reset", "-q", "--hard", "HEAD~1");
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect(await api(address, token, "POST", "/api/settings", { bases: { storefront: "main" } })).toMatchObject({ status: 200 });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 1, 30_000);
+    const workspace = join(f.sandbox.root, ".worktrees", FOLDER);
+    const head = (name: string) => git(f.sandbox, join(workspace, name), "rev-parse", "HEAD").trim();
+    expect(recordOf(f).repositories.map((entry) => [entry.name, entry.kind, entry.baseBranch])).toEqual([
+      ["product", "prd", "develop"],
+      ["returns-api", "named", "develop"],
+      ["storefront", "named", "main"],
+      ["notifications", "named", "main"],
+    ]);
+    expect(head("returns-api")).toBe(originDevelop);
+    expect(head("storefront")).toBe(git(f.sandbox, storefront, "rev-parse", "main").trim());
+    expect(head("storefront")).not.toBe(git(f.sandbox, storefront, "rev-parse", "develop").trim());
+    expect(head("notifications")).toBe(git(f.sandbox, f.code.notifications!.checkout, "rev-parse", "main").trim());
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+
+  it("holds a phase whose code repository has a commit not on origin, and passes it once pushed (AC-CHECK-01, AC-CHECK-02)", async () => {
+    const f = createWorkspaceFeature([
+      // Phase 1 pushes its first commit in returns-api, then commits again without pushing.
+      {
+        actions: [
+          ...work("returns-api", "src/intake.ts"),
+          { write: { repository: "returns-api", path: "src/more.ts", content: "more\n" } },
+          { commit: "feat: more", repository: "returns-api" },
+          ...closeIn("product"),
+          { result: "Partway." },
+        ],
+      },
+      { actions: [{ result: "Stopping here." }] },
+    ]);
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    await api(address, token, "POST", "/api/start", { refinementConfirmed: true });
+    await waitFor(async () => (await snapshotOf(address, token)).feature.state === "needs_you", 30_000);
+    const worktree = join(f.sandbox.root, ".worktrees", FOLDER, "returns-api");
+    const local = git(f.sandbox, worktree, "rev-parse", "--short=7", "HEAD").trim();
+    expect((await snapshotOf(address, token)).needsYou!.checks.map((check) => [check.name, check.passed, check.facts])).toEqual([
+      ["Phase doc closed", true, ["Closed line in phase-1-return-intake.md"]],
+      ["Everything committed", true, [expect.any(String)]],
+      ["Pushed", false, [`returns-api: ${local} isn't on origin yet`]],
+    ]);
+    expect(recordOf(f).phases["1"]!.doneAt).toBeUndefined();
+    git(f.sandbox, worktree, "push", "-q", "origin", BRANCH);
+    expect(await api(address, token, "POST", "/api/check-again")).toMatchObject({ status: 200 });
+    await waitFor(() => recordOf(f).phases["1"]!.doneAt !== undefined, 30_000);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+
+  it("resumes an interrupted session in the workspace, told to check the workspace first (AC-SPACE-02)", async () => {
+    const f = createWorkspaceFeature([]);
+    const working = join(f.sandbox.root, "working");
+    writeFileSync(
+      f.scenarioPath,
+      JSON.stringify({
+        sessions: [
+          { actions: [{ write: { repository: "returns-api", path: "src/partial.ts", content: "half\n" } }, { touch: working }, { work: "npm test" }] },
+          { actions: [{ result: "Stopping here." }] },
+        ],
+      }),
+    );
+    const first = startKiln(f);
+    const address = await first.address;
+    await api(address, await tokenOf(address), "POST", "/api/start", { refinementConfirmed: true });
+    await waitFor(() => existsSync(working), 30_000);
+    first.signals.emit("SIGINT");
+    await first.done;
+
+    const again = startKiln(f);
+    await again.address;
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 2, 30_000);
+    const workspace = join(f.sandbox.root, ".worktrees", FOLDER);
+    const [launched, resumed] = readJsonLines<{ args: string[]; cwd: string; prompt: string }>(`${f.scenarioPath}.calls.jsonl`);
+    expect(resumed!.args).toContain("--resume");
+    expect(resumed!.cwd).toBe(workspace);
+    expect(resumed!.args).not.toContain("--add-dir");
+    expect(resumed!.prompt).toContain(`Carry on with \`product/docs/prds/${FOLDER}/phase-1-return-intake.md\` from where you stopped; check the workspace first`);
+    expect(launched!.cwd).toBe(workspace);
+    again.signals.emit("SIGINT");
+    await again.done;
+  });
+
   it("lets a one-repository PRD's session add a repository, after which its sessions start in the workspace", async () => {
     const f = createWorkspaceFeature(
       [
@@ -615,6 +723,34 @@ describe("kiln run on a PRD across repositories", () => {
     const cd = `cd ${displayPath(worktree)}\n`;
     expect(needsYou.freshSessionCommand).toBe(`${cd}claude`);
     expect(needsYou.resumeCommand!.startsWith(`${cd}claude --resume `)).toBe(true);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+
+  it("adds a repository a split parent names after Start before its next child's session, with no stop (AC-ADD-04)", async () => {
+    const phase2 = `docs/prds/${FOLDER}/phase-2-refunds.md`;
+    const f = createWorkspaceFeature(
+      [
+        // Phase 1's session names storefront on phase 2's split record; 2b, next since 2a is closed, names nothing.
+        { actions: [{ write: { path: phase2, content: phaseFiles({ "phase-2-refunds.md": "**Repositories:** storefront" })["phase-2-refunds.md"]! } }, ...closeIn(""), { result: "Phase 1 landed." }] },
+        { actions: [{ result: "Stopping here." }] },
+      ],
+      {},
+    );
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    await api(address, await tokenOf(address), "POST", "/api/start", { refinementConfirmed: true });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 2, 30_000);
+    const workspace = join(f.sandbox.root, ".worktrees", FOLDER);
+    expect(recordOf(f).repositories.find((entry) => entry.name === "storefront")).toMatchObject({ kind: "added", addedInPhase: "2b", worktreePath: join(workspace, "storefront") });
+    const lines = kiln.lines();
+    const added = lines.findIndex((line) => / 2b +Store credit +added storefront$/.test(line));
+    expect(added).toBeGreaterThan(-1);
+    // Added before the session starts, with no plan stop between.
+    expect(lines[added + 1]).toMatch(/ 2b +Store credit +started$/);
+    const calls = readJsonLines<{ cwd: string; prompt: string }>(`${f.scenarioPath}.calls.jsonl`);
+    expect(calls[1]!.cwd).toBe(workspace);
+    expect(calls[1]!.prompt).toContain(`- \`storefront\`: \`${join(workspace, "storefront")}\`, base \`develop\``);
     kiln.signals.emit("SIGINT");
     await kiln.done;
   });

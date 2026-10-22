@@ -282,6 +282,10 @@ describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS
     expect(words).toContain(
       "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository main returns-api develop storefront develop notifications added in phase 2b main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
     );
+    // What Kiln may do in each repository, those added later included (multi-repo AC-PRS-04).
+    expect(words).toContain(
+      "In each repository Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It never merges, deploys, or touches other branches.",
+    );
     const now = text(/<section class="now[\s\S]*?<\/section>/.exec(page)![0]);
     expect(now).toContain("Model Opus 5.5 · high effort Commits 3 in 2 repositories returns-api 7f3d9a0 feat(credit): store credit ledger (phase 2b) 4c1a8e5 test(credit): ledger balances notifications added in phase 2b 2b6f1d3 feat(emails): store credit issued email (phase 2b) Session");
     expect(now).not.toContain("Worktree");

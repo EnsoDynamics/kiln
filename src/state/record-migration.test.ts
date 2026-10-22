@@ -27,6 +27,12 @@ describe("migrating a schema 1 record", () => {
     expect(record.settings).toMatchObject({ workspaceFolder: "/home/a/acme/.worktrees/customer-returns", bases: {}, worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop", baseBranch: "develop" });
   });
 
+  it("a worktree the person put elsewhere: the workspace folder is still the default, beside the PRD's repository (AC-SPACE-03)", () => {
+    const record = schemaOne({});
+    record.settings.worktreePath = "/home/a/elsewhere/acme-shop";
+    expect(migrateRecord(record).settings).toMatchObject({ workspaceFolder: "/home/a/acme/.worktrees/customer-returns", worktreePath: "/home/a/elsewhere/acme-shop" });
+  });
+
   it("holding only Kiln's branch from a failed Start: one entry keeps it", () => {
     const createdBranch = { name: "feature/customer-returns", commit: "c1", baseBranch: "main" };
     const record = migrateRecord(schemaOne({ createdBranch }));

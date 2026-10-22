@@ -112,4 +112,25 @@ describe("the terminal lines for several repositories (multi-repo technical desi
     ];
     expect(formatPhaseLine(at, "PR", "Final pull request", { kind: "opened", number: 12, opened }, columns, plain)).toBe("11:31  PR  Final pull request  opened product #12 · returns-api #57");
   });
+
+  it("colors those lines as the terminal mockup draws them: the added line in the body color, the repository lists in grey", () => {
+    const colors = terminalColors({ isTTY: true }, {});
+    const grey = (text: string) => `\x1b[38;2;140;133;119m${text}\x1b[39m`;
+    const green = (text: string) => `\x1b[38;2;156;196;154m${text}\x1b[39m`;
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "added", name: "notifications" }, columns, colors)).toBe(`${grey("11:31  2b  ")}Store credit       added notifications`);
+    const pushes = [
+      { name: "returns-api", sha: "7f3d9a0aaaaaaa" },
+      { name: "product", sha: "e07a4c8bbbbbbb" },
+    ];
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "done", pushedSha: "e07a4c8", pushes }, columns, colors)).toBe(
+      `${grey("11:31  2b  ")}Store credit       ${green("done")}${grey(" · pushed returns-api 7f3d9a0 · product e07a4c8")}`,
+    );
+    const opened = [
+      { repository: "product", number: 12 },
+      { repository: "returns-api", number: 57 },
+    ];
+    expect(formatPhaseLine(at, "PR", "Final pull request", { kind: "opened", number: 12, opened }, columns, colors)).toBe(
+      `${grey("11:31  PR  ")}Final pull request  ${green("opened")}${grey(" product #12 · returns-api #57")}`,
+    );
+  });
 });

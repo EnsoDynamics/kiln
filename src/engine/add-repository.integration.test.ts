@@ -127,6 +127,27 @@ describe("adding a repository after Start", () => {
     expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true, added: true, worktreePath: join(workspace, "returns-api") });
   });
 
+  it("puts a one-repository PRD's added repository in the default workspace folder, though the person put its worktree elsewhere (AC-SPACE-03)", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ result: "Stopping partway." }, { exit: 0 }] }] });
+    const h = harness;
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const checkout = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, checkout, "push", "-q", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    const elsewhere = join(h.sandbox.root, "elsewhere", "acme-shop");
+    expect(await h.engine.changeSettings({ worktreePath: elsewhere })).toMatchObject({ ok: true });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true });
+    const added = join(h.sandbox.root, ".worktrees", "customer-returns", "returns-api");
+    expect(h.engine.record.repositories.map((entry) => [entry.name, entry.worktreePath])).toEqual([
+      ["acme-shop", elsewhere],
+      ["returns-api", added],
+    ]);
+    expect(git(h.sandbox, added, "branch", "--show-current").trim()).toBe(BRANCH);
+  });
+
   it("keeps the branch a failed add made, and finishes on it once the worktree is there or gone", async () => {
     const { h, checkout, workspace } = await stoppedWithNeighbour();
     // A post-checkout hook that fails: git worktree add makes the branch and the worktree, then exits non-zero.
