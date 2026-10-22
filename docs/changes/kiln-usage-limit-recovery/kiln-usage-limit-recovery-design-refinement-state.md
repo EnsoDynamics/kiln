@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln usage-limit recovery
 
-Started: 2026-10-22   Current pass: 2   Status: In progress
+Started: 2026-10-22   Current pass: 3   Status: In progress
 Branch: wt/kiln-limit-recovery-tdd (this chat's parallel-session worktree)
 Existing code posture: Preserve (source: TD)
 PRD words: at start 2597 · growth baseline 2597
@@ -18,6 +18,7 @@ Last updated: 2026-10-22
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 12 (+1 from conformance) | 12 | 12 | 0 | 0 | 0 | 0 |
+| 2 | 11 (+1 from discovery's own findings, +2 from conformance) | 14 | 14 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -33,7 +34,21 @@ Last updated: 2026-10-22
 | Q9 | 1 | Reset times rounded to the minute | Technical | LOW | 75 → 95 | Resolved | TD §Screens |
 | Q10 | 1 | Reading when a stop carries limit | Technical | LOW | 85 → 95 | Resolved | TD §The Wait |
 | Q11 | 1 | Terminal wording for Ctrl+C during a wait and the ● line | Technical | LOW | 85 → 95 | Resolved | TD §Command line |
-| Q12 | 1 | Refusal type with no reading row: does another account's reading decide, and does the wait take a first reading before going to Needs you? (from conformance) | Technical | MEDIUM | 60 → 60 | Pending | — |
+| Q12 | 1 | Refusal type with no reading row: does another account's reading decide, and does the wait take a first reading before going to Needs you? (from conformance) | Technical | MEDIUM | 60 → 92 | Resolved | TD §Design Decisions, §The Wait |
+| Q13 | 2 | Past resetsAt, a failed or undecided reading resumes | Technical | MEDIUM | 75 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q14 | 2 | refusedAccount set by the first reading whose auth succeeded | Technical | MEDIUM | 70 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q15 | 2 | Copy command copies only claude auth login (mockups redrawn) | Business | MEDIUM | 70 → 95 | Resolved | PRD/TD (writer pass 2) |
+| Q16 | 2 | Signed in now card: no reading yet, signed out, limitsError | Technical | MEDIUM | 75 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q17 | 2 | Full session output from the waiting screen | Technical | MEDIUM | 85 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q18 | 2 | Resume, Resume now, Check again unavailable until the run starts | Technical | MEDIUM | 88 → 95 | Resolved | PRD/TD (writer pass 2) |
+| Q19 | 2 | Setting switched off between the end-of-wait check and the run | Technical | LOW | 85 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q20 | 2 | Restarted wait with no resetsAt re-applies the first-reading rule | Technical | LOW | 70 → 90 | Resolved | PRD/TD (writer pass 2) |
+| Q21 | 2 | Copy for no reset time, reset passed; keep-awake subtitle | Business | LOW | 80 → 95 | Resolved | PRD/TD (writer pass 2) |
+| Q22 | 2 | Pull-request session wording while waiting | Business | LOW | 85 → 95 | Resolved | PRD/TD (writer pass 2) |
+| Q23 | 2 | Dropped usage rows don't count for usage left | Technical | LOW | 85 → 92 | Resolved | PRD/TD (writer pass 2) |
+| Q24 | 2 | Pause refused during a wait; any resume cause without init is not_resumable | Technical | LOW | 90 → 98 | Resolved | PRD/TD (writer pass 2) |
+| Q25 | 2 | Setting switched off after Resume now was pressed (from conformance) | Business | LOW | 80 → 95 | Resolved | PRD AC-AUTO-04 |
+| Q26 | 2 | Waiting mockup promised a resume at the reset (from conformance) | Technical | LOW | 90 → 98 | Resolved | waiting mockup |
 | C1 | 1 | Correction: usage parser is extended (kind, scope type, call-start time, orgId) | Technical | MEDIUM | — → 98 | Resolved | TD §Existing Code |
 
 ## Question notes
@@ -45,7 +60,7 @@ All pass 1 answers were decided by the orchestrator from discovery's evidence (Q
 
 ## Conflict check
 Pass 1: 2026-10-22 · 21 earlier criteria changed (14 already declared) · 8 Replaces lines written · 0 raised as questions
-Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05
+Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05, AC-LIMIT-02, AC-AUTO-03 (Replaces line), AC-RESUME-02
 
 ## Noticed, out of scope
 
@@ -55,4 +70,4 @@ Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05
 | No Claude account at a usage limit, and no second account in a separate config directory (proof gate 5) | Any question needing Claude Code's real refusal output, a reading after a refusal, or a cross-account resume | Doug runs proof gate 5; until then, answer from the Agent SDK 0.3.302 types and recorded fixtures |
 
 ## Next action
-Pass 2: run discovery (Q12 carried first).
+Pass 3: run discovery.
