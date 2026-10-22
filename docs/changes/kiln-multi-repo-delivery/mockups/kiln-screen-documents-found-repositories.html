@@ -95,10 +95,10 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <h2 id="settings-h" style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">How Kiln will deliver it</h2>
 
 <div style="display: flex; flex-direction: column; gap: 6px">
-<label for="workspace" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Workspace</label>
+<label for="workspace" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Workspace folder</label>
 <input id="workspace" type="text" value="~/devel/acme/.worktrees/customer-returns/" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
 <!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Folder exists and isn't empty: "That folder already exists and isn’t empty. Choose a new one." Not a full path: "Enter a full path, starting with / or ~." Inside a checkout of one of the PRD's repositories: "That folder is inside a checkout of returns-api. Choose one outside it." (that repository's name in place of returns-api) -->
-<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a workspace path." -->
+<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a workspace folder." -->
 <span style="font-size: 12.5px; color: #8c8577">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
 </div>
 
@@ -120,7 +120,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <!-- Field messages, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. Not on origin: "develop isn’t on origin." On the PRD's repository's row only, PRD documents differ from this checkout's: "main on origin has different PRD documents from this checkout. Push them to main first; every session starts from there." (the chosen branch's name in place of develop or main) -->
 <!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. Select empty (origin names no default branch and has no develop): "Choose a base branch." -->
 <!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. When the base check can't reach that repository's origin (offline, credentials, a timeout): "Couldn’t reach origin: <git's message>" (git's error text in place of <git's message>), the done check's wording. -->
-<span style="font-size: 12.5px; color: #8c8577; padding-top: 2px">Sessions can add a repository they find they need; its feature branch starts from develop, or its default branch.</span>
+<span style="font-size: 12.5px; color: #8c8577; padding-top: 2px">Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.</span>
 </div>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px">
@@ -184,7 +184,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
 <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: #8c8577; border: 1px solid rgba(237, 232, 221, 0.18); width: 100%; cursor: not-allowed">Start</button>
 <span style="font-size: 12.5px; color: #8c8577; line-height: 1.55">Confirm refinement to start.</span>
-<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up storefront’s worktree: <git's message>" (the repository's name in place of storefront, git's error text in place of <git's message>); the terminal prints the same line. If no repository was set up yet, every field is editable again. Once any repository was set up, the workspace and feature branch fields are fixed, and so is each set-up repository's base select; only the bases of repositories not yet set up stay editable (AC-SPACE-01). -->
+<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up storefront’s worktree: <git's message>" (the repository's name in place of storefront, git's error text in place of <git's message>); the terminal prints the same line. If no repository was set up yet, every field is editable again. Once any repository was set up, the workspace folder and feature branch fields are fixed, and so is each set-up repository's base select; only the bases of repositories not yet set up stay editable (AC-SPACE-01). -->
 </div>
 </section>
 

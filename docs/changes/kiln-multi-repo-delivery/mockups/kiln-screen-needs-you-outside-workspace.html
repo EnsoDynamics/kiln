@@ -59,11 +59,11 @@ claude --resume 4d9a2c7e-1f53-4b8e-9a06-3c5e7b1d2f88</pre>
 <div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
 <span style="font-size: 16px; font-weight: 600; color: #ede8dd">Ask it to bring its design-system work into the workspace</span>
 <div style="display: flex; flex-direction: column; gap: 10px">
-<pre style="margin: 0; white-space: pre-wrap; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.7; color: #ede8dd; background: #0d0c0a; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 12px; padding: 14px 16px; overflow-wrap: anywhere">While working on phase 3, you changed a checkout outside the Kiln workspace, ~/devel/acme/.worktrees/customer-returns:
+<pre style="margin: 0; white-space: pre-wrap; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.7; color: #ede8dd; background: #0d0c0a; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 12px; padding: 14px 16px; overflow-wrap: anywhere">While working on phase 3, you changed a checkout outside the Kiln workspace, the worktrees listed in your instructions:
 - Edited src/tokens/colors.ts in ~/devel/acme/design-system
 - Committed 6b0d2fa to main in ~/devel/acme/design-system
 
-Bring that work into the workspace, committed and pushed on feature/customer-returns. design-system isn’t in the workspace yet, so ask Kiln to add it first. Leave ~/devel/acme/design-system as it is, and tell me what in it still needs putting back.</pre>
+Bring the changes you made there into the workspace, committed and pushed on feature/customer-returns, and nothing else from that checkout. design-system isn’t in the workspace yet, so ask Kiln to add it first. Leave ~/devel/acme/design-system as it is, and tell me what in it still needs putting back.</pre>
 <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: transparent; color: #ede8dd; border: 1px solid rgba(237, 232, 221, 0.24); "><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect><path d="M3 10.5V3.8A1.3 1.3 0 0 1 4.3 2.5H11"></path></svg>Copy prompt</button><span style="font-size: 13px; color: #8c8577">Or deal with it however you like.</span></div>
 </div>
 </div>
@@ -72,7 +72,7 @@ Bring that work into the workspace, committed and pushed on feature/customer-ret
 <span style="width: 36px; height: 36px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 20px; color: #ede8dd; box-sizing: border-box">3</span>
 <div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
 <span style="font-size: 16px; font-weight: 600; color: #ede8dd">Come back, confirm and check again</span>
-<p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6; text-wrap: pretty; ">Once what’s left in design-system’s own checkout is put back, tick the confirmation on the right. Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.</p>
+<p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6; text-wrap: pretty; ">Once what’s left in design-system’s own checkout is put back, tick the confirmation on the right. Kiln runs the check again. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.</p>
 </div>
 </li>
 </ol>
@@ -92,7 +92,7 @@ Bring that work into the workspace, committed and pushed on feature/customer-ret
 </li></ul>
 <label for="outside-dealt-with" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230, 180, 80, 0.55); cursor: pointer">
 <input id="outside-dealt-with" type="checkbox" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e6b450">
-<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; color: #ede8dd; text-wrap: pretty">The changes outside the workspace have been dealt with</span><span style="font-size: 12.5px; color: #8c8577">Check again then counts Stayed in the workspace as passed.</span></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; color: #ede8dd; text-wrap: pretty">The changes outside the workspace have been dealt with</span><span style="font-size: 12.5px; color: #8c8577">Covers every change outside the workspace up to when you tick it. Any later one fails the check again.</span></span>
 </label>
 <div style="display: flex; flex-direction: column; gap: 10px">
 <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14.5px; font-weight: 600; text-decoration: none; cursor: pointer; box-sizing: border-box; white-space: nowrap; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; width: 100%"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto"><circle cx="8" cy="8" r="2.4"></circle><path d="M1.5 8h4.1M10.4 8h4.1"></path></svg>Check again</button>

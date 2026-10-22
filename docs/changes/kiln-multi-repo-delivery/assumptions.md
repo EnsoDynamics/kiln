@@ -43,7 +43,7 @@
 
 **Assumption**: A session that needs a repository the workspace doesn't have **asks Kiln for it and keeps working**. Kiln sets it up, and the **phase doesn't stop**. The person sees it afterwards, marked "added in phase <n>" on screen and in a terminal line.
 
-**Evidence**: Phase planning can't always know every repository a phase will touch, and the need often shows up only once the code is read. Stopping would hand the person a branch and worktree to set up by hand, partway through a phase, which is the babysitting Kiln exists to remove. Adding a repository changes nothing outside the workspace, so a wrong addition costs no more than an unused worktree and an empty branch.
+**Evidence**: Phase planning can't always know every repository a phase will touch, and the need often shows up only once the code is read. Stopping would hand the person a branch and worktree to set up by hand, partway through a phase, which is the babysitting Kiln exists to remove. Adding a repository leaves the person's own checkout of it as it was, but the new feature branch, and the record of the new worktree, land in the repository that checkout shares. Kiln never deletes branches (Kiln v1, AC-GIT-02), so a wrong addition leaves an unused worktree and a branch with no commits for the person to remove by hand.
 
 **Confirm or Correct**:
 - [ ] Correct — the session gets the repository and carries on
@@ -96,7 +96,7 @@
 
 ### CLI-001. Does a session ask Kiln for a repository with a second `kiln` command?
 
-**Assumption**: Kiln gets a **second command, beside `kiln run`**, that names a repository and asks the running Kiln for that PRD to add it, for example `kiln add-repository storefront`. A session runs it from anywhere in the workspace, and a person can type it too. When `kiln run` isn't running for that PRD, the command **says so and changes nothing**.
+**Assumption**: Kiln gets a **second command, beside `kiln run`**, that names a repository and asks the running Kiln for that PRD to add it, for example `kiln add-repository storefront`. A session runs it from the workspace folder or any of the workspace's worktrees, and a person can type it too. When `kiln run` isn't running for that PRD, the command **says so and changes nothing**.
 
 **Evidence**: Kiln v1 promised `kiln run` would be its only command (AC-CLI-02), and this reverses that in part. The alternatives are worse:
 - The browser view's connection is guarded so that nothing but the person's own browser tab can use it, and a session has no tab.
@@ -153,7 +153,7 @@ A command is also something a person could type by hand, as everything Kiln asks
 
 ### OUT-001. Is a ticked confirmation enough to clear "Stayed in the workspace"?
 
-**Assumption**: After a session changed a repository's own checkout, the person deals with it, with the reopened session's help or by hand. Then they **tick a confirmation on Needs you** and press Check again. Kiln then counts that check as passed for that session, and the **other three checks decide** as usual.
+**Assumption**: After a session changed a repository's own checkout, the person deals with it, with the reopened session's help or by hand. Then they **tick a confirmation on Needs you** and press Check again. Kiln then counts **every change outside the workspace the session's transcript records up to the tick** as dealt with, and the **rest of the check decides** as usual. A change recorded after the tick, such as one the session makes once resumed, fails the check again.
 
 **Evidence**: The check is about what the session did, and that can't become untrue afterwards. So the person has to say they've dealt with it. Kiln can't tell by looking: the checkout may hold the person's other work too, and a commit pushed from it can't be taken back. A confirmation is honest about that, and it is one click.
 
@@ -162,6 +162,25 @@ A command is also something a person could type by hand, as everything Kiln asks
 - [ ] Wrong — correct answer: _______________
 
 **Confidence**: 75% | **Impact if Wrong**: 🟢 LOW
+
+---
+
+### OUT-002. Does any Git command that changes a checkout outside the workspace fail "Stayed in the workspace", not only a commit or a push?
+
+**Assumption**: Outside the workspace, a session fails the check by editing a file, or by **any Git command that changes a checkout's files, its staged changes or the branch it is on; creates, moves or deletes a local branch; or pushes from it**: `commit` and `push`, and also `add`, `checkout`, `switch`, `stash`, `reset`, `merge`, `rebase` and `pull`. Git commands that **do none of those**, such as `status`, `log`, `diff` and `fetch`, pass.
+
+**Example**: In the mockups' sample feature, a phase 3 session that runs `git stash` and then `git switch -c token-fix` in `~/devel/acme/design-system` stops at Needs you, though it committed nothing there.
+
+**Evidence**: The check exists for two harms: a change that **bypasses the feature branch** and its pull request, and a change **mixed in with the person's other work** in their own checkout. A commit or a push is the first. Switching branches, stashing, resetting or pulling in the person's checkout is the second: their uncommitted work moves or their branch changes under them, with nothing to show for it in any pull request.
+
+Recognizing more Git commands costs nothing extra to read: the transcript records every shell command either way. Shell commands other than Git, such as a script that writes files, **stay unseen under either answer**. The narrower answer would stop less often, at the cost of letting those disturbances through silently.
+
+**Confirm or Correct**:
+- [ ] Correct — any Git command that changes a checkout's files, its staged changes or the branch it is on; creates, moves or deletes a local branch; or pushes from it
+- [ ] Wrong — only `git commit` and `git push`, beside file edits
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
 
 ---
 
