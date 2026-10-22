@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln multi-repo delivery
 
-Started: 2026-10-22   Current pass: 2   Status: In progress
+Started: 2026-10-22   Current pass: 3   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD, Existing Code)
 PRD words: at start 4651 · growth baseline 4651
@@ -18,6 +18,7 @@ Last updated: 2026-10-22
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 12 (+1 conflict, +1 code corrections; +1 from Q5, +3 from conformance) | 14 | 12 | 1 | 1 (+Q15) | 0 | 0 |
+| 2 | 5 (+1 corrections; +1 from conformance) | 11 (5 carried + 6) | 9 | 0 | 2 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -25,12 +26,19 @@ Last updated: 2026-10-22
 | Q1 | 1 | If usage-limit recovery is built first, do the screens AC-SHOW-01 governs keep its additions? (conflict check) | Business | LOW | 97 → 97 | Resolved | PRD AC-SHOW-01 (table row + Replaces in part on usage-limit AC-RESUME-01) |
 | Q2 | 1 | Session ran (events show it) but no transcript found: does Stayed in the workspace pass or fail? | Business | HIGH | 60 → 88 | Assumption | OUT-003; PRD AC-OUTSIDE-01/03; TD §What is read |
 | Q3 | 1 | Interrupted + failed Stayed → Needs you; after tick + Check again finds phase unfinished, resume or stay stopped? | Technical (implied by v1 AC-STOP-01/07) | MEDIUM | 70 → 97 | Resolved | TD §After an interruption |
-| Q4 | 1 | Start after partial failure: which repository list and which checks apply (createdBranch deleted by complete())? | Technical | MEDIUM | 70 → 88 | Deferred | — |
+| Q4 | 1 | Start after partial failure: which repository list and which checks apply (createdBranch deleted by complete())? | Technical | MEDIUM | 70 → 90 | Resolved | TD §Setup at Start; Testing |
 | Q5 | 1 | Windows: placing Bash paths (/c/..., ~, forward slashes) against Windows-form file_path and cwd | Technical | MEDIUM | 70 → 92 | Resolved | TD §What is read (On Windows); Testing |
-| Q15 | 1 | Windows: PowerShell tool is on by default for claude.ai accounts and its calls aren't read; start sessions with CLAUDE_CODE_USE_POWERSHELL_TOOL=0 and fail on any PowerShell call found? (surfaced by Q5) | Technical | MEDIUM | 85 → 85 | Deferred | — |
-| Q16 | 1 | Pull-request session changed a checkout whose repository isn't in the workspace: what does the outside-workspace prompt ask it to do, now it can't add the repository? (conformance) | Technical | MEDIUM | — | Pending | — |
-| Q17 | 1 | Only failure is a missing transcript: what do Needs you's copyable prompt and resume command say (claude --resume needs the missing transcript)? (conformance) | Technical | MEDIUM | — | Pending | — |
-| Q18 | 1 | Data Models settings has bases but no baseBranch; HTTP API's baseBranch "still sets the PRD's repository's base" — stored as bases.<PRD repo name>? (conformance) | Technical | LOW | — | Pending | — |
+| Q15 | 1 | Windows: PowerShell tool is on by default for claude.ai accounts and its calls aren't read; start sessions with CLAUDE_CODE_USE_POWERSHELL_TOOL=0 and fail on any PowerShell call found? (surfaced by Q5) | Technical | MEDIUM | 85 → 95 | Resolved | TD §Shell tools, §Sessions flags, §What is read, §What counts |
+| Q16 | 1 | Pull-request session changed a checkout whose repository isn't in the workspace: what does the outside-workspace prompt ask it to do, now it can't add the repository? (conformance) | Technical | MEDIUM | — → 90 | Resolved | TD §The prompt; PRD AC-OUTSIDE-02 | — |
+| Q17 | 1 | Only failure is a missing transcript: what do Needs you's copyable prompt and resume command say (claude --resume needs the missing transcript)? (conformance) | Technical | MEDIUM | — → 90 | Resolved | TD §A missing transcript on Needs you, §Snapshot, §Screens; PRD AC-OUTSIDE-04 | — |
+| Q18 | 1 | Data Models settings has bases but no baseBranch; HTTP API's baseBranch "still sets the PRD's repository's base" — stored as bases.<PRD repo name>? (conformance) | Technical | LOW | — → 85 | Deferred | — |
+| Q19 | 2 | Retrying a half-made addition (AC-ADD-02 next try, AC-ADD-04 retry): which checks re-run; keep recorded base and baseCommit? | Technical | MEDIUM | 80 → 88 | Deferred | — |
+| Q20 | 2 | A sibling that is a symlink to a checkout fails "A checkout" (rev-parse prints the real path): accept it? | Technical | MEDIUM | 80 → 92 | Resolved (reject with accurate message) | TD §Found beside, §In the engine, Testing |
+| Q21 | 2 | Missing-transcript tick coverage when the last run has no endedAt (Kiln killed) | Technical | MEDIUM | 85 → 92 | Resolved | TD §The confirmation; Testing | — |
+| Q22 | 2 | Resume and fresh-session commands carry --add-dir when workingDirectory isn't the workspace folder? | Technical | LOW | 75 → 92 | Resolved (no; bare like v1) | TD §Sessions | — |
+| Q23 | 2 | Unparsable transcript lines or an unreadable transcript file | Technical | LOW | 85 → 92 | Resolved | TD §What is read, §Snapshot, Done Check, Testing | — |
+| Q24 | 2 | Discovery's code-checked TD corrections: resume/fresh-session prompt wording in a workspace; fresh-session folder for a stop with no session; Found line for kiln add-repository | Technical | LOW | 95 → 95 | Resolved | TD §Sessions, §Found beside, §In the engine |
+| Q25 | 2 | Missing transcript makes claude --resume impossible: should the usage-limit seam say Resume isn't offered then (AC-OUTSIDE-04 offers it after an interruption)? (conformance) | Technical | LOW | — | Pending | — |
 | Q6 | 1 | Nested checkout inside a workspace worktree (submodule, .claude/worktrees/): inside or outside? | Technical | MEDIUM | 75 → 95 | Resolved | TD §Where it happened; §Subagent worktrees |
 | Q7 | 1 | Add obvious read-only git subcommands missing from the read-only list (check-ignore, config <key>, …)? | Technical | MEDIUM | 75 → 95 | Resolved | TD §What counts |
 | Q8 | 1 | Can a repository be added during the pull-request session? | Technical (implied by AC-ADD-01) | LOW | 60 → 95 | Resolved | TD §In the engine, §The prompt; PRD AC-ADD-01, AC-OUTSIDE-02 | — |
@@ -42,6 +50,27 @@ Last updated: 2026-10-22
 | Q14 | 1 | Code-answered TD corrections: NotebookEdit notebook_path; CLI Origin http://127.0.0.1:<port>; added repo's base needs v1's objects-only fetch | Technical | LOW | 95 → 98 | Resolved | TD §What is read; §The command step 3; §In the engine check 4 |
 
 ## Question notes
+
+### Q4 (pass 2 answer, 90%) — supersedes the pass 1 note below
+TD §Setup at Start, replacing the "Some repository was set up" follow-on: "On the next Start the repositories are, in order, the entries with setupCompletedAt as recorded, then the names the plan gives as this kiln run read it from the checkout it was given. Start skips an entry with setupCompletedAt, as v1's kiln run skips a recorded setup. A failure undoes only the failing entry, by v1's undo. Setup is done when every repository in that list has setupCompletedAt. An entry without setupCompletedAt that the plan no longer names is left out of the list, as an unfinished added entry is. It is kept while it holds a createdBranch, so naming the repository again, before Start or by AC-ADD-04, reuses Kiln's branch; it is removed when it holds nothing. git worktree add removes its own half-made worktree, so no such entry holds a worktree folder. Bases come from settings.bases by name. A set-up repository's base is its entry's baseBranch. The base of an entry holding a createdBranch is fixed too, since the fixed branch name can't be cut again from another base. For a set-up repository the field checks skip the workspace folder's new-or-empty check, its worktree path check, the branch-free check and the base's on-origin check: its worktree and branch are Kiln's by record. The PRD's repository, once set up, keeps v1's PRD-differs check, comparing the PRD tree read from the given checkout (HEAD:<PRD directory>) with <feature branch>:<PRD directory>, the commit its sessions start from, as v1 compares with createdBranch.commit. Message: "<repository>'s worktree has different PRD documents from this checkout. Make the same change on <branch> in <worktree path>, or run kiln run from that worktree; sessions start from it." Repositories not yet set up get every v1 check. A repository the PRD's worktree names but Documents found didn't is left to AC-ADD-04."
+Also fix: "Fixed is derived… a field is fixed once any repositories entry has a baseCommit or createdBranch" contradicts "No repository was set up yet: as v1" → feature branch and workspace folder fixed once any entry has setupCompletedAt; an entry's own base fixed once it has setupCompletedAt or a createdBranch.
+Evidence: kiln-command.ts:178,:269; worktree-setup.ts:101-103,:135-143,:225,:232-237,:243-248,:254-263; engine.ts:245,:302-315,:582,:1179-1187; v1 TD:56,:343,:352,:355.
+
+### Q16
+Answer (90%): option (a). TD §The prompt (AC-OUTSIDE-02): for the pull-request session the opening reads "While opening the pull requests" in place of the phase, and the bring-in sentence and its add-first lines are left out: that session opens pull requests and changes no code (link In the engine), so it is only asked to leave each checkout as it is and say what still needs putting back. PRD AC-OUTSIDE-02 item 2 opening: "For a phase's session, asks the session to bring into the workspace…" (removes a request; no scope added). Evidence: PRD :102, :126; TD :174, :276, :295, :397; v1 AC-PR-01.
+
+### Q18
+Proposed answer (85%): keep settings.baseBranch for the PRD's repository (v1's field: DocumentsFound.svelte:165 sends it; local-server.ts:240,254 accepts only it; snapshot.ts:177,276; worktree-setup.ts:95-153); settings.bases holds only the other repositories, never keyed by the PRD repo's name. Data Models settings adds baseBranch; note: both chosen before Start and copied to repositories[] at Start. Migration: settings.baseBranch and worktreePath stay; bases {}; a record with startedAt, setupCompletedAt, baseCommit or createdBranch also gets one kind: prd entry; a record with none gets no entry and its Start builds the list. HTTP API: bases? (the other repositories); baseBranch sets settings.baseBranch; a bases key naming the PRD's repository is refused. Snapshot settings line: v1's incl. baseBranch; PRD repo row before Start is v1's baseBranch/baseBranches/baseCheck/fieldErrors.baseBranch; after Start each row's baseBranch is its entry's. Settings before Start Base branch row: "the PRD's repository's is baseBranch, the others' bases". Uncertain: the not-started migration (no entry) vs always one entry. Side note resolved by the Q4 fold: a createdBranch fixes an entry's base only while the feature branch is fixed, so v1's editability is kept.
+
+### Q20
+Answer (92%): reject, accurately (REPO-001: "only as a folder of that name"; accepting breaks one-checkout-per-entry and outside matching by folder name). TD §Found beside table: new row between Found and A checkout — "Not a link | The readdir entry named <name> is a symbolic link (on Windows, also a junction) | `<name> in <parent folder>/ is a link to <target>; Kiln needs the checkout itself there.`". After the table: "A named repository is the folder itself, never a link to one (REPO-001): following a link would reach a checkout elsewhere, whose folder name can differ from the plan's name, and could make two names share one checkout. The parent folder is the real parent of the PRD's main checkout, so when that checkout is reached through a link, its siblings are looked for beside the real checkout." Testing start-checks: "a named repository that is a link". Evidence: readdirSync withFileTypes isSymbolicLink; rev-parse prints real path; prd-location.ts realpathSync.native.
+
+### Q21
+Answer (92%): TD §The confirmation, old "its fact is covered by a confirmation ticked after that session's last run ended (`endedAt` of its last run)." → new "its fact is covered by a confirmation whose `at` is after that session's last run ended: the run's `endedAt`, or, when Kiln stopped before recording it (Kiln killed, or a stop cut short), the phase's current stop's `at`, recorded only once no process of the session is left running, the time the snapshot already shows as `sessionEndedAt`." Not interruptedAt (written before the process ends). Evidence: records.ts:88-100; claude-session.ts:184-196,306-322; engine.ts:418-447,492-517,618-627,1074-1087; snapshot.ts:298-305.
+
+### Q19
+Proposed answer (88%): split failed vs interrupted, as v1 does. TD §In the engine, replacing from "Then the entry is written" through "keeps what was made (AC-ADD-02).": "Then the entry is written (kind: added, addedInPhase, addedAt, baseBranch, baseCommit) before git worktree add, exactly as setup at Start records before adding. A git failure answers with git's message and is undone by v1's undo, for that entry only: baseCommit is cleared, a branch git made at it (git worktree add -b creates the branch before the folder) stays as the entry's createdBranch, and an entry holding nothing is removed, so the next request is a fresh add (AC-ADD-02). A request for an entry without setupCompletedAt runs check 1, then v1's first finish-the-setup rule (a worktree at the path on the branch, not locked initializing, is done). Otherwise: [holds baseCommit — interrupted add] checks 2-4 skipped; finished from recorded baseBranch/baseCommit without asking origin; Kiln's own branch at baseCommit → git worktree add <path> <branch>; no branch → git worktree add --no-track -b; any other branch → "<branch> already exists and isn't the branch Kiln made." [holds createdBranch] checks 2 and 3 run, check 2 passes Kiln's own branch as v1 defines it; the branch takes the place of check 4; its baseBranch is the entry's base, fixed; its commit is recorded as baseCommit; then git worktree add <path> <branch>. The request that finishes the add rewrites addedInPhase and addedAt."
+Git behaviour (2.50.1): non-empty path / unwritable parent → branch created, no worktree; SIGTERM to group → branch only; SIGTERM to parent only → unregistered folder (group kills matter); SIGKILL → branch, partial folder, worktree "locked initializing"; failing post-checkout hook → exit 1 but complete worktree. Unverified: whether a locked-initializing worktree must be pruned/unlocked before re-adding at the path; whether rewriting addedInPhase on finish is right when finished by AC-ADD-04 in a later phase. Fixed already: TD §Setup at Start sentence claiming git always removes its half-made worktree softened.
 
 ### Q2
 Proposed answer (Business 88% → OUT-003): never reached init → passes; reached init but no projects/*/<session ID>.jsonl → fails with fact "No transcript found for session <ID> in <config folder>/projects, so Kiln can't tell what it did outside the workspace"; a tick after that session's last run ended clears it. Evidence: Claude Code 2.1.307 writes no transcript with CLAUDE_CODE_SKIP_PROMPT_HISTORY set (scratch run: init, success, no .jsonl); Kiln passes whole env (engine.ts:837, claude-session.ts:182); cleanupPeriodDays (30 default) deletes old transcripts.
@@ -81,9 +110,15 @@ Checked: code read; not checked: whether the PRD-differs comparison at the branc
 
 ## Conflict check
 Pass 1: 2026-10-22 · 37 earlier criteria changed (34 v1, 4 usage-limit recovery; 22 Replaces lines already correct) · 5 Replaces lines extended (SPACE-05, OUTSIDE-03, OUTSIDE-04 ×2, ADD-04) · 1 unintended raised (Q1: AC-SHOW-01 would undo usage-limit recovery's screen additions; Business 97% → PRD fix) · folded
-Changed after pass 1: AC-OUTSIDE-01, AC-OUTSIDE-03, AC-ADD-01, AC-OUTSIDE-02 (twice)
+Changed after pass 1: AC-OUTSIDE-01, AC-OUTSIDE-03, AC-ADD-01, AC-OUTSIDE-02 (three times), AC-OUTSIDE-04 (changed, then restored to fcc3644 text), AC-OUTSIDE-01 (again: unreadable transcript; Replaces in part v1 AC-STOP-05), AC-OUTSIDE-03 (again)
 
 ## Noticed, out of scope
+- A scratch checkout the session makes itself (git init/clone into /tmp, then commits) fails Stayed while it exists and passes once deleted (placement reads disk at check time).
+- If only a later resumed run kept no transcript, the session passes on earlier runs' partial transcript.
+- Two sibling clones of one GitHub repository both named in the plan would push the same feature branch twice.
+- A repository a plan edit names only on an already-closed phase is never set up, yet counts among the PRD's named repositories.
+- A check or Check again starting while an addition request is arriving isn't ordered against it; the TD only makes checks wait for additions already under way.
+- On Windows without Git Bash, a session launched with PowerShell disallowed has no shell at all; Kiln's start checks don't confirm Git Bash exists (see earlier line).
 - v1's Commit and Push steps miss PowerShell calls on Windows today (v1 reads only Bash); the Q15 env var would fix that too.
 - Kiln's start checks don't confirm Git Bash exists on Windows.
 - Git aliases (git st) fail Stayed in the workspace as unknown subcommands; acceptable under the existing decision.
@@ -101,4 +136,4 @@ Changed after pass 1: AC-OUTSIDE-01, AC-OUTSIDE-03, AC-ADD-01, AC-OUTSIDE-02 (tw
 |---|---|---|
 
 ## Next action
-Pass 1: discovery done (12 surfaced, 12 taken; Q14 = code-answered corrections). Pass 2: run discovery (carry Q4, Q15 deferred and Q16-Q18 pending first).
+Pass 1: discovery done (12 surfaced, 12 taken; Q14 = code-answered corrections). Pass 3: run discovery (carry Q18, Q19 deferred and Q25 pending first). Q18 and Q19 deferred twice: if still <90 after pass 3, record as TD design decisions (resolved by decision).

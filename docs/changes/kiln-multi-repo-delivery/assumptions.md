@@ -26,7 +26,7 @@
 
 ### REPO-001. Does Kiln find a named repository as the folder of that name beside the PRD's repository?
 
-**Assumption**: Kiln finds a named repository **only as a folder of that name in the same parent folder** as the PRD repository's checkout. A phase naming `storefront`, in a PRD under `~/devel/acme/product`, means `~/devel/acme/storefront`. There is **no mapping file** and no search elsewhere on the machine.
+**Assumption**: Kiln finds a named repository **only as a folder of that name in the same parent folder** as the PRD repository's checkout. A phase naming `storefront`, in a PRD under `~/devel/acme/product`, means `~/devel/acme/storefront`. There is **no mapping file** and no search elsewhere on the machine. A **link** of that name to a checkout elsewhere doesn't count: Kiln needs the checkout itself there.
 
 **Evidence**: The layout this change exists for keeps an organization's repositories side by side in one folder, and so does the Enso Method's worktree convention, which puts `.worktrees/` in that same folder (Kiln v1, AC-START-07). A mapping file would cover other layouts, but it would be one more thing to set up before a first run. It can be added later without changing this rule for anyone already using it.
 
@@ -186,7 +186,7 @@ Recognizing more Git commands costs nothing extra to read: the transcript record
 
 ### OUT-003. Does a session whose transcript Kiln can't find fail "Stayed in the workspace"?
 
-**Assumption**: A session that **never started**, because Claude Code couldn't be launched or a resume ended before the session began, did nothing and **passes**. A session that **ran but whose transcript Kiln can't find fails**, since Kiln can't see what it did, and Needs you says **where Kiln looked**. Once the person has checked their own checkouts, **ticking the confirmation** (OUT-001) clears it, as it clears any other change outside the workspace.
+**Assumption**: A session that **never started**, because Claude Code couldn't be launched or a resume ended before the session began, did nothing and **passes**. A session that **ran but whose transcript Kiln can't find fails**, since Kiln can't see what it did, and Needs you says **where Kiln looked**. A transcript Kiln finds but **can't read** fails the same way, apart from a line cut off when the session was killed, which Kiln skips. Once the person has checked their own checkouts, **ticking the confirmation** (OUT-001) clears it, as it clears any other change outside the workspace.
 
 **Example**: In the mockups' sample feature, a phase 2 session that ran with Claude Code set not to keep transcripts stops at Needs you with "No transcript found for session … in ~/.claude/projects", though it touched nothing outside the workspace. The person looks over their checkouts, ticks the box and presses Check again.
 
