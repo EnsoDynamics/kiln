@@ -15,10 +15,12 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-21
+**Last Updated**: 2026-10-22
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with [Kiln usage-limit recovery](kiln-usage-limit-recovery-prd.md). We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
+
+**Technical details** are documented in the [Technical Design Document](technical-design.md).
 
 ---
 
