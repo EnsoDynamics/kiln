@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln usage-limit recovery
 
-Started: 2026-10-22   Current pass: 3   Status: In progress
+Started: 2026-10-22   Current pass: 4   Status: In progress
 Branch: wt/kiln-limit-recovery-tdd (this chat's parallel-session worktree)
 Existing code posture: Preserve (source: TD)
 PRD words: at start 2597 · growth baseline 2597
@@ -19,6 +19,7 @@ Last updated: 2026-10-22
 |---|---|---|---|---|---|---|---|
 | 1 | 12 (+1 from conformance) | 12 | 12 | 0 | 0 | 0 | 0 |
 | 2 | 11 (+1 from discovery's own findings, +2 from conformance) | 14 | 14 | 0 | 0 | 0 | 0 |
+| 3 | 7 (+1 from conformance) | 8 | 8 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -49,6 +50,14 @@ Last updated: 2026-10-22
 | Q24 | 2 | Pause refused during a wait; any resume cause without init is not_resumable | Technical | LOW | 90 → 98 | Resolved | PRD/TD (writer pass 2) |
 | Q25 | 2 | Setting switched off after Resume now was pressed (from conformance) | Business | LOW | 80 → 95 | Resolved | PRD AC-AUTO-04 |
 | Q26 | 2 | Waiting mockup promised a resume at the reset (from conformance) | Technical | LOW | 90 → 98 | Resolved | waiting mockup |
+| Q27 | 3 | Refused account kept on the refused run, not the wait (AC-AUTO-05 survives run start) | Technical | MEDIUM | 70 → 92 | Resolved | TD (writer pass 3) |
+| Q28 | 3 | Sentence forms of limit labels; card footer, PR and stopped lines | Business | LOW | 70 → 95 | Resolved | TD (writer pass 3) |
+| Q29 | 3 | Readings during a resume's lock only update the card | Technical | MEDIUM | 85 → 95 | Resolved | TD (writer pass 3) |
+| Q30 | 3 | Failed limit resume shows v1 not_resumable without limit facts | Technical | LOW | 80 → 92 | Resolved | TD (writer pass 3) |
+| Q31 | 3 | Reset reading armed from wall clock, re-armed on sleep | Technical | LOW | 85 → 95 | Resolved | TD (writer pass 3) |
+| Q32 | 3 | Reconcile restart keeps since, sessionId, run | Technical | LOW | 85 → 95 | Resolved | TD (writer pass 3) |
+| Q33 | 3 | Label replacement updates run and stop together | Technical | LOW | 85 → 95 | Resolved | TD (writer pass 3) |
+| Q34 | 3 | One wording rule for limits in sentences vs labels as names (from conformance) | Business | LOW | 80 → 95 | Resolved | PRD AC-LIMIT-01, AC-LIMIT-03; TD §Screens; mockups |
 | C1 | 1 | Correction: usage parser is extended (kind, scope type, call-start time, orgId) | Technical | MEDIUM | — → 98 | Resolved | TD §Existing Code |
 
 ## Question notes
@@ -60,7 +69,7 @@ All pass 1 answers were decided by the orchestrator from discovery's evidence (Q
 
 ## Conflict check
 Pass 1: 2026-10-22 · 21 earlier criteria changed (14 already declared) · 8 Replaces lines written · 0 raised as questions
-Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05, AC-LIMIT-02, AC-AUTO-03 (Replaces line), AC-RESUME-02
+Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05, AC-LIMIT-02, AC-AUTO-03 (Replaces line), AC-RESUME-02, AC-LIMIT-03
 
 ## Noticed, out of scope
 
@@ -70,4 +79,4 @@ Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05, AC-LIMIT-02, AC-AUTO-
 | No Claude account at a usage limit, and no second account in a separate config directory (proof gate 5) | Any question needing Claude Code's real refusal output, a reading after a refusal, or a cross-account resume | Doug runs proof gate 5; until then, answer from the Agent SDK 0.3.302 types and recorded fixtures |
 
 ## Next action
-Pass 3: run discovery.
+Pass 4: run discovery.
