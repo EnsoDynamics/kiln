@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer returns · Kiln</title>
+<!-- Kiln design mockup for the multi-repo delivery change: Documents found for a PRD with three repositories (AC-REPO-03, AC-SPACE-01, AC-ADD-01, AC-PRS-04). Fictional sample data. Everything this change leaves alone is as the v1 Documents found mockup draws it. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#12110e}
+a{color:#e2694f}a:hover{color:#f0866e}
+@keyframes kpulse{0%,100%{opacity:1}50%{opacity:.3}}
+input,select{font:inherit}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #e2694f;outline-offset:2px}
+</style>
+</head>
+<body>
+<div style="min-height: 100vh; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased">
+<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 14px clamp(16px, 4vw, 32px); border-bottom: 1px solid rgba(237, 232, 221, 0.12)">
+<div style="display: flex; align-items: center; gap: 14px; min-width: 0">
+<span style="display: inline-flex; align-items: center; gap: 9px; color: #ede8dd"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg><span style="font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-size: 28px; line-height: 1">kiln</span></span>
+
+</div>
+<div style="display: flex; align-items: center; gap: 16px"><span style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln<span style="color: #8c8577">· updated 2s ago</span></span><span aria-hidden="true" style="width: 1px; height: 22px; background: rgba(237, 232, 221, 0.18)"></span><a href="https://ensomethod.org" style="display: inline-flex; align-items: center; gap: 8px; color: #bdb6a8; text-decoration: none; font-size: 13px"><img src="../../../design/mockups/enso-method-mark.svg" alt="" width="22" height="22" style="display: block">The Enso Method</a></div>
+</header>
+
+<main style="max-width: 1160px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 32px) 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; color: #bdb6a8">product</span></span><span>PRD folder <span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; color: #bdb6a8">docs/prds/customer-returns/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', 'Iowan Old Style', Georgia, serif; font-weight: 400; font-size: clamp(48px, 6.4vw, 76px); line-height: 0.98; letter-spacing: -0.01em; color: #ede8dd">Customer returns</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+<span style="display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1px solid rgba(237, 232, 221, 0.24); color: #ede8dd">Not started</span>
+<span style="font-size: 14px; color: #bdb6a8">Review what Kiln found and how it will deliver, then start.</span>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 24px; align-items: start">
+
+<section aria-labelledby="found-h" style="background: #1b1a16; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box">
+<h2 id="found-h" style="margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">What Kiln found</h2>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span style="font-size: 15px; font-weight: 600; color: #ede8dd">PRD</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">customer-returns-prd.md</span></div>
+<span style="font-size: 14px; color: #bdb6a8">14 acceptance criteria, AC-RET-01 to AC-RET-14</span>
+</div>
+</li>
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span style="font-size: 15px; font-weight: 600; color: #ede8dd">Technical design</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">technical-design.md</span></div>
+<span style="font-size: 14px; color: #bdb6a8">Cites all 14 criteria</span>
+</div>
+</li>
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span style="font-size: 15px; font-weight: 600; color: #ede8dd">Assumptions</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">assumptions.md</span></div>
+<span style="font-size: 14px; color: #bdb6a8">11 assumptions, 2 not yet confirmed. They’re green lights; nothing waits on them.</span>
+</div>
+</li>
+<li style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span style="font-size: 15px; font-weight: 600; color: #ede8dd">Phase plan</span><span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #8c8577">6 phase docs</span></div>
+<span style="font-size: 14px; color: #bdb6a8">5 phases to implement, in this order</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+<li style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; box-sizing: border-box">1</span><span style="font-size: 14.5px; color: #ede8dd">Return intake</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">returns-api</span></li>
+<li style="display: flex; flex-direction: column; gap: 8px">
+<span style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px dashed rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; box-sizing: border-box">2</span><span style="font-size: 14.5px; color: #bdb6a8">Refund routing</span><span style="font-size: 12.5px; color: #8c8577">split into 2a and 2b</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">returns-api</span></span>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+<li style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; box-sizing: border-box">2a</span><span style="font-size: 14.5px; color: #ede8dd">Card refunds</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">returns-api</span></li>
+<li style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; box-sizing: border-box">2b</span><span style="font-size: 14.5px; color: #ede8dd">Store credit</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">returns-api · storefront</span></li>
+</ol>
+</li>
+<li style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; box-sizing: border-box">3</span><span style="font-size: 14.5px; color: #ede8dd">Returns dashboard</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">storefront</span></li>
+<li style="display: flex; align-items: center; gap: 12px"><span style="flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.24); display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; box-sizing: border-box">4</span><span style="font-size: 14.5px; color: #ede8dd">Restock check-in</span><span style="margin-left: auto; padding-left: 12px; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #8c8577; text-align: right">returns-api</span></li>
+</ol>
+</div>
+</li>
+</ul>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid rgba(237, 232, 221, 0.12); font-size: 13px; color: #bdb6a8">
+<span style="display: inline-flex; align-items: center; gap: 6px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>Every phase cites its criteria</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>Dependencies point backward</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg><span>Named repositories found beside <span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #ede8dd">product</span></span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg><span>Working tree of <span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #ede8dd">product</span> is clean</span></span>
+</div>
+</section>
+
+<section aria-labelledby="settings-h" style="background: #1b1a16; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 20px; box-sizing: border-box">
+<h2 id="settings-h" style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">How Kiln will deliver it</h2>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="workspace" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Workspace</label>
+<input id="workspace" type="text" value="~/devel/acme/.worktrees/customer-returns/" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Folder exists and isn't empty: "That folder already exists and isn’t empty. Choose a new one." Not a full path: "Enter a full path, starting with / or ~." Inside a checkout of one of the PRD's repositories: "That folder is inside a checkout of returns-api. Choose one outside it." (that repository's name in place of returns-api) -->
+<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a workspace path." -->
+<span style="font-size: 12.5px; color: #8c8577">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="branch" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Feature branch</label>
+<input id="branch" type="text" value="feature/customer-returns" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%">
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Branch exists locally or on origin in any of the PRD's repositories (UI-003): "That branch already exists in storefront. Choose a name no branch has in any repository; a new name starts this PRD over from each repository’s base branch." (the repository's name in place of storefront; each one, joined with "and", when it exists in more than one) -->
+<!-- Field messages, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. Field left empty: "Enter a branch name." Not a valid branch name: "That isn’t a valid branch name." -->
+<span style="font-size: 12.5px; color: #8c8577">Used in every repository.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px"><span id="repos-h" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Repositories</span><span style="font-size: 12.5px; color: #8c8577">Branch from, and PR into</span></div>
+<ul aria-labelledby="repos-h" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid rgba(237, 232, 221, 0.12)">
+<li style="display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0"><label for="base-product" style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #ede8dd; overflow-wrap: anywhere">product</label><span style="padding: 1px 9px; border-radius: 999px; border: 1px solid rgba(237, 232, 221, 0.18); font-size: 12px; color: #8c8577; white-space: nowrap">PRD’s repository</span></span><select id="base-product" style="height: 36px; padding: 0 8px; border-radius: 8px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%"><option value="main">main</option></select></li>
+<li style="display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0"><label for="base-returns-api" style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #ede8dd; overflow-wrap: anywhere">returns-api</label></span><select id="base-returns-api" style="height: 36px; padding: 0 8px; border-radius: 8px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%"><option value="develop">develop</option><option value="main">main</option></select></li>
+<li style="display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0"><label for="base-storefront" style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; color: #ede8dd; overflow-wrap: anywhere">storefront</label></span><select id="base-storefront" style="height: 36px; padding: 0 8px; border-radius: 8px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 13px; box-sizing: border-box; width: 100%"><option value="develop">develop</option><option value="main">main</option></select></li>
+</ul>
+<!-- Field messages, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. Not on origin: "develop isn’t on origin." On the PRD's repository's row only, PRD documents differ from this checkout's: "main on origin has different PRD documents from this checkout. Push them to main first; every session starts from there." (the chosen branch's name in place of develop or main) -->
+<!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. Select empty (origin names no default branch and has no develop): "Choose a base branch." -->
+<!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. When the base check can't reach that repository's origin (offline, credentials, a timeout): "Couldn’t reach origin: <git's message>" (git's error text in place of <git's message>), the done check's wording. -->
+<span style="font-size: 12.5px; color: #8c8577; padding-top: 2px">Sessions can add a repository they find they need; its feature branch starts from develop, or its default branch.</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 500; color: #bdb6a8">Agent</span>
+<span style="min-height: 44px; display: flex; flex-direction: column; justify-content: center; font-size: 14.5px; color: #ede8dd">Claude Code<span style="font-size: 12.5px; color: #8c8577; overflow-wrap: anywhere">alex@acme-shop.dev · Max plan</span><span style="font-size: 12.5px; color: #8c8577">Used: 5-hour 13% · weekly 22% · Fable 0%</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="model" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Model</label>
+<select id="model" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237, 232, 221, 0.18); background: #12110e; color: #ede8dd; font-size: 14px; box-sizing: border-box; width: 100%"><option value="opus">Opus 5.5</option><option value="fable">Fable 5.1</option><option value="sonnet">Sonnet 5.5</option></select>
+<!-- Field message, not drawn in this state, shown when the chosen model's entry lacks supportsAutoMode: true, as proof gate 1 settled (technical design, Account and Usage). One amber line (#e6b450, 12.5px, the help-text style) under the field; Start stays unavailable while it shows. "Opus 5.5 can’t run unattended on this account; it needs auto mode." (the chosen model's name) -->
+<!-- Field message, not drawn in this state (UI-011). When Claude Code's model list can't be read (an error or a timeout), the select holds only the saved model, named by its alias as is (opus), and one amber line (#e6b450, 12.5px, the help-text style) sits under the field: "Couldn’t load Claude Code’s models: <the error>" (the error text in place of <the error>). Start isn't held by it, since a session can still run on the saved model. -->
+</div>
+</div>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+<legend style="padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 500; color: #bdb6a8">Effort</legend>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; border: 1px solid rgba(237, 232, 221, 0.18); border-radius: 10px; overflow: hidden">
+<button type="button" aria-pressed="false" style="min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: #bdb6a8; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13.5px; font-weight: 500; cursor: pointer">Low</button>
+<button type="button" aria-pressed="false" style="min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: #bdb6a8; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13.5px; font-weight: 500; cursor: pointer">Medium</button>
+<button type="button" aria-pressed="true" style="min-height: 44px; padding: 0 6px; border: 0; background: #ede8dd; color: #12110e; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13.5px; font-weight: 600; cursor: pointer">High</button>
+<button type="button" aria-pressed="false" style="min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: #bdb6a8; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13.5px; font-weight: 500; cursor: pointer">Extra high</button>
+<button type="button" aria-pressed="false" style="min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: #bdb6a8; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13.5px; font-weight: 500; cursor: pointer">Max</button>
+</div>
+<span style="font-size: 12.5px; color: #8c8577">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
+</fieldset>
+
+<label for="awake" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer">
+<input id="awake" type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; color: #ede8dd">Keep this computer awake while a session works</span><span style="font-size: 12.5px; color: #8c8577">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span>
+<!-- Setting message, not drawn in this state: when keep-awake can't work (Linux, the session's tool missing: gnome-session-inhibit in a GNOME session, systemd-inhibit elsewhere), one amber line (#e6b450, 12.5px) under the help text, here and wherever keep-awake is shown: "Can’t keep this computer awake: systemd-inhibit isn’t available." (naming the missing tool) Start isn't held by it. -->
+</label>
+
+<dl style="margin: 0; padding-top: 16px; border-top: 1px solid rgba(237, 232, 221, 0.12); display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; font-size: 13.5px">
+<dt style="color: #8c8577">Pushes</dt><dd style="margin: 0; color: #bdb6a8">After every phase</dd>
+<dt style="color: #8c8577">Ends at</dt><dd style="margin: 0; color: #bdb6a8">One PR in each repository that changed, ready for review. Kiln won’t merge.</dd>
+</dl>
+</section>
+</div>
+
+<section aria-labelledby="start-h" style="background: #1b1a16; border: 1px solid rgba(237, 232, 221, 0.12); border-radius: 18px; padding: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 24px 32px; align-items: start; box-sizing: border-box">
+<h2 id="start-h" style="grid-column: 1 / -1; margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Before you start</h2>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14px; color: #bdb6a8; line-height: 1.55">Kiln can’t tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes.</span>
+<label for="refined" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230, 180, 80, 0.55); cursor: pointer">
+<input id="refined" type="checkbox" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e6b450">
+<span style="font-size: 14.5px; color: #ede8dd">These documents have been through requirements refinement</span>
+</label>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14px; font-weight: 600; color: #ede8dd">Starting lets Kiln</span>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: #bdb6a8">
+<li style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 0 10px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg><span>In each repository, commit and push to <span style="font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #ede8dd; white-space: nowrap">feature/customer-returns</span></span></li>
+<li style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 0 10px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 4px"><path d="M3 8.5l3 3 7-7"></path></svg><span>In each repository, open one pull request into its base branch once every phase closes</span></li>
+<li style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 0 10px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="margin-top: 4px"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>Never merge, deploy, or touch other branches</span></li>
+</ul>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
+<button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: #8c8577; border: 1px solid rgba(237, 232, 221, 0.18); width: 100%; cursor: not-allowed">Start</button>
+<span style="font-size: 12.5px; color: #8c8577; line-height: 1.55">Confirm refinement to start.</span>
+<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here with the fields editable and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up storefront’s worktree: <git's message>" (the repository's name in place of storefront, git's error text in place of <git's message>); the terminal prints the same line. -->
+</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
