@@ -1,5 +1,7 @@
 # Phase 3: Proof on real features across repositories
 
+**Closed:** 2026-10-22
+
 **Parent PRD:** docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md
 **Technical design:** docs/changes/kiln-multi-repo-delivery/technical-design.md — relevant sections: "Testing Approach" (AC-PROOF-01)
 
@@ -16,6 +18,7 @@ Any run on Windows (PRD, Out of Scope); publishing a new Kiln release.
 1 (multi-repository delivery and adding a repository); 2 (Stayed in the workspace and its confirmation)
 
 ## Phase-specific notes
+- Results: [Kiln multi-repo proof run results](../../design/kiln-multi-repo-proof-run-results.md).
 - Human action this phase needs: the runs need real GitHub-hosted repositories and `gh` signed in to an account that can open pull requests on them, as in v1's Phase 6.
 
 ## Inherited from Phase 2
