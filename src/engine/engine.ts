@@ -64,6 +64,7 @@ import {
   fetchIfMissing,
   halfMadeMessage,
   isOwnBranchAt,
+  isWithin,
   realPathOfNearestAncestor,
   undoEntry,
   worktreePathFor,
@@ -1653,11 +1654,7 @@ export class Engine {
    * added mid-phase is writable by mode, and for every worktree of the workspace outside both.
    */
   private addDirs(cwd: string): string[] {
-    const inside = (path: string, folder: string) => {
-      const a = comparable(realPathOfNearestAncestor(path));
-      const b = comparable(realPathOfNearestAncestor(folder));
-      return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
-    };
+    const inside = (path: string, folder: string) => isWithin(comparable(realPathOfNearestAncestor(path)), comparable(realPathOfNearestAncestor(folder)));
     const dirs: string[] = [];
     const folder = this.workspaceFolder;
     if (comparable(realPathOfNearestAncestor(cwd)) !== comparable(realPathOfNearestAncestor(folder))) dirs.push(folder);

@@ -289,10 +289,12 @@ async function insideCheckout(git: GitContext, mainCheckoutPath: string, path: s
   const worktrees = await listWorktrees(git, mainCheckoutPath);
   if (!worktrees.ok) return "error";
   const candidate = comparable(realPathOfNearestAncestor(resolve(path)));
-  return worktrees.worktrees.some((worktree) => {
-    const root = comparable(worktree.path);
-    return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep);
-  });
+  return worktrees.worktrees.some((worktree) => isWithin(candidate, comparable(worktree.path)));
+}
+
+/** True when a path is the folder or inside it; both already made comparable. */
+export function isWithin(path: string, folder: string): boolean {
+  return path === folder || path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
 }
 
 /**

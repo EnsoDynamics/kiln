@@ -4,8 +4,8 @@
 
 import { readdirSync, realpathSync } from "node:fs";
 import { request } from "node:http";
-import { join, resolve, sep } from "node:path";
-import { comparable, expandHome, realPathOfNearestAncestor } from "./engine/worktree-setup.js";
+import { join, resolve } from "node:path";
+import { comparable, expandHome, isWithin, realPathOfNearestAncestor } from "./engine/worktree-setup.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
 import { liveInstance } from "./state/instance-lock.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
@@ -109,9 +109,7 @@ function prdStateDirectories(root: string): string[] {
 
 function contains(folder: string, directory: string): boolean {
   if (folder === "") return false;
-  const root = comparable(realPathOfNearestAncestor(resolve(expandHome(folder))));
-  const candidate = comparable(directory);
-  return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep);
+  return isWithin(comparable(directory), comparable(realPathOfNearestAncestor(resolve(expandHome(folder)))));
 }
 
 /**
