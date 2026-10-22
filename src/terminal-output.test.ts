@@ -38,8 +38,8 @@ describe("formatStartFailure", () => {
       "    gh isn't on the PATH.",
       "  Kiln needs the PRD, its technical design and its phase documents. Nothing was started.",
     ]);
-    const problemsOnly = formatStartFailure("Gift cards", "docs/prds/gift-cards", { missingDocuments: [], problems: ["The checkout has uncommitted changes: 3 files."] }, plain);
-    expect(problemsOnly.split("\n")).toEqual(["✗ Can’t start Gift cards.", "    The checkout has uncommitted changes: 3 files.", "  Nothing was started."]);
+    const problemsOnly = formatStartFailure("Gift cards", "docs/prds/gift-cards", { missingDocuments: [], problems: ["The checkout ~/devel/acme-shop has uncommitted changes in 3 files: README.md, a.txt and b.txt."] }, plain);
+    expect(problemsOnly.split("\n")).toEqual(["✗ Can’t start Gift cards.", "    The checkout ~/devel/acme-shop has uncommitted changes in 3 files: README.md, a.txt and b.txt.", "  Nothing was started."]);
   });
 
   it("colors the cross amber and the rest in the mockup's greys on a terminal", () => {

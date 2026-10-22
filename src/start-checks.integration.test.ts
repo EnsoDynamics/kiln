@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findExecutable } from "./platform/helper-process.js";
 import { resolvePrdPath, type PrdLocation } from "./prd-location.js";
 import { documentsFound } from "./engine/snapshot.js";
+import { displayPath } from "./engine/worktree-setup.js";
 import { runStartChecks, startChecksPassed, type Tools } from "./start-checks.js";
 import { FOLDER, PHASES, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
@@ -81,12 +82,15 @@ describe("runStartChecks", () => {
     expect((await check()).missingDocuments).toEqual([{ name: "customer-returns-prd.md", description: "the PRD" }]);
   });
 
-  it("counts uncommitted changes, untracked files included", async () => {
+  it("names the checkout and the changed files, untracked files included", async () => {
+    const checkout = displayPath((await locate()).checkoutRoot);
     writeFileSync(join(repository, "README.md"), "changed\n");
     writeFileSync(join(repository, "new-file.txt"), "new\n");
-    expect((await check()).problems).toEqual(["The checkout has uncommitted changes: 2 files."]);
+    expect((await check()).problems).toEqual([`The checkout ${checkout} has uncommitted changes in 2 files: README.md and new-file.txt.`]);
     unlinkSync(join(repository, "new-file.txt"));
-    expect((await check()).problems).toEqual(["The checkout has uncommitted changes: 1 file."]);
+    expect((await check()).problems).toEqual([`The checkout ${checkout} has uncommitted changes in 1 file: README.md.`]);
+    for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(repository, name), "new\n");
+    expect((await check()).problems).toEqual([`The checkout ${checkout} has uncommitted changes in 4 files: README.md, a.txt, b.txt and 1 more.`]);
   });
 
   it("fails a leaf with no criteria and a dependency on a later phase", async () => {
@@ -130,6 +134,10 @@ describe("runStartChecks", () => {
     git(sandbox, repository, "remote", "remove", "origin");
     const report = await check({ claude: undefined });
     expect(report.missingDocuments.map((document) => document.name)).toEqual(["technical-design.md"]);
-    expect(report.problems).toEqual(["The checkout has uncommitted changes: 1 file.", "claude isn't on the PATH.", "The checkout has no origin remote."]);
+    expect(report.problems).toEqual([
+      `The checkout ${displayPath((await locate()).checkoutRoot)} has uncommitted changes in 1 file: ${prdDirectory}/technical-design.md.`,
+      "claude isn't on the PATH.",
+      "The checkout has no origin remote.",
+    ]);
   });
 });

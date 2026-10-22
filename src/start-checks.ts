@@ -6,6 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseGithubOrigin } from "./github-origin.js";
 import { readPhasePlan, planStartProblems, type PhasePlan } from "./plan/phase-plan.js";
+import { displayPath } from "./engine/worktree-setup.js";
 import { isPhaseFileName } from "./plan/phase-ids.js";
 import { runHelper } from "./platform/helper-process.js";
 import type { PrdLocation } from "./prd-location.js";
@@ -40,6 +41,20 @@ export interface StartCheckReport {
  */
 function documentNames(folderName: string, bareName: string): string[] {
   return [bareName, `${folderName}-${bareName}`];
+}
+
+/** How many changed files the uncommitted-changes line names before "and N more". */
+const CHANGED_FILES_NAMED = 3;
+
+/**
+ * Names the checkout and the first few files, so the person can find what Kiln saw:
+ * "The checkout ~/devel/acme-shop has uncommitted changes in 5 files: a, b, c and 2 more."
+ */
+function uncommittedChangesProblem(checkoutRoot: string, changed: string[]): string {
+  const named = changed.slice(0, CHANGED_FILES_NAMED);
+  const rest = changed.length - named.length;
+  const list = rest > 0 ? `${named.join(", ")} and ${rest} more` : named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named[0];
+  return `The checkout ${displayPath(checkoutRoot)} has uncommitted changes in ${changed.length} ${changed.length === 1 ? "file" : "files"}: ${list}.`;
 }
 
 export function startChecksPassed(report: StartCheckReport): boolean {
@@ -97,8 +112,8 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   if (status.exitCode !== 0) {
     problems.push(`Couldn't read the checkout's status: ${(status.stderr || status.failure || "").trim()}`);
   } else {
-    const changed = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").length;
-    if (changed > 0) problems.push(`The checkout has uncommitted changes: ${changed} ${changed === 1 ? "file" : "files"}.`);
+    const changed = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").map((line) => line.slice(3));
+    if (changed.length > 0) problems.push(uncommittedChangesProblem(location.checkoutRoot, changed));
   }
 
   if (!tools.claude) problems.push("claude isn't on the PATH.");

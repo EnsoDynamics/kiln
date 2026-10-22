@@ -183,7 +183,7 @@ In "Ran … to …", each end follows the rule on its own, and a day shared by b
 | Problem | Its line |
 |---|---|
 | A phase to implement cites no acceptance criteria | "docs/prds/gift-cards/phase-3-returns.md cites no acceptance criteria." |
-| Uncommitted changes in the checkout | "The checkout has uncommitted changes: 3 files." |
+| Uncommitted changes in the checkout | "The checkout ~/devel/acme-shop has uncommitted changes in 5 files: README.md, src/cart.ts, src/gift-card.ts and 2 more." (the first three files `git status` lists) |
 | A dependency on a later phase | "phase-2-refunds.md depends on phase 3, which comes later in the plan." |
 | A dependency on a phase with no document | "phase-2-refunds.md depends on phase 5, which has no phase document." |
 | A plan that doesn't read | "phase-2-refunds.md lists 2c, which has no file." |
