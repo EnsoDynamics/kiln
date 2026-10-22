@@ -1,0 +1,58 @@
+# Design Refinement State — Kiln usage-limit recovery
+
+Started: 2026-10-22   Current pass: 2   Status: In progress
+Branch: wt/kiln-limit-recovery-tdd (this chat's parallel-session worktree)
+Existing code posture: Preserve (source: TD)
+PRD words: at start 2597 · growth baseline 2597
+Last updated: 2026-10-22
+
+## Documents
+| Document | Path |
+|---|---|
+| PRD | docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md |
+| Technical Design | docs/changes/kiln-usage-limit-recovery/technical-design.md |
+| Assumptions | docs/changes/kiln-usage-limit-recovery/assumptions.md |
+| Supporting | docs/changes/kiln-usage-limit-recovery/mockups/ (3 screens); Kiln v1 docs/prds/kiln-v1/ (PRD, technical-design.md, assumptions.md); Kiln multi-repo delivery docs/changes/kiln-multi-repo-delivery/ (settled; its TD's "Seam With Usage-Limit Recovery") |
+
+## Passes
+| Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
+|---|---|---|---|---|---|---|---|
+| 1 | 12 (+1 from conformance) | 12 | 12 | 0 | 0 | 0 | 0 |
+
+## Questions
+| ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
+|---|---|---|---|---|---|---|---|
+| Q1 | 1 | Same account, no row for the stopping limit: usage left? | Technical | HIGH | 65 → 92 | Resolved | TD §Design Decisions, §The Wait |
+| Q2 | 1 | Resume at Needs you after Stayed in the workspace failed | Technical | HIGH | 75 → 95 | Resolved | TD §Resume, §Seam |
+| Q3 | 1 | Waiting screen once the reset passed but still waiting | Business | MEDIUM | 60 → 95 | Resolved | PRD AC-LIMIT-01; TD §Snapshot |
+| Q4 | 1 | Refused on the very first request: transcript exists? | Technical | MEDIUM | 70 → 90 | Resolved | TD §Testing (gate 5), §Open Questions |
+| Q5 | 1 | No resetsAt and a failing reading | Technical | MEDIUM | 70 → 92 | Resolved | TD §The Wait |
+| Q6 | 1 | Same account = email + orgId | Technical | MEDIUM | 70 → 95 | Resolved | TD §Design Decisions, §Data Models |
+| Q7 | 1 | weekly_scoped row vs the session's model family | Technical | MEDIUM | 75 → 92 | Resolved | TD §Design Decisions |
+| Q8 | 1 | Usage-limit Needs you with no Resume | Technical | LOW | 75 → 92 | Resolved | TD §Screens |
+| Q9 | 1 | Reset times rounded to the minute | Technical | LOW | 75 → 95 | Resolved | TD §Screens |
+| Q10 | 1 | Reading when a stop carries limit | Technical | LOW | 85 → 95 | Resolved | TD §The Wait |
+| Q11 | 1 | Terminal wording for Ctrl+C during a wait and the ● line | Technical | LOW | 85 → 95 | Resolved | TD §Command line |
+| Q12 | 1 | Refusal type with no reading row: does another account's reading decide, and does the wait take a first reading before going to Needs you? (from conformance) | Technical | MEDIUM | 60 → 60 | Pending | — |
+| C1 | 1 | Correction: usage parser is extended (kind, scope type, call-start time, orgId) | Technical | MEDIUM | — → 98 | Resolved | TD §Existing Code |
+
+## Question notes
+All pass 1 answers were decided by the orchestrator from discovery's evidence (Q2 from multi-repo AC-OUTSIDE-04; Q6 from `claude auth status --json`, which reports orgId and orgName on 2.1.307); the full answers are in the writer's brief. Folded in one writer run; conformance fixed placement (AC-AUTO-04 and AC-AUTO-05 now state rules the design held).
+
+## Exploration scripts
+| Script | Question | Finding |
+|---|---|---|
+
+## Conflict check
+Pass 1: 2026-10-22 · 21 earlier criteria changed (14 already declared) · 8 Replaces lines written · 0 raised as questions
+Changed after pass 1: AC-LIMIT-01, AC-AUTO-04, AC-AUTO-05
+
+## Noticed, out of scope
+
+## Blockers
+| Blocker | Questions affected | What unblocks it |
+|---|---|---|
+| No Claude account at a usage limit, and no second account in a separate config directory (proof gate 5) | Any question needing Claude Code's real refusal output, a reading after a refusal, or a cross-account resume | Doug runs proof gate 5; until then, answer from the Agent SDK 0.3.302 types and recorded fixtures |
+
+## Next action
+Pass 2: run discovery (Q12 carried first).
