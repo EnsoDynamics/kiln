@@ -20,6 +20,7 @@
     implementing: { circle: "implementing", pill: "red", icon: "spinner" },
     interrupted: { circle: "amber", pill: "amber-outline" },
     needs_you: { circle: "amber", pill: "amber", icon: "warning" },
+    waiting: { circle: "next", pill: "strong-outline", icon: "clock" },
     next: { circle: "next", pill: "strong-outline" },
     planned: { circle: "planned", pill: "dashed" },
   };

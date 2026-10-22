@@ -5,7 +5,9 @@
   // output"): the same layout without the LIVE badge, the live text or the pause, its time
   // stopped at the session's end, and a back link to Needs you (UI-010 item 2). A
   // multi-repository PRD's Commits are grouped by repository, each name with its added-in-phase
-  // label (multi-repo AC-SHOW-01).
+  // label (multi-repo AC-SHOW-01). A phase waiting for usage is served as a stopped one is, its
+  // back link to the waiting screen and its pill styled as Paused is (usage-limit recovery,
+  // technical design "Screens").
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
@@ -23,7 +25,8 @@
   let { snapshot, phaseId, connected, now, lastSeenAt }: { snapshot: Snapshot; phaseId: string; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const { config, router } = viewContext();
 
-  const stopped = $derived(snapshot.needsYou?.phaseId === phaseId ? snapshot.needsYou : undefined);
+  const waiting = $derived(snapshot.waiting?.phaseId === phaseId ? snapshot.waiting : undefined);
+  const stopped = $derived(snapshot.needsYou?.phaseId === phaseId ? snapshot.needsYou : waiting);
   const current = $derived(stopped ? undefined : snapshot.current);
   const isPr = $derived(phaseId === PR_ID);
   const row = $derived(snapshot.phases.find((phase) => phase.id === phaseId));
@@ -56,11 +59,11 @@
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId)} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
   <section class="phase">
-    <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{stopped ? "Needs you" : "All phases"}</a>
+    <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
-      <PhaseCircle id={phaseId} tone={live ? "implementing" : "amber"} />
+      <PhaseCircle id={phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{row?.title ?? ""}</h2>
-      {#if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>Implementing</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
+      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Interrupted</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>Implementing</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>Claude Code</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>

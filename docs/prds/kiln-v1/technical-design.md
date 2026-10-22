@@ -79,6 +79,8 @@ Every `git`, `gh` and helper `claude` call Kiln makes (everything except a sessi
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Setup at Start (setup is done when every repository's is), §Named after Start (names are added before a phase starts), §The Pull Requests (the engine loop's check before the session, per repository)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (a refused session's failed check records a wait; the reconcile at `kiln run` waits again)
+
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Pseudocode:
 
 ```
@@ -191,6 +193,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the resume prompt after the person's Resume, with its note)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the opening after a usage limit)
+
 Each is a template file; `<…>` are filled from the record. Everything in them is something a person could type (AC-RUN-06). `<phase doc>` and `<PRD file>` are paths relative to the worktree root (`docs/prds/customer-returns/phase-2b-store-credit.md`), never main-checkout paths, which would send the session to files outside its worktree. After a session splits its leaf, the fresh-session prompt's `<phase doc>` is its judged leaf's document and the resume prompt's stays the launched leaf's ([Which phase a split session is shown as](#snapshot)).
 
 **Phase session (AC-RUN-03, AC-RUN-05):**
@@ -293,6 +297,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Stayed in the workspace (no resume after work outside the workspace)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (Kiln resumes a session that ended on its own when a usage limit refused it)
+
 **Detecting sleep.** Kiln reads the operating system's own record of suspend, not the difference between two clocks (Node's monotonic clock counts sleep on macOS but not on Linux):
 
 - **macOS:** `sysctl -n kern.sleeptime kern.waketime`. A non-zero wake time different from the last reading means the computer slept from `sleeptime` to `waketime`.
@@ -372,6 +378,8 @@ If any step fails, a timeout included, the feature goes back to not started (a s
 
 ## Keep-awake
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (the hold is taken during a wait too)
+
 Kiln holds a keep-awake while a session's process is running and keep-awake is on, and releases it whenever none is: at Needs you, paused, complete, and on exit (AC-KEEP-06). Turning the setting off or on applies at once.
 
 - **Windows:** a child PowerShell process that calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` and then waits on Kiln's PID (`Wait-Process`), so the hold ends if Kiln dies. That flag prevents idle sleep only; closing the lid does what the power plan says, which by default is sleep (AC-KEEP-07).
@@ -405,6 +413,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Found beside the PRD's repository, §The command (start checks for each named repository; a second command)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Command line (the wait's lines)
+
 `kiln run <PRD directory or PRD file>` is the only command. Kiln resolves the path from the current directory and finds the checkout the path is in with `git -C <the path's directory> rev-parse --show-toplevel`. The PRD directory is the path itself, or its parent when the path is a file, and must sit directly under `docs/prds/` or `docs/changes/` at that checkout's root. Run from inside Kiln's worktree, that root is the worktree folder, so Kiln finds the main checkout separately: the first `worktree` entry of `git -C <the path's directory> worktree list --porcelain`, then `git -C <that entry> rev-parse --show-toplevel`. In an ordinary repository the entry is the main working tree; in a submodule it is the submodule's git directory, `<superproject>/.git/modules/<name>` (found on Git 2.50.1 while building Phase 1), and the second call turns it into the submodule's working tree. The parent of `git rev-parse --git-common-dir` isn't used for the same reason. The repository name (AC-LOOK-05), the state directory's key and the PRD key come from the main checkout, whichever checkout the path is in, so the main checkout and the worktree reach the same record ([Kiln's state on disk](#kilns-state-on-disk)). A file path must be that directory's `<folder name>-prd.md`, whether or not the file exists. The PRD is always `<folder name>-prd.md`; any other `*-prd.md` there is ignored, and when it is absent the start checks list it among what is missing, as the terminal mockup draws. Any other path prints one line naming the problem, then usage, and exits non-zero: no path, a path that doesn't exist (other than a missing `<folder name>-prd.md` in an existing PRD directory), a path outside a Git repository, any other folder (including `docs/prds/` itself, the "several PRDs" case of AC-START-01) and any other file. Start-check failures print what is missing or failed and where Kiln looked, one line per problem in the terminal mockup's frame (missing documents as drawn, every other problem as UI-010 gives), and exit non-zero. Phase event lines are `<local time> <phase id> <title> <started | done · pushed <sha> | stopped | interrupted | resumed | opened #<n>>`, as in the terminal mockup; after a session splits its leaf, all but the started line name its judged leaf ([Snapshot](#snapshot)). Kiln needs `claude`, `git` and `gh` on the PATH, `gh` signed in, and `origin` on GitHub; a missing one is reported among the start checks. "`gh` signed in" means `gh auth status --hostname github.com` exits 0. "`origin` on GitHub" means `git remote get-url origin` parses as `https://[user@]github.com/<owner>/<name>[.git]`, `git@github.com:<owner>/<name>[.git]` or `ssh://git@github.com[:port]/<owner>/<name>[.git]`, host matched case-insensitively; anything else, GitHub Enterprise hosts and SSH host aliases included, fails with "origin isn't on GitHub: <url>", since the PRD covers GitHub-hosted repositories only. Kiln records `<owner>/<name>` as the record's `repository.github`, which every `gh` call passes ([Dependencies](#dependencies)). It never runs `gh repo set-default`, which writes Git config (AC-GIT-01).
 
 ### HTTP API
@@ -412,6 +422,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories, the outside-workspace confirmation)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`POST /api/resume`)
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`resumeAfterUsageLimit`; Resume now during a wait)
 
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
@@ -446,6 +458,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request; work outside the workspace on Needs you)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume, §Snapshot, §Screens (`resumeOffered` and Resume on Needs you)
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Snapshot, §Screens (the `waiting` state and screen, the limit on Needs you)
 
 What every screen renders from. Outline:
 
@@ -524,6 +538,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 
 ## Account and Usage
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
+
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
 - **When Claude Code isn't signed in**, `account.error` carries the amber line UI-010 gives in place of the email, plan and limits. Start isn't held by it, and nothing waits for a sign-in: a session that then fails comes to Needs you like any other stop (UI-005).
 - **Usage:** `claude -p "/usage" --output-format stream-json --verbose --no-session-persistence`, run with stdin closed (left open, `claude -p` waits 3 seconds for piped input first) and with the PRD's state directory as its working directory so no project's hooks or settings load. Kiln shows `usage_report.rate_limits.limits[]` in the server's order, never re-sorted or re-graded, and labels each row from its `kind`: `session` is "5-hour window", `weekly_all` is "Weekly", and `weekly_scoped` is "Weekly · <name>", where the name is the row's `scope.model.display_name` ("Fable"), else its `scope.surface.display_name`. A `weekly_scoped` row with neither name, and a row of any other `kind`, is left out, not an error, since the server can add meters without a client release. Those are the labels on Running and Paused; Documents found's one line uses the short forms "5-hour", "weekly" and the name alone: "Used: 5-hour 13% · weekly 22% · Fable 0%", which never turns amber (UI-001). An empty list shows no limits and no message. `nearLimit` is `percent >= 80` (UI-001).
@@ -540,6 +556,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository; the outside-workspace confirmations and an interrupted stop)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (schema 3; a run the person resumed, with its note)
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (the wait, `limitRefusal`, `limit_resume`, the setting)
 
 Root: `$XDG_STATE_HOME/kiln`, else `~/.local/state/kiln`, on macOS and Linux alike; `%LOCALAPPDATA%\kiln` on Windows, readable by its owner only. Never inside the repository (AC-GIT-03).
 

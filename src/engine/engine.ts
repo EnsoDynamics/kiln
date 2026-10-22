@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
+import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, effortFor, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
@@ -18,6 +19,7 @@ import { platformSleepReader, type SleepReader } from "../platform/sleep-reading
 import {
   launchArguments,
   modelNameFromId,
+  eventsOfRun,
   readOutputLines,
   resumeArguments,
   runLastOutputAt,
@@ -34,7 +36,9 @@ import {
   type PhasePromptValues,
   type PromptRepository,
 } from "../session/prompts.js";
+import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
+import { judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
 import {
   EFFORT_LEVELS,
   PR_PHASE_KEY,
@@ -44,7 +48,9 @@ import {
   writeSessionRecord,
   type CheckResult,
   type Effort,
+  type AccountIdentity,
   type InterruptCause,
+  type LimitRefusal,
   type PrdRecord,
   type PullRequestFacts,
   type RepositoryEntry,
@@ -53,6 +59,7 @@ import {
   type Settings,
   type PhaseStop,
   type StopKind,
+  type StopLimit,
 } from "../state/records.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
@@ -99,8 +106,10 @@ export type TerminalEvent =
       at: Date;
       phaseId: string;
       title: string;
-      event: "started" | "stopped" | "done" | "interrupted" | "resumed";
+      event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting";
       pushedSha?: string;
+      /** A wait's limit: its label and reset (usage-limit recovery AC-LIMIT-05). */
+      limit?: { label: string; resetsAt?: string };
       /** A multi-repository PRD's Done: each repository the phase pushed to, as the done line lists them. */
       pushes?: { name: string; sha: string }[];
     }
@@ -108,8 +117,9 @@ export type TerminalEvent =
   | {
       kind: "pull_request";
       at: Date;
-      event: "started" | "stopped" | "opened" | "interrupted" | "resumed";
+      event: "started" | "stopped" | "opened" | "interrupted" | "resumed" | "waiting";
       number?: number;
+      limit?: { label: string; resetsAt?: string };
       /** A multi-repository PRD's pull requests, in list order. */
       opened?: { repository: string; number: number }[];
     }
@@ -171,6 +181,12 @@ const STOP_WAIT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 const SLEEP_CHECK_MS = 10_000;
 const WINDOWS_EXIT_GRACE_MS = 1_000;
+/** How long a resume waits for its account reading (usage-limit recovery "Resume"). */
+const RESUME_READING_MS = 30_000;
+/** A reading is taken this long after a limit's reset time, since the server's window may roll over a little late. */
+const RESET_READING_DELAY_MS = 60_000;
+/** The longest a Node timer waits; a later reset is re-armed. */
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
 /** The longest note Resume takes (usage-limit recovery technical design, "Prompts"). */
 export const NOTE_LIMIT = 4_000;
 
@@ -205,9 +221,13 @@ export type UnderwayDecision =
   | { kind: "paused"; beforePhaseKey: string; doneFirst?: DoneFirst }
   | { kind: "complete"; doneFirst?: DoneFirst }
   | { kind: "resume"; phaseKey: string; sessionId: string }
+  | { kind: "waiting"; phaseKey: string; limit: { label: string; resetsAt?: string }; doneFirst?: DoneFirst }
   | { kind: "setup_failed"; error: string };
 
-type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" } | { kind: "stopping" };
+type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" } | { kind: "waiting" } | { kind: "stopping" };
+
+/** A resume Kiln does on someone's word: the person's Resume or Resume now, or the end of a wait. */
+type ResumeRequest = { phaseKey: string; cause: "person_resume" | "limit_resume"; note?: string };
 
 export class Engine {
   readonly record: PrdRecord;
@@ -254,8 +274,12 @@ export class Engine {
   private control: SessionControl | undefined;
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
-  /** A Resume the person pressed whose check failed: the loop resumes that stopped session next, with any note. */
-  private personResume: { phaseKey: string; note?: string } | undefined;
+  /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
+  private personResume: ResumeRequest | undefined;
+  /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
+  private waitWatch: { phaseKey: string; readings: number; resetTimer?: NodeJS.Timeout } | undefined;
+  /** The last account reading the engine saw, so each new one is handled once. */
+  private lastReading: AccountView | undefined;
   /** The phase whose check is running, for the line a stop prints. */
   private activeCheck: string | undefined;
   private readonly sleepReader: SleepReader;
@@ -306,9 +330,17 @@ export class Engine {
     return model === undefined ? this.fieldErrors : { ...this.fieldErrors, model };
   }
 
-  /** When the model list loads, a saved effort the model doesn't take moves to one it does (UI-011). */
+  /**
+   * When the model list loads, a saved effort the model doesn't take moves to one it does
+   * (UI-011); when a new account reading arrives, a wait or a usage-limit stop takes it in.
+   */
   private modelsChanged(): void {
     this.matchEffortToModel();
+    const reading = this.options.claude?.account;
+    if (reading !== undefined && reading !== this.lastReading) {
+      this.lastReading = reading;
+      this.readingArrived(reading);
+    }
     this.changed();
   }
 
@@ -502,6 +534,7 @@ export class Engine {
     const { record } = this;
     if (!this.isUnderway || record.completedAt) return refuse("Nothing is running to pause after.");
     if (this.stoppedPhaseKey() !== undefined) return refuse("Kiln is stopped at Needs you, which offers no pause.");
+    if (this.waitingPhaseKey() !== undefined) return refuse("Kiln is waiting for usage, which offers no pause.");
     if (record.pause.activeSince !== undefined) return refuse("Kiln is already paused.");
     if (record.pause.requestedAt !== undefined) return refuse("A pause is already requested.");
     if (this.current?.phaseKey === PR_PHASE_KEY && this.current.session !== undefined) return refuse("Pause after this phase isn't offered during the pull-request session.");
@@ -514,6 +547,7 @@ export class Engine {
   cancelPause(): CommandResult {
     if (this.record.pause.activeSince !== undefined) return refuse("Kiln is paused; press Start to go on.");
     if (this.record.pause.requestedAt === undefined) return refuse("No pause is requested.");
+    if (this.waitingPhaseKey() !== undefined) return refuse("Kiln is waiting for usage; the pause stays pending through the wait.");
     delete this.record.pause.requestedAt;
     this.save();
     return { ok: true };
@@ -544,8 +578,19 @@ export class Engine {
    * stays set, so Resume and Check again are refused (AC-RESUME-02).
    *
    *   await engine.resume({ note: "Renumber the migration to 0043, then carry on." })  // { ok: true }
+   *
+   * During a wait it is Resume now (AC-LIMIT-02), which takes no note: the wait's check first,
+   * then the same session on whichever account is signed in, without waiting for a reading.
    */
   async resume(body: { note?: unknown } = {}): Promise<CommandResult> {
+    const waiting = this.waitingPhaseKey();
+    if (waiting !== undefined) {
+      // An empty note counts as none.
+      if (body.note !== undefined && !(typeof body.note === "string" && body.note.trim() === "")) return refuse("Resume now takes no note.");
+      if (this.checking || this.driving) return refuse("Kiln is already checking.");
+      await this.resumeWait(waiting, "person_resume");
+      return { ok: true };
+    }
     const key = this.stoppedPhaseKey();
     if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
     if (this.checking || this.driving) return refuse("Kiln is already checking.");
@@ -564,7 +609,7 @@ export class Engine {
         this.changed();
       }
     }
-    if (verdict === "still_stopped" && !this.stopping) this.personResume = { phaseKey: key, ...(note === "" ? {} : { note }) };
+    if (verdict === "still_stopped" && !this.stopping) this.personResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
     this.kick();
     return { ok: true };
   }
@@ -654,6 +699,13 @@ export class Engine {
     if (change.model !== undefined) this.matchEffortToModel();
     this.save();
     if (change.keepAwake !== undefined) this.updateKeepAwake();
+    // Switched off during a wait, the phase goes to Needs you; once the end of the wait's resume
+    // has begun, its failing check is that stop instead (usage-limit recovery AC-AUTO-04).
+    const waiting = this.waitingPhaseKey();
+    if (change.resumeAfterUsageLimit === false && waiting !== undefined && !this.checking) {
+      const wait = this.record.phases[waiting]!.wait!;
+      this.waitToStop(waiting, wait.checks, wait.checkedAt);
+    }
     // Only a base change makes the view say Kiln is checking the base on origin (UI-010 item 4).
     if (fixedFields.length > 0) await this.runFieldChecks(change.baseBranch !== undefined || change.bases !== undefined);
     this.changed();
@@ -738,6 +790,11 @@ export class Engine {
     }
     if (record.startedAt === undefined) return { text: "Kiln stopped.", grey: "Nothing was started." };
     if (record.completedAt) return { text: "Kiln stopped.", grey: `${this.paths.featureName} is complete.` };
+    const waiting = this.waitingPhaseKey();
+    if (waiting !== undefined) {
+      const subject = waiting === PR_PHASE_KEY ? "the pull-request session" : `phase ${this.judgedId(waiting)}`;
+      return { text: `Kiln stopped while ${subject} waited for usage.`, grey: "kiln run checks it and waits again." };
+    }
     const stopped = this.stoppedPhaseKey();
     if (stopped !== undefined) {
       const subject = stopped === PR_PHASE_KEY ? "The pull request" : `Phase ${this.judgedId(stopped)}`;
@@ -788,12 +845,17 @@ export class Engine {
     this.offClaude?.();
     if (this.sleepTimer) clearInterval(this.sleepTimer);
     this.sleepTimer = undefined;
+    this.unwatchWait();
     this.updateKeepAwake();
   }
 
-  /** Keep-awake is held while a session's process runs and the setting is on, and released otherwise. */
+  /**
+   * Keep-awake is held while a session's process runs or a wait is recorded and the setting is
+   * on, and released otherwise (usage-limit recovery AC-AUTO-03).
+   */
   private updateKeepAwake(): void {
-    const on = !this.closed && this.stopping === undefined && this.record.settings.keepAwake && this.current?.processRunning === true;
+    const working = this.current?.processRunning === true || this.waitingPhaseKey() !== undefined;
+    const on = !this.closed && this.stopping === undefined && this.record.settings.keepAwake && working;
     this.options.keepAwake?.set(on);
   }
 
@@ -816,6 +878,11 @@ export class Engine {
         const sleeps = await this.sleepReader.next();
         if (sleeps.length === 0) return;
         this.lastWakeAt = Date.now();
+        // During a wait, waking asks for a reading, and the reset reading is armed again (AC-AUTO-03).
+        if (this.waitWatch !== undefined) {
+          this.armResetReading();
+          this.askReading();
+        }
         const detectedAt = this.now().toISOString();
         const session = this.current?.session;
         const runIndex = (session?.runs.length ?? 0) - 1;
@@ -829,11 +896,12 @@ export class Engine {
     return this.sleepReading;
   }
 
-  private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed"): void {
-    if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event });
+  private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed" | "stopped" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+    const extra = limit === undefined ? {} : { limit };
+    if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event, ...extra });
     else {
       const judged = this.judgedId(phaseKey);
-      this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event });
+      this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event, ...extra });
     }
   }
 
@@ -873,8 +941,17 @@ export class Engine {
     if (record.completedAt) return { kind: "complete" };
 
     let doneFirst: DoneFirst | undefined;
-    const stopped = this.stoppedPhaseKey();
-    const latest = stopped === undefined ? this.latestSessionOverall() : undefined;
+    const waiting = this.waitingPhaseKey();
+    if (waiting !== undefined) {
+      // A wait reconciles like a stop: its check, then the wait again (AC-AUTO-03).
+      const verdict = await this.recheckWait(waiting, "restart");
+      if (verdict === "complete") return { kind: "complete" };
+      if (verdict === "stopped" || verdict === "stopping") return { kind: "needs_you", phaseKey: waiting, again: false };
+      if (verdict === "failed") return { kind: "waiting", phaseKey: waiting, limit: this.waitLimit(waiting) };
+      doneFirst = { phaseId: this.judgedId(waiting), byPerson: true };
+    }
+    const stopped = doneFirst === undefined ? this.stoppedPhaseKey() : undefined;
+    const latest = stopped === undefined && doneFirst === undefined ? this.latestSessionOverall() : undefined;
     if (stopped !== undefined) {
       const kind = record.phases[stopped]!.stop!.kind;
       const verdict = await this.recheckStop(stopped);
@@ -906,6 +983,7 @@ export class Engine {
           const verdict = await this.judgeEndedSession(latest.phaseKey, false);
           if (verdict.kind === "complete") return { kind: "complete" };
           if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
+          if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: latest.phaseKey, limit: this.waitLimit(latest.phaseKey) };
           if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
         }
       }
@@ -954,13 +1032,18 @@ export class Engine {
     for (;;) {
       if (this.stopping || !this.isUnderway || record.completedAt) return;
       if (this.personResume !== undefined) {
-        const { phaseKey, note } = this.personResume;
+        const request = this.personResume;
         this.personResume = undefined;
-        await this.resumeSession(phaseKey, { ...(note === undefined ? {} : { note }) });
-        if ((await this.settleSession(phaseKey)).kind !== "done") return;
+        await this.resumeSession(request.phaseKey, request);
+        if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
         continue;
       }
       if (this.stoppedPhaseKey() !== undefined) return;
+      // No other phase starts during a wait; its readings, not the loop, end it.
+      if (this.waitingPhaseKey() !== undefined) {
+        this.watchWait();
+        return;
+      }
       if (this.pendingResume !== undefined) {
         const key = this.pendingResume;
         this.pendingResume = undefined;
@@ -1080,24 +1163,40 @@ export class Engine {
    * pressed Resume for (usage-limit recovery AC-RESUME-02, 03): the opening for a session that
    * ended on its own, or an interruption's after multi-repo delivery's interrupted Needs you; any
    * note first, then AC-OUTSIDE-02's prompt while Stayed in the workspace fails (multi-repo
-   * AC-OUTSIDE-04). Its stop, and `checking`, are cleared as the run starts.
+   * AC-OUTSIDE-04). The end of a wait is the same, with `limit_resume` (usage-limit recovery
+   * AC-AUTO-02); after a usage limit the opening says so. Before any of these, the account is
+   * read again (awaited, 30 seconds at most) and the run records it. Its stop or wait, and
+   * `checking`, are cleared as the run starts.
    */
-  private async resumeSession(phaseKey: string, person?: { note?: string }): Promise<void> {
+  private async resumeSession(phaseKey: string, person?: ResumeRequest): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
     await this.stopLiveProcess(session);
     if (this.stopping) return;
     const facts = this.record.phases[phaseKey]!;
+    const account = person === undefined ? undefined : await this.readAccountBeforeResume();
+    if (this.stopping) return;
+    // Switched off after the end of a wait's check failed and before its run starts: that stop, nothing resumed (AC-AUTO-04).
+    if (person?.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
+      this.waitToStop(phaseKey, facts.wait.checks, facts.wait.checkedAt);
+      this.checking = false;
+      this.changed();
+      return;
+    }
     const runIndex = session.runs.length - 1;
     const run = session.runs[runIndex]!;
     const endedOnItsOwn = person !== undefined && facts.stop?.interrupted === undefined;
+    const refusal = person === undefined ? undefined : run.limitRefusal;
     const recorded = run.interruptedBy !== undefined && run.interruptedAt !== undefined;
     const time = endedOnItsOwn ? (run.endedAt ?? run.startedAt) : recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
-    const outsideFailed = person !== undefined && facts.stop!.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
+    const checks = facts.stop?.checks ?? facts.wait?.checks ?? [];
+    const outsideFailed = person !== undefined && checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
     const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt : undefined;
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
+    const label = facts.stop?.limit?.label ?? refusal?.label;
     const prompt = resumePrompt({
+      ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
       ...(phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
@@ -1105,30 +1204,67 @@ export class Engine {
       ...(person?.note === undefined ? {} : { note: person.note }),
       ...(outside === undefined ? {} : { outside }),
     });
-    this.emitSessionEvent(phaseKey, "resumed");
-    // The person's stop ends as the run starts, and with it the hold on Resume and Check again.
+    if (!person) this.emitSessionEvent(phaseKey, "resumed");
+    // The stop or wait ends as the run starts, and with it the hold on Resume, Resume now and Check
+    // again; the end of a wait switched off by then is that stop instead, and nothing runs (AC-AUTO-04).
     const started = person
       ? () => {
+          if (person.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
+            this.waitToStop(phaseKey, facts.wait.checks, facts.wait.checkedAt);
+            this.checking = false;
+            this.changed();
+            return false;
+          }
+          this.emitSessionEvent(phaseKey, "resumed");
           delete facts.stop;
+          if (facts.wait !== undefined) {
+            delete facts.wait;
+            this.unwatchWait();
+          }
           this.checking = false;
-          this.save();
+          return true;
         }
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
     const args = resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
-    await this.runProcess(phaseKey, session, args, prompt, person ? "person_resume" : "resume", cwd, person?.note, started);
+    await this.runProcess(phaseKey, session, args, prompt, person?.cause ?? "resume", cwd, person?.note, started, account);
   }
 
-  /** Runs one process of a session, holding keep-awake while it runs and reading sleep around it; `started` runs once it is the current phase's. */
-  private async runProcess(phaseKey: string, session: SessionRecord, args: string[], prompt: string, cause: SessionRun["cause"], cwd: string, note?: string, started?: () => void): Promise<void> {
+  /**
+   * The account and usage read again just before a resume (usage-limit recovery "Resume"),
+   * awaited for 30 seconds at most: the account it found signed in, which the run records.
+   */
+  private async readAccountBeforeResume(): Promise<AccountIdentity | undefined> {
+    const claude = this.options.claude;
+    if (!claude) return undefined;
+    const returned = await raceTimeout(claude.refreshAccount(), RESUME_READING_MS);
+    const reading = claude.account;
+    return returned && reading !== undefined ? readingAccount(reading) : undefined;
+  }
+
+  /**
+   * Runs one process of a session, holding keep-awake while it runs and reading sleep around it;
+   * `started` runs just before it becomes the current phase's, and returning false stops it there.
+   */
+  private async runProcess(
+    phaseKey: string,
+    session: SessionRecord,
+    args: string[],
+    prompt: string,
+    cause: SessionRun["cause"],
+    cwd: string,
+    note?: string,
+    started?: () => boolean,
+    account?: AccountIdentity,
+  ): Promise<void> {
     if (this.stopping) return;
     this.watchSleep();
     await this.readSleep(true);
-    if (this.stopping) return;
+    if (this.stopping || started?.() === false) return;
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
     this.interruptedKey = undefined;
-    started?.();
+    if (started) this.save();
     this.updateKeepAwake();
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
@@ -1141,6 +1277,7 @@ export class Engine {
       prompt,
       cause,
       ...(note === undefined ? {} : { note }),
+      ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
       now: this.now,
@@ -1249,6 +1386,7 @@ export class Engine {
           this.complete(check.pullRequests!, byPerson);
           return { kind: "complete" };
         }
+        if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks, check.stayed.passed);
         this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", check.checks);
         this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
         return { kind: "stopped" };
@@ -1259,6 +1397,7 @@ export class Engine {
         await this.recordDone(phaseKey, outcome, byPerson);
         return { kind: "done", judgedId: outcome.judgedLeafId };
       }
+      if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks, outcome.stayed.passed);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
       this.emit({ kind: "phase", at: this.now(), phaseId: outcome.judgedLeafId, title: this.titleOf(outcome.judgedLeafId), event: "stopped" });
       return { kind: "stopped" };
@@ -1464,12 +1603,14 @@ export class Engine {
     this.save();
   }
 
-  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"]): void {
+  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
     const at = this.now().toISOString();
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
-    facts.stop = { kind, at, checks, checkedAt: at, ...(interrupted === undefined ? {} : { interrupted }) };
+    facts.stop = { kind, at, checks, checkedAt: checkedAt ?? at, ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
+    // The account card shows a reading taken after the refusal (usage-limit recovery AC-LIMIT-03).
+    if (limit !== undefined) this.askReading();
   }
 
   private updateStop(phaseKey: string, checks: CheckResult[]): void {
@@ -1513,6 +1654,270 @@ export class Engine {
     if (key === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
     else this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "stopped" });
     return { kind: "plan_stop", phaseKey: key };
+  }
+
+
+  // ---- Waiting out a usage limit (usage-limit recovery technical design, "The Wait") ------
+
+  /** The phase waiting for usage, if any. */
+  waitingPhaseKey(): string | undefined {
+    return Object.entries(this.record.phases).find(([, facts]) => facts.wait !== undefined)?.[0];
+  }
+
+  /**
+   * The refused run a wait or a usage-limit stop is about: the wait's own run, or the stopped
+   * session's latest run.
+   */
+  refusedRun(phaseKey: string): { session: SessionRecord; runIndex: number; refusal: LimitRefusal } | undefined {
+    const facts = this.record.phases[phaseKey];
+    if (!facts) return undefined;
+    const session = facts.wait ? this.sessionRecord(phaseKey, facts.wait.sessionId) : this.latestSession(phaseKey);
+    const runIndex = facts.wait ? facts.wait.run : (session?.runs.length ?? 0) - 1;
+    const refusal = session?.runs[runIndex]?.limitRefusal;
+    return session && refusal ? { session, runIndex, refusal } : undefined;
+  }
+
+  /** A wait's limit as its terminal lines name it. */
+  private waitLimit(phaseKey: string): { label: string; resetsAt?: string } {
+    const refusal = this.refusedRun(phaseKey)?.refusal;
+    return { label: refusal?.label ?? UNKNOWN_LIMIT_LABEL, ...(refusal?.resetsAt === undefined ? {} : { resetsAt: refusal.resetsAt }) };
+  }
+
+  /**
+   * A session that ended on its own refused by a usage limit, its check failed (AC-AUTO-01,
+   * AC-AUTO-05): Needs you when Kiln's own resume was refused again by the same limit on the same
+   * account; a wait while the setting is on, the session stayed in the workspace and its
+   * transcript is there; otherwise Needs you with the limit's facts.
+   */
+  private settleRefused(phaseKey: string, session: SessionRecord, runIndex: number, checks: CheckResult[], stayedPassed: boolean): Verdict {
+    const run = session.runs[runIndex]!;
+    const limit = stopLimit(run.limitRefusal!);
+    const kind: StopKind = phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check";
+    if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex)) {
+      this.recordStop(phaseKey, kind, checks, undefined, { ...limit, refusedAgainAt: run.startedAt });
+      this.emitSessionEvent(phaseKey, "stopped");
+      return { kind: "stopped" };
+    }
+    if (this.record.settings.resumeAfterUsageLimit && stayedPassed && !this.transcriptMissing(session)) {
+      this.recordWait(phaseKey, session, runIndex, checks);
+      return { kind: "waiting" };
+    }
+    this.recordStop(phaseKey, kind, checks, undefined, limit);
+    this.emitSessionEvent(phaseKey, "stopped");
+    return { kind: "stopped" };
+  }
+
+  /**
+   * Kiln's own resume was refused before the session got any response, by the same limit on the
+   * same account as the run it resumed (AC-AUTO-05): a type missing on both counts as equal, an
+   * unknown account as the same.
+   */
+  private refusedAgain(session: SessionRecord, runIndex: number): boolean {
+    const run = session.runs[runIndex]!;
+    const previous = session.runs[runIndex - 1]?.limitRefusal;
+    if (previous === undefined || run.limitRefusal === undefined) return false;
+    if (eventsOfRun(this.options.stateDirectory, session, runIndex).some((saved) => isModelResponse(saved.event))) return false;
+    return sameAccount(run.account, previous.account) && run.limitRefusal.rateLimitType === previous.rateLimitType;
+  }
+
+  /** Records the wait, prints its line, and only then asks for a reading. */
+  private recordWait(phaseKey: string, session: SessionRecord, runIndex: number, checks: CheckResult[]): void {
+    const facts = this.record.phases[phaseKey]!;
+    const at = this.now().toISOString();
+    facts.wait = { since: at, sessionId: session.sessionId, run: runIndex, checks, checkedAt: at };
+    this.save();
+    this.readStoppedCommits(phaseKey);
+    this.emitSessionEvent(phaseKey, "waiting", this.waitLimit(phaseKey));
+    this.watchWait();
+  }
+
+  /**
+   * Turns the wait into Needs you (the setting switched off, a check that fails Stayed in the
+   * workspace, a reading with nothing to wait for): the check's results, `at` now, the limit
+   * from the refusal.
+   */
+  private waitToStop(phaseKey: string, checks: CheckResult[], checkedAt?: string): void {
+    const facts = this.record.phases[phaseKey]!;
+    const refusal = this.refusedRun(phaseKey)?.refusal;
+    delete facts.wait;
+    this.unwatchWait();
+    this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", checks, undefined, refusal ? stopLimit(refusal) : undefined, checkedAt);
+    this.emitSessionEvent(phaseKey, "stopped");
+    this.updateKeepAwake();
+  }
+
+  /**
+   * The wait's check: at `kiln run` (`restart`), at the end of a wait (`limit_resume`) or at
+   * Resume now (`person_resume`). A pass is Done, finished by the person. A failure keeps the
+   * wait, with these results, unless the session worked outside the workspace, its transcript
+   * is gone, or (except at Resume now) the setting is off: then it is Needs you.
+   */
+  private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping"> {
+    const facts = this.record.phases[phaseKey]!;
+    let checks: CheckResult[];
+    let stayedPassed: boolean;
+    if (phaseKey === PR_PHASE_KEY) {
+      const check = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (this.stopping) return "stopping";
+      if (check.passed) {
+        delete facts.wait;
+        this.unwatchWait();
+        this.complete(check.pullRequests!, true);
+        this.updateKeepAwake();
+        return "complete";
+      }
+      checks = check.checks;
+      stayedPassed = check.stayed.passed;
+    } else {
+      const outcome = await this.doneCheck(phaseKey);
+      if (this.stopping) return "stopping";
+      if (outcome.passed) {
+        delete facts.wait;
+        this.unwatchWait();
+        await this.recordDone(phaseKey, outcome, true);
+        this.updateKeepAwake();
+        return "done";
+      }
+      checks = outcome.checks;
+      stayedPassed = outcome.stayed.passed;
+    }
+    const session = this.latestSession(phaseKey);
+    const settingOff = mode !== "person_resume" && !this.record.settings.resumeAfterUsageLimit;
+    if (!stayedPassed || settingOff || (session !== undefined && this.transcriptMissing(session))) {
+      this.waitToStop(phaseKey, checks);
+      return "stopped";
+    }
+    facts.wait!.checks = checks;
+    facts.wait!.checkedAt = this.now().toISOString();
+    this.save();
+    this.readStoppedCommits(phaseKey);
+    // A restarted wait keeps nothing derived from earlier readings.
+    if (mode === "restart") this.unwatchWait();
+    return "failed";
+  }
+
+  /**
+   * Resume now, or the end of a wait: `checking` is held from here until the resumed run starts
+   * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
+   */
+  private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+    this.checking = true;
+    this.changed();
+    let verdict: Awaited<ReturnType<Engine["recheckWait"]>> | undefined;
+    try {
+      verdict = await this.recheckWait(phaseKey, cause);
+    } finally {
+      if (verdict !== "failed" || this.stopping) {
+        this.checking = false;
+        this.changed();
+      }
+    }
+    if (verdict === "failed" && !this.stopping) this.personResume = { phaseKey, cause };
+    this.kick();
+  }
+
+  /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
+  private watchWait(): void {
+    const key = this.waitingPhaseKey();
+    if (key === undefined || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
+    this.unwatchWait();
+    this.waitWatch = { phaseKey: key, readings: 0 };
+    this.watchSleep();
+    this.updateKeepAwake();
+    this.armResetReading();
+    this.askReading();
+    this.changed();
+  }
+
+  private unwatchWait(): void {
+    if (this.waitWatch?.resetTimer) clearTimeout(this.waitWatch.resetTimer);
+    this.waitWatch = undefined;
+  }
+
+  /**
+   * A reading at the limit's reset time plus 60 seconds, armed from the wall clock, since a
+   * timer doesn't count time asleep; re-armed until the reset when that is beyond one timer's reach.
+   */
+  private armResetReading(): void {
+    const watch = this.waitWatch;
+    if (!watch) return;
+    if (watch.resetTimer) clearTimeout(watch.resetTimer);
+    delete watch.resetTimer;
+    const resetsAt = this.refusedRun(watch.phaseKey)?.refusal.resetsAt;
+    if (resetsAt === undefined) return;
+    const due = Date.parse(resetsAt) + RESET_READING_DELAY_MS - this.now().getTime();
+    if (due <= 0) return;
+    const delay = Math.min(due, LONGEST_TIMER_MS);
+    watch.resetTimer = setTimeout(() => {
+      if (delay < due) return this.armResetReading();
+      this.changed();
+      this.askReading();
+    }, delay);
+    watch.resetTimer.unref();
+  }
+
+  /** Asks for a reading; one already under way is joined. */
+  private askReading(): void {
+    void this.options.claude?.refreshAccount();
+  }
+
+  /**
+   * A new account reading (technical design, "While it lasts"). One that started before the
+   * refusal is ignored and another asked for. The first signed-in reading after it records the
+   * refused account, and the first with the limit's row its label. While a wait is watched and
+   * no resume holds the lock, the reading decides: usage left resumes; no usage left waits; one
+   * that fails or can't decide resumes past the reset time, and goes to Needs you when there is
+   * no reset time and it is the wait's first reading.
+   */
+  private readingArrived(reading: AccountView): void {
+    if (this.stopping || this.checking) return;
+    const key = this.waitingPhaseKey() ?? this.limitStopKey();
+    if (key === undefined) return;
+    const found = this.refusedRun(key);
+    if (!found) return;
+    const { session, refusal } = found;
+    if (Date.parse(reading.startedAt) < Date.parse(refusal.at)) {
+      this.askReading();
+      return;
+    }
+    const facts = this.record.phases[key]!;
+    let changed = false;
+    const account = readingAccount(reading);
+    if (refusal.account === undefined && account !== undefined) {
+      refusal.account = account;
+      changed = true;
+    }
+    const row = limitRow(refusal.rateLimitType, reading.limits);
+    if (row !== undefined && refusal.label !== row.label) {
+      refusal.label = row.label;
+      changed = true;
+      if (facts.stop?.limit) {
+        facts.stop.limit.label = row.label;
+        this.save();
+      }
+    }
+    if (changed) writeSessionRecord(this.options.stateDirectory, session);
+
+    const watch = this.waitWatch;
+    if (facts.wait === undefined || watch?.phaseKey !== key) return;
+    const first = watch.readings === 0;
+    watch.readings++;
+    const verdict = judgeReading(reading, refusal, session.initModel ?? session.model);
+    if (verdict === "no_usage_left") return;
+    const resetPassed = refusal.resetsAt !== undefined && this.now().getTime() >= Date.parse(refusal.resetsAt);
+    if (verdict === "usage_left" || resetPassed) void this.resumeWait(key, "limit_resume");
+    else if (refusal.resetsAt === undefined && first) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
+  }
+
+  /** The phase stopped at Needs you after a usage limit, if any. */
+  private limitStopKey(): string | undefined {
+    const key = this.stoppedPhaseKey();
+    return key !== undefined && this.record.phases[key]!.stop!.limit !== undefined ? key : undefined;
+  }
+
+  /** The clock the engine judges by, for the snapshot's reset and countdown. */
+  clock(): Date {
+    return this.now();
   }
 
   // ---- Setup -----------------------------------------------------------------------------
@@ -2055,6 +2460,15 @@ export class Engine {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
     if (!this.quiet || event.kind === "repository_added") this.options.onTerminal?.(event);
   }
+}
+
+/** A refusal's facts as a stop carries them. */
+function stopLimit(refusal: LimitRefusal): StopLimit {
+  return {
+    ...(refusal.rateLimitType === undefined ? {} : { rateLimitType: refusal.rateLimitType }),
+    label: refusal.label,
+    ...(refusal.resetsAt === undefined ? {} : { resetsAt: refusal.resetsAt }),
+  };
 }
 
 function refuse(reason: string): CommandResult {

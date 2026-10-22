@@ -1111,8 +1111,9 @@ describe("the account before each phase (AC-WATCH-09)", () => {
     const account = {
       email: "alex@acme-shop.dev",
       plan: "Max",
+      startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      limits: [{ label: "5-hour window", shortLabel: "5-hour", percent: 100, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), nearLimit: true }],
+      limits: [{ kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 100, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), nearLimit: true }],
     };
     const claude: ClaudeInfoSource = { account, models: undefined, modelListError: undefined, onChange: () => () => undefined, refreshAccount: () => Promise.resolve() };
     harness = await createHarness({ sessions: [landingSession("src/intake.txt"), { actions: [{ result: "Stop here." }] }], engineOptions: { claude } });

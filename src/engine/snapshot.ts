@@ -11,15 +11,31 @@ import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
 import { freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
+import { blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind } from "../state/records.js";
+import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 
 export const PR_TITLE = "Final pull request";
 
-export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "complete";
+export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete";
+
+/**
+ * A usage limit as the waiting screen and a usage-limit Needs you show it (usage-limit recovery
+ * AC-LIMIT-01 to 03, technical design "Snapshot"). `account` is the reading the Claude account
+ * panel holds, once one started after the refusal; `percent` the stopping limit's row in it;
+ * `atLimitUntil` that row's reset while it reads 100%; `blockingLimit`, on the waiting screen once
+ * the reset has passed, another row at 100% that still keeps the account from having usage left.
+ */
+export interface LimitView {
+  label: string;
+  resetsAt?: string;
+  resetPassed: boolean;
+  account?: { email?: string; plan?: string; error?: string; percent?: number; at: string; atLimitUntil?: string };
+  blockingLimit?: { label: string; resetsAt?: string };
+}
 type StepView = { name: string; state: "finished" | "current" | "unreached"; startedAt?: string };
 
 export interface DocumentsFound {
@@ -40,7 +56,7 @@ export interface PhaseView {
   id: string;
   title: string;
   file: string;
-  state: "planned" | "next" | "implementing" | "needs_you" | "done" | "split";
+  state: "planned" | "next" | "implementing" | "needs_you" | "waiting" | "done" | "split";
   splitInto?: string[];
   sessionStartedAt?: string;
   doneAt?: string;
@@ -114,6 +130,8 @@ export interface Snapshot {
     modelListError?: string;
     keepAwake: boolean;
     keepAwakeError?: string;
+    /** Usage-limit recovery AC-AUTO-04. */
+    resumeAfterUsageLimit: boolean;
     /** Shown under `~/`; only a multi-repository PRD's screens show it. */
     workspaceFolder: string;
     worktreePath: string;
@@ -190,6 +208,34 @@ export interface Snapshot {
     };
     /** Kiln stopped this interrupted session instead of resuming it, since it worked outside the workspace (AC-OUTSIDE-04). */
     interrupted?: { at: string; atIsLastOutput: boolean };
+    /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
+    limit?: LimitView & { refusedAgainAt?: string };
+  };
+  /**
+   * Waiting for usage (usage-limit recovery AC-LIMIT-04): the limit, how the session ended
+   * (AC-STOP-02) and Full session output's fields; `checking` while Resume now or the end of the
+   * wait holds the lock.
+   */
+  waiting?: {
+    phaseId: string;
+    since: string;
+    limit: LimitView;
+    sessionId: string;
+    stoppedAt: string;
+    finalMessage?: string;
+    exitCode?: number;
+    signal?: string;
+    lastSkill?: { name: string; at: string };
+    lastLines?: OutputLine[];
+    outputLineCount?: number;
+    checking?: true;
+    model: string;
+    effort?: Effort;
+    sessionStartedAt?: string;
+    sessionEndedAt?: string;
+    steps?: StepView[];
+    /** The phase's commits by repository, read from Git when the wait started. */
+    repositories: RepositoryCommits[];
   };
   pause: { pending: boolean; active: boolean };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
@@ -209,17 +255,21 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
   const plan = record.plan ?? [];
   const leaves = recordedLeaves(plan);
   const stoppedKey = engine.stoppedPhaseKey();
+  const waitingKey = engine.waitingPhaseKey();
   const state: FeatureState = !engine.isUnderway
     ? "not_started"
     : record.completedAt
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
-        : record.pause.activeSince !== undefined
+        : waitingKey !== undefined
+          ? "waiting"
+          : record.pause.activeSince !== undefined
           ? "paused"
           : "implementing";
 
   const needsYou = stoppedKey === undefined ? undefined : needsYouView(engine, stoppedKey);
+  const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
   const current = state === "implementing" ? currentView(engine) : undefined;
   const settings = record.settings;
   const entry = engine.modelEntry(settings.model);
@@ -234,7 +284,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       state,
       phasesDone: leaves.filter((leaf) => leaf.closed).length,
       phasesTotal: leaves.length,
-      ...optional("currentPhaseId", needsYou?.phaseId ?? current?.phaseId),
+      ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
       ...optional("stoppedAt", needsYou?.stoppedAt),
@@ -248,6 +298,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("modelListError", claude?.modelListError),
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
+      resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
       workspaceFolder: displayPath(expandHome(settings.workspaceFolder)),
       worktreePath: displayPath(engine.worktreePath),
       featureBranch: settings.featureBranch,
@@ -268,6 +319,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     ...optional("pullRequests", record.pullRequests),
     ...optional("current", current),
     ...optional("needsYou", needsYou),
+    ...optional("waiting", waiting),
   };
   if (state === "not_started" && documents) {
     snapshot.documents = { ...documents, ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
@@ -350,6 +402,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("outside", outside?.view),
+    ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
   };
   const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
@@ -439,6 +492,67 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
 }
 
 /**
+ * The waiting screen's facts (usage-limit recovery AC-LIMIT-04): the limit, and how the refused
+ * run ended as Needs you would show it, with Full session output's fields.
+ */
+function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
+  const wait = engine.record.phases[phaseKey]!.wait!;
+  const session = engine.sessionRecord(phaseKey, wait.sessionId);
+  const run = session?.runs[wait.run];
+  const lines = session ? engine.outputLines(session) : [];
+  const finalMessage = run?.result?.text?.trim() ? run.result.text : undefined;
+  return {
+    phaseId: judgedKeyFor(engine.record.plan ?? [], phaseKey),
+    since: wait.since,
+    limit: limitView(engine, phaseKey, undefined, true),
+    sessionId: wait.sessionId,
+    stoppedAt: run?.endedAt ?? wait.since,
+    ...optional("finalMessage", finalMessage),
+    ...optional("exitCode", run?.exitCode),
+    ...optional("signal", run?.signal),
+    ...optional("lastSkill", session?.lastSkill),
+    ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
+    outputLineCount: lines.length,
+    ...(engine.checking ? { checking: true as const } : {}),
+    model: session?.modelDisplayName ?? engine.record.settings.model,
+    ...optional("effort", session?.effort),
+    ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
+    ...optional("sessionEndedAt", run?.endedAt),
+    ...(session ? { steps: stepStates(session.steps) } : {}),
+    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+  };
+}
+
+/**
+ * A usage limit's view from the refused run and the reading the account panel holds; `stop`
+ * gives a usage-limit stop's own label when its session can't be read.
+ */
+function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined, waitingScreen: boolean): LimitView {
+  const now = engine.clock().getTime();
+  const found = engine.refusedRun(phaseKey);
+  const refusal = found?.refusal;
+  const label = stop?.label ?? refusal?.label ?? "A usage limit";
+  const resetsAt = refusal?.resetsAt ?? stop?.resetsAt;
+  const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
+  const reading = engine.claude?.account;
+  if (!found || !refusal || reading === undefined || Date.parse(reading.startedAt) < Date.parse(refusal.at)) return view;
+  const account: NonNullable<LimitView["account"]> = { ...optional("email", reading.error === undefined ? reading.email : undefined), ...optional("plan", reading.error === undefined ? reading.plan : undefined), ...optional("error", reading.error), at: reading.updatedAt };
+  if (reading.error === undefined && reading.limitsError === undefined) {
+    const row = limitRow(refusal.rateLimitType, reading.limits);
+    if (row !== undefined) {
+      account.percent = row.percent;
+      if (row.percent >= 100 && row.resetsAt !== undefined && Date.parse(row.resetsAt) > now) account.atLimitUntil = row.resetsAt;
+    }
+    if (waitingScreen && view.resetPassed) {
+      const blocking = blockingRow(reading, refusal, found.session.initModel ?? found.session.model);
+      if (blocking !== undefined) view.blockingLimit = { label: blocking.label, ...optional("resetsAt", blocking.resetsAt) };
+    }
+  }
+  view.account = account;
+  return view;
+}
+
+/**
  * Needs you's part for Stayed in the workspace while it fails (multi-repo AC-OUTSIDE-02, 03):
  * the facts and checkouts from the phase's latest check, the prompt for the reopened session,
  * the fresh-session prompt's addition, and whether the confirmation is ticked: a tick made
@@ -508,6 +622,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
       if (multi) view.pushedRepositoryCount = Object.values(facts.repositories).filter((repository) => repository.pushedSha !== undefined && repository.pushedSha !== repository.startCommit).length;
     }
     else if (facts?.stop) view.state = "needs_you";
+    else if (facts?.wait) view.state = "waiting";
     else if (state === "implementing" && currentRow === phase.id) view.state = "implementing";
     else if (phase.closed) view.state = "done";
     else if (state === "paused" && nextLeaf?.id === phase.id) view.state = "next";
@@ -517,7 +632,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
       view.sessionStartedAt = startedAt;
       // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
       const read = engine.stoppedCommits;
-      const stopped = view.state === "needs_you" && read?.phaseKey === key ? read?.commits : undefined;
+      const stopped = (view.state === "needs_you" || view.state === "waiting") && read?.phaseKey === key ? read?.commits : undefined;
       const prdStopped = stopped?.find((repository) => repository.name === engine.paths.repositoryName)?.commits;
       view.details = {
         from: startedAt,
@@ -542,6 +657,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const row: PhaseView = { id: PR_PHASE_KEY, title: PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
     if (record.completedAt) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
+    else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
     else if (state === "paused") row.state = "next";
     if (startedAt) row.sessionStartedAt = startedAt;

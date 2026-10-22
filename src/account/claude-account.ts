@@ -11,6 +11,10 @@ export const NEAR_LIMIT_PERCENT = 80;
 export const NOT_SIGNED_IN = "Not signed in to Claude Code. Run `claude auth login`.";
 
 export interface UsageLimit {
+  /** The row's `kind`: `session`, `weekly_all` or `weekly_scoped`. */
+  kind: string;
+  /** A `weekly_scoped` row's name and whether it came from `scope.model` or `scope.surface`. */
+  scope?: { by: "model" | "surface"; name: string };
   /** Running and Paused's label: "5-hour window", "Weekly", "Weekly · Fable". */
   label: string;
   /** Documents found's short label: "5-hour", "weekly", "Fable". */
@@ -22,7 +26,11 @@ export interface UsageLimit {
 
 export interface AccountView {
   email?: string;
+  /** Tells one email's personal plan from its Team seat (usage-limit recovery, "Account a refusal belongs to"). */
+  orgId?: string;
   plan?: string;
+  /** When the reading's calls started, so a reading is judged against a refusal by Kiln's clock. */
+  startedAt: string;
   updatedAt: string;
   limits: UsageLimit[];
   error?: string;
@@ -31,6 +39,7 @@ export interface AccountView {
 
 export interface AccountStatus {
   email?: string;
+  orgId?: string;
   plan?: string;
   error?: string;
 }
@@ -50,11 +59,12 @@ export function parseAuthStatus(result: HelperResult): AccountStatus {
     return { error: helperError(result) };
   }
   if (typeof parsed !== "object" || parsed === null) return { error: helperError(result) };
-  const status = parsed as { loggedIn?: unknown; email?: unknown; subscriptionType?: unknown };
+  const status = parsed as { loggedIn?: unknown; email?: unknown; orgId?: unknown; subscriptionType?: unknown };
   if (status.loggedIn === false) return { error: NOT_SIGNED_IN };
   if (status.loggedIn !== true) return { error: helperError(result) };
   const account: AccountStatus = {};
   if (typeof status.email === "string" && status.email !== "") account.email = status.email;
+  if (typeof status.orgId === "string" && status.orgId !== "") account.orgId = status.orgId;
   if (typeof status.subscriptionType === "string" && status.subscriptionType !== "") {
     account.plan = `${status.subscriptionType.charAt(0).toUpperCase()}${status.subscriptionType.slice(1)} plan`;
   }
@@ -102,6 +112,7 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
     if (labels === undefined) continue;
     if (typeof row.percent !== "number" || !Number.isFinite(row.percent)) return { limits: [], limitsError: UNRECOGNIZED };
     rows.push({
+      kind,
       ...labels,
       percent: row.percent,
       ...(typeof row.resets_at === "string" ? { resetsAt: row.resets_at } : {}),
@@ -111,13 +122,16 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
   return { limits: rows };
 }
 
-function limitLabels(kind: string, scope: unknown): { label: string; shortLabel: string } | undefined {
+function limitLabels(kind: string, scope: unknown): Pick<UsageLimit, "label" | "shortLabel" | "scope"> | undefined {
   if (kind === "session") return { label: "5-hour window", shortLabel: "5-hour" };
   if (kind === "weekly_all") return { label: "Weekly", shortLabel: "weekly" };
   if (kind !== "weekly_scoped") return undefined;
   const named = scope as { model?: { display_name?: unknown } | null; surface?: { display_name?: unknown } | null } | null | undefined;
-  const name = [named?.model?.display_name, named?.surface?.display_name].find((value): value is string => typeof value === "string" && value !== "");
-  return name === undefined ? undefined : { label: `Weekly · ${name}`, shortLabel: name };
+  const text = (value: unknown): value is string => typeof value === "string" && value !== "";
+  const by = text(named?.model?.display_name) ? "model" : text(named?.surface?.display_name) ? "surface" : undefined;
+  if (by === undefined) return undefined;
+  const name = (by === "model" ? named!.model!.display_name : named!.surface!.display_name) as string;
+  return { label: `Weekly · ${name}`, shortLabel: name, scope: { by, name } };
 }
 
 export interface AccountReadOptions {
@@ -135,6 +149,7 @@ export interface AccountReadOptions {
  * `limitsError`.
  */
 export async function readAccount(options: AccountReadOptions): Promise<AccountView> {
+  const startedAt = (options.now?.() ?? new Date()).toISOString();
   const call = (args: string[]) => runHelper(options.claude, args, { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}) });
   const [auth, usage] = await Promise.all([
     call(["auth", "status", "--json"]),
@@ -142,8 +157,8 @@ export async function readAccount(options: AccountReadOptions): Promise<AccountV
   ]);
   const updatedAt = (options.now?.() ?? new Date()).toISOString();
   const status = parseAuthStatus(auth);
-  if (status.error !== undefined) return { updatedAt, limits: [], error: status.error };
-  const account: AccountView = { ...status, updatedAt, limits: [] };
+  if (status.error !== undefined) return { startedAt, updatedAt, limits: [], error: status.error };
+  const account: AccountView = { ...status, startedAt, updatedAt, limits: [] };
   if (usage.exitCode !== 0) {
     account.limitsError = helperError(usage);
     return account;

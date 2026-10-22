@@ -13,6 +13,10 @@ describe("the account (claude auth status --json)", () => {
     expect(parseAuthStatus(ok('{"loggedIn":true,"email":"alex@acme-shop.dev","subscriptionType":"max"}'))).toEqual({ email: "alex@acme-shop.dev", plan: "Max plan" });
   });
 
+  it("keeps the organization, which tells one email's personal plan from its Team seat (usage-limit recovery)", () => {
+    expect(parseAuthStatus(ok('{"loggedIn":true,"email":"alex@acme-shop.dev","orgId":"5f1c-org","subscriptionType":"team"}'))).toEqual({ email: "alex@acme-shop.dev", orgId: "5f1c-org", plan: "Team plan" });
+  });
+
   it("leaves the plan out when there is none, as with an API-key login", () => {
     expect(parseAuthStatus(ok('{"loggedIn":true,"email":"alex@acme-shop.dev"}'))).toEqual({ email: "alex@acme-shop.dev" });
   });
@@ -29,13 +33,13 @@ describe("the account (claude auth status --json)", () => {
 });
 
 describe("the usage limits (headless /usage)", () => {
-  it("reads a recorded report in the server's order, with long and short labels", () => {
+  it("reads a recorded report in the server's order, with long and short labels, each row keeping its kind and scope (usage-limit recovery)", () => {
     const reading = parseUsage(recorded, true);
     expect(reading.limitsError).toBeUndefined();
     expect(reading.limits).toEqual([
-      { label: "5-hour window", shortLabel: "5-hour", percent: 5, resetsAt: "2026-10-17T18:59:59.628228+00:00", nearLimit: false },
-      { label: "Weekly", shortLabel: "weekly", percent: 42, resetsAt: "2026-10-21T11:59:59.628252+00:00", nearLimit: false },
-      { label: "Weekly · Fable", shortLabel: "Fable", percent: 0, resetsAt: "2026-10-21T12:00:00+00:00", nearLimit: false },
+      { kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 5, resetsAt: "2026-10-17T18:59:59.628228+00:00", nearLimit: false },
+      { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 42, resetsAt: "2026-10-21T11:59:59.628252+00:00", nearLimit: false },
+      { kind: "weekly_scoped", scope: { by: "model", name: "Fable" }, label: "Weekly · Fable", shortLabel: "Fable", percent: 0, resetsAt: "2026-10-21T12:00:00+00:00", nearLimit: false },
     ]);
   });
 

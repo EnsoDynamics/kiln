@@ -2,7 +2,7 @@
 process.env.TZ = "America/New_York";
 
 import { describe, expect, it } from "vitest";
-import { ago, clockTime, earlier, elapsed, outputTime, resetsIn, shortDuration, stepTime, timeSpan } from "./time.js";
+import { ago, clockTime, countdown, earlier, elapsed, limitTime, outputTime, resetsIn, shortDuration, stepTime, timeSpan } from "./time.js";
 
 const now = new Date("2026-10-17T15:47:00Z"); // Saturday 11:47 AM in New York
 
@@ -40,5 +40,22 @@ describe("a time on screen", () => {
     expect(resetsIn("2026-10-17T16:59:00Z", now)).toBe("Resets in 1h 12m");
     expect(resetsIn("2026-10-21T16:00:00Z", now)).toBe("Resets in 4d");
     expect(resetsIn("2026-10-17T16:00:00Z", now)).toBe("Resets in 13m");
+  });
+});
+
+describe("a usage limit's times (usage-limit recovery AC-LIMIT-01)", () => {
+  it("rounds to the nearest minute, and gives the weekday for a later day", () => {
+    expect(limitTime("2026-10-17T16:58:59.700Z", now)).toBe("12:59 PM");
+    expect(limitTime("2026-10-17T16:58:20Z", now)).toBe("12:58 PM");
+    expect(limitTime("2026-10-21T12:00:00Z", now)).toBe("Wed 8:00 AM");
+    expect(limitTime("2026-10-30T12:00:00Z", now)).toBe("Oct 30, 8:00 AM");
+    expect(limitTime("2026-10-17T03:52:00Z", now)).toBe("yesterday 11:52 PM");
+  });
+
+  it("counts down in minutes, hours and minutes, or days and hours", () => {
+    expect(countdown("2026-10-17T16:59:00Z", now)).toBe("1h 12m");
+    expect(countdown("2026-10-17T16:00:00Z", now)).toBe("13m");
+    expect(countdown("2026-10-19T19:47:00Z", now)).toBe("2d 4h");
+    expect(countdown("2026-10-19T15:47:00Z", now)).toBe("2d");
   });
 });

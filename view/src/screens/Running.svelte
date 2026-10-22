@@ -3,7 +3,8 @@
   // phase plan, the Claude account, the settings, Pause Kiln and the Kiln panel (PRD
   // AC-WATCH-01 to 08, AC-VIEW-03). Once the view has lost Kiln it becomes the Disconnected
   // screen (kiln-screen-disconnected.html), and a Needs you stop seen while disconnected shows
-  // this layout with no current-phase panel (UI-006; technical design, "Connection").
+  // this layout with no current-phase panel (UI-006; technical design, "Connection"), as does a
+  // wait for usage, its phase Interrupted (usage-limit recovery AC-LIMIT-04).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import AccountPanel from "../components/AccountPanel.svelte";
   import CurrentPhase from "../components/CurrentPhase.svelte";
@@ -17,7 +18,7 @@
 
   let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const isPr = $derived(snapshot.current?.phaseId === PR_ID);
-  const phaseInView = $derived(snapshot.needsYou?.phaseId ?? snapshot.current?.phaseId);
+  const phaseInView = $derived(snapshot.needsYou?.phaseId ?? snapshot.waiting?.phaseId ?? snapshot.current?.phaseId);
   const kilnText = $derived(`Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts ${isPr ? "the pull-request session" : "the current phase"}, and kiln run picks up where it left off.`);
   // While disconnected, times stop at the moment Kiln was last seen.
   const shownNow = $derived(connected ? now : (lastSeenAt ?? now));

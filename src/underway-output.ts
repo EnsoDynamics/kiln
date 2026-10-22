@@ -5,18 +5,21 @@
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
 import { recordedLeaves } from "./engine/plan-reading.js";
 import { PR_PHASE_KEY } from "./state/records.js";
-import type { TerminalColors } from "./terminal-output.js";
+import { resetClock, type TerminalColors } from "./terminal-output.js";
 
 const phaseName = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : `phase ${key}`);
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
  * Where Kiln left the feature, read from its record before any check runs: "phase 2b was
- * interrupted", "phase 2b needs you", "paused before phase 3", "phase 3 is next" or "complete".
+ * interrupted", "phase 2b needs you", "phase 2b is waiting for usage", "paused before phase 3",
+ * "phase 3 is next" or "complete".
  */
 export function whereItStands(engine: Engine): string {
   const { record } = engine;
   if (record.completedAt) return "complete";
+  const waiting = engine.waitingPhaseKey();
+  if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting))} is waiting for usage`;
   const stopped = engine.stoppedPhaseKey();
   if (stopped !== undefined) return `${phaseName(engine.judgedId(stopped))} needs you`;
   for (const [key, facts] of Object.entries(record.phases)) {
@@ -85,6 +88,12 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
     case "setup_failed":
       text = decision.error;
       break;
+    case "waiting": {
+      const subject = decision.phaseKey === PR_PHASE_KEY ? "The pull-request session" : `Phase ${engine.judgedId(decision.phaseKey)}`;
+      const reset = decision.limit.resetsAt === undefined ? "" : `, resets ${resetClock(new Date(decision.limit.resetsAt), engine.clock())}`;
+      text = `${subject} is waiting for usage (${decision.limit.label}${reset}).`;
+      break;
+    }
   }
   const doneFirst = "doneFirst" in decision ? decision.doneFirst : undefined;
   if (doneFirst) text = `${capitalized(phaseName(doneFirst.phaseId))} is done${doneFirst.byPerson ? ", finished by you" : ""}. ${text}`;

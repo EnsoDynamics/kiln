@@ -286,6 +286,7 @@ describe("the default settings", () => {
       model: "opus",
       effort: "high",
       keepAwake: true,
+      resumeAfterUsageLimit: true,
     });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");

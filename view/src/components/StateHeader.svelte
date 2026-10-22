@@ -14,6 +14,8 @@
     interrupted: { tone: "amber-outline" },
     paused: { tone: "strong-outline", icon: "pause" },
     needs_you: { tone: "amber", icon: "warning" },
+    // Nothing is needed from the person while Kiln waits, so it is styled as Paused is (usage-limit recovery AC-LIMIT-04).
+    waiting: { tone: "strong-outline", icon: "clock" },
     complete: { tone: "green", icon: "pull-request" },
   };
   const look = $derived(LOOKS[state.kind]);

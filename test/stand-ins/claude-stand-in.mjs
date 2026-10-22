@@ -33,6 +33,10 @@
 //   { "touch": "<path>" }                                     creates the file, so a test knows the session got here
 //   { "sleepFor": 300 }                                       waits that many milliseconds
 //   { "replay": "proof-gate-1/<recording>.jsonl" }            every event a real session wrote, from test/fixtures/, but its init
+//   { "refuse": { "rateLimitType": "five_hour", "resetsAt": <Unix seconds> } }
+//                                                             a request refused by a usage limit, as the Agent SDK types it:
+//                                                             the rejected rate_limit_event, the synthetic assistant message
+//                                                             with error "rate_limit", and an error result; a null field is left out
 // A session may also say { "noInit": true }: a resume whose transcript is gone, as proof gate 1
 // recorded it (no init, one error result, the same line on stderr, exit 1), and
 // { "ignoreInterrupt": true }: the interrupt request and SIGINT are ignored, so only a forced
@@ -347,6 +351,12 @@ for (const action of session.actions) {
       emit({ ...event, session_id: sessionId });
       if (event.type === "result") resultSent = true;
     }
+  } else if (action.refuse) {
+    const info = Object.fromEntries(Object.entries({ status: "rejected", ...action.refuse }).filter(([, value]) => value !== null));
+    emit({ type: "rate_limit_event", rate_limit_info: info });
+    emit({ type: "assistant", parent_tool_use_id: null, error: "rate_limit", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your limit" }] } });
+    emit({ type: "result", subtype: "success", is_error: true, result: "You've hit your limit" });
+    resultSent = true;
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
     resultSent = true;

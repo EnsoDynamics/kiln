@@ -72,12 +72,19 @@ describe("migrating a schema 1 record", () => {
     expect(record).not.toHaveProperty("pullRequest");
   });
 
-  it("reads a schema 2 record as schema 3, changing nothing but the version (usage-limit recovery, Data Models)", () => {
+  it("reads a schema 2 record as schema 3, adding only the version and Resume after a usage limit, on (usage-limit recovery AC-AUTO-04, Data Models)", () => {
     const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
     const before = JSON.parse(JSON.stringify(record)) as PrdRecord;
     expect(migrateRecord(record)).toBe(record);
-    expect(record).toEqual({ ...before, schemaVersion: 3 });
+    expect(record).toEqual({ ...before, schemaVersion: 3, settings: { ...before.settings, resumeAfterUsageLimit: true } });
     expect(SCHEMA_VERSION).toBe(3);
+  });
+
+  it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
+    expect(migrateRecord(schemaOne({})).settings.resumeAfterUsageLimit).toBe(true);
+    const three = migrateRecord(schemaOne({}));
+    three.settings.resumeAfterUsageLimit = false;
+    expect(migrateRecord(three).settings.resumeAfterUsageLimit).toBe(false);
   });
 });
 

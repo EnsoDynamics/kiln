@@ -39,6 +39,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       effort: "high",
       effortLevels: ["low", "medium", "high", "xhigh", "max"],
       keepAwake: true,
+      resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",
       worktreePath: "~/devel/acme-shop-kiln/customer-returns",
       featureBranch: "feature/customer-returns",
@@ -62,11 +63,12 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
     account: {
       email: "alex@acme-shop.dev",
       plan: "Max plan",
+      startedAt: "2026-10-17T13:15:00Z",
       updatedAt: "2026-10-17T13:15:00Z",
       limits: [
-        { label: "5-hour window", shortLabel: "5-hour", percent: 13, nearLimit: false },
-        { label: "Weekly", shortLabel: "weekly", percent: 22, nearLimit: false },
-        { label: "Weekly · Fable", shortLabel: "Fable", percent: 0, nearLimit: false },
+        { kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 13, nearLimit: false },
+        { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 22, nearLimit: false },
+        { kind: "weekly_scoped", scope: { by: "model", name: "Fable" }, label: "Weekly · Fable", shortLabel: "Fable", percent: 0, nearLimit: false },
       ],
     },
     ...rest,
@@ -139,11 +141,12 @@ const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", kind: "prd"
 const ACCOUNT: NonNullable<Snapshot["account"]> = {
   email: "alex@acme-shop.dev",
   plan: "Max plan",
+  startedAt: "2026-10-17T15:45:00Z",
   updatedAt: "2026-10-17T15:45:00Z",
   limits: [
-    { label: "5-hour window", shortLabel: "5-hour", percent: 82, resetsAt: "2026-10-17T16:59:00Z", nearLimit: true },
-    { label: "Weekly", shortLabel: "weekly", percent: 41, resetsAt: "2026-10-21T16:00:00Z", nearLimit: false },
-    { label: "Weekly · Fable", shortLabel: "Fable", percent: 6, resetsAt: "2026-10-21T16:00:00Z", nearLimit: false },
+    { kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 82, resetsAt: "2026-10-17T16:59:00Z", nearLimit: true },
+    { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 41, resetsAt: "2026-10-21T16:00:00Z", nearLimit: false },
+    { kind: "weekly_scoped", scope: { by: "model", name: "Fable" }, label: "Weekly · Fable", shortLabel: "Fable", percent: 6, resetsAt: "2026-10-21T16:00:00Z", nearLimit: false },
   ],
 };
 
@@ -509,4 +512,97 @@ export function needsYouOutsideWorkspaceSnapshot(): Snapshot {
       },
     },
   };
+}
+
+// ---- The usage-limit recovery mockups' sample data (fictional): phase 2b refused by the 5-hour
+// usage limit at 2:28 PM, resetting at 3:40 PM, with Kiln's reading showing the same account at
+// 100% (docs/changes/kiln-usage-limit-recovery/mockups/).
+
+/** The clock both usage-limit mockups are drawn at: 2:28 PM in New York. */
+export const USAGE_LIMIT_NOW = Date.parse("2026-10-17T18:28:00Z");
+
+/** The limit as both mockups show it; the reading's reset carries fractions of a second, as a real one does. */
+function fiveHourLimit(readAt: string): NonNullable<Snapshot["waiting"]>["limit"] {
+  return {
+    label: "5-hour window",
+    resetsAt: "2026-10-17T19:40:00Z",
+    resetPassed: false,
+    account: { email: "alex@acme-shop.dev", plan: "Max plan", percent: 100, at: readAt, atLimitUntil: "2026-10-17T19:39:59.700Z" },
+  };
+}
+
+/** The account panel's reading behind the limit card, the 5-hour window at 100%. */
+function accountAtLimit(readAt: string): NonNullable<Snapshot["account"]> {
+  return { ...ACCOUNT, startedAt: readAt, updatedAt: readAt, limits: [{ ...ACCOUNT.limits[0]!, percent: 100, resetsAt: "2026-10-17T19:39:59.700Z" }, ...ACCOUNT.limits.slice(1)] };
+}
+
+const LIMIT_STEPS: NonNullable<NonNullable<Snapshot["waiting"]>["steps"]> = [
+  { name: "Build", state: "current", startedAt: "2026-10-17T14:58:00Z" },
+  { name: "Deliverable review", state: "unreached" },
+  { name: "Test hardening", state: "unreached" },
+  { name: "Commit", state: "unreached" },
+  { name: "Refactor pass", state: "unreached" },
+  { name: "Push", state: "unreached" },
+];
+
+/** Waiting for usage, just after the wait started (kiln-screen-waiting-for-usage.html). */
+export function waitingSnapshot(): Snapshot {
+  return underway({
+    feature: { ...FEATURE, state: "waiting", currentPhaseId: "2b", phasesDone: 2 },
+    phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "waiting", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
+    account: accountAtLimit("2026-10-17T18:28:00Z"),
+    waiting: {
+      phaseId: "2b",
+      since: "2026-10-17T18:28:00Z",
+      limit: fiveHourLimit("2026-10-17T18:28:00Z"),
+      sessionId: SESSION_2B,
+      stoppedAt: "2026-10-17T18:28:00Z",
+      finalMessage: "5-hour limit reached · resets 3:40pm",
+      exitCode: 1,
+      lastSkill: { name: "implement-from-requirements", at: "2026-10-17T18:25:00Z" },
+      outputLineCount: 248,
+      model: "Opus 5.5",
+      effort: "high",
+      sessionStartedAt: "2026-10-17T14:58:00Z",
+      sessionEndedAt: "2026-10-17T18:28:00Z",
+      steps: LIMIT_STEPS,
+      repositories: [],
+    },
+  });
+}
+
+/** Needs you after a usage limit, with Resume (kiln-screen-needs-you-usage-limit.html). */
+export function needsYouUsageLimitSnapshot(): Snapshot {
+  return underway({
+    feature: { ...FEATURE, state: "needs_you", currentPhaseId: "2b", phasesDone: 2, stoppedAt: "2026-10-17T18:28:00Z" },
+    phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "needs_you", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
+    account: accountAtLimit("2026-10-17T18:27:00Z"),
+    needsYou: {
+      phaseId: "2b",
+      kind: "done_check",
+      stoppedAt: "2026-10-17T18:28:00Z",
+      resumeOffered: true,
+      finalMessage: "5-hour limit reached · resets 3:40pm",
+      exitCode: 1,
+      lastSkill: { name: "implement-from-requirements", at: "2026-10-17T18:25:00Z" },
+      checks: [
+        { name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] },
+        { name: "Everything committed", passed: false, facts: ["3 files changed, not committed"] },
+        { name: "Pushed", passed: true, facts: ["Matches origin at 5d81b37"] },
+      ],
+      checkedAt: "2026-10-17T18:28:00Z",
+      resumeCommand: `cd ${WORKTREE}\nclaude --resume ${SESSION_2B}`,
+      freshSessionPrompt: "Use the implement-from-requirements skill to implement `docs/prds/customer-returns/phase-2b-store-credit.md` …",
+      freshSessionCommand: `cd ${WORKTREE}\nclaude`,
+      outputLineCount: 248,
+      sessionEndedAt: "2026-10-17T18:28:00Z",
+      steps: LIMIT_STEPS,
+      sessionId: SESSION_2B,
+      model: "Opus 5.5",
+      effort: "high",
+      sessionStartedAt: "2026-10-17T14:58:00Z",
+      repositories: [],
+      limit: fiveHourLimit("2026-10-17T18:27:00Z"),
+    },
+  });
 }

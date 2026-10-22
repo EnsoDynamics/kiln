@@ -13,17 +13,25 @@
   // Where Kiln can pick the session back up, Resume and its optional note sit between how the
   // session ended and the steps, as docs/changes/kiln-usage-limit-recovery/mockups/
   // kiln-screen-needs-you-resume.html draws them (usage-limit recovery AC-RESUME-01 to 03).
+  // A session stopped by a usage limit (kiln-screen-needs-you-usage-limit.html) says which limit
+  // and when it resets, and Resume's card becomes the two ways to carry on, waiting for the reset
+  // or switching accounts, with the account Kiln last read (AC-LIMIT-01 to 03); after Kiln's own
+  // resume was refused again it says so (AC-AUTO-05). With no Resume, the limit and the account
+  // stay and step 1's fresh session waits for the reset or another account (technical design, "Screens").
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
+  import LimitAccount from "../components/LimitAccount.svelte";
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
+  import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
   import { checkAgain, confirmOutside, resume } from "../lib/api.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { clockTime, earlier } from "../lib/time.js";
+  import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
   import { viewContext } from "../lib/view-context.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
@@ -32,6 +40,9 @@
   const nowDate = $derived(new Date(now));
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository));
   const ending = $derived(endingFact(stop));
+  // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
+  const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate) : undefined);
+  const atLimit = $derived(stop.limit ? atLimitLine(stop.limit, nowDate) : undefined);
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), copy.outside ? "outside" : "finish", "again"]);
@@ -76,8 +87,14 @@
     <div class="column-wide">
       <section class="card ended">
         <div class="headline">
-          <h2>{copy.headline}</h2>
-          <p class="line">{copy.line}</p>
+          {#if limitCopy}
+            <h2>{limitCopy.headline}</h2>
+            {#if limitCopy.refusedAgain}<p class="line">{limitCopy.refusedAgain}</p>{/if}
+            <p class="line">{limitCopy.reported} {#if limitCopy.reset}<strong>{limitCopy.reset}</strong>{/if}</p>
+          {:else}
+            <h2>{copy.headline}</h2>
+            <p class="line">{copy.line}</p>
+          {/if}
         </div>
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
@@ -95,7 +112,36 @@
         {/if}
       </section>
 
-      {#if stop.resumeOffered}
+      {#if stop.resumeOffered && stop.limit && limitCopy}
+        <section class="card resume">
+          <span class="eyebrow">Two ways to carry on</span>
+          <ol>
+            <li>
+              <span class="number">1</span>
+              <div class="step"><span class="step-title">Wait for the reset</span><p>{limitCopy.waitText}</p></div>
+            </li>
+            <li>
+              <span class="number">2</span>
+              <div class="step">
+                <span class="step-title">Or switch to another Claude account now</span>
+                <p>In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account.</p>
+                <SwitchAccountCommand />
+              </div>
+            </li>
+          </ol>
+          <LimitAccount limit={stop.limit} footnote={limitCopy.footnote} />
+          <label class="note-field">
+            <span class="note-label">Anything to tell the session first? <span class="optional">Optional</span></span>
+            <textarea rows="3" placeholder={copy.notePlaceholder} bind:value={note}></textarea>
+          </label>
+          <div class="actions">
+            <!-- The amber line never holds Resume (AC-LIMIT-03). -->
+            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />Resume</button>
+            {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
+          </div>
+          {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
+        </section>
+      {:else if stop.resumeOffered}
         <section class="card resume">
           <span class="eyebrow">Let Kiln carry on</span>
           <div class="resume-head">
@@ -126,6 +172,7 @@
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
                   <span class="step-title">Start a fresh Claude Code session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
+                  {#if stop.limit}<p>Start it after the reset, or after switching accounts.</p><SwitchAccountCommand />{/if}
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>
                     <pre class="prompt">{stop.freshSessionPrompt}</pre>
@@ -149,6 +196,10 @@
             </li>
           {/each}
         </ol>
+        {#if stop.limit && limitCopy && !stop.resumeOffered}
+          <LimitAccount limit={stop.limit} footnote={limitCopy.footnote} />
+          {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
+        {/if}
         {#if copy.freshLink}
           <button type="button" class="fresh-link" onclick={copyFreshPrompt}>Session can’t be opened? <span>{showPrompt ? "Prompt copied" : "Copy a prompt for a fresh session instead"}</span></button>
           {#if showPrompt}<div class="block"><pre class="prompt">{stop.freshSessionPrompt}</pre><div class="actions"><CopyButton text={stop.freshSessionPrompt} label="Copy prompt" /></div></div>{/if}
@@ -193,6 +244,7 @@
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
   .line { margin: 0; font-size: 15.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
+  .line strong { color: var(--text); font-weight: 600; }
   .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--dim); }
   .message-block { display: flex; flex-direction: column; gap: 10px; }
   /* The mockup's 72ch, as Inter's "0" measures it; with the bundled subset fonts `ch` falls back to 0.5em. */
@@ -225,6 +277,7 @@
   pre.prompt { font-size: 12.5px; color: var(--muted); }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
   .hint { font-size: 13px; color: var(--dim); }
+  .at-limit { font-size: 13px; color: var(--amber); }
   .fresh-link { font: inherit; font-size: 13px; color: var(--dim); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; align-self: flex-start; }
   .fresh-link span { color: var(--red); font-weight: 600; }
   .side { gap: 18px; }

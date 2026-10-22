@@ -50,8 +50,8 @@ describe("the settings fields", () => {
 
   it("shows the account and its usage as one line each, or the not-signed-in line alone", () => {
     expect(accountLines(documentsFoundSnapshot().account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
-    expect(accountLines({ updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." })).toEqual({ error: "Not signed in to Claude Code. Run `claude auth login`." });
-    expect(accountLines({ email: "a@b.dev", updatedAt: "", limits: [], limitsError: "Claude Code didn't report this plan's usage limits." })).toEqual({ line: "a@b.dev", usageError: "Claude Code didn't report this plan's usage limits." });
+    expect(accountLines({ startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." })).toEqual({ error: "Not signed in to Claude Code. Run `claude auth login`." });
+    expect(accountLines({ email: "a@b.dev", startedAt: "", updatedAt: "", limits: [], limitsError: "Claude Code didn't report this plan's usage limits." })).toEqual({ line: "a@b.dev", usageError: "Claude Code didn't report this plan's usage limits." });
     expect(accountLines(undefined)).toEqual({});
   });
 });

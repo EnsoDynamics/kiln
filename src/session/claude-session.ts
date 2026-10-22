@@ -8,10 +8,11 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { sessionDirectory, writeSessionRecord, PR_PHASE_KEY, type SessionRecord, type SessionRun } from "../state/records.js";
+import { sessionDirectory, writeSessionRecord, PR_PHASE_KEY, type AccountIdentity, type SessionRecord, type SessionRun } from "../state/records.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
+import { usageLimitRefusal } from "./usage-limit.js";
 
 /**
  * The flags every session gets (technical design, "Starting a phase's session"), plus an
@@ -82,6 +83,8 @@ export interface SessionProcessOptions {
   cause: SessionRun["cause"];
   /** The person's note sent with Resume, recorded on the run (usage-limit recovery AC-RESUME-03). */
   note?: string;
+  /** The account the reading just before a resume found signed in, recorded on the run (usage-limit recovery AC-AUTO-05). */
+  account?: AccountIdentity;
   stateDirectory: string;
   /** The session's record, already written before spawning; this run is added to it. */
   record: SessionRecord;
@@ -198,6 +201,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       endedAt: startedAt,
       cause: options.cause,
       ...(options.note === undefined ? {} : { note: options.note }),
+      ...(options.account === undefined ? {} : { account: options.account }),
       spawnError: { code: error.code ?? "ERROR", message: error.message },
     };
     record.runs.push(run);
@@ -208,7 +212,13 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   const closed = new Promise<[number | null, NodeJS.Signals | null]>((resolve) => child.once("close", (exitCode, exitSignal) => resolve([exitCode, exitSignal])));
   const pid = child.pid;
-  const run: SessionRun = { pid, startedAt, cause: options.cause, ...(options.note === undefined ? {} : { note: options.note }) };
+  const run: SessionRun = {
+    pid,
+    startedAt,
+    cause: options.cause,
+    ...(options.note === undefined ? {} : { note: options.note }),
+    ...(options.account === undefined ? {} : { account: options.account }),
+  };
   // The run is recorded at once, so a Kiln stopped from here on leaves it, never a session with no run.
   record.runs.push(run);
   saveRecord();
@@ -231,6 +241,8 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   /** When each model response of this run arrived, for the sleep verdict. */
   const modelResponses: string[] = [];
+  /** This run's usage-limit reports and model responses, in order, for the refusal verdict. */
+  const limitEvents: SavedEvent[] = [];
 
   let stdoutBuffer = "";
   let stderrBuffer = "";
@@ -251,6 +263,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     }
     appendJsonLine(files.events, { at, event });
     if (isModelResponse(event)) modelResponses.push(at);
+    if (event.type === "rate_limit_event" || isModelResponse(event)) limitEvents.push({ at, event });
 
     const stepsBefore = reader.steps.length;
     const skillBefore = reader.lastSkill;
@@ -313,8 +326,9 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   if (options.exitGraceMs) await new Promise((resolve) => setTimeout(resolve, options.exitGraceMs));
   await options.beforeEnd?.();
-  // The end, its sleep reading and any sleep verdict are one write, so a record never holds a
-  // run's end without the verdict that was due. A stop's own interruptedBy stands.
+  // The end, its sleep reading, any sleep verdict and any usage-limit refusal are one write, so a
+  // record never holds a run's end without the verdict that was due. A stop's own interruptedBy
+  // stands, and a run cut off by an interruption is never a usage limit.
   const runIndex = record.runs.indexOf(run);
   if (run.interruptedBy === undefined && !options.stopping?.()) {
     const interruption = sleepInterruption(record.sleeps, runIndex, modelResponses);
@@ -322,6 +336,10 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       run.interruptedBy = "sleep";
       run.interruptedAt = interruption.at;
     }
+  }
+  if (run.interruptedBy === undefined && !options.stopping?.()) {
+    const refusal = usageLimitRefusal(limitEvents);
+    if (refusal) run.limitRefusal = refusal;
   }
   const endedAt = now().toISOString();
   run.endedAt = endedAt;

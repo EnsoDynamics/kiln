@@ -51,7 +51,7 @@ describe("Documents found", () => {
     expect(words).toContain("Agent Claude Code alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(words).toContain("Effort Low Medium High Extra high Max");
     expect(page).toMatch(/aria-pressed="true"[^>]*>High</);
-    expect(words).toContain("Keep this computer awake while a session works Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.");
+    expect(words).toContain("Keep this computer awake while a session works or Kiln waits Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.");
     expect(words).toContain("Pushes After every phase Ends at One PR, ready for review. Kiln won’t merge.");
   });
 
@@ -103,7 +103,7 @@ describe("Documents found", () => {
   });
 
   it("shows the not-signed-in line in place of the account and usage", () => {
-    const page = html(documentsFoundSnapshot({ account: { updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
+    const page = html(documentsFoundSnapshot({ account: { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
     const words = text(page);
     expect(words).toContain("Agent Claude Code Not signed in to Claude Code. Run claude auth login . Model");
     // The command is drawn as code, not with its backticks (UI-010 item 7).

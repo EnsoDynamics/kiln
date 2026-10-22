@@ -24,7 +24,7 @@ function writeRecord(s: Sandbox, repository: string, folder: string, worktrees: 
     github: `acme/${repository}`,
     prdDirectoryFromRoot: `docs/prds/${folder}`,
     featureName: folder,
-    settings: { workspaceFolder, worktreePath: join(workspaceFolder, repository), featureBranch: `feature/${folder}`, baseBranch: "develop", bases: {}, model: "opus", effort: "high", keepAwake: true },
+    settings: { workspaceFolder, worktreePath: join(workspaceFolder, repository), featureBranch: `feature/${folder}`, baseBranch: "develop", bases: {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
   });
   record.repositories = worktrees.map((name) => ({ name, kind: "named", mainCheckoutPath: join(s.root, name), github: `acme/${name}`, baseBranch: "develop", worktreePath: join(workspaceFolder, name), setupCompletedAt: "x" }));
   for (const name of worktrees) mkdirSync(join(workspaceFolder, name), { recursive: true });

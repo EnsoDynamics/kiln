@@ -111,3 +111,32 @@ export function resetsIn(iso: string, now: Date): string {
   if (minutes >= 60) return `Resets in ${shortDuration(minutes * 60_000)}`;
   return `Resets in ${minutes}m`;
 }
+
+/** A time rounded to the nearest minute, as the usage-limit screens show every time (usage-limit recovery technical design, "Snapshot"). */
+function nearestMinute(iso: string): Date {
+  return new Date(Math.round(new Date(iso).getTime() / 60_000) * 60_000);
+}
+
+/**
+ * A time the usage-limit screens show after a word, rounded to the nearest minute, with its
+ * weekday when it is on a later day, or v1's day rule when it was on an earlier one (AC-LIMIT-01).
+ *
+ *   limitTime("2026-10-17T19:39:59.7Z", now)   // "3:40 PM" (today, in New York)
+ *   limitTime("2026-10-21T12:00:00Z", now)     // "Wed 8:00 AM"
+ */
+export function limitTime(iso: string, now: Date): string {
+  const time = nearestMinute(iso);
+  const days = Math.round((startOfDay(time) - startOfDay(now)) / DAY_MS);
+  if (days <= 0) return clockTime(time.toISOString(), now, { afterWord: true });
+  if (days < 7) return `${time.toLocaleDateString("en-US", { weekday: "short" })} ${clockOf(time)}`;
+  return `${time.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${clockOf(time)}`;
+}
+
+/** How long until a limit's reset, from its time rounded to the nearest minute: "1h 12m", "2d 4h", "45m". */
+export function countdown(iso: string, now: Date): string {
+  const minutes = Math.max(0, Math.ceil((nearestMinute(iso).getTime() - now.getTime()) / 60_000));
+  if (minutes < 24 * 60) return minutes < 60 ? `${minutes}m` : shortDuration(minutes * 60_000);
+  const days = Math.floor(minutes / (24 * 60));
+  const hours = Math.floor((minutes % (24 * 60)) / 60);
+  return hours === 0 ? `${days}d` : `${days}d ${hours}h`;
+}

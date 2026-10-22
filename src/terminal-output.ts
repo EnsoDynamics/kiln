@@ -89,6 +89,7 @@ export type PhaseLineEvent =
   | { kind: "stopped" }
   | { kind: "interrupted" }
   | { kind: "resumed" }
+  | { kind: "waiting"; label: string; resetsAt?: string }
   | { kind: "done"; pushedSha: string; pushes?: { name: string; sha: string }[] }
   | { kind: "opened"; number: number; opened?: { repository: string; number: number }[] }
   | { kind: "added"; name: string };
@@ -107,13 +108,25 @@ export function formatPhaseLine(at: Date, id: string, title: string, event: Phas
       ? colors.red(event.kind)
       : event.kind === "stopped" || event.kind === "interrupted"
         ? colors.amber(event.kind)
-        : event.kind === "done"
+        : event.kind === "waiting"
+          ? `waiting${colors.grey(` · ${event.label}${event.resetsAt === undefined ? "" : ` resets ${resetClock(new Date(event.resetsAt), at)}`}`)}`
+          : event.kind === "done"
           ? colors.green("done") +
             colors.grey(event.pushes ? ` · pushed ${event.pushes.map((push) => `${push.name} ${push.sha.slice(0, 7)}`).join(" · ")}` : ` · pushed ${event.pushedSha.slice(0, 7)}`)
           : event.kind === "added"
             ? `added ${event.name}`
             : colors.green("opened") + colors.grey(event.opened ? ` ${event.opened.map((pull) => `${pull.repository} #${pull.number}`).join(" · ")}` : ` #${event.number}`);
   return `${colors.grey(`${terminalTime(at)}  ${pad(id, columns.idWidth)}`)}${pad(title, columns.titleWidth)}${what}`;
+}
+
+/**
+ * A reset time as the terminal says it (usage-limit recovery AC-LIMIT-05): local, 12-hour,
+ * rounded to the minute, with the weekday when it isn't today: "3:40 PM", "Wed 8:00 AM".
+ */
+export function resetClock(at: Date, now: Date): string {
+  const rounded = new Date(Math.round(at.getTime() / 60_000) * 60_000);
+  const time = rounded.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return rounded.toDateString() === now.toDateString() ? time : `${rounded.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
 }
 
 /**

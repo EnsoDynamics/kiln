@@ -86,7 +86,8 @@ function save(dir, name, result) {
     try { event = JSON.parse(line); } catch { event = { unparsed: line }; }
     return JSON.stringify({ at, event });
   }).join("\n") + "\n");
-  const { lines, stderr, ...meta } = result;
+  const { stderr, ...meta } = result;
+  delete meta.lines;
   writeFileSync(join(dir, `${name}.meta.json`), JSON.stringify(meta, null, 2) + "\n");
   if (stderr) writeFileSync(join(dir, `${name}.stderr`), stderr);
 }

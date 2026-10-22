@@ -220,6 +220,34 @@ describe("kiln run on a feature underway", () => {
   });
 });
 
+describe("kiln run on a feature waiting for usage (usage-limit recovery AC-AUTO-03, AC-LIMIT-05)", () => {
+  it("says it is waiting, starts the wait again with a fresh reading, and resumes the session once the account has usage left", async () => {
+    const reset = Math.floor(Date.now() / 1000) + 3_600;
+    harness = await createHarness({
+      sessions: [{ actions: [{ text: "Building the intake form." }, { refuse: { rateLimitType: "five_hour", resetsAt: reset } }, { exit: 1 }] }, landingSession("src/intake.txt")],
+    });
+    const h = harness;
+    // The first kiln run had no account reader: the wait was recorded, and Kiln was stopped.
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.waitingPhaseKey()).toBe("1");
+    h.engine.close();
+
+    // The stand-in's /usage shows the 5-hour window at 5%: the restarted wait's reading has usage left.
+    const result = await kilnRunUntil(h, (stdout) => /Return intake +done/.test(stdout));
+    const lines = result.stdout.trimEnd().split("\n");
+    expect(lines[0]).toMatch(/^Customer returns {2}· {2}\d of 4 phases done {2}· {2}phase 1 is waiting for usage$/);
+    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is waiting for usage \\(5-hour window, resets \\d{1,2}:\\d\\d [AP]M\\)\\.${opened}$`));
+    expect(lines[2]).toMatch(new RegExp(`^${time}  1   Return intake      resumed$`));
+    expect(lines[3]).toMatch(new RegExp(`^${time}  1   Return intake      done · pushed [0-9a-f]{7}$`));
+    const runs = h.engine.latestSession("1")!.runs;
+    expect(h.claudeCalls()[1]!.args).toContain("--resume");
+    expect(h.claudeCalls()[1]!.prompt).toContain("because Claude Code's usage limit (the 5-hour usage limit) refused its request.");
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({ cause: "limit_resume", account: { email: "alex@acme-shop.dev" } });
+  });
+});
+
 describe("Ctrl+C and a closed terminal", () => {
   /** Phase 1 finished by the person, so the next kiln run starts phase 2b, whose session works until interrupted. */
   async function underwayAtPhase2b(working: (h: Harness) => string) {

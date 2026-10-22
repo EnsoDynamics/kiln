@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, terminalColors } from "./terminal-output.js";
+import { formatTerminalEvent } from "./kiln-command.js";
+import type { PrdRecord } from "./state/records.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, resetClock, terminalColors } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -85,6 +87,31 @@ describe("the not-started ● line (AC-START-09)", () => {
       "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
     ]);
     expect(formatOpenedLine("http://127.0.0.1:4700/x", "no display", plain, true)).toBe("✗ Couldn’t open the browser: no display. Open http://127.0.0.1:4700/x yourself.");
+  });
+});
+
+describe("the wait's terminal line (usage-limit recovery AC-LIMIT-05)", () => {
+  const at = new Date(2026, 9, 22, 11, 31);
+  const columns = { idWidth: 4, titleWidth: 19 };
+  it("names the limit and its reset, with the day when it isn't today, and no reset part without one", () => {
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "waiting", label: "5-hour window", resetsAt: new Date(2026, 9, 22, 15, 40, 20).toISOString() }, columns, plain)).toBe(
+      "11:31  2b  Store credit       waiting · 5-hour window resets 3:40 PM",
+    );
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "waiting", label: "Weekly", resetsAt: new Date(2026, 9, 26, 0, 0).toISOString() }, columns, plain)).toBe(
+      "11:31  2b  Store credit       waiting · Weekly resets Mon 12:00 AM",
+    );
+    expect(formatPhaseLine(at, "PR", "Final pull request", { kind: "waiting", label: "A usage limit" }, columns, plain)).toBe("11:31  PR  Final pull request  waiting · A usage limit");
+  });
+
+  it("prints the engine's waiting events for a phase and for the pull-request session", () => {
+    const record = { plan: [{ id: "2b", title: "Store credit", file: "phase-2b-store-credit.md", closed: false, repositories: [] }] } as unknown as PrdRecord;
+    const limit = { label: "5-hour window", resetsAt: new Date(2026, 9, 22, 15, 40).toISOString() };
+    expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "waiting", limit }, record, plain)).toBe("11:31  2b  Store credit  waiting · 5-hour window resets 3:40 PM");
+    expect(formatTerminalEvent({ kind: "pull_request", at, event: "waiting", limit: { label: "Weekly" } }, record, plain)).toBe("11:31  PR  Final pull request  waiting · Weekly");
+  });
+
+  it("rounds a reset to the nearest minute", () => {
+    expect(resetClock(new Date(2026, 9, 22, 14, 59, 31), at)).toBe("3:00 PM");
   });
 });
 

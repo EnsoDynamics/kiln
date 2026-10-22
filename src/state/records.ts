@@ -2,8 +2,8 @@
 // Disk"). Git and the phase documents stay the record of what is done; these remember
 // settings, sessions, stops and the facts shown for finished work. Schema 2 keeps every
 // per-repository fact per repository (multi-repo technical design, "Data Models"); schema 3
-// adds a run the person asked Kiln to resume, with their note (usage-limit recovery technical
-// design, "Data Models").
+// adds a run the person asked Kiln to resume, with their note, the wait for a usage limit and the
+// "Resume after a usage limit" setting (usage-limit recovery technical design, "Data Models").
 
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
@@ -26,6 +26,8 @@ export interface Settings {
   model: string;
   effort: Effort;
   keepAwake: boolean;
+  /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
+  resumeAfterUsageLimit: boolean;
 }
 
 export type StopKind = "done_check" | "pull_request_check" | "not_resumable" | "plan";
@@ -48,6 +50,47 @@ export interface PhaseStop {
    * time is its last output because Kiln recorded none.
    */
   interrupted?: { at: string; atIsLastOutput: boolean };
+  /** The stopped run was refused by a usage limit (usage-limit recovery AC-LIMIT-01 to 03). */
+  limit?: StopLimit;
+}
+
+/** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
+export interface StopLimit {
+  rateLimitType?: string;
+  label: string;
+  resetsAt?: string;
+  refusedAgainAt?: string;
+}
+
+/**
+ * A phase waiting out a usage limit (usage-limit recovery AC-AUTO-01): the refused session and
+ * run (its index), and the check that failed when the wait started or restarted.
+ */
+export interface PhaseWait {
+  since: string;
+  sessionId: string;
+  run: number;
+  checks: CheckResult[];
+  checkedAt: string;
+}
+
+/** The account a reading or run belongs to: two are the same when both match. */
+export interface AccountIdentity {
+  email?: string;
+  orgId?: string;
+}
+
+/**
+ * A run Claude Code's usage limit refused (usage-limit recovery "Recognizing a Usage Limit"):
+ * the refusal's type, its label, its reset (ISO), when it arrived, and the account of the first
+ * reading after it that was signed in.
+ */
+export interface LimitRefusal {
+  rateLimitType?: string;
+  label: string;
+  resetsAt?: string;
+  at: string;
+  account?: AccountIdentity;
 }
 
 /** A phase's facts in one repository: where its commits start, and what its Done recorded. */
@@ -62,6 +105,8 @@ export interface PhaseFacts {
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
+  /** Waiting for usage (usage-limit recovery AC-AUTO-01); never beside `stop`. */
+  wait?: PhaseWait;
   /** By repository name. */
   repositories: Record<string, RepositoryPhaseFacts>;
   /**
@@ -151,8 +196,15 @@ export interface SessionRun {
   exitCode?: number;
   signal?: string;
   spawnError?: { code: string; message: string };
-  /** `person_resume`: the person pressed Resume at Needs you (usage-limit recovery AC-RESUME-02). */
-  cause: "launch" | "resume" | "person_resume";
+  /**
+   * `person_resume`: the person pressed Resume at Needs you or Resume now (usage-limit recovery
+   * AC-RESUME-02); `limit_resume`: Kiln resumed by itself at the end of a wait (AC-AUTO-02).
+   */
+  cause: "launch" | "resume" | "person_resume" | "limit_resume";
+  /** Set at the run's end when a usage limit refused it (AC-AUTO-01). */
+  limitRefusal?: LimitRefusal;
+  /** The account the reading just before a resume found signed in. */
+  account?: AccountIdentity;
   /** The note the person sent with Resume, trimmed, as the session got it (AC-RESUME-03). */
   note?: string;
   interruptedBy?: InterruptCause;
@@ -228,11 +280,13 @@ interface SchemaOnePhase {
  * when it was started or holds Kiln's branch, each phase's commits under that repository, the
  * pull request as a one-entry list and each check's fact as a one-item list. Schema 2 to 3 adds
  * nothing to the record, since no record before it holds a run the person resumed; the version
- * alone moves, so an older Kiln refuses it. Written as schema 3 at its next write.
+ * alone moves, so an older Kiln refuses it. A PRD already underway gets "Resume after a usage
+ * limit" on, as a new one does (UI-003). Written as schema 3 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   // A schema 2 record written before Stayed in the workspace was built holds no confirmations.
   for (const facts of Object.values(record.phases)) facts.outsideConfirmations ??= [];
+  record.settings.resumeAfterUsageLimit ??= true;
   if (record.schemaVersion >= 2) {
     record.schemaVersion = SCHEMA_VERSION;
     return record;

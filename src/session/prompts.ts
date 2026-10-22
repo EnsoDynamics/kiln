@@ -107,6 +107,11 @@ export interface ResumePromptValues {
    * AC-RESUME-02): the opening says so, with the run's `endedAt` as `time`, in place of an interruption's.
    */
   endedOnItsOwn?: boolean;
+  /**
+   * The stopped run was refused by a usage limit (usage-limit recovery "Prompts"): the opening
+   * says so, with the limit's sentence form, or `""` for a type with no label.
+   */
+  usageLimit?: string;
   /** `interruptedAt`, or the run's last output time when Kiln recorded no interruption. */
   time: string;
   /** The launched leaf's document, from the folder the session started in; absent for the pull-request session. */
@@ -128,11 +133,16 @@ export interface ResumePromptValues {
  *   resumePrompt({ cause: "sigint", time: "2026-10-17T15:02:11Z", phaseDoc: "docs/prds/customer-returns/phase-2b-store-credit.md" })
  *   // "Kiln was interrupted at `2026-10-17T15:02:11Z` (Ctrl+C) while this session was working, and has resumed it. Carry on with `docs/…/phase-2b-store-credit.md` from where you stopped; …"
  *
+ *   resumePrompt({ usageLimit: "the 5-hour usage limit", time: "2026-10-17T15:52:40Z", phaseDoc: "…/phase-2b-store-credit.md" })
+ *   // "This session stopped at `2026-10-17T15:52:40Z` because Claude Code's usage limit (the 5-hour usage limit) refused its request. Kiln has resumed it on the Claude account signed in now. Carry on with …"
+ *
  *   resumePrompt({ endedOnItsOwn: true, time: "2026-10-17T15:52:40Z", phaseDoc: "…/phase-2b-store-credit.md", note: "Renumber the migration to 0043." })
  *   // "The person running Kiln says:\n\nRenumber the migration to 0043.\n\nThis session ended at `2026-10-17T15:52:40Z` before its work was done, and the person running Kiln has asked Kiln to resume it. Carry on with …"
  */
 export function resumePrompt(values: ResumePromptValues): string {
-  const opening = values.endedOnItsOwn
+  const opening = values.usageLimit !== undefined
+    ? fill(template("resume-opening-usage-limit.txt"), { time: values.time, limit: values.usageLimit === "" ? "" : ` (${values.usageLimit})` })
+    : values.endedOnItsOwn
     ? fill(template("resume-opening-stopped.txt"), { time: values.time })
     : values.cause === undefined
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })

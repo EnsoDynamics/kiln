@@ -2,7 +2,9 @@
 // mockup screen rendered by headless Chrome from a fixture Snapshot carrying that mockup's
 // sample data, v1's and the multi-repo delivery change's (multi-repo AC-SHOW-01), under Kiln's own Content Security Policy, with its copy checked against the
 // mockup's; the Disconnected and reconnect behavior against a server that stops and returns;
-// and a final message holding raw HTML shown as text (PRD AC-STOP-02).
+// and a final message holding raw HTML shown as text (PRD AC-STOP-02). The usage-limit recovery
+// change's two screens are compared with its mockups the same way, and v1's settings get the
+// row it adds under keep-awake (usage-limit recovery AC-AUTO-04, AC-LIMIT-01 to 04).
 //
 // Set KILN_SCREENSHOTS=<folder> to also write each screen and its mockup as PNGs side by side,
 // for comparing them by eye (AC-LOOK-01).
@@ -27,10 +29,13 @@ import {
   pausedSnapshot,
   needsYouOutsideWorkspaceSnapshot,
   needsYouRepositoriesSnapshot,
+  needsYouUsageLimitSnapshot,
   PHASE_DETAIL_LINES,
   RUNNING_NOW,
   runningRepositoriesSnapshot,
   runningSnapshot,
+  USAGE_LIMIT_NOW,
+  waitingSnapshot,
 } from "../test-support/sample-snapshots.js";
 
 const MOCKUPS = new URL("../../docs/design/mockups/", import.meta.url);
@@ -62,6 +67,44 @@ const withResumeCard = (phase: string) => `(() => {
   text.textContent = text.textContent.replace("Phase 2b", ${JSON.stringify(phase)});
   eyebrow.closest("section").before(card);
   eyebrow.textContent = "Or pick it up yourself";
+  return true;
+})()`;
+/** "Resume after a usage limit" in the waiting mockup's words (usage-limit recovery AC-AUTO-04). */
+const LIMIT_SETTING = { label: "Resume after a usage limit", help: "Switch off to finish the phase yourself; Needs you then shows how." };
+/**
+ * The settings panel v1 drew, as usage-limit recovery changes it (AC-AUTO-03, AC-AUTO-04):
+ * keep-awake covers a wait too, and "Resume after a usage limit" sits under it as a row like it,
+ * with the waiting mockup's wording and checkbox.
+ */
+const WITH_LIMIT_SETTING = `(() => {
+  const value = [...document.querySelectorAll("dd")].find((e) => e.textContent === "While a session works");
+  value.textContent = "While a session works or Kiln waits";
+  const row = value.parentElement.parentElement;
+  const added = row.cloneNode(true);
+  const words = added.firstElementChild;
+  words.querySelector("dt").textContent = ${JSON.stringify(LIMIT_SETTING.label)};
+  words.querySelector("dd").remove();
+  const help = words.querySelector("dd");
+  help.textContent = ${JSON.stringify(LIMIT_SETTING.help)};
+  help.style.fontSize = "13px";
+  added.querySelector("input").setAttribute("aria-label", ${JSON.stringify(LIMIT_SETTING.label)});
+  row.after(added);
+  return true;
+})()`;
+/** Documents found's keep-awake checkbox, with "Resume after a usage limit" under it in the same form (AC-AUTO-04). */
+const WITH_LIMIT_CHECKBOX = `(() => {
+  const awake = document.querySelector('label[for="awake"]');
+  const added = awake.cloneNode(true);
+  added.setAttribute("for", "resume-after-limit");
+  added.querySelector("input").id = "resume-after-limit";
+  const [label, help] = added.querySelectorAll("span > span");
+  label.textContent = ${JSON.stringify(LIMIT_SETTING.label)};
+  help.textContent = ${JSON.stringify(LIMIT_SETTING.help)};
+  awake.after(added);
+  // Documents found's keep-awake label names the wait too (usage-limit recovery AC-AUTO-03).
+  for (const span of awake.querySelectorAll("span")) {
+    if (span.textContent === "Keep this computer awake while a session works") span.textContent += " or Kiln waits";
+  }
   return true;
 })()`;
 /** Documents found's line on what sessions may do in a repository they add (multi-repo AC-SPACE-03, AC-PRS-04). */
@@ -259,13 +302,14 @@ const SCREENS: {
       pair.replaceWith(field);
       field.append(pair, Object.assign(document.createElement("span"), { style: "font-size: 12.5px; color: #8c8577", textContent: ${JSON.stringify(SESSIONS_ADD)} }));
       return true;
-    })()`,
+    })() && ${WITH_LIMIT_CHECKBOX}`,
     copy: [
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
       "PRD customer-returns-prd.md 14 acceptance criteria, AC-RET-01 to AC-RET-14 Technical design technical-design.md Cites all 14 criteria",
       "Every phase cites its criteria Dependencies point backward Working tree is clean",
       `${SESSIONS_ADD} Agent Claude Code`,
-      "Keep this computer awake while a session works Stops idle sleep only.",
+      "Keep this computer awake while a session works or Kiln waits Stops idle sleep only.",
+      `Kiln picks up where it left off afterwards. ${LIMIT_SETTING.label} ${LIMIT_SETTING.help}`,
       "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start",
     ],
   },
@@ -273,6 +317,7 @@ const SCREENS: {
     name: "documents-found-repositories",
     mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-documents-found-repositories.html`,
     snapshot: documentsFoundRepositoriesSnapshot,
+    addition: WITH_LIMIT_CHECKBOX,
     copy: [
       "Repository product PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
       "Phase plan 6 phase docs 5 phases to implement, in this order 1 Return intake returns-api 2 Refund routing split into 2a and 2b returns-api 2a Card refunds returns-api 2b Store credit returns-api · storefront 3 Returns dashboard storefront 4 Restock check-in returns-api",
@@ -290,6 +335,7 @@ const SCREENS: {
     // The mockup draws phase 2a's Details open.
     open: ["2a"],
     snapshot: runningSnapshot,
+    addition: WITH_LIMIT_SETTING,
     copy: [
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Implementing phase 2b 2 of 5 phases done",
       "2b Now implementing · phase 2b of 5 Store credit Claude Code · Opus 5.5 · high effort Started 10:58 AM · 49 min",
@@ -298,7 +344,7 @@ const SCREENS: {
       "11:46:58 reviewer The credit multiplier is applied before rounding; checking that against… Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
-      "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code Change Keep awake While a session works Closing the lid can still put the computer to sleep. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
+      "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
       "Pause Kiln Phase 2b, Store credit, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start. Pause after this phase",
       "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
     ],
@@ -329,6 +375,7 @@ const SCREENS: {
     // The mockup draws phase 2a's Details open.
     open: ["2a"],
     snapshot: pausedSnapshot,
+    addition: WITH_LIMIT_SETTING,
     copy: [
       "Customer returns Paused 2 of 5 phases done",
       "Paused after phase 2a Next: phase 2b, Store credit Phase 2a, Card refunds, finished with its commit and push at 10:57 AM. Nothing is running. Change the model or effort first if you want; they apply to phase 2b. Start phase 2b",
@@ -356,6 +403,40 @@ const SCREENS: {
       "2 Finish the phase with Claude, the way you normally would Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
       "3 Come back and check again Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase. Session can’t be opened? Copy a prompt for a fresh session instead",
       "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    ],
+  },
+  {
+    // Needs you after a usage limit, with its two ways forward and the account Kiln last read (usage-limit recovery AC-LIMIT-01 to 03).
+    name: "needs-you-usage-limit",
+    mockup: `${RECOVERY_MOCKUPS}kiln-screen-needs-you-usage-limit.html`,
+    snapshot: needsYouUsageLimitSnapshot,
+    clock: USAGE_LIMIT_NOW,
+    copy: [
+      "Customer returns Needs you Phase 2b · Store credit · Stopped 2:28 PM",
+      "Phase 2b stopped at the 5-hour usage limit. Claude Code reported that this account’s 5-hour usage limit is used up. Resets at 3:40 PM, in 1h 12m. exit 1 2:28 PM last skill seen: implement-from-requirements, 3 min earlier",
+      "Last message from Claude Code 5-hour limit reached · resets 3:40pm Full session output · 248 lines",
+      "Two ways to carry on 1 Wait for the reset The 5-hour usage limit resets at 3:40 PM, in 1h 12m. Come back after that and press Resume.",
+      "2 Or switch to another Claude account now In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account. claude auth login Copy command To fill in the other account’s email, add it: claude auth login --email <address>",
+      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% Usage updated 1 min ago. Switch accounts and this changes within 5 minutes. Close the session first if you opened it in a terminal.",
+      "Anything to tell the session first? Optional Resume This account’s 5-hour usage limit is at 100% until 3:40 PM.",
+      "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command",
+      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 3 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 2:28 PM.",
+    ],
+  },
+  {
+    // Waiting for usage, alone as Needs you is, styled as Paused (usage-limit recovery AC-LIMIT-01 to 04, AC-AUTO-04).
+    name: "waiting-for-usage",
+    mockup: `${RECOVERY_MOCKUPS}kiln-screen-waiting-for-usage.html`,
+    snapshot: waitingSnapshot,
+    clock: USAGE_LIMIT_NOW,
+    copy: [
+      "Customer returns Waiting for usage Phase 2b · Store credit · Waiting since 2:28 PM",
+      "Phase 2b is waiting for the 5-hour usage limit to reset. Claude Code reported that the account’s 5-hour usage limit was used up. Resets at 3:40 PM, in 1h 12m. Kiln resumes this session by itself at the first reading that shows usage left: after the reset, or sooner if you sign in to another account.",
+      "exit 1 2:28 PM last skill seen: implement-from-requirements, 3 min earlier Last message from Claude Code 5-hour limit reached · resets 3:40pm Full session output · 248 lines",
+      "Go sooner on another account 1 Sign in to another Claude account in a terminal Use an account that has usage left. claude auth login Copy command To fill in the other account’s email, add it: claude auth login --email <address>",
+      "2 Then press Resume now It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks Git first, then picks up the same session. If you don’t, Kiln resumes by itself at the first reading that shows usage left.",
+      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and at the reset. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.",
+      `Settings for this PRD Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On ${LIMIT_SETTING.label} ${LIMIT_SETTING.help} On`,
     ],
   },
   {
@@ -468,7 +549,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
   }
 
   it("lays out disconnected as drawn, once Kiln stops while a phase works (AC-LOOK-01)", async () => {
-    const mockup = await mockupLayout("kiln-screen-disconnected.html", RUNNING_NOW);
+    const mockup = await mockupLayout("kiln-screen-disconnected.html", RUNNING_NOW, WITH_LIMIT_SETTING);
     const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
@@ -782,6 +863,39 @@ describe("the controls, in a real browser", () => {
       held.needsYou!.checking = true;
       server.send("snapshot", held);
       await page.waitFor(`[...document.querySelectorAll("button")].filter((e) => ["Resume", "Check again"].includes(e.textContent.trim())).every((e) => e.disabled)`);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Resume now with no note, and Resume after a usage limit, from the waiting screen (usage-limit recovery AC-LIMIT-02, AC-AUTO-04)", async () => {
+    const { server, page } = await openScreen(waitingSnapshot(), "", USAGE_LIMIT_NOW, PHASE_DETAIL_LINES, { "POST /api/resume": "Kiln is already resuming this session." });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Resume now")`);
+      await click(page, "Resume now");
+      await page.waitFor(`document.body.innerText.includes("Kiln is already resuming this session.")`);
+      await page.evaluate(`document.querySelector('input[aria-label="Resume after a usage limit"]').click()`);
+      await waitUntil(() => server.commands.length === 2);
+      expect(server.commands).toEqual(["POST /api/resume", 'POST /api/settings {"resumeAfterUsageLimit":false}']);
+      // While Kiln holds the wait for a resume or its check, Resume now can't be pressed.
+      const held = waitingSnapshot();
+      held.waiting!.checking = true;
+      server.send("snapshot", held);
+      await page.waitFor(`[...document.querySelectorAll("button")].find((e) => e.textContent.trim() === "Resume now").disabled`);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("saves Resume after a usage limit from the settings while Kiln works (usage-limit recovery AC-AUTO-04)", async () => {
+    const { server, page } = await openScreen(runningSnapshot());
+    try {
+      await page.waitFor(`document.querySelector('input[aria-label="Resume after a usage limit"]')`);
+      await page.evaluate(`document.querySelector('input[aria-label="Resume after a usage limit"]').click()`);
+      await waitUntil(() => server.commands.length === 1);
+      expect(server.commands).toEqual(['POST /api/settings {"resumeAfterUsageLimit":false}']);
     } finally {
       await page.close();
       await server.close();

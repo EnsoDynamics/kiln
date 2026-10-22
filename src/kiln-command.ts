@@ -351,7 +351,11 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
         event.at,
         event.phaseId,
         event.title,
-        event.event === "done" ? { kind: "done", pushedSha: event.pushedSha ?? "", ...(event.pushes ? { pushes: event.pushes } : {}) } : { kind: event.event },
+        event.event === "done"
+          ? { kind: "done", pushedSha: event.pushedSha ?? "", ...(event.pushes ? { pushes: event.pushes } : {}) }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event },
         columns,
         colors,
       );
@@ -362,7 +366,11 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
         event.at,
         "PR",
         PR_TITLE,
-        event.event === "opened" ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) } : { kind: event.event },
+        event.event === "opened"
+          ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event },
         columns,
         colors,
       );

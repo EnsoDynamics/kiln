@@ -7,7 +7,7 @@
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
-import { clockTime, shortDuration, timeSpan } from "./time.js";
+import { clockTime, limitTime, shortDuration, timeSpan } from "./time.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -37,9 +37,13 @@ export function settingsModel(settings: Snapshot["settings"]): string {
   return modelAndEffort(settings.model.displayName, settings.effortLevels?.length === 0 ? undefined : settings.effort);
 }
 
-export type HeaderKind = "implementing" | "interrupted" | "paused" | "needs_you" | "complete";
+export type HeaderKind = "implementing" | "interrupted" | "paused" | "needs_you" | "waiting" | "complete";
 
-/** The pill under the feature name and the facts beside it (AC-WATCH-02). */
+/**
+ * The pill under the feature name and the facts beside it (AC-WATCH-02). A wait reads Waiting
+ * for usage, and once the view has lost Kiln, Interrupted, as Implementing does (usage-limit
+ * recovery AC-LIMIT-04).
+ */
 export function headerState(snapshot: Snapshot, connected: boolean, now: Date): { kind: HeaderKind; label: string; facts: string[] } {
   const { feature } = snapshot;
   const done = `${feature.phasesDone} of ${feature.phasesTotal} phases done`;
@@ -50,6 +54,13 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       const row = snapshot.phases.find((phase) => phase.id === stopped.phaseId);
       const which = stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
       return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
+    }
+    case "waiting": {
+      if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
+      const waiting = snapshot.waiting!;
+      const row = snapshot.phases.find((phase) => phase.id === waiting.phaseId);
+      const which = waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
+      return { kind: "waiting", label: "Waiting for usage", facts: [`${which} · ${row?.title ?? ""}`, `Waiting since ${limitTime(waiting.since, now)}`] };
     }
     case "paused":
       return { kind: "paused", label: "Paused", facts: [done] };
@@ -67,9 +78,12 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
 
 export type RowState = PhaseView["state"] | "interrupted";
 
-/** A row's state as drawn: an Implementing phase shows as Interrupted once the view has lost Kiln (AC-WATCH-01). */
+/**
+ * A row's state as drawn: an Implementing phase shows as Interrupted once the view has lost Kiln
+ * (AC-WATCH-01), and so does a waiting one (usage-limit recovery AC-LIMIT-04).
+ */
 export function rowState(row: PhaseView, connected: boolean): RowState {
-  return row.state === "implementing" && !connected ? "interrupted" : row.state;
+  return (row.state === "implementing" || row.state === "waiting") && !connected ? "interrupted" : row.state;
 }
 
 /**
@@ -96,6 +110,8 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
       return "Interrupted";
     case "needs_you":
       return "Needs you";
+    case "waiting":
+      return "Waiting for usage";
     case "next":
       return "Next";
     default:

@@ -15,6 +15,7 @@
   import Paused from "./screens/Paused.svelte";
   import PhaseDetail from "./screens/PhaseDetail.svelte";
   import Running from "./screens/Running.svelte";
+  import Waiting from "./screens/Waiting.svelte";
 
   let { config }: { config: PageConfig } = $props();
   // The page's config never changes after load.
@@ -34,7 +35,8 @@
 
   /**
    * The phase route renders the live Phase detail while that phase is current, and Full session
-   * output while it is stopped with a session; otherwise it gives way to the progress view. While
+   * output while it is stopped with a session or waiting for usage (usage-limit recovery,
+   * technical design "Screens"); otherwise it gives way to the progress view. While
    * disconnected, a route keeps its screen.
    */
   const phaseScreen = $derived.by(() => {
@@ -42,6 +44,7 @@
     if (route.screen !== "phase" || !snapshot) return undefined;
     if (snapshot.current?.phaseId === route.phaseId) return route.phaseId;
     if (snapshot.needsYou?.phaseId === route.phaseId && snapshot.needsYou.sessionId) return route.phaseId;
+    if (snapshot.waiting?.phaseId === route.phaseId) return route.phaseId;
     return undefined;
   });
 
@@ -70,6 +73,8 @@
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
     {:else if snapshot.feature.state === "needs_you" && connected}
       <NeedsYou {snapshot} {now} />
+    {:else if snapshot.feature.state === "waiting" && connected}
+      <Waiting {snapshot} {now} />
     {:else if snapshot.feature.state === "paused"}
       <Paused {snapshot} {connected} {now} {lastSeenAt} />
     {:else if snapshot.feature.state === "complete"}

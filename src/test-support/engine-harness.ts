@@ -17,6 +17,10 @@ import { commitFiles, createBareOrigin, createRepository, createSandbox, git, in
 
 export interface ScenarioSession {
   actions: Record<string, unknown>[];
+  /** A resume whose transcript is gone (the stand-in's header lists these). */
+  noInit?: boolean;
+  /** No transcript is kept. */
+  noTranscript?: boolean;
 }
 
 export interface Harness {

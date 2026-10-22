@@ -171,7 +171,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/pause", (c) => answer(c, engine.pause()));
   app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
   app.post("/api/check-again", async (c) => answer(c, await engine.checkAgain()));
-  // Resume at Needs you, with an optional note (usage-limit recovery AC-RESUME-01 to 03); answered once its check has run.
+  // Resume at Needs you, with an optional note, or Resume now while waiting, with none (usage-limit
+  // recovery AC-RESUME-01 to 03, AC-LIMIT-02); answered once its check has run.
   app.post("/api/resume", async (c) => {
     const body = (await jsonBody(c)) ?? {};
     return answer(c, await engine.resume(body.note === undefined ? {} : { note: body.note }));
@@ -269,9 +270,11 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     if (typeof body.effort !== "string") return "effort must be text.";
     change.effort = body.effort as Effort;
   }
-  if (body.keepAwake !== undefined) {
-    if (typeof body.keepAwake !== "boolean") return "keepAwake must be true or false.";
-    change.keepAwake = body.keepAwake;
+  for (const field of ["keepAwake", "resumeAfterUsageLimit"] as const) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (typeof value !== "boolean") return `${field} must be true or false.`;
+    change[field] = value;
   }
   if (body.bases !== undefined) {
     // The other repositories' bases, by name; the PRD's repository's is baseBranch (multi-repo technical design, "HTTP API").
@@ -281,7 +284,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     }
     change.bases = bases as Record<string, string>;
   }
-  const unknown = Object.keys(body).filter((key) => !["model", "effort", "keepAwake", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  const unknown = Object.keys(body).filter((key) => !["model", "effort", "keepAwake", "resumeAfterUsageLimit", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

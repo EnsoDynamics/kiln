@@ -235,6 +235,11 @@ describe("the local server", () => {
     expect(await post("/api/settings", { effort: "extreme" })).toMatchObject({ status: 400 });
     expect(await post("/api/settings", { colour: "red" })).toMatchObject({ status: 400, body: { reason: "Unknown setting: colour." } });
     expect(await post("/api/settings", { keepAwake: "yes" })).toMatchObject({ status: 400 });
+    // Resume after a usage limit is accepted at any time and applied at once (usage-limit recovery AC-AUTO-04).
+    expect(await post("/api/settings", { resumeAfterUsageLimit: "no" })).toMatchObject({ status: 400, body: { reason: "resumeAfterUsageLimit must be true or false." } });
+    expect(await post("/api/settings", { resumeAfterUsageLimit: false })).toMatchObject({ status: 200, body: { settings: { resumeAfterUsageLimit: false } } });
+    expect(h.engine.record.settings.resumeAfterUsageLimit).toBe(false);
+    await post("/api/settings", { resumeAfterUsageLimit: true });
     const taken = await post("/api/settings", { featureBranch: "develop" });
     expect(taken.body.settings.fieldErrors.featureBranch).toBe("That branch already exists. Choose a name no branch has; a new name starts this PRD over from develop.");
     expect(await post("/api/start", { refinementConfirmed: true })).toMatchObject({ status: 409, body: { fieldErrors: { featureBranch: expect.any(String) } } });

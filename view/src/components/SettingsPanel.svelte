@@ -5,7 +5,9 @@
   // branch and one pull request, fixed for the PRD. Without a live Kiln, Change and the checkbox
   // are disabled in place (technical design, "Connection"). A multi-repository PRD lists the
   // workspace folder and each repository's base, fixed, as Documents found draws them without
-  // their help text (multi-repo AC-PRS-04, AC-SHOW-01).
+  // their help text (multi-repo AC-PRS-04, AC-SHOW-01). Under keep-awake, which covers a wait for
+  // usage too, "Resume after a usage limit" applies at once, as the waiting screen draws it
+  // (usage-limit recovery AC-AUTO-03, AC-AUTO-04).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import { changeSettings } from "../lib/api.js";
@@ -46,10 +48,14 @@
     {#if editing && connected}<ModelEffortEditor {snapshot} {save} />{/if}
     <div class="setting">
       <div class="words">
-        <dt>Keep awake</dt><dd class="value">While a session works</dd><dd class="help">Closing the lid can still put the computer to sleep.</dd>
+        <dt>Keep awake</dt><dd class="value">While a session works or Kiln waits</dd><dd class="help">Closing the lid can still put the computer to sleep.</dd>
         {#if settings.keepAwakeError}<dd class="message">{settings.keepAwakeError}</dd>{/if}
       </div>
       <label class="awake"><input type="checkbox" checked={settings.keepAwake} disabled={!connected} aria-label="Keep this computer awake" onchange={(event) => save({ keepAwake: event.currentTarget.checked })} />{settings.keepAwake ? "On" : "Off"}</label>
+    </div>
+    <div class="setting">
+      <div class="words"><dt>Resume after a usage limit</dt><dd class="help limit-help">Switch off to finish the phase yourself; Needs you then shows how.</dd></div>
+      <label class="awake"><input type="checkbox" checked={settings.resumeAfterUsageLimit} disabled={!connected} aria-label="Resume after a usage limit" onchange={(event) => save({ resumeAfterUsageLimit: event.currentTarget.checked })} />{settings.resumeAfterUsageLimit ? "On" : "Off"}</label>
     </div>
     {#if reason}<span class="message">{reason}</span>{/if}
     {#if snapshot.feature.multiRepository}
@@ -102,6 +108,7 @@
   dd { margin: 0; }
   .value { font-size: 14.5px; color: var(--text); }
   .help { font-size: 12.5px; color: var(--dim); line-height: 1.5; }
+  .limit-help { font-size: 13px; }
   .message { font-size: 12.5px; color: var(--amber); line-height: 1.5; }
   .awake { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; flex: 0 0 auto; }
   .awake input { width: 18px; height: 18px; margin: 0; accent-color: var(--red); }

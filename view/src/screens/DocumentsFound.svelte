@@ -6,7 +6,9 @@
   // kiln-multi-repo-delivery/mockups/kiln-screen-documents-found-repositories.html) shows each
   // phase's repositories, the workspace folder in place of the worktree, and a base per
   // repository (multi-repo AC-REPO-03, AC-SPACE-01, AC-PRS-04); a field Start already set up is
-  // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03).
+  // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03). Under
+  // keep-awake, "Resume after a usage limit", in the waiting screen's words (usage-limit recovery
+  // AC-AUTO-04).
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
   import CodeText from "../components/CodeText.svelte";
@@ -261,9 +263,14 @@
       <label for="awake" class="awake">
         <input id="awake" type="checkbox" checked={settings.keepAwake} disabled={!connected} onchange={(event) => save({ keepAwake: event.currentTarget.checked })} />
         <span class="awake-text"
-          ><span class="awake-label">Keep this computer awake while a session works</span><span class="help">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span
+          ><span class="awake-label">Keep this computer awake while a session works or Kiln waits</span><span class="help">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span
           >{#if settings.keepAwakeError}<span class="message">{settings.keepAwakeError}</span>{/if}</span
         >
+      </label>
+
+      <label for="resume-after-limit" class="awake">
+        <input id="resume-after-limit" type="checkbox" checked={settings.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => save({ resumeAfterUsageLimit: event.currentTarget.checked })} />
+        <span class="awake-text"><span class="awake-label">Resume after a usage limit</span><span class="help">Switch off to finish the phase yourself; Needs you then shows how.</span></span>
       </label>
 
       <dl class="fixed">

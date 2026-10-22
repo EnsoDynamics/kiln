@@ -37,6 +37,7 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     model: "opus",
     effort: "high",
     keepAwake: true,
+    resumeAfterUsageLimit: true,
   };
 }
 
