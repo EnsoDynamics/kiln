@@ -45,7 +45,7 @@ Claude Code refused **none** of a session's writes outside its starting folder u
 
 ### Transcripts
 
-- **Main session:** `<Claude config folder>/projects/<starting folder, every non-alphanumeric character replaced by '->/<session ID>.jsonl`.
+- **Main session:** `<Claude config folder>/projects/<starting folder, every non-alphanumeric character replaced by '-'>/<session ID>.jsonl`.
 - **Subagents:** recorded apart, at `<same project folder>/<session ID>/subagents/agent-<agent ID>.jsonl`. Their records carry `isSidechain: true` and the parent's `sessionId`. The parent's file holds only the Agent call, not the subagent's edits or commands.
 - **Resume:** `claude --resume`, from the starting folder or from any other folder, appends to the original file under the original project folder. Each new record carries the folder it ran in.
 - **Records:** every `user` and `assistant` record carries `timestamp`, `cwd` and `sessionId`. `cwd` is the Bash shell's directory at that point, so a `cd` in one Bash call shows in the next call's record; Claude Code resets the shell to the starting folder after a `cd` outside the session's folders. A tool call is an assistant `tool_use` block with its `input` (`file_path`, `command`). Its outcome is a user `tool_result` block with `is_error`. For a Bash call, `is_error` is set whenever the command exits non-zero, including after earlier parts of it ran.
