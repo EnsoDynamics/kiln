@@ -66,7 +66,7 @@ export async function findRepository(git: GitContext, parent: string, name: stri
   const origin = await runGit(git, folder, ["remote", "get-url", "origin"]);
   if (origin.exitCode !== 0) return { ok: false, problem: `${name} in ${shownParent}/ has no origin remote.` };
   const github = parseGithubOrigin(origin.stdout);
-  if (!github) return { ok: false, problem: `${name}: origin isn’t on GitHub: ${origin.stdout.trim()}` };
+  if (!github) return { ok: false, problem: `${name} in ${shownParent}/ has an origin that isn’t on GitHub: ${origin.stdout.trim()}` };
   return { ok: true, repository: { name, mainCheckoutPath: folder, github: `${github.owner}/${github.name}` } };
 }
 

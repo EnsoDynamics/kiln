@@ -93,6 +93,27 @@ describe("adding a repository after Start", () => {
     expect(h.engine.record.repositories.map((entry) => entry.name)).toEqual(["acme-shop"]);
   });
 
+  it("refuses a worktree folder inside a checkout, and changes nothing", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ result: "Stopping partway." }, { exit: 0 }] }] });
+    const h = harness;
+    const workspace = join(h.sandbox.root, ".worktrees", "customer-returns");
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const checkout = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, checkout, "push", "-q", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    // returns-api's own worktree is the workspace folder, so <workspace>/returns-api would sit inside it.
+    git(h.sandbox, checkout, "worktree", "add", "-q", "-b", "elsewhere", workspace);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(await h.engine.addRepository("returns-api")).toEqual({
+      ok: false,
+      status: 422,
+      reason: `Kiln can't make returns-api's worktree at ${displayPath(join(workspace, "returns-api"))}: That folder is inside a checkout of this repository.`,
+    });
+    expect(h.engine.record.repositories.map((entry) => entry.name)).toEqual(["acme-shop"]);
+  });
+
   it("undoes a git failure, and the next request is a fresh add", async () => {
     const { h, checkout, workspace } = await stoppedWithNeighbour();
     // The branch's ref can't be created, so git worktree add fails before making anything.
@@ -110,10 +131,11 @@ describe("adding a repository after Start", () => {
     const { h, checkout, workspace } = await stoppedWithNeighbour();
     // A post-checkout hook that fails: git worktree add makes the branch and the worktree, then exits non-zero.
     const hook = join(checkout, ".git", "hooks", "post-checkout");
-    writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    writeFileSync(hook, "#!/bin/sh\necho post-checkout refused >&2\nexit 1\n");
     chmodSync(hook, 0o755);
     const failed = await h.engine.addRepository("returns-api");
-    expect(failed).toMatchObject({ ok: false, status: 422 });
+    // AC-ADD-02: the session is told git's message.
+    expect(failed).toMatchObject({ ok: false, status: 422, reason: expect.stringContaining("post-checkout refused") });
     const base = git(h.sandbox, checkout, "rev-parse", "develop").trim();
     expect(h.engine.record.repositories[1]).toMatchObject({ name: "returns-api", createdBranch: { name: BRANCH, commit: base, baseBranch: "develop" } });
     expect(h.engine.record.repositories[1]!.setupCompletedAt).toBeUndefined();
@@ -133,6 +155,28 @@ describe("adding a repository after Start", () => {
     git(h.sandbox, second, "worktree", "remove", "--force", join(workspace, "storefront"));
     expect(await h.engine.addRepository("storefront")).toMatchObject({ ok: true, added: true, baseBranch: "develop" });
     expect(git(h.sandbox, join(workspace, "storefront"), "branch", "--show-current").trim()).toBe(BRANCH);
+  });
+
+  it("answers a retry on Kiln's own branch that can't reach origin in the failed check's words, and changes nothing", async () => {
+    const { h, checkout, workspace } = await stoppedWithNeighbour();
+    // A fresh add that can't reach origin fails check 4 in its words.
+    h.env.GIT_SSH_COMMAND = "false";
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: false, status: 422, reason: expect.stringMatching(/^Couldn’t reach origin: /) });
+    expect(h.engine.record.repositories.map((entry) => entry.name)).toEqual(["acme-shop"]);
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    const hook = join(checkout, ".git", "hooks", "post-checkout");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    chmodSync(hook, 0o755);
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: false, status: 422 });
+    rmSync(hook);
+    git(h.sandbox, checkout, "worktree", "remove", "--force", join(workspace, "returns-api"));
+    const before = JSON.stringify(h.engine.record.repositories);
+    h.env.GIT_SSH_COMMAND = "false";
+    // AC-ADD-02: not "That branch already exists", since the branch is Kiln's own.
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: false, status: 422, reason: expect.stringMatching(/^Couldn’t reach origin: /) });
+    expect(JSON.stringify(h.engine.record.repositories)).toBe(before);
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true, added: true });
   });
 
   it("changes nothing at a worktree Git left half made, names the command that removes it, then finishes the interrupted add from its recorded commit", async () => {

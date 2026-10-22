@@ -234,7 +234,7 @@ export class Engine {
   private readonly partialListeners = new Set<(sessionId: string, partial: PartialText) => void>();
   private lastCommitRefresh = 0;
   private stoppedCommitsReading: Promise<void> | undefined;
-  /** True while `kiln run` decides; its ● line stands in for the terminal lines. */
+  /** True while `kiln run` decides; its ● line stands in for the terminal lines, except an added repository's. */
   private quiet = false;
   /** `kiln run` already ran the check before the pull-request session and it failed. */
   private pullRequestPrecheckDone = false;
@@ -1615,6 +1615,14 @@ export class Engine {
       entry = existing;
     } else {
       const origin = await originBranches(this.git, found.repository.mainCheckoutPath);
+      // Kiln's own branch is told apart from another only on origin, so check 2 can't judge it unreached.
+      if (
+        !origin.ok &&
+        existing?.createdBranch?.name === branch &&
+        (await localBranchCommit(this.git, found.repository.mainCheckoutPath, branch)) === existing.createdBranch.commit
+      ) {
+        return refuse422(`Couldn’t reach origin: ${origin.error}`);
+      }
       const ownBranch =
         existing?.createdBranch !== undefined &&
         existing.createdBranch.name === branch &&
@@ -1748,9 +1756,13 @@ export class Engine {
     }));
   }
 
-  /** The phase prompt's values for a session starting in `folder`. */
+  /**
+   * The phase prompt's values for a session starting in `folder`. The workspace form once the PRD
+   * has more than one repository, so the fresh-session prompt of a one-repository PRD's session
+   * that added one names it too (AC-SPACE-04), with paths still from the folder it started in.
+   */
   phasePromptValues(fileName: string, folder: string): PhasePromptValues {
-    const workspace = folder !== this.worktreePath;
+    const workspace = this.multiRepository || folder !== this.worktreePath;
     return {
       phaseDoc: this.pathFrom(folder, `${this.paths.prdDirectoryFromRoot}/${fileName}`),
       featureName: this.paths.featureName,
@@ -1758,7 +1770,7 @@ export class Engine {
       worktreePath: this.worktreePath,
       branch: this.record.settings.featureBranch,
       parentFolder: displayPath(this.parentFolder),
-      ...(workspace ? { workspace: { folder, repositories: this.promptRepositories(this.setUpRepositories) } } : {}),
+      ...(workspace ? { workspace: { folder: this.workspaceFolder, repositories: this.promptRepositories(this.setUpRepositories) } } : {}),
     };
   }
 
@@ -1926,7 +1938,8 @@ export class Engine {
   }
 
   private emit(event: TerminalEvent): void {
-    if (!this.quiet) this.options.onTerminal?.(event);
+    // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
+    if (!this.quiet || event.kind === "repository_added") this.options.onTerminal?.(event);
   }
 }
 

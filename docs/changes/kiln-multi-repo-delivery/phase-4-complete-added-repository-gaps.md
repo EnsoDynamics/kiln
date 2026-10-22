@@ -1,5 +1,6 @@
 # Phase 4: Complete the fresh-session prompt after an addition, and three messages
 
+**Closed:** 2026-10-22
 **Added by delivery audit:** 2026-10-22, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md
 **Technical design:** docs/changes/kiln-multi-repo-delivery/technical-design.md — relevant sections: "Found beside the PRD's repository (AC-REPO-02)", "In the engine (AC-ADD-01, AC-ADD-02, AC-ADD-03)", "Named after Start (AC-ADD-04)", "Sessions" (Working directory, Fresh-session prompt and resume command)

@@ -23,8 +23,9 @@ afterEach(async () => {
   await harness?.cleanup();
 });
 
+/** The next free port in this file's range, 41180 to 41199; kiln-run-repositories takes 41160 to 41179. */
 async function freePort(): Promise<number> {
-  for (let port = 41160; port < 41200; port++) if (await isPortFree(port)) return port;
+  for (let port = 41180; port < 41200; port++) if (await isPortFree(port)) return port;
   throw new Error("No free port for the test.");
 }
 

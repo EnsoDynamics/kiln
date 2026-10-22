@@ -299,13 +299,14 @@ describe("kiln run on a PRD across repositories", () => {
   it("names the repository and the folder when a named repository isn't beside the PRD's, is a link, isn't a checkout or isn't on GitHub", async () => {
     const f = createWorkspaceFeature([], {
       "phase-1-return-intake.md": "**Repositories:** billing, Storefront",
-      "phase-2b-store-credit.md": "**Repositories:** linked, plain-folder, local-only",
+      "phase-2b-store-credit.md": "**Repositories:** linked, plain-folder, local-only, no-remote",
       "phase-3-returns-dashboard.md": "**Repositories:** billing",
     });
     const parent = f.sandbox.root;
     mkdirSync(join(parent, "plain-folder"));
     symlinkSync(f.code.storefront!.checkout, join(parent, "linked"), "dir");
     createRepository(f.sandbox, "local-only", join(parent, "storefront.git"));
+    createRepository(f.sandbox, "no-remote");
     const kiln = startKiln(f);
     expect(await kiln.done).toBe(1);
     const shown = displayPath(parent);
@@ -316,7 +317,8 @@ describe("kiln run on a PRD across repositories", () => {
       `    phase-1-return-intake.md names Storefront, which isn’t in ${shown}/.`,
       `    linked in ${shown}/ is a link to ${displayPath(f.code.storefront!.checkout)}; Kiln needs the checkout itself there.`,
       `    plain-folder in ${shown}/ isn’t a Git checkout.`,
-      `    local-only: origin isn’t on GitHub: ${join(parent, "storefront.git")}`,
+      `    local-only in ${shown}/ has an origin that isn’t on GitHub: ${join(parent, "storefront.git")}`,
+      `    no-remote in ${shown}/ has no origin remote.`,
       "  Nothing was started.",
     ]);
   });
@@ -523,7 +525,9 @@ describe("kiln run on a PRD across repositories", () => {
     ]);
     // AC-SPACE-04: the resume command changes to the folder the session started in, the workspace.
     expect(snapshot.needsYou!.resumeCommand).toMatch(new RegExp(`^cd ${displayPath(join(f.sandbox.root, ".worktrees", FOLDER)).replace(/[.]/g, "\\.")}\\nclaude --resume `));
-    expect(snapshot.needsYou!.freshSessionPrompt).toContain("Work only in this Kiln workspace");
+    const workspaceFolder = join(f.sandbox.root, ".worktrees", FOLDER);
+    expect(snapshot.needsYou!.freshSessionPrompt).toContain(`Work only in this Kiln workspace, \`${workspaceFolder}\``);
+    expect(snapshot.needsYou!.freshSessionPrompt).toContain(`- \`returns-api\`: \`${join(workspaceFolder, "returns-api")}\`, base \`develop\``);
 
     // A session can add a repository while its phase is stopped at Needs you.
     const add = await api(address, token, "POST", "/api/repositories", { name: "notifications" });
@@ -589,5 +593,61 @@ describe("kiln run on a PRD across repositories", () => {
     expect((await snapshotOf(address, token)).feature.multiRepository).toBe(true);
     kiln.signals.emit("SIGINT");
     await kiln.done;
+  });
+
+  it("names the workspace and the added repository in the fresh-session prompt of a one-repository PRD's session that added one and stopped", async () => {
+    const f = createWorkspaceFeature([{ actions: [{ addRepository: "returns-api" }, { result: "Partway." }] }], {});
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    await api(address, token, "POST", "/api/start", { refinementConfirmed: true });
+    await waitFor(async () => (await snapshotOf(address, token)).feature.state === "needs_you", 30_000);
+    const needsYou = (await snapshotOf(address, token)).needsYou!;
+    const workspace = join(f.sandbox.root, ".worktrees", FOLDER);
+    const worktree = join(workspace, "product");
+    // AC-SPACE-04: the workspace and every one of the PRD's repositories, the added one included.
+    expect(needsYou.freshSessionPrompt).toContain(`Work only in this Kiln workspace, \`${workspace}\``);
+    expect(needsYou.freshSessionPrompt).toContain(`- \`product\`: \`${worktree}\`, base \`develop\` (the PRD's repository)`);
+    expect(needsYou.freshSessionPrompt).toContain(`- \`returns-api\`: \`${join(workspace, "returns-api")}\`, base \`develop\``);
+    expect(needsYou.freshSessionPrompt).toContain("check the workspace");
+    // Paths are from the folder the session started in, which both commands change to.
+    expect(needsYou.freshSessionPrompt).toContain(`\`docs/prds/${FOLDER}/phase-1-return-intake.md\``);
+    const cd = `cd ${displayPath(worktree)}\n`;
+    expect(needsYou.freshSessionCommand).toBe(`${cd}claude`);
+    expect(needsYou.resumeCommand!.startsWith(`${cd}claude --resume `)).toBe(true);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+
+  it("prints the added line when kiln run retries a named repository's addition and it succeeds", async () => {
+    const phase2b = `docs/prds/${FOLDER}/phase-2b-store-credit.md`;
+    const f = createWorkspaceFeature(
+      [
+        // Phase 1's session names storefront for 2b, whose feature branch is taken there (AC-ADD-04).
+        { actions: [{ write: { path: phase2b, content: phaseFiles({ "phase-2b-store-credit.md": "**Repositories:** storefront" })["phase-2b-store-credit.md"]! } }, ...closeIn(""), { result: "Phase 1 landed." }] },
+        { actions: [{ result: "Stopping here." }] },
+      ],
+      {},
+    );
+    git(f.sandbox, f.code.storefront!.checkout, "branch", BRANCH);
+    const first = startKiln(f);
+    const address = await first.address;
+    const token = await tokenOf(address);
+    await api(address, token, "POST", "/api/start", { refinementConfirmed: true });
+    await waitFor(async () => (await snapshotOf(address, token)).needsYou?.kind === "plan", 30_000);
+    first.signals.emit("SIGINT");
+    await first.done;
+
+    git(f.sandbox, f.code.storefront!.checkout, "branch", "-D", BRANCH);
+    const again = startKiln(f);
+    await again.address;
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 2, 30_000);
+    // AC-ADD-03: the line is printed while kiln run decides, ahead of the ● line, which doesn't mention it.
+    const lines = again.lines();
+    const added = lines.findIndex((line) => / 2b +Store credit +added storefront$/.test(line));
+    expect(lines.filter((line) => line.endsWith("added storefront"))).toHaveLength(1);
+    expect(added).toBeLessThan(lines.findIndex((line) => line.includes("Starting phase 2b")));
+    again.signals.emit("SIGINT");
+    await again.done;
   });
 });
