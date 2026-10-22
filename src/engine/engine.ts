@@ -275,7 +275,7 @@ export class Engine {
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
-  private personResume: ResumeRequest | undefined;
+  private requestedResume: ResumeRequest | undefined;
   /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
   private waitWatch: { phaseKey: string; readings: number; resetTimer?: NodeJS.Timeout } | undefined;
   /** The last account reading the engine saw, so each new one is handled once. */
@@ -609,7 +609,7 @@ export class Engine {
         this.changed();
       }
     }
-    if (verdict === "still_stopped" && !this.stopping) this.personResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
+    if (verdict === "still_stopped" && !this.stopping) this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
     this.kick();
     return { ok: true };
   }
@@ -1031,9 +1031,9 @@ export class Engine {
     const { record } = this;
     for (;;) {
       if (this.stopping || !this.isUnderway || record.completedAt) return;
-      if (this.personResume !== undefined) {
-        const request = this.personResume;
-        this.personResume = undefined;
+      if (this.requestedResume !== undefined) {
+        const request = this.requestedResume;
+        this.requestedResume = undefined;
         await this.resumeSession(request.phaseKey, request);
         if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
         continue;
@@ -1159,7 +1159,7 @@ export class Engine {
   /**
    * Resumes a session with its full history (AC-KEEP-04): the same session ID, its own concrete
    * model and recorded effort, and the resume prompt as its first message. An interrupted session
-   * Kiln resumes by itself gets v1's openings. With `person`, the stopped session the person
+   * Kiln resumes by itself gets v1's openings. With `request`, the stopped session the person
    * pressed Resume for (usage-limit recovery AC-RESUME-02, 03): the opening for a session that
    * ended on its own, or an interruption's after multi-repo delivery's interrupted Needs you; any
    * note first, then AC-OUTSIDE-02's prompt while Stayed in the workspace fails (multi-repo
@@ -1168,29 +1168,22 @@ export class Engine {
    * read again (awaited, 30 seconds at most) and the run records it. Its stop or wait, and
    * `checking`, are cleared as the run starts.
    */
-  private async resumeSession(phaseKey: string, person?: ResumeRequest): Promise<void> {
+  private async resumeSession(phaseKey: string, request?: ResumeRequest): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
     await this.stopLiveProcess(session);
     if (this.stopping) return;
     const facts = this.record.phases[phaseKey]!;
-    const account = person === undefined ? undefined : await this.readAccountBeforeResume();
+    const account = request === undefined ? undefined : await this.readAccountBeforeResume();
     if (this.stopping) return;
-    // Switched off after the end of a wait's check failed and before its run starts: that stop, nothing resumed (AC-AUTO-04).
-    if (person?.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
-      this.waitToStop(phaseKey, facts.wait.checks, facts.wait.checkedAt);
-      this.checking = false;
-      this.changed();
-      return;
-    }
     const runIndex = session.runs.length - 1;
     const run = session.runs[runIndex]!;
-    const endedOnItsOwn = person !== undefined && facts.stop?.interrupted === undefined;
-    const refusal = person === undefined ? undefined : run.limitRefusal;
+    const endedOnItsOwn = request !== undefined && facts.stop?.interrupted === undefined;
+    const refusal = request === undefined ? undefined : run.limitRefusal;
     const recorded = run.interruptedBy !== undefined && run.interruptedAt !== undefined;
     const time = endedOnItsOwn ? (run.endedAt ?? run.startedAt) : recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
     const checks = facts.stop?.checks ?? facts.wait?.checks ?? [];
-    const outsideFailed = person !== undefined && checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
+    const outsideFailed = request !== undefined && checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
     const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt : undefined;
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
@@ -1201,15 +1194,15 @@ export class Engine {
       time: time.replace(/\.\d+Z$/, "Z"),
       ...(phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
-      ...(person?.note === undefined ? {} : { note: person.note }),
+      ...(request?.note === undefined ? {} : { note: request.note }),
       ...(outside === undefined ? {} : { outside }),
     });
-    if (!person) this.emitSessionEvent(phaseKey, "resumed");
+    if (!request) this.emitSessionEvent(phaseKey, "resumed");
     // The stop or wait ends as the run starts, and with it the hold on Resume, Resume now and Check
     // again; the end of a wait switched off by then is that stop instead, and nothing runs (AC-AUTO-04).
-    const started = person
+    const started = request
       ? () => {
-          if (person.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
+          if (request.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
             this.waitToStop(phaseKey, facts.wait.checks, facts.wait.checkedAt);
             this.checking = false;
             this.changed();
@@ -1227,7 +1220,7 @@ export class Engine {
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
     const args = resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
-    await this.runProcess(phaseKey, session, args, prompt, person?.cause ?? "resume", cwd, person?.note, started, account);
+    await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
   }
 
   /**
@@ -1812,7 +1805,7 @@ export class Engine {
         this.changed();
       }
     }
-    if (verdict === "failed" && !this.stopping) this.personResume = { phaseKey, cause };
+    if (verdict === "failed" && !this.stopping) this.requestedResume = { phaseKey, cause };
     this.kick();
   }
 
