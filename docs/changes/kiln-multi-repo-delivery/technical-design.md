@@ -41,14 +41,14 @@ Claude Code refused **none** of a session's writes outside its starting folder u
 - `/add-dir` isn't available in a headless session.
 - No way was found to add a folder mid-session.
 
-**What that changes.** Kiln passes `--add-dir` so that writes in every worktree are allowed by mode, never left to the classifier ([Sessions](#sessions)). A repository added mid-phase outside the session's folders is left to the classifier until the session's next run. Stayed in the workspace is the only guard against work outside the workspace, as the PRD allows.
+**What that changes.** Kiln starts every session in the workspace folder or passes it with `--add-dir`, so writes in every worktree, one added mid-phase included, are allowed by mode, never left to the classifier ([Sessions](#sessions)). Stayed in the workspace is the only guard against work outside the workspace, as the PRD allows.
 
 ### Transcripts
 
 - **Main session:** `<Claude config folder>/projects/<starting folder, every non-alphanumeric character replaced by '->/<session ID>.jsonl`.
 - **Subagents:** recorded apart, at `<same project folder>/<session ID>/subagents/agent-<agent ID>.jsonl`. Their records carry `isSidechain: true` and the parent's `sessionId`. The parent's file holds only the Agent call, not the subagent's edits or commands.
 - **Resume:** `claude --resume`, from the starting folder or from any other folder, appends to the original file under the original project folder. Each new record carries the folder it ran in.
-- **Records:** every `user` and `assistant` record carries `timestamp`, `cwd` and `sessionId`. A tool call is an assistant `tool_use` block with its `input` (`file_path`, `command`). Its outcome is a user `tool_result` block with `is_error`.
+- **Records:** every `user` and `assistant` record carries `timestamp`, `cwd` and `sessionId`. `cwd` is the Bash shell's directory at that point, so a `cd` in one Bash call shows in the next call's record; Claude Code resets the shell to the starting folder after a `cd` outside the session's folders. A tool call is an assistant `tool_use` block with its `input` (`file_path`, `command`). Its outcome is a user `tool_result` block with `is_error`. For a Bash call, `is_error` is set whenever the command exits non-zero, including after earlier parts of it ran.
 
 **What that changes.** Kiln finds a session's transcript by its session ID, `projects/*/<session ID>.jsonl` and `projects/*/<session ID>/subagents/*.jsonl`, not by rebuilding the folder name. The ID is Kiln's own and unique, and the folder-name encoding was only seen on macOS. The Claude config folder is `~/.claude`, or `CLAUDE_CONFIG_DIR` when that is set. The `CLAUDE_CONFIG_DIR` case is documented but wasn't tried.
 
@@ -132,7 +132,7 @@ Start runs v1's setup sequence once per repository in list order, the PRD's repo
 A failure stops at the failing repository. `startError` reads "Couldn't set up <name>'s worktree: <git's message>", under Start and in the terminal. Then:
 
 - **No repository was set up yet:** as v1, the feature goes back to not started and every field is editable.
-- **Some repository was set up:** `startedAt` is cleared, so `kiln run` shows Documents found; the workspace folder and feature branch are fixed (`settings.fixed` per field), and so is each set-up repository's base. The bases of repositories not yet set up stay editable. The next Start runs the sequence again, which finds the set-up repositories done and makes only what is missing.
+- **Some repository was set up:** `startedAt` is cleared, so `kiln run` shows Documents found; the workspace folder and feature branch are fixed, and so is each set-up repository's base. Fixed is derived, never stored: a field is fixed once any `repositories` entry has a `baseCommit` or `createdBranch` (the snapshot's `settings.fixed`). The bases of repositories not yet set up stay editable. The next Start runs the sequence again, which finds the set-up repositories done and makes only what is missing.
 
 The terminal's Started line names the repositories: `Started · feature/customer-returns in 3 repositories` (one-repository: as v1).
 
@@ -152,14 +152,14 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Command line ("`kil
 kiln add-repository <name>
 ```
 
-1. Resolve the current directory's real path. Read every `prd.json` under Kiln's state root; the PRD is the one whose workspace folder, or one of whose recorded worktree paths, contains it. None: `kiln: <directory> isn't in a Kiln workspace.`, exit 1.
+1. Resolve the current directory's real path. Read every `prd.json` under Kiln's state root; the PRD is the one with a recorded worktree path containing it, else the one whose workspace folder contains it. None: `kiln: <directory> isn't in a Kiln workspace.`, exit 1. More than one at the same level (two PRDs whose default workspace folders coincide): `kiln: <directory> is in the workspace of more than one PRD (<feature names>); run it from inside a repository's worktree.`, exit 1.
 2. Read that PRD's `instance.lock`. No live holder: `kiln: kiln run isn't running for <feature name>, so nothing was added.`, exit 1.
-3. `POST /api/repositories` on the lock's port with `{ name }`, the PRD's token, and `Host` and `Origin` set to `127.0.0.1:<port>` as v1's checks require. Wait for the answer, with no timeout of Kiln's own, since setup can take Kiln's 30-minute setup timeout.
+3. `POST /api/repositories` on the lock's port with `{ name }`, the PRD's token, and `Host` and `Origin` set to `127.0.0.1:<port>` as v1's checks require. Wait for the answer with no response timeout at all, since setup can take Kiln's 30-minute setup timeout; Node's `fetch` gives up waiting for response headers after 5 minutes by default, so the client turns that off or uses `node:http`. Kiln carries a setup through to its end even when the requester disconnects.
 4. On success print `Added <name> at <worktree path>, on <branch> from <base>. Read its CLAUDE.md and AGENTS.md, if it has them, before you change it.` (or `<name> is already in the workspace at <worktree path>.`), exit 0. On a refusal print Kiln's reason, exit 1. Usage errors exit 2.
 
 A session whose Bash call times out while the command waits can run it again: a second request for a repository already being set up waits for the same setup ([below](#in-the-engine)).
 
-So that sessions reach the same Kiln, Kiln puts the directory of its own `kiln` executable first on each session's `PATH`. The command a session runs is still the one a person would type (AC-RUN-06).
+So that sessions reach the same Kiln, on macOS and Linux Kiln puts the directory of `process.argv[1]` first on each session's `PATH`: npm links `kiln` to `dist/cli.js`, and Node keeps the link's path there, so that directory holds the `kiln` the person ran. On Windows npm's `kiln.cmd` shim starts Node with `dist/cli.js` itself, so the shim's directory isn't known; Kiln leaves `PATH` as it is, and the session finds `kiln` where the person's own shell does, which a global install provides. The command a session runs is still the one a person would type (AC-RUN-06).
 
 ### In the engine (AC-ADD-01, AC-ADD-02, AC-ADD-03)
 
@@ -172,7 +172,7 @@ The checks, in order, each failure answered with its own words and nothing chang
 3. The worktree path `<workspace folder>/<name>`: new or empty, and not inside a checkout.
 4. The base: `develop`, else origin's default branch, from one `ls-remote --symref`. No base: `<name>'s origin has no develop and no default branch.`
 
-Then the entry is written (`kind: added`, `addedInPhase`, `addedAt`, `baseBranch`, `baseCommit`) before `git worktree add`, exactly as setup at Start records before adding, so a failed or interrupted add is finished by the next request through v1's finish-the-setup rules. A git failure answers with git's message and keeps what was made (AC-ADD-02). On success Kiln writes `setupCompletedAt`, records the phase's start commit for the repository as its `baseCommit`, prints `<time> <phase id> <title> added <name>` (the judged leaf, as v1's event lines), and pushes a snapshot. During the pull-request session the label reads "added in the pull request", by AC-PR-05's rule for that session's copy.
+Then the entry is written (`kind: added`, `addedInPhase`, `addedAt`, `baseBranch`, `baseCommit`) before `git worktree add`, exactly as setup at Start records before adding, so a failed or interrupted add is finished by the next request through v1's finish-the-setup rules. An entry counts among the PRD's repositories only once it has `setupCompletedAt`: until then the prompts, screens, done check and pull requests leave it out, and only the next request for it, or AC-ADD-04, picks it up. A done check, pull-request check or session launch that comes while an addition is under way waits for it to end first. A git failure answers with git's message and keeps what was made (AC-ADD-02). On success Kiln writes `setupCompletedAt`, records the phase's start commit for the repository as its `baseCommit`, prints `<time> <phase id> <title> added <name>` (the judged leaf, as v1's event lines), and pushes a snapshot. During the pull-request session the label reads "added in the pull request", by AC-PR-05's rule for that session's copy.
 
 An added repository's base is fixed from the start.
 
@@ -219,7 +219,7 @@ Four checks. The first is v1's Closed check, run in the PRD's repository's workt
 |---|---|---|
 | Phase doc closed | v1's | v1's |
 | Everything committed | `git status --porcelain --untracked-files=all` prints nothing in every worktree | Failing: one per dirty repository, `storefront: 3 files changed, not committed`. Passing: `Clean in product, returns-api and storefront` |
-| Pushed | In every repository, v1's predicate. A repository whose branch tip equals its `baseCommit` passes with no origin read | Failing: v1's facts prefixed `<name>: `. Passing: one line per repository, `returns-api: 7f3d9a0 on origin`; a repository with no commits of its own, `notifications: no commits yet` |
+| Pushed | In every repository, v1's predicate. A repository whose worktree is on the feature branch and whose branch tip equals its `baseCommit` passes with no origin read; a worktree on another branch fails with v1's `The worktree is on <other>, not <branch>` either way | Failing: v1's facts prefixed `<name>: `. Passing: one line per repository, `returns-api: 7f3d9a0 on origin`; a repository with no commits of its own, `notifications: no commits yet` |
 | Stayed in the workspace | No change outside the workspace that no confirmation covers ([below](#stayed-in-the-workspace-ac-outside-01-to-04)) | Failing: one per change, then "Kiln changed nothing in that checkout, since it may hold other work too." Passing: shown only as a passed row when it has failed earlier in this stop; otherwise left out of Needs you (AC-OUTSIDE-01) |
 
 The git reads for the repositories run in parallel; v1's 2-minute origin retry applies per repository. A pass records per repository the pushed commit and the phase's commit count (v1's `--first-parent` count, from that repository's start commit for the phase). The pull-request check gets the fourth check too (AC-PRS-01).
@@ -229,11 +229,11 @@ The git reads for the repositories run in parallel; v1's 2-minute origin retry a
 **What is read.** For each session Kiln recorded for the phase (or the pull-request session), the transcript files [Transcripts](#transcripts) locates: the main session's and every subagent's. A session with no transcript file passes. Kiln reads `assistant` records' `tool_use` blocks and the matching `tool_result` blocks, each record with its `timestamp` and `cwd`. The changes come from:
 
 - **File tools** (`Edit`, `MultiEdit`, `Write`, `NotebookEdit`): the `file_path` in the tool call's input, absolute.
-- **Bash calls:** the command, split by v1's Bash reader into simple commands. A simple command is a Git command when its first word, after v1's skipped assignments and keywords, is `git`. Its directory is the entry's working directory, moved by any `cd <path>` earlier in the same call (a `cd` whose argument isn't a literal path is followed no further, and Git commands after it are placed in no checkout and pass), then by `-C <path>` options in order; `--git-dir` and `--work-tree` place it at that path. Commands inside script files or `bash -c '…'` strings aren't read, as in v1.
+- **Bash calls:** the command, split by v1's Bash reader into simple commands. A simple command is a Git command when its first word, after v1's skipped assignments and keywords, is `git`. Its directory is the entry's working directory, moved by any `cd <path>` earlier in the same call (a leading `~` or `$HOME` is expanded; a `cd` whose argument is otherwise not a literal path is followed no further, and Git commands after it are placed in no checkout and pass), then by `-C <path>` options in order; `--git-dir` and `--work-tree` place it at that path. Commands inside script files or `bash -c '…'` strings aren't read, as in v1.
 
-Only tool calls whose `tool_result` has no `is_error` count, since a refused or failed call changed nothing. A call with no result yet, because the session was cut off mid-call, counts, since it may have changed something.
+A file tool call whose `tool_result` has `is_error` doesn't count, since a refused or failed edit wrote nothing. Every Bash call counts whatever its result, since `is_error` only says the command exited non-zero, and `git commit -m … && npm test` with a failing test committed all the same. A call with no result yet, because the session was cut off mid-call, counts, since it may have changed something.
 
-**Where it happened.** A path is in a checkout when it or an ancestor holds a `.git` entry (folder or file): the nearest such ancestor is the checkout. Kiln looks only for that entry, never at the checkout's status. A path inside one of the workspace's worktrees is inside the workspace; one in no checkout passes; any other checkout is outside the workspace, another PRD's worktree included.
+**Where it happened.** Paths are compared by the real path of their nearest existing folder, as v1's worktree-path check compares them, so a symlinked or `/private`-prefixed path matches the worktree it is in. A path is in a checkout when it or an ancestor holds a `.git` entry (folder or file): the nearest such ancestor is the checkout. Kiln looks only for that entry, never at the checkout's status. A path inside one of the workspace's worktrees is inside the workspace; one in no checkout passes; any other checkout is outside the workspace, another PRD's worktree included.
 
 **What counts** (OUT-002):
 
@@ -387,9 +387,9 @@ As v1's, against real temporary Git repositories with local bare repositories as
 
 - **Plan reader:** `**Repositories:**` lines, bad names, split records' names not inherited, the union and its order.
 - **Start checks and setup:** a named repository missing, not a checkout, not on GitHub; a branch taken in one repository; a Start failing at the second repository, then a Start that finishes it; a partly set-up PRD's fixed fields; `kiln run` after Ctrl+C mid-setup.
-- **Adding a repository:** each refusal, a git failure then a retry, two concurrent requests, a repository named only after Start (AC-ADD-04's `plan` stop and its retry), the command's PRD lookup from a worktree and from the workspace folder, and the command with no Kiln running.
+- **Adding a repository:** each refusal, a git failure then a retry, two concurrent requests, a repository named only after Start (AC-ADD-04's `plan` stop and its retry), the command's PRD lookup from a worktree, from the workspace folder and from a folder two PRDs share, the command with no Kiln running, a setup longer than 5 minutes, and a session ending while its addition is under way.
 - **Done and pull-request checks:** facts by repository, a repository with no commits of its own, a PR missing in one of three.
-- **Stayed in the workspace:** unit tests over recorded transcripts from the [behaviors tried above](#claude-code-behaviors-this-design-relies-on): an edit in an outside checkout, an `.agent-sessions/` write, `git -C` and `cd … &&` placement, each row of the table, a subagent's edit, a turn added by a manual `claude --resume`, confirmation coverage by timestamp, and a session with no transcript.
+- **Stayed in the workspace:** unit tests over recorded transcripts from the [behaviors tried above](#claude-code-behaviors-this-design-relies-on): an edit in an outside checkout, an `.agent-sessions/` write, `git -C`, `cd … &&` and a `cd` in an earlier call (placed by the record's `cwd`), a Bash call that committed outside and then exited non-zero, each row of the table, a subagent's edit, a turn added by a manual `claude --resume`, confirmation coverage by timestamp, and a session with no transcript.
 - **Migration:** a schema 1 record from each v1 state (not started, underway, Needs you, complete) reads as schema 2 and renders as before.
 - **The view:** the four mockups rendered from fixture snapshots and compared, as in v1.
 - **AC-PROOF-01:** a real PRD in a repository holding no code, changing two code repositories, one session adding a third; a one-repository PRD adding one; a session editing an own checkout, stopped and cleared. The multi-repository run repeated on Windows, which also checks the transcript location's folder encoding there.
