@@ -184,7 +184,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
 <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: #8c8577; border: 1px solid rgba(237, 232, 221, 0.18); width: 100%; cursor: not-allowed">Start</button>
 <span style="font-size: 12.5px; color: #8c8577; line-height: 1.55">Confirm refinement to start.</span>
-<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here with the fields editable and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up storefront’s worktree: <git's message>" (the repository's name in place of storefront, git's error text in place of <git's message>); the terminal prints the same line. -->
+<!-- Start message, not drawn in this state. When Start's worktree setup fails, the screen returns here and one amber line (#e6b450, 12.5px, the help-text style) under Start: "Couldn’t set up storefront’s worktree: <git's message>" (the repository's name in place of storefront, git's error text in place of <git's message>); the terminal prints the same line. If no repository was set up yet, every field is editable again. Once any repository was set up, the workspace and feature branch fields are fixed, and so is each set-up repository's base select; only the bases of repositories not yet set up stay editable (AC-SPACE-01). -->
 </div>
 </section>
 

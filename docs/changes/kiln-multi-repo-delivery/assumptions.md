@@ -70,6 +70,49 @@
 
 ---
 
+### REPO-004. Does a phase document name its repositories on a `**Repositories:**` line under its title?
+
+**Assumption**: A phase document names the repositories its phase changes on **one line under its title**, beside the lines the Enso Method already puts there, as **folder names separated by commas**. The Enso Method's `phase-split` would write the same line once the method adopts it; until then a person writes it by hand.
+
+**Example**:
+
+```markdown
+# Phase 2b: Store credit
+
+**Parent PRD:** [customer-returns-prd.md](./customer-returns-prd.md)
+**Repositories:** returns-api, storefront
+```
+
+**Evidence**: Phase documents already open with `**Parent PRD:**` and `**Technical design:**` lines, and Kiln v1 already reads the `**Closed:**` line in the same place. A separate section would work too, but a line is easier to write by hand and to spot when reviewing a split.
+
+**Confirm or Correct**:
+- [ ] Correct — a `**Repositories:**` line under the title
+- [ ] Wrong — a `## Repositories` section listing one per line
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 80% | **Impact if Wrong**: 🟡 MEDIUM
+
+---
+
+### CLI-001. Does a session ask Kiln for a repository with a second `kiln` command?
+
+**Assumption**: Kiln gets a **second command, beside `kiln run`**, that names a repository and asks the running Kiln for that PRD to add it, for example `kiln add-repository storefront`. A session runs it from anywhere in the workspace, and a person can type it too. When `kiln run` isn't running for that PRD, the command **says so and changes nothing**.
+
+**Evidence**: Kiln v1 promised `kiln run` would be its only command (AC-CLI-02), and this reverses that in part. The alternatives are worse:
+- The browser view's connection is guarded so that nothing but the person's own browser tab can use it, and a session has no tab.
+- Letting the session set up the worktree with Git itself would move setup Kiln owns into every session's instructions, with no check that the branch name is free.
+
+A command is also something a person could type by hand, as everything Kiln asks of a session must be (AC-RUN-06).
+
+**Confirm or Correct**:
+- [ ] Correct — a second `kiln` command for adding a repository
+- [ ] Wrong — the session sets up the worktree itself, following instructions in its prompt
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 80% | **Impact if Wrong**: 🟡 MEDIUM
+
+---
+
 ## Branch Assumptions
 
 ### BRANCH-001. Is the feature branch the same name in every repository?
@@ -89,15 +132,17 @@
 
 ---
 
-### BRANCH-002. Does this change leave per-phase branches to the later parallel-phases version?
+### BRANCH-002. Does this change leave per-phase branches and workspaces to the later parallel-phases version?
 
-**Assumption**: Sessions keep **committing straight to the feature branch** in each repository, one phase at a time, as in v1. **Per-phase branches**, which join the feature branch when their phase is done, **come with parallel phases**, not in this change.
+**Assumption**: Sessions keep **committing straight to the feature branch** in each repository, in **one shared workspace**, one phase at a time, as in v1. **Per-phase branches and per-phase workspaces come with parallel phases**, not in this change.
 
-**Evidence**: Per-phase branches are only needed when two phases work at once. With one phase at a time, each phase's branch would join the feature branch as a plain fast-forward. That adds a step Kiln has to perform and explain, and gives nothing in return yet. Nothing set up here is undone when parallel phases arrive. The feature branch stays where finished phases collect and what each pull request comes from, and the workspace stays the place sessions work.
+**Evidence**: Both are needed only when two phases work at once. With one phase at a time, a phase branch would join the feature branch as a plain fast-forward, a step Kiln would have to perform and explain for nothing yet.
+
+**What carries over, and what doesn't:** the feature branch per repository (one name everywhere, where finished work collects, the source of each pull request), each repository's base branch, finding repositories by folder name and one pull request per repository all stay. Parallel phases will still change **where a session works** (its own workspace), **what "Pushed" means** (its phase branch, plus the join), **which workspace the outside-the-workspace check judges**, and **where an added repository goes**. Building per-phase branches now would settle only the second of those four.
 
 **Confirm or Correct**:
 - [ ] Correct — per-phase branches wait for parallel phases
-- [ ] Wrong — build per-phase branches now, so parallel phases only change the scheduler
+- [ ] Wrong — build per-phase branches now, settling what "Pushed" will mean before parallel phases arrive
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 80% | **Impact if Wrong**: 🟡 MEDIUM
