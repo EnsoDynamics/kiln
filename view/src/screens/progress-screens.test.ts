@@ -1,6 +1,7 @@
 // The progress screens rendered to HTML for the cases no mockup draws: the Needs you stops of
 // UI-007, the pull-request session (AC-PR-05), Paused before the pull request (technical design,
-// "Paused before the pull request"), and the Needs you stop seen while disconnected (UI-006).
+// "Paused before the pull request"), the Needs you stop seen while disconnected (UI-006), and
+// the screens the multi-repo delivery change alters without drawing (multi-repo AC-SHOW-01).
 // The drawn cases are checked in a real browser (src/server/view-in-browser.integration.test.ts).
 process.env.TZ = "America/New_York";
 
@@ -8,7 +9,18 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 import { stepStates } from "../../../src/session/session-output.js";
-import { completeSnapshot, documentsFoundSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import {
+  completeRepositoriesSnapshot,
+  completeSnapshot,
+  documentsFoundSnapshot,
+  needsYouCrashedSnapshot,
+  needsYouMessageSnapshot,
+  needsYouRepositoriesSnapshot,
+  pausedSnapshot,
+  RUNNING_NOW,
+  runningRepositoriesSnapshot,
+  runningSnapshot,
+} from "../../../src/test-support/sample-snapshots.js";
 import Complete from "./Complete.svelte";
 import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
@@ -47,7 +59,7 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
 
   it("shows only the plan problem, the fresh-session link and Check again at a broken plan (item 3)", () => {
     const page = needsYou(
-      stopped({ kind: "plan", phaseId: "3", checks: [{ name: "Phase plan reads", passed: false, fact: "phase-2-refund-routing.md lists 2c, which has no file" }] }, [
+      stopped({ kind: "plan", phaseId: "3", checks: [{ name: "Phase plan reads", passed: false, facts: ["phase-2-refund-routing.md lists 2c, which has no file"] }] }, [
         "finalMessage",
         "exitCode",
         "lastSkill",
@@ -60,7 +72,7 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
         "model",
         "effort",
         "sessionStartedAt",
-        "commits",
+        "repositories",
       ]),
     );
     const words = text(page);
@@ -87,7 +99,7 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
   });
 
   it("speaks of the pull request when the pull-request session stopped (item 1, AC-PR-05)", () => {
-    const snapshot = stopped({ phaseId: "pr", kind: "pull_request_check", checks: [{ name: "Pull request open", passed: false, fact: "No open pull request from feature/customer-returns into develop" }] });
+    const snapshot = stopped({ phaseId: "pr", kind: "pull_request_check", checks: [{ name: "Pull request open", passed: false, facts: ["No open pull request from feature/customer-returns into develop"] }] });
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "needs_you", finishedByPerson: false });
     const words = text(needsYou(snapshot));
     expect(words).toContain("Needs you PR · Final pull request · Stopped 11:52 AM");
@@ -193,7 +205,7 @@ describe("the disconnected view on every screen (AC-VIEW-07)", () => {
 describe("the Complete screen (AC-PR-04)", () => {
   it("counts a pull request of 100 commits or more as 100+, as gh's list stops there", () => {
     const snapshot = completeSnapshot();
-    snapshot.pullRequest = { ...snapshot.pullRequest!, commits: 100 };
+    snapshot.pullRequests = [{ ...snapshot.pullRequests![0]!, commits: 100 }];
     const words = text(strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
     expect(words).toContain("100+ commits · +2,184 −312");
   });
@@ -239,5 +251,65 @@ describe("Running's current-phase panel and phase plan (AC-WATCH-03, AC-WATCH-01
     const later = (minutes: number) => text(strip(render(Running, { props: { snapshot: runningSnapshot(), connected: false, now: RUNNING_NOW + minutes * 60_000, lastSeenAt: lostAt } }).body));
     expect(later(0)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
     expect(later(90)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
+  });
+});
+
+describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS-04, AC-SPACE-05, AC-SHOW-01)", () => {
+  const complete = (snapshot: Snapshot) => text(strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
+
+  it("lists every pull request on Complete with its repository, branches, size and link, and the workspace kept", () => {
+    const page = strip(render(Complete, { props: { snapshot: completeRepositoriesSnapshot(), connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    const words = text(page);
+    expect(words).toContain("4 pull requests · feature/customer-returns One in each repository that changed product #12 PRD’s repository Customer returns: phase documents feature/customer-returns → main · 5 commits · +5 −0 Open on GitHub");
+    expect(words).toContain("returns-api #57 Customer returns: intake, refunds, store credit and restock feature/customer-returns → develop · 9 commits · +1,402 −201 Open on GitHub");
+    expect(words).toContain("notifications #9 added in phase 2b Customer returns: store credit emails");
+    expect(words).toContain("PR Final pull request pull request session 9m Opened 4 pull requests");
+    expect(words).toContain("Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Kiln keeps the folder and its worktrees until you remove them.");
+    expect(words).toContain("Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay.");
+    expect(page).toMatch(/href="https:\/\/github\.com\/acme\/storefront\/pull\/218"/);
+    for (const absent of ["Worktree", "Pull request #"]) expect(words).not.toContain(absent);
+  });
+
+  it("shows a Done phase's repositories in place of its pushed commit, and its commits by repository in its Details", () => {
+    const words = complete(completeRepositoriesSnapshot());
+    expect(words).toContain("2b Store credit phase-2b-store-credit.md 1h 19m · finished by you · pushed to 4 repositories Done Details Ran 10:58 AM to 12:17 PM Model Opus 5.5 · high effort Commits 6 in 4 repositories product ~/devel/acme/.worktrees/customer-returns/product feature/customer-returns · 1 commit · latest e07a4c8");
+    expect(words).toContain("notifications added in phase 2b ~/devel/acme/.worktrees/customer-returns/notifications feature/customer-returns · 2 commits · latest 2b6f1d3 Session 7c1e9f2a");
+  });
+
+  it("lists the workspace folder and each repository's base, fixed, in Running's settings, and groups the current phase's commits by repository", () => {
+    const page = running(runningRepositoriesSnapshot());
+    const words = text(page);
+    expect(words).toContain(
+      "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository main returns-api develop storefront develop notifications added in phase 2b main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
+    );
+    const now = text(/<section class="now[\s\S]*?<\/section>/.exec(page)![0]);
+    expect(now).toContain("Model Opus 5.5 · high effort Commits 3 in 2 repositories returns-api 7f3d9a0 feat(credit): store credit ledger (phase 2b) 4c1a8e5 test(credit): ledger balances notifications added in phase 2b 2b6f1d3 feat(emails): store credit issued email (phase 2b) Session");
+    expect(now).not.toContain("Worktree");
+    expect(words).toContain("1 Return intake phase-1-return-intake.md 52m · pushed to 2 repositories Done");
+  });
+
+  it("keeps the panel's empty Commits line while no repository has a commit", () => {
+    const snapshot = runningRepositoriesSnapshot();
+    snapshot.current!.repositories = [];
+    expect(text(/<section class="now[\s\S]*?<\/section>/.exec(running(snapshot))![0])).toContain("Commits None yet for this phase Session");
+  });
+
+  it("groups Phase detail's commits by repository, each with its added-in-phase label", () => {
+    const snapshot = runningRepositoriesSnapshot();
+    const words = text(strip(render(PhaseDetail, { props: { snapshot, phaseId: "2b", connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
+    expect(words).toContain("Commits returns-api 7f3d9a0 feat(credit): store credit ledger (phase 2b) 4c1a8e5 test(credit): ledger balances notifications added in phase 2b 2b6f1d3 feat(emails): store credit issued email (phase 2b)");
+  });
+
+  it("shows each check's facts one per line on Needs you, each naming its repository (multi-repo AC-CHECK-02)", () => {
+    const page = needsYou(needsYouRepositoriesSnapshot());
+    expect(page).toMatch(/Pushed<span class="verdict[^"]*">Not yet<\/span><\/span><span class="fact[^"]*">product: 2f7b9e0 on origin<\/span><span class="fact[^"]*">storefront: 8d4a1c6 isn’t on origin yet<\/span>/);
+    expect(text(page)).toContain("Everything committed Not yet storefront: 3 files changed, not committed");
+  });
+
+  it("starts a fresh session in the workspace, not the worktree", () => {
+    const snapshot = needsYouRepositoriesSnapshot();
+    snapshot.needsYou = { ...snapshot.needsYou!, kind: "not_resumable" };
+    delete snapshot.needsYou.resumeCommand;
+    expect(text(needsYou(snapshot))).toContain("1 Start a fresh Claude Code session in the workspace");
   });
 });

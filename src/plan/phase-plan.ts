@@ -11,6 +11,8 @@ export interface PlannedPhase {
   fileName: string;
   title: string;
   closed: boolean;
+  /** The repositories its `**Repositories:**` line names (multi-repo AC-REPO-01). */
+  repositories: string[];
   /** Child ids in `## Split into` order, for a split record; undefined for a leaf. */
   splitInto: string[] | undefined;
   citedCriteria: string[];
@@ -54,6 +56,7 @@ export function readPhasePlan(files: PhaseFile[]): PhasePlan {
       continue;
     }
     byId.set(document.idText, document);
+    if (document.repositoriesProblem !== undefined) problems.push(document.repositoriesProblem);
   }
 
   for (const document of byId.values()) {
@@ -96,10 +99,26 @@ function toPlannedPhase(document: PhaseDocument): PlannedPhase {
     fileName: document.fileName,
     title: document.title,
     closed: document.closed,
+    repositories: document.repositories,
     splitInto: document.splitInto?.map((row) => row.id),
     citedCriteria: document.citedCriteria,
     dependenciesText: document.dependenciesText,
   };
+}
+
+/**
+ * The named repositories: every phase document's names other than the PRD's repository's own,
+ * compared exactly, in first-mention plan order (multi-repo AC-REPO-01). A split record's names
+ * count like any other's.
+ *
+ *   namedRepositories(plan, "product")  // ["returns-api", "storefront"]
+ */
+export function namedRepositories(phases: { repositories: string[] }[], prdRepositoryName: string): string[] {
+  const names: string[] = [];
+  for (const phase of phases) {
+    for (const name of phase.repositories) if (name !== prdRepositoryName && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 /** The leaves (phases with no `## Split into` table), in plan order. */

@@ -207,11 +207,11 @@ describe("kiln run on a feature not started", () => {
       plan: { phaseDocCount: 5, leafCount: 4, closedCount: 1 },
     });
     expect(snapshot.documents!.plan.phases).toEqual([
-      { id: "1", title: "Return intake", closed: false },
-      { id: "2", title: "Refunds", splitInto: ["2a", "2b"], closed: false },
-      { id: "2a", title: "Card refunds", closed: true },
-      { id: "2b", title: "Store credit", closed: false },
-      { id: "3", title: "Returns dashboard", closed: false },
+      { id: "1", title: "Return intake", closed: false, repositories: [] },
+      { id: "2", title: "Refunds", splitInto: ["2a", "2b"], closed: false, repositories: [] },
+      { id: "2a", title: "Card refunds", closed: true, repositories: [] },
+      { id: "2b", title: "Store credit", closed: false, repositories: [] },
+      { id: "3", title: "Returns dashboard", closed: false, repositories: [] },
     ]);
     expect(snapshot.documents!.checks).toEqual([
       { name: "Every phase cites its criteria", passed: true },
@@ -227,9 +227,13 @@ describe("kiln run on a feature not started", () => {
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
       baseBranches: ["develop"],
-      fixed: false,
+      // A one-repository PRD's workspace folder is the default, fixed and not shown (multi-repo AC-SPACE-03).
+      fixed: { workspaceFolder: true, featureBranch: false, worktreePath: false },
       fieldErrors: {},
     });
+    expect(snapshot.repositories).toEqual([
+      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
+    ]);
     expect(snapshot.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
     expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
     expect(snapshot.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
@@ -388,7 +392,8 @@ describe("kiln run on a feature not started", () => {
     // A Start whose setup can't be finished: the commit it recorded to start from doesn't exist.
     const recordPath = join(stateDirectoryOf(f), "prd.json");
     const record = JSON.parse(readFileSync(recordPath, "utf8"));
-    writeFileSync(recordPath, JSON.stringify({ ...record, startedAt: "2026-10-17T13:00:00.000Z", refinementConfirmedAt: "2026-10-17T13:00:00.000Z", baseCommit: "0".repeat(40) }));
+    const entry = { name: "acme-shop", kind: "prd", mainCheckoutPath: record.repository.mainCheckoutPath, github: record.repository.github, baseBranch: "develop", worktreePath: record.settings.worktreePath, baseCommit: "0".repeat(40) };
+    writeFileSync(recordPath, JSON.stringify({ ...record, startedAt: "2026-10-17T13:00:00.000Z", refinementConfirmedAt: "2026-10-17T13:00:00.000Z", repositories: [entry] }));
 
     const again = startKiln(f);
     const address = await again.address;

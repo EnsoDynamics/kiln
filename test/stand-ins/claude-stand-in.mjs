@@ -5,7 +5,7 @@
 //
 // KILN_STANDIN_SCENARIO names a JSON file: { "sessions": [ { "actions": [ … ] }, … ] }; each
 // launch takes the next session. Every launch is logged, with its arguments and prompt, to
-// <scenario>.calls.jsonl. Actions:
+// <scenario>.calls.jsonl, with its PATH. Actions:
 //   { "skill": "enso-method:implement-from-requirements" }   a top-level Skill call
 //   { "text": "Building phase 1." }                           an assistant text block
 //   { "partial": "Buil" }                                     a partial-message delta (stream_event)
@@ -15,7 +15,13 @@
 //   { "commit": "feat: x" }                                   a Bash call running git add -A and git commit
 //   { "push": true }                                          a Bash call running git push -u origin <branch>
 //   { "split": [ { "id": "2a", "slug": "first", "title": "First" }, … ] }   splits the launched phase
-//   { "openPullRequest": { "number": 7, "isDraft": false } }  adds a pull request to the gh stand-in's state
+//   { "openPullRequest": { "number": 7, "isDraft": false } }  adds a pull request to the gh stand-in's state; with
+//                                                             "repository": "<name>", in that repository, its
+//                                                             owner/name and base read from the prompt's list
+//   { "addRepository": "<name>" }                             a Bash call running `kiln add-repository <name>`; its exit
+//                                                             status and output go to <scenario>.add-repository.jsonl
+// write, stage, commit and push take "repository": "<name>": they run in that repository's worktree,
+// the folder of that name in the session's folder (a workspace), or else beside it.
 //   { "stderr": "text" }                                      a line on stderr
 //   { "waitForFile": "<path>" }                               blocks until the file exists
 //   { "result": "final message" }                             the result event; then waits for stdin to close
@@ -35,7 +41,7 @@
 // "[Request interrupted by user for tool use]", a result with subtype error_during_execution,
 // and exit code 1 for the request, 0 for SIGINT.
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,7 +103,14 @@ const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : und
 const sessionId = flag("--session-id") ?? flag("--resume");
 const model = args[args.indexOf("--model") + 1];
 const emit = (event) => process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...event })}\n`);
-const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+// The worktree an action works in: the session's folder, or a repository's worktree in or beside it.
+const worktreeOf = (repository) => {
+  if (!repository) return process.cwd();
+  const inside = join(process.cwd(), repository);
+  return existsSync(inside) ? inside : join(dirname(process.cwd()), repository);
+};
+const git = (...gitArgs) => gitIn(process.cwd(), ...gitArgs);
+const gitIn = (cwd, ...gitArgs) => execFileSync("git", gitArgs, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 let toolId = 0;
 const toolCall = (name, input) => {
   const id = `toolu_stand_in_${++toolId}`;
@@ -145,7 +158,7 @@ const prompt = message?.message?.content ?? "";
 const counterPath = `${scenarioPath}.count`;
 const index = existsSync(counterPath) ? Number(readFileSync(counterPath, "utf8")) : 0;
 writeFileSync(counterPath, String(index + 1));
-appendFileSync(`${scenarioPath}.calls.jsonl`, `${JSON.stringify({ args, cwd: process.cwd(), prompt })}\n`);
+appendFileSync(`${scenarioPath}.calls.jsonl`, `${JSON.stringify({ args, cwd: process.cwd(), prompt, path: process.env.PATH ?? process.env.Path })}\n`);
 const scenario = JSON.parse(readFileSync(scenarioPath, "utf8"));
 session = scenario.sessions[index] ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
 
@@ -159,7 +172,15 @@ if (session.noInit) {
 // A resumed session's prompt names its phase doc as "Carry on with `…`" and no branch: the
 // session already knows its branch, so the stand-in reads the one checked out.
 const phaseDoc = /implement `([^`]+)`/.exec(prompt)?.[1] ?? /Carry on with `([^`]+)`/.exec(prompt)?.[1];
-const branch = /on branch `([^`]+)`/.exec(prompt)?.[1] ?? /from `([^`]+)` into/.exec(prompt)?.[1] ?? git("symbolic-ref", "--short", "HEAD").trim();
+const branch = /on branch `([^`]+)`/.exec(prompt)?.[1] ?? /from `([^`]+)` into/.exec(prompt)?.[1] ?? currentBranch();
+function currentBranch() {
+  try {
+    return git("symbolic-ref", "--short", "HEAD").trim();
+  } catch {
+    // A session in a workspace folder, which isn't a checkout.
+    return undefined;
+  }
+}
 
 // An alias resolves to its concrete model, as in proof gate 1's model list.
 const concrete = { opus: "claude-opus-5-5", fable: "claude-fable-5-1", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" };
@@ -212,22 +233,30 @@ for (const action of session.actions) {
     writeFileSync(path, lines.join("\n"));
     toolResult(toolCall("Edit", { file_path: path }), "Edited.");
   } else if (action.write) {
-    const path = join(process.cwd(), action.write.path);
+    const path = join(worktreeOf(action.write.repository), action.write.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, action.write.content);
     toolResult(toolCall("Write", { file_path: path }), "Written.");
   } else if (action.stage) {
-    toolResult(toolCall("Bash", { command: `git add ${action.stage}` }), git("add", "--", action.stage));
+    toolResult(toolCall("Bash", { command: `git add ${action.stage}` }), gitIn(worktreeOf(action.repository), "add", "--", action.stage));
   } else if (action.commit) {
-    const id = toolCall("Bash", { command: `git add -A && git commit -q -F - <<'EOF'\n${action.commit}\nEOF` });
-    git("add", "-A");
-    git("commit", "-q", "-m", action.commit);
-    toolResult(id, git("log", "--oneline", "-1"));
+    const cwd = worktreeOf(action.repository);
+    const id = toolCall("Bash", { command: `${action.repository ? `cd ${cwd} && ` : ""}git add -A && git commit -q -F - <<'EOF'\n${action.commit}\nEOF` });
+    gitIn(cwd, "add", "-A");
+    gitIn(cwd, "commit", "-q", "-m", action.commit);
+    toolResult(id, gitIn(cwd, "log", "--oneline", "-1"));
+  } else if (action.addRepository) {
+    const id = toolCall("Bash", { command: `kiln add-repository ${action.addRepository}` });
+    const run = spawnSync("kiln", ["add-repository", action.addRepository], { cwd: process.cwd(), encoding: "utf8", shell: process.platform === "win32" });
+    // What the session was told, for a test to read.
+    appendFileSync(`${scenarioPath}.add-repository.jsonl`, `${JSON.stringify({ name: action.addRepository, status: run.status, stdout: run.stdout, stderr: run.stderr })}\n`);
+    toolResult(id, `${run.stdout ?? ""}${run.stderr ?? ""}`, run.status !== 0);
   } else if (action.push) {
-    const id = toolCall("Bash", { command: `git push -u origin ${branch} 2>&1 | tail -3` });
+    const cwd = worktreeOf(action.repository);
+    const id = toolCall("Bash", { command: `${action.repository ? `cd ${cwd} && ` : ""}git push -u origin ${branch} 2>&1 | tail -3` });
     let output;
     try {
-      output = execFileSync("git", ["push", "-q", "-u", "origin", branch], { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      output = execFileSync("git", ["push", "-q", "-u", "origin", branch], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
       output = String(error.stderr);
     }
@@ -251,11 +280,15 @@ for (const action of session.actions) {
     const statePath = process.env.KILN_STANDIN_GH_STATE;
     const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { pulls: [] };
     // A resumed session's prompt doesn't name the base; the fixture's base is develop.
-    const base = /into `([^`]+)`/.exec(prompt)?.[1] ?? action.openPullRequest.base ?? "develop";
+    const name = action.openPullRequest.repository;
+    const listed = name ? new RegExp(`- \`${name}\` \\(\`([^\`]+)\`\\), worktree \`[^\`]+\`, into \`([^\`]+)\``).exec(prompt) : undefined;
+    const repo = listed?.[1] ?? "acme/acme-shop";
+    const base = listed?.[2] ?? /into `([^`]+)`/.exec(prompt)?.[1] ?? action.openPullRequest.base ?? "develop";
     state.pulls.push({
+      repo,
       number: action.openPullRequest.number,
       title: action.openPullRequest.title ?? "Customer returns",
-      url: `https://github.com/acme/acme-shop/pull/${action.openPullRequest.number}`,
+      url: `https://github.com/${repo}/pull/${action.openPullRequest.number}`,
       isDraft: action.openPullRequest.isDraft ?? false,
       isCrossRepository: false,
       headRefName: branch,
@@ -265,7 +298,7 @@ for (const action of session.actions) {
       commits: [{ oid: "a" }, { oid: "b" }],
     });
     writeFileSync(statePath, JSON.stringify(state));
-    toolResult(toolCall("Bash", { command: `gh pr create --repo github.com/acme/acme-shop --head ${branch} --base ${base}` }), state.pulls.at(-1).url);
+    toolResult(toolCall("Bash", { command: `gh pr create --repo github.com/${repo} --head ${branch} --base ${base}` }), state.pulls.at(-1).url);
   } else if (action.stderr) {
     process.stderr.write(`${action.stderr}\n`);
   } else if (action.waitForFile) {

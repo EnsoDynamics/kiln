@@ -8,7 +8,7 @@ import type { Effort } from "../../../src/state/records.js";
 type Documents = NonNullable<Snapshot["documents"]>;
 type Settings = Snapshot["settings"];
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+export const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /** "14 acceptance criteria, AC-RET-01 to AC-RET-14" */
 export function prdLine(prd: Documents["prd"]): string {
@@ -46,6 +46,8 @@ export interface PlanRow {
   id: string;
   title: string;
   closed: boolean;
+  /** The repositories its document names (multi-repo AC-REPO-03). */
+  repositories: string[];
   /** "split into 2a and 2b" for a split phase; its children follow nested under it. */
   splitNote?: string;
   children: PlanRow[];
@@ -62,6 +64,7 @@ export function planRows(phases: Documents["plan"]["phases"]): PlanRow[] {
       id: phase.id,
       title: phase.title,
       closed: phase.closed,
+      repositories: phase.repositories,
       ...(phase.splitInto ? { splitNote: `split into ${joinAnd(phase.splitInto)}` } : {}),
       children,
     };
@@ -69,7 +72,8 @@ export function planRows(phases: Documents["plan"]["phases"]): PlanRow[] {
   return phases.filter((phase) => !childIds.has(phase.id)).map((phase) => row(phase.id));
 }
 
-function joinAnd(items: string[]): string {
+/** "a", "a and b", "a, b and c". */
+export function joinAnd(items: string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
@@ -97,15 +101,17 @@ export interface StartState {
 
 /**
  * Whether Start can be pressed, and the note under it: unavailable until refinement is
- * confirmed, while any field message that holds Start shows, while setup or the base check
- * runs, and while the view isn't connected.
+ * confirmed, while any field message that holds Start shows, a repository row's included
+ * (multi-repo AC-REPO-03), while setup or a base check runs, and while the view isn't connected.
  */
 export function startState(snapshot: Snapshot, refinementConfirmed: boolean, connected: boolean): StartState {
-  const { settings, documents } = snapshot;
-  if (documents?.starting) return { enabled: false, note: "Setting up the worktree…" };
+  const { settings, documents, repositories } = snapshot;
+  const multi = snapshot.feature.multiRepository;
+  if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
+  if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
-  const held = Object.values(settings.fieldErrors).some((message) => message !== undefined);
+  const held = Object.values(settings.fieldErrors).some((message) => message !== undefined) || repositories.some((row) => row.fieldErrors.baseBranch !== undefined);
   return { enabled: connected && !held };
 }
 

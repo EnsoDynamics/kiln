@@ -1,5 +1,7 @@
 # Phase 1: One workspace across repositories, through to a pull request in each
 
+**Closed:** 2026-10-22
+
 **Parent PRD:** docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md
 **Technical design:** docs/changes/kiln-multi-repo-delivery/technical-design.md — relevant sections: "Claude Code Behaviors This Design Relies On" ("Per-repository instructions", "Write limits"), "The PRD's Repositories", "The Workspace", "Adding a Repository", "Sessions", "The Done Check" (Committed and Pushed), "The Pull Requests", "Interfaces", "Data Models", "Screens"
 
@@ -17,6 +19,6 @@ None.
 
 ## Phase-specific notes
 - A one-repository PRD keeps v1's behavior throughout this phase, a schema 1 record included (the schema 2 migration is built here). Phase 2 proves AC-SPACE-03 once its done-check row exists.
-- Human decision this phase needs: the technical design's first Open Question, whether Documents found tells the person that sessions don't follow each repository's `.claude/settings.json` or hooks. The line isn't drawn and isn't in AC-REPO-03, so Doug rules on it before this phase closes.
-- The design's second Open Question, which prompts carry the CLAUDE.md sentence, is this phase's call: decide it while building the prompts and record the choice in the design.
+- The technical design's first Open Question (whether Documents found tells the person that sessions don't follow each repository's `.claude/settings.json` or hooks) became assumption REPO-005 on 2026-10-22, at Doug's direction that open questions be declared as assumptions rather than held: Documents found says so in one line, built in this phase, and REPO-005 goes to stakeholders for validation like any other assumption.
+- The design's second Open Question, which prompts carry the CLAUDE.md sentence, was decided while building the prompts and is recorded in the design's Open Questions.
 - Each v1 technical design section this phase's work replaces gets its `Superseded in part by:` line in the feature commit (design, end of "Design Decisions").

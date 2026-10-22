@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { accountLines, assumptionsLine, designLine, effortDisabled, modelOptions, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {
@@ -77,5 +77,28 @@ describe("Start (AC-START-05)", () => {
 
   it("is unavailable while the view isn't connected to Kiln", () => {
     expect(startState(ready, true, false).enabled).toBe(false);
+  });
+});
+
+describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
+  it("keeps each phase's repositories with its row", () => {
+    const rows = planRows(documentsFoundRepositoriesSnapshot().documents!.plan.phases);
+    expect(rows.map((row) => [row.id, row.repositories, row.children.map((child) => child.repositories)])).toEqual([
+      ["1", ["returns-api"], []],
+      ["2", ["returns-api"], [["returns-api"], ["returns-api", "storefront"]]],
+      ["3", ["storefront"], []],
+      ["4", ["returns-api"], []],
+    ]);
+  });
+
+  it("holds Start on a repository row's base message, and while any base is checked", () => {
+    const ready = documentsFoundRepositoriesSnapshot();
+    expect(startState(ready, true, true)).toEqual({ enabled: true });
+    const held = documentsFoundRepositoriesSnapshot();
+    held.repositories[1] = { ...held.repositories[1]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(held, true, true).enabled).toBe(false);
+    const checking = documentsFoundRepositoriesSnapshot();
+    checking.repositories[2] = { ...checking.repositories[2]!, baseCheck: "checking" };
+    expect(startState(checking, true, true)).toEqual({ enabled: false, note: "Checking the base branches on origin…" });
   });
 });

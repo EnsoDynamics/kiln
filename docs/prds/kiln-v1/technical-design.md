@@ -77,6 +77,8 @@ Every `git`, `gh` and helper `claude` call Kiln makes (everything except a sessi
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Setup at Start (setup is done when every repository's is), §Named after Start (names are added before a phase starts), §The Pull Requests (the engine loop's check before the session, per repository)
+
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Pseudocode:
 
 ```
@@ -147,6 +149,8 @@ A pause pressed during a phase stays pending through a Needs you and becomes act
 
 ## The Plan Reader
 
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Named in the phase documents (a `**Repositories:**` line is read)
+
 Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal, "Never").
 
 - **Documents.** In the PRD directory: `<folder name>-prd.md`, `technical-design.md` or `<folder name>-technical-design.md`, optional `assumptions.md` or `<folder name>-assumptions.md`, and every `phase-*.md`. A document under both names is a start-check problem, since Kiln can't tell which one is meant. Before the worktree exists Kiln reads them in the checkout the path is in; after, in the worktree only (AC-RUN-01).
@@ -161,6 +165,8 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 ## Sessions
 
 ### Starting a phase's session
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree)
 
 ```
 claude -p --input-format stream-json
@@ -180,6 +186,8 @@ Before spawning, Kiln writes the session record (ID, phase, model, the effort it
 **When `claude` can't be started.** If `spawn` returns no PID (ENOENT, EACCES or any other spawn error), Kiln records the run with no `pid` or `processStartTime`, `endedAt` equal to `startedAt`, no `exitCode`, and `spawnError: { code, message }`, in one write, and ignores the process's `close`, whose code is minus the errno, not an exit code, so no `exit` line follows. The error becomes a `stderr` output line, `Couldn't start claude in <worktree>: <message>` (ENOENT also means the working directory is missing). The run ended on its own, for a launch and a resume alike: the done check runs, or the pull-request check for the pull-request session, and a failure is a `done_check` Needs you (`pull_request_check` for the pull-request session) with no final message, its facts row headed by the error code ([How a session ended](#output-and-progress)). Kiln never retries (AC-STOP-01). A session with at least one run that started keeps the resume command on Needs you, and the line under the headline says Kiln couldn't restart it (wording: UI-007). When no run of the session ever started, nothing ran: the resume command and the last skill seen are left out, the line under the headline says Kiln couldn't start the session, step 1 offers the fresh session in the resume command's place, and that prompt omits the previous-session sentence (wording: UI-007).
 
 ### The prompts
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions, §The Pull Requests (the workspace in place of the one worktree; one pull request per repository)
 
 Each is a template file; `<…>` are filled from the record. Everything in them is something a person could type (AC-RUN-06). `<phase doc>` and `<PRD file>` are paths relative to the worktree root (`docs/prds/customer-returns/phase-2b-store-credit.md`), never main-checkout paths, which would send the session to files outside its worktree. After a session splits its leaf, the fresh-session prompt's `<phase doc>` is its judged leaf's document and the resume prompt's stays the launched leaf's ([Which phase a split session is shown as](#snapshot)).
 
@@ -314,6 +322,8 @@ Kiln has no watchdog for a session that stops producing output without exiting; 
 
 ## The Done Check
 
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check (Committed and Pushed per repository), §The Pull Requests (the pull-request check per repository)
+
 Run in the worktree after every phase's session, on Check again and on `kiln run` for a stopped phase (not a `plan` stop), on `kiln run` for a session whose verdict was never recorded, and before any resume (AC-DONE-03). All three must pass (AC-DONE-01); the session's exit code and words play no part (AC-DONE-02, AC-DONE-04).
 
 | Check | Predicate | Fact shown when it fails (AC-STOP-03) |
@@ -327,6 +337,8 @@ A check Kiln can't run at all (the worktree is gone, `git` or `gh` fails) fails 
 **The pull-request check (AC-PR-02)** replaces the done check for the pull-request session: `gh pr list --repo github.com/<owner>/<name> --head <branch> --base <base> --state open --json number,title,url,isDraft,isCrossRepository,headRefName,baseRefName,additions,deletions,commits`, run in the main checkout, passes only on a pull request with `isCrossRepository` false and `isDraft` false: "open" means open and ready for review (WORK-001), and `--head` also matches a fork's pull request from a branch of the same name, which doesn't count. When the check passes, Kiln records the pull request's number, title, link, head and base branches, and lines added and removed, all from the same call, and its commit count as the length of `commits`; `gh` returns at most 100 commits, so a count of 100 shows as "100+" (AC-PR-04). Kiln records these with `completedAt` in the PRD record. Complete, on that run and every later `kiln run`, renders from the record and never queries GitHub again: the facts are as they stood when the pull request was confirmed open, and merging or closing it later changes nothing Kiln shows. The facts: a pass shows `#<n> open`; an open draft fails with `#<n> is a draft`; no open pull request fails with `No open pull request from <branch> into <base>`; a `gh` failure shows gh's own error, as for the other checks. Its Needs you screen shows this one check, in the wording UI-007 gives.
 
 ## Worktree and Branch Setup
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Settings before Start, §Setup at Start, §The workspace kept (defaults, field checks, setup and a failed Start, per repository)
 
 Done once, when Start is pressed on Documents found, and the only Git state Kiln ever changes (AC-GIT-01): the feature branch and its worktree. The base check's fetch adds objects but moves no ref. Kiln never resets, stashes, cleans, force-pushes or deletes (AC-GIT-02).
 
@@ -387,9 +399,13 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 
 ### Command line (AC-CLI-01, AC-CLI-02, AC-START-09)
 
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Found beside the PRD's repository, §The command (start checks for each named repository; a second command)
+
 `kiln run <PRD directory or PRD file>` is the only command. Kiln resolves the path from the current directory and finds the checkout the path is in with `git -C <the path's directory> rev-parse --show-toplevel`. The PRD directory is the path itself, or its parent when the path is a file, and must sit directly under `docs/prds/` or `docs/changes/` at that checkout's root. Run from inside Kiln's worktree, that root is the worktree folder, so Kiln finds the main checkout separately: the first `worktree` entry of `git -C <the path's directory> worktree list --porcelain`, then `git -C <that entry> rev-parse --show-toplevel`. In an ordinary repository the entry is the main working tree; in a submodule it is the submodule's git directory, `<superproject>/.git/modules/<name>` (found on Git 2.50.1 while building Phase 1), and the second call turns it into the submodule's working tree. The parent of `git rev-parse --git-common-dir` isn't used for the same reason. The repository name (AC-LOOK-05), the state directory's key and the PRD key come from the main checkout, whichever checkout the path is in, so the main checkout and the worktree reach the same record ([Kiln's state on disk](#kilns-state-on-disk)). A file path must be that directory's `<folder name>-prd.md`, whether or not the file exists. The PRD is always `<folder name>-prd.md`; any other `*-prd.md` there is ignored, and when it is absent the start checks list it among what is missing, as the terminal mockup draws. Any other path prints one line naming the problem, then usage, and exits non-zero: no path, a path that doesn't exist (other than a missing `<folder name>-prd.md` in an existing PRD directory), a path outside a Git repository, any other folder (including `docs/prds/` itself, the "several PRDs" case of AC-START-01) and any other file. Start-check failures print what is missing or failed and where Kiln looked, one line per problem in the terminal mockup's frame (missing documents as drawn, every other problem as UI-010 gives), and exit non-zero. Phase event lines are `<local time> <phase id> <title> <started | done · pushed <sha> | stopped | interrupted | resumed | opened #<n>>`, as in the terminal mockup; after a session splits its leaf, all but the started line name its judged leaf ([Snapshot](#snapshot)). Kiln needs `claude`, `git` and `gh` on the PATH, `gh` signed in, and `origin` on GitHub; a missing one is reported among the start checks. "`gh` signed in" means `gh auth status --hostname github.com` exits 0. "`origin` on GitHub" means `git remote get-url origin` parses as `https://[user@]github.com/<owner>/<name>[.git]`, `git@github.com:<owner>/<name>[.git]` or `ssh://git@github.com[:port]/<owner>/<name>[.git]`, host matched case-insensitively; anything else, GitHub Enterprise hosts and SSH host aliases included, fails with "origin isn't on GitHub: <url>", since the PRD covers GitHub-hosted repositories only. Kiln records `<owner>/<name>` as the record's `repository.github`, which every `gh` call passes ([Dependencies](#dependencies)). It never runs `gh repo set-default`, which writes Git config (AC-GIT-01).
 
 ### HTTP API
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories)
 
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
@@ -420,6 +436,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request)
 
 What every screen renders from. Outline:
 
@@ -510,6 +528,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository)
 
 Root: `$XDG_STATE_HOME/kiln`, else `~/.local/state/kiln`, on macOS and Linux alike; `%LOCALAPPDATA%\kiln` on Windows, readable by its owner only. Never inside the repository (AC-GIT-03).
 

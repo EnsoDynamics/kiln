@@ -60,11 +60,39 @@ describe("the prompts", () => {
     prdFile: "docs/prds/greeting-cli/greeting-cli-prd.md",
     worktreePath: "/tmp/kiln-gate2/greeting-tool-kiln/greeting-cli",
     branch: "feature/greeting-cli",
+    parentFolder: "/tmp/kiln-gate2",
   };
 
-  it("sends proof gate 2's launch prompt word for word", () => {
-    const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-2/launch-prompt.txt", import.meta.url), "utf8").trimEnd();
-    expect(phaseSessionPrompt(values)).toBe(recorded);
+  it("sends proof gate 2's launch prompt word for word, with the paragraph on adding a repository after the worktree's (multi-repo AC-SPACE-02)", () => {
+    const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-2/launch-prompt.txt", import.meta.url), "utf8").trimEnd().split("\n\n");
+    const added =
+      "If you need a repository that isn't in this worktree's workspace, run `kiln add-repository <folder name>`; Kiln adds a worktree of it on `feature/greeting-cli` and prints where. Work there, never in a repository's own checkout such as `/tmp/kiln-gate2/<folder name>`. Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`, if it has them, and follow them in that repository.";
+    expect(phaseSessionPrompt(values)).toBe([...recorded.slice(0, 2), added, ...recorded.slice(2)].join("\n\n"));
+  });
+
+  it("gives a multi-repository session the workspace, each worktree and its base, and every repository in its authorization", () => {
+    const prompt = phaseSessionPrompt({
+      ...values,
+      phaseDoc: "product/docs/prds/customer-returns/phase-2b-store-credit.md",
+      workspace: {
+        folder: "/home/a/acme/.worktrees/customer-returns",
+        repositories: [
+          { name: "product", github: "acme/product", worktreePath: "/home/a/acme/.worktrees/customer-returns/product", baseBranch: "main", isPrd: true },
+          { name: "returns-api", github: "acme/returns-api", worktreePath: "/home/a/acme/.worktrees/customer-returns/returns-api", baseBranch: "develop", isPrd: false },
+        ],
+      },
+    });
+    expect(prompt).toContain("Work only in this Kiln workspace, `/home/a/acme/.worktrees/customer-returns`: one worktree of each repository below, every one on branch `feature/greeting-cli`.");
+    expect(prompt).toContain("such as `/tmp/kiln-gate2/returns-api`");
+    expect(prompt).toContain(
+      "- `product`: `/home/a/acme/.worktrees/customer-returns/product`, base `main` (the PRD's repository)\n- `returns-api`: `/home/a/acme/.worktrees/customer-returns/returns-api`, base `develop`",
+    );
+    expect(prompt).toContain("run `kiln add-repository <folder name>` from this workspace");
+    expect(prompt).toContain("Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`");
+    expect(prompt).toContain("push it to origin (`git push -u origin feature/greeting-cli`) in each repository you change");
+    expect(prompt).toContain("committed and pushed to `origin/feature/greeting-cli` in every repository.");
+    const product = { name: "product", github: "acme/product", worktreePath: "/w/product", baseBranch: "main", isPrd: true };
+    expect(freshSessionPrompt({ ...values, workspace: { folder: "/w", repositories: [product] } }, true)).toContain("check the workspace's state before you start.");
   });
 
   it("adds the previous-session sentence after the first only when a previous session ran", () => {
@@ -76,11 +104,20 @@ describe("the prompts", () => {
     expect(freshSessionPrompt(values, false)).toBe(phaseSessionPrompt(values));
   });
 
-  it("asks the pull-request session for one ready pull request through gh --repo", () => {
-    const prompt = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", baseBranch: "develop", github: "acme/acme-shop" });
-    expect(prompt).toContain("pass `--repo github.com/acme/acme-shop` to every `gh` command");
-    expect(prompt).toContain("Open it ready for review, not as a draft");
-    expect(prompt).toContain("You may not merge it, deploy anything, or touch any other branch.");
+  it("asks the pull-request session for one ready pull request per repository, each through gh --repo", () => {
+    const repository = (name: string, base: string, isPrd = false) => ({ name, github: `acme/${name}`, worktreePath: `/w/${name}`, baseBranch: base, isPrd });
+    const one = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", repositories: [repository("acme-shop", "develop", true)] });
+    expect(one).toContain("Pass `--repo github.com/<owner>/<name>` to every `gh` command for that repository:\n\n- `acme-shop` (`acme/acme-shop`), worktree `/w/acme-shop`, into `develop`\n\nOpen them ready for review");
+    expect(one).not.toContain("links every other pull request");
+    expect(one).toContain("You may not merge, deploy anything, or touch any other branch.");
+    const several = pullRequestSessionPrompt({
+      featureName: "Customer returns",
+      prdFile: "product/docs/prds/customer-returns/customer-returns-prd.md",
+      branch: "feature/customer-returns",
+      repositories: [repository("product", "main", true), repository("returns-api", "develop")],
+    });
+    expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
+    expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
   });
 });
 
@@ -212,9 +249,18 @@ describe("plan order after Start", () => {
 
 describe("the default settings", () => {
   const paths = { mainCheckoutPath: join("/work", "acme-shop"), repositoryName: "acme-shop", folderName: "customer-returns", prdDirectoryFromRoot: "docs/prds/customer-returns" };
-  it("branch feature/<folder>, worktree .worktrees/<folder>/<repository> beside it, base develop or else origin's default, latest Opus at high", () => {
+  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, latest Opus at high", () => {
     const withDevelop = defaultSettings(paths, { branches: new Map([["main", "a"], ["develop", "b"]]), defaultBranch: "main" });
-    expect(withDevelop).toEqual({ worktreePath: join("/work", ".worktrees", "customer-returns", "acme-shop"), featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true });
+    expect(withDevelop).toEqual({
+      workspaceFolder: join("/work", ".worktrees", "customer-returns"),
+      worktreePath: join("/work", ".worktrees", "customer-returns", "acme-shop"),
+      featureBranch: "feature/customer-returns",
+      baseBranch: "develop",
+      bases: {},
+      model: "opus",
+      effort: "high",
+      keepAwake: true,
+    });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");
   });

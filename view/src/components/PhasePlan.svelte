@@ -2,16 +2,17 @@
   // The phase plan: every phase in plan order, all at one level, with its number, file name,
   // title word for word and state, and a Details section for each phase that has run (PRD
   // AC-WATCH-01, AC-LOOK-03). The pull-request session is its last row once every leaf is
-  // closed (AC-PR-05).
+  // closed (AC-PR-05). For a multi-repository PRD a Done row counts the repositories it pushed to,
+  // its Details list them, and the pull-request row counts the pull requests (multi-repo AC-PRS-03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import { detailRows, rowFacts, rowPill, rowState, type RowState } from "../lib/progress.js";
+  import { detailRows, openedLabel, rowFacts, rowPill, rowState, type RowState } from "../lib/progress.js";
   import DetailsList from "./DetailsList.svelte";
   import type { IconName } from "./Icon.svelte";
   import PhaseCircle, { type CircleTone } from "./PhaseCircle.svelte";
   import Pill, { type PillTone } from "./Pill.svelte";
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
-
+  const opened = $derived(openedLabel(snapshot));
 
   const LOOKS: Record<RowState, { circle: CircleTone; pill: PillTone; icon?: IconName }> = {
     done: { circle: "done", pill: "green-tint", icon: "check" },
@@ -37,7 +38,7 @@
           <span class="names"><span class="title" class:quiet={state === "planned"}>{row.title}</span><span class="file mono">{row.file}</span></span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
-            <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, snapshot.pullRequest?.number)}</Pill>
+            <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>
           </span>
         </div>
         {#if row.details && state !== "implementing" && state !== "interrupted"}<DetailsList rows={detailRows(row.details, new Date(now))} indent />{/if}

@@ -4,9 +4,9 @@
 // The view derives "Interrupted" itself: Kiln is never running while a phase is interrupted, so
 // a snapshot never says it (technical design, "Snapshot").
 
-import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
+import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
-import { EFFORT_LABELS } from "./documents-found.js";
+import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { clockTime, shortDuration, timeSpan } from "./time.js";
 
 export const PR_ID = "pr";
@@ -72,11 +72,22 @@ export function rowState(row: PhaseView, connected: boolean): RowState {
   return row.state === "implementing" && !connected ? "interrupted" : row.state;
 }
 
-/** The pill's words for a row. */
-export function rowPill(row: PhaseView, state: RowState, pullRequestNumber: number | undefined): string {
+/**
+ * The pull-request session's Done pill: v1's "Opened #218" for one repository, and the count of
+ * pull requests for more than one (multi-repo AC-PRS-03).
+ */
+export function openedLabel(snapshot: Snapshot): string | undefined {
+  const pullRequests = snapshot.pullRequests ?? [];
+  if (pullRequests.length === 0) return undefined;
+  if (!snapshot.feature.multiRepository) return `Opened #${pullRequests[0]!.number}`;
+  return `Opened ${plural(pullRequests.length, "pull request", "pull requests")}`;
+}
+
+/** The pill's words for a row; `opened` is the pull-request session's, from `openedLabel`. */
+export function rowPill(row: PhaseView, state: RowState, opened: string | undefined): string {
   switch (state) {
     case "done":
-      return row.id === PR_ID && pullRequestNumber !== undefined ? `Opened #${pullRequestNumber}` : "Done";
+      return row.id === PR_ID && opened !== undefined ? opened : "Done";
     case "split":
       return `Split into ${(row.splitInto ?? []).join(", ")}`;
     case "implementing":
@@ -93,17 +104,21 @@ export function rowPill(row: PhaseView, state: RowState, pullRequestNumber: numb
 }
 
 /**
- * The facts beside a row's pill: a Done phase's time and pushed commit, an Implementing phase's
- * time since its session started, and an Interrupted one's time until the view lost Kiln.
+ * The facts beside a row's pill: a Done phase's time and pushed commit, or for a
+ * multi-repository PRD how many repositories it pushed to (multi-repo AC-PRS-03); an
+ * Implementing phase's time since its session started, and an Interrupted one's time until the
+ * view lost Kiln.
  *
- *   rowFacts(done, "done", now)  // "52m · pushed a1c4e09", or "1h 19m · finished by you · pushed 7f3a91c"
+ *   rowFacts(done, "done", now)  // "52m · pushed a1c4e09", or "1h 19m · finished by you · pushed to 4 repositories"
  */
 export function rowFacts(row: PhaseView, state: RowState, now: number): string | undefined {
   if (state === "done") {
     if (row.sessionStartedAt === undefined || row.doneAt === undefined) return undefined;
     const parts = [shortDuration(Date.parse(row.doneAt) - Date.parse(row.sessionStartedAt))];
     if (row.finishedByPerson) parts.push("finished by you");
-    if (row.pushedSha) parts.push(`pushed ${row.pushedSha.slice(0, 7)}`);
+    if (row.pushedRepositoryCount !== undefined) {
+      if (row.pushedRepositoryCount > 0) parts.push(`pushed to ${plural(row.pushedRepositoryCount, "repository", "repositories")}`);
+    } else if (row.pushedSha) parts.push(`pushed ${row.pushedSha.slice(0, 7)}`);
     return parts.join(" · ");
   }
   if ((state === "implementing" || state === "interrupted") && row.sessionStartedAt !== undefined) {
@@ -112,16 +127,97 @@ export function rowFacts(row: PhaseView, state: RowState, now: number): string |
   return undefined;
 }
 
-/** A phase's Details rows (AC-WATCH-01): when it ran, the model and effort, its worktree, branch, commits and session. */
-export function detailRows(details: NonNullable<PhaseView["details"]>, now: Date): { term: string; value: string; mono?: true }[] {
-  const rows: { term: string; value: string; mono?: true }[] = [];
+/** The phase's commits in one repository, as a current-phase panel lists them. */
+export interface RepositoryCommitsView {
+  name: string;
+  addedInPhase?: string;
+  commits: { sha: string; subject: string }[];
+}
+
+/** A Details row: a term and its value, and under a multi-repository PRD's Commits, the repositories it counts. */
+export interface DetailRow {
+  term: string;
+  value: string;
+  mono?: true;
+  /** Each repository's worktree, branch, commit count and latest commit (Complete's Details). */
+  repositories?: RepositoryDetails[];
+  /** Each repository's commits, `sha subject` (the current-phase panel). */
+  commits?: RepositoryCommitsView[];
+}
+
+/**
+ * A phase's Details rows (AC-WATCH-01): when it ran, the model and effort, its worktree, branch,
+ * commits and session. A multi-repository PRD's Details give each repository's worktree, branch
+ * and commits under Commits in place of the one worktree and branch (multi-repo AC-PRS-03).
+ */
+export function detailRows(details: NonNullable<PhaseView["details"]>, now: Date): DetailRow[] {
+  const rows: DetailRow[] = [];
   if (details.to !== undefined) rows.push({ term: "Ran", value: timeSpan(details.from, details.to, now) });
   rows.push({ term: "Model", value: modelAndEffort(details.model, details.effort) });
+  if (details.repositories !== undefined) {
+    const total = details.repositories.reduce((sum, repository) => sum + repository.commitCount, 0);
+    rows.push({ term: "Commits", value: commitsAcross(total, details.repositories.length), ...(total > 0 ? { repositories: details.repositories } : {}) });
+    rows.push({ term: "Session", value: details.sessionId, mono: true });
+    return rows;
+  }
   rows.push({ term: "Worktree", value: details.worktree, mono: true });
   rows.push({ term: "Branch", value: details.branch, mono: true });
   if (details.commitCount !== undefined) rows.push({ term: "Commits", value: commitsLine(details.commitCount, details.latestCommit) });
   rows.push({ term: "Session", value: details.sessionId, mono: true });
   return rows;
+}
+
+/** "3 in 2 repositories", or "None yet for this phase" (multi-repo AC-PRS-03). */
+export function commitsAcross(count: number, repositoryCount: number): string {
+  if (count === 0) return "None yet for this phase";
+  return `${count} in ${plural(repositoryCount, "repository", "repositories")}`;
+}
+
+/** "1 commit · latest 3e8b2f1": one repository's line under a multi-repository PRD's Commits. */
+export function repositoryCommitsLine(count: number, latest: string): string {
+  return `${plural(count, "commit", "commits")} · latest ${latest.slice(0, 7)}`;
+}
+
+/** The phase's commits by repository, each with its added-in-phase label from the PRD's repositories. */
+export function commitsByRepository(snapshot: Snapshot, repositories: { name: string; commits: { sha: string; subject: string }[] }[]): RepositoryCommitsView[] {
+  return repositories.map((repository) => {
+    const addedInPhase = snapshot.repositories.find((row) => row.name === repository.name)?.addedInPhase;
+    return { name: repository.name, ...(addedInPhase === undefined ? {} : { addedInPhase }), commits: repository.commits };
+  });
+}
+
+/** "added in phase 2b" (multi-repo AC-ADD-03). */
+export function addedLabel(phaseId: string): string {
+  return `added in phase ${phaseId}`;
+}
+
+const COUNT_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+/**
+ * The repositories' count under the workspace folder, with the ones sessions added (multi-repo
+ * AC-SPACE-05, AC-ADD-03).
+ *
+ *   repositoriesLine(rows)  // "4 repositories, one added in phase 2b"
+ */
+export function repositoriesLine(rows: RepositoryRow[]): string {
+  const count = plural(rows.length, "repository", "repositories");
+  const added = rows.filter((row) => row.addedInPhase !== undefined);
+  if (added.length === 0) return count;
+  const phases = [...new Set(added.map((row) => row.addedInPhase!))];
+  const many = COUNT_WORDS[added.length] ?? String(added.length);
+  return `${count}, ${many} added in ${phases.length === 1 ? "phase" : "phases"} ${joinAnd(phases)}`;
+}
+
+/**
+ * A folder as the screens show it, ending in "/", split before its last name, where the
+ * multi-repo mockups let it break.
+ *
+ *   folderShown("~/devel/acme/.worktrees/customer-returns")  // ["~/devel/acme/.worktrees/", "customer-returns/"]
+ */
+export function folderShown(path: string): [string, string] {
+  const folder = path.endsWith("/") ? path : `${path}/`;
+  const end = folder.slice(0, -1).lastIndexOf("/") + 1;
+  return [folder.slice(0, end), folder.slice(end)];
 }
 
 /** "3 · latest a1c4e09", or "None yet for this phase". */
@@ -166,7 +262,7 @@ export interface NeedsYouCopy {
  * and with UI-007's lines for the pull request, a session that can't be resumed, a broken plan,
  * and a session Kiln couldn't start or restart.
  */
-export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date): NeedsYouCopy {
+export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
   const name = capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
@@ -177,7 +273,9 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     freshLink: true,
     finishTitle: isPr ? "Open the pull request with Claude, the way you normally would" : "Finish the phase with Claude, the way you normally would",
     finishText: isPr
-      ? `Open it however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into ${settings.baseBranch} that isn’t a draft, so it doesn’t matter who opens it.`
+      ? multiRepository
+        ? `Open them however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into each repository’s base branch, in every repository that changed, that isn’t a draft, so it doesn’t matter who opens them.`
+        : `Open it however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into ${settings.baseBranch} that isn’t a draft, so it doesn’t matter who opens it.`
       : "Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
     checkAgainText: isPr
       ? "Kiln re-checks GitHub. If the pull request is open and ready for review, the feature is complete."

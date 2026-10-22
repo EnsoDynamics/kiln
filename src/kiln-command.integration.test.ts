@@ -111,11 +111,11 @@ describe("kiln run", () => {
       expect(result.exitCode, args.join(" ")).toBe(2);
       expect(result.stderr, args.join(" ")).toContain("Usage: kiln run <PRD directory or PRD file>");
     }
-    // AC-CLI-02: no other command, for status, logs, pausing, resuming or one phase.
+    // AC-CLI-02: no other command, for status, logs, pausing, resuming or one phase; multi-repo AC-ADD-01 adds the second.
     for (const command of ["status", "logs", "pause", "resume", "start", "phase"]) {
       const result = kiln([command, "docs/prds/customer-returns"]);
       expect(result.exitCode, command).toBe(2);
-      expect(result.stderr.split("\n")[0], command).toBe(`kiln: unknown command "${command}". kiln run is the only command.`);
+      expect(result.stderr.split("\n")[0], command).toBe(`kiln: unknown command "${command}". The commands are kiln run and kiln add-repository.`);
     }
     expect(kiln(["--help"])).toMatchObject({ exitCode: 0, stderr: "" });
   });

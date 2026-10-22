@@ -66,7 +66,7 @@ describe("Ctrl+C while a session works", () => {
     // No Claude Code process is left behind (AC-KEEP-02).
     expect(await isProcessLive(run!.pid!, run!.processStartTime)).toBe(false);
     // Nothing was judged: no Needs you, no Done (technical design, "Once a stop begins").
-    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], startCommit: expect.any(String), finishedByPerson: false });
+    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } } });
     // The work in progress stays exactly as it was (AC-KEEP-03), staged and unstaged alike.
     expect(workState()).toEqual(workBefore);
 
@@ -399,7 +399,7 @@ describe("the pull-request session, interrupted", () => {
     expect(h.claudeCalls()[4]!.args).toContain("--resume");
     expect(h.claudeCalls()[4]!.prompt).toContain("Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open.");
     expect(engine.record.completedAt).toBeDefined();
-    expect(engine.record.pullRequest?.number).toBe(218);
+    expect(engine.record.pullRequests?.[0]?.number).toBe(218);
     expect(phaseEvents(h).slice(-2)).toEqual(["PR resumed", "PR opened"]);
   });
 
@@ -416,7 +416,7 @@ describe("the pull-request session, interrupted", () => {
     const engine = h.reopenFromDisk();
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "complete" });
-    expect(engine.record.pullRequest?.number).toBe(219);
+    expect(engine.record.pullRequests?.[0]?.number).toBe(219);
     expect(h.claudeCalls()).toHaveLength(4);
   });
 });

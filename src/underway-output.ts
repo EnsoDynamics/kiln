@@ -38,6 +38,12 @@ export function formatSummaryLine(engine: Engine, colors: TerminalColors): strin
   return engine.paths.featureName + colors.grey(`  ·  ${done} of ${leaves.length} phases done  ·  ${whereItStands(engine)}`);
 }
 
+/** "Pull request #218 is ready for review.", or with several, each by repository. */
+function pullRequestsReady(pulls: { repository: string; number: number }[]): string {
+  if (pulls.length <= 1) return `Pull request #${pulls[0]?.number ?? "?"} is ready for review.`;
+  return `Pull requests ${pulls.map((pull) => `${pull.repository} #${pull.number}`).join(" · ")} are ready for review.`;
+}
+
 /**
  * The ● line: what Kiln does next, then "Opened <address>" with no closing period, as drawn.
  * With no address (the browser couldn't be opened) it ends at what Kiln does next.
@@ -68,7 +74,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     }
     case "complete":
-      text = `Pull request #${engine.record.pullRequest?.number ?? "?"} is ready for review.`;
+      text = pullRequestsReady(engine.record.pullRequests ?? []);
       break;
     case "resume":
       text =

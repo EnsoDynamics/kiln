@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PHASES } from "../test-support/fixture-documents.js";
-import { dependencyIds, leavesOf, planStartProblems, readPhasePlan, type PhaseFile } from "./phase-plan.js";
+import { dependencyIds, leavesOf, namedRepositories, planStartProblems, readPhasePlan, type PhaseFile } from "./phase-plan.js";
 
 const files = (texts: Record<string, string>): PhaseFile[] => Object.entries(texts).map(([fileName, markdown]) => ({ fileName, markdown }));
 const leaf = (id: string, criteria = "AC-X-01", dependencies = "None.") =>
@@ -161,5 +161,36 @@ describe("dependencyIds", () => {
 
   it("reads no dependencies when the section is absent", () => {
     expect(dependencyIds(undefined)).toEqual([]);
+  });
+});
+
+describe("the Repositories line (multi-repo AC-REPO-01)", () => {
+  const doc = (id: string, line: string, extra = "") => ({ fileName: `phase-${id}-x.md`, markdown: `# Phase ${id}: X\n\n${line}\n\n${extra}## Acceptance criteria covered\nAC-RET-01\n` });
+  it("reads the names before the first heading, split at commas, and unions them in first-mention plan order without the PRD's repository", () => {
+    const plan = readPhasePlan([
+      doc("1", "**Repositories:** returns-api , product"),
+      doc("2", "**Repositories:** storefront, returns-api", "## Split into\n| Phase |\n|---|\n| [2a](phase-2a-x.md) |\n\n"),
+      doc("2a", ""),
+      { fileName: "phase-3-x.md", markdown: "# Phase 3: X\n\n## Acceptance criteria covered\nAC-RET-01\n\n**Repositories:** billing\n" },
+    ]);
+    expect(plan.problems).toEqual([]);
+    expect(plan.phases.map((phase) => [phase.id, phase.repositories])).toEqual([
+      ["1", ["returns-api", "product"]],
+      ["2", ["storefront", "returns-api"]],
+      // A split record's names aren't passed down to its children.
+      ["2a", []],
+      // A line after the first heading isn't the Repositories line.
+      ["3", []],
+    ]);
+    expect(namedRepositories(plan.phases, "product")).toEqual(["returns-api", "storefront"]);
+  });
+
+  it("makes a line with no names, an empty name, a path or . or .. a plan problem naming the file", () => {
+    const problems = (line: string) => readPhasePlan([doc("1", line)]).problems;
+    expect(problems("**Repositories:**")).toEqual(["phase-1-x.md has a Repositories line that names no repository."]);
+    expect(problems("**Repositories:** a,,b")).toEqual(["phase-1-x.md has an empty name on its Repositories line."]);
+    expect(problems("**Repositories:** acme/storefront")).toEqual(["phase-1-x.md names acme/storefront on its Repositories line, which isn't a folder name."]);
+    expect(problems("**Repositories:** ..\\\\storefront")).toEqual(["phase-1-x.md names ..\\\\storefront on its Repositories line, which isn't a folder name."]);
+    expect(problems("**Repositories:** ..")).toEqual(["phase-1-x.md names .. on its Repositories line, which isn't a folder name."]);
   });
 });

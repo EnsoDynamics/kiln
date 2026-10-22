@@ -121,6 +121,8 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 <!-- Field message, not drawn in this state (UI-010). One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. Select empty (origin names no default branch and has no develop): "Choose a base branch." -->
 <!-- Field message, not drawn in this state. One amber line (#e6b450, 12.5px, the help-text style) under that repository's row; Start stays unavailable while it shows. When the base check can't reach that repository's origin (offline, credentials, a timeout): "Couldn’t reach origin: <git's message>" (git's error text in place of <git's message>), the done check's wording. -->
 <span style="font-size: 12.5px; color: #8c8577; padding-top: 2px">Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.</span>
+<!-- Assumption REPO-005, not yet confirmed: sessions are told to read each repository's CLAUDE.md, but don't get its .claude/settings.json or hooks, so the screen says so here, in the same help-text style. -->
+<span style="font-size: 12.5px; color: #8c8577">Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.</span>
 </div>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px">

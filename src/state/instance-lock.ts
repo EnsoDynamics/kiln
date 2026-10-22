@@ -115,6 +115,12 @@ async function assignPort(registry: PortRegistry, key: string, range: { first: n
   return undefined;
 }
 
+/** The PRD's instance lock when a live Kiln holds it: its port, for a client such as `kiln add-repository`. */
+export async function liveInstance(prdStateDirectory: string): Promise<InstanceLockContent | undefined> {
+  const holder = readLock(join(prdStateDirectory, "instance.lock"));
+  return holder && (await isProcessLive(holder.pid, holder.processStartTime)) ? holder : undefined;
+}
+
 function readLock(path: string): InstanceLockContent | undefined {
   try {
     const content = JSON.parse(readFileSync(path, "utf8")) as Partial<InstanceLockContent>;

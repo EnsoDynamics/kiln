@@ -16,6 +16,13 @@ export interface PhaseDocument {
   title: string;
   /** A line starting `**Closed:**` before the first `##` heading. */
   closed: boolean;
+  /**
+   * The names on a `**Repositories:**` line before the first `##` heading, split at commas and
+   * trimmed (multi-repo AC-REPO-01); empty when there is no such line.
+   */
+  repositories: string[];
+  /** What is wrong with the `**Repositories:**` line: no names, or a name that isn't a folder name. */
+  repositoriesProblem: string | undefined;
   /** The `## Split into` rows, or undefined for a leaf. */
   splitInto: SplitRow[] | undefined;
   /** `AC-<AREA>-<NN>` labels under `## Acceptance criteria covered`, in order, without repeats. */
@@ -33,6 +40,8 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   const firstSectionIndex = lines.findIndex((line) => /^##\s/.test(line.text) && !line.inCodeFence);
   const preamble = firstSectionIndex === -1 ? lines : lines.slice(0, firstSectionIndex);
   const closed = preamble.some((line) => !line.inCodeFence && line.text.startsWith("**Closed:**"));
+  const repositoriesLine = preamble.find((line) => !line.inCodeFence && line.text.startsWith("**Repositories:**"));
+  const { repositories, problem: repositoriesProblem } = readRepositoriesLine(fileName, repositoriesLine?.text);
 
   const h1 = lines.map((line) => headingText(line, 1)).find((text) => text !== undefined);
   const title = readTitle(h1, idText, fileName);
@@ -46,7 +55,26 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   const dependencyLines = sectionLines(markdown, "Phase dependencies");
   const dependenciesText = dependencyLines?.map((line) => line.text).join("\n");
 
-  return { fileName, idText, title, closed, splitInto, citedCriteria, dependenciesText };
+  return { fileName, idText, title, closed, repositories, repositoriesProblem, splitInto, citedCriteria, dependenciesText };
+}
+
+/**
+ * The `**Repositories:**` line's names. Each must be a plain folder name: no `/` or `\`, not
+ * `.` or `..`, not empty.
+ *
+ *   readRepositoriesLine("phase-2b-store-credit.md", "**Repositories:** returns-api, storefront")
+ *   // { repositories: ["returns-api", "storefront"], problem: undefined }
+ */
+export function readRepositoriesLine(fileName: string, line: string | undefined): { repositories: string[]; problem: string | undefined } {
+  if (line === undefined) return { repositories: [], problem: undefined };
+  const rest = line.slice("**Repositories:**".length).trim();
+  if (rest === "") return { repositories: [], problem: `${fileName} has a Repositories line that names no repository.` };
+  const names = rest.split(",").map((name) => name.trim());
+  const bad = names.find((name) => name === "" || name === "." || name === ".." || /[/\\]/.test(name));
+  if (bad !== undefined) {
+    return { repositories: [], problem: bad === "" ? `${fileName} has an empty name on its Repositories line.` : `${fileName} names ${bad} on its Repositories line, which isn't a folder name.` };
+  }
+  return { repositories: [...new Set(names)], problem: undefined };
 }
 
 function readTitle(h1: string | undefined, idText: string, fileName: string): string {

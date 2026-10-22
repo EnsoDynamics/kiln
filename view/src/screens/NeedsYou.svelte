@@ -5,7 +5,9 @@
   // with the fact behind it (AC-STOP-03), Check again (AC-STOP-07), and a link to the full
   // output (AC-WATCH-10). The stops nobody drew reuse this layout with UI-007's lines. Kiln
   // never gives a reason of its own (AC-STOP-04). It is the screen alone: no plan, settings or
-  // account (UI-006).
+  // account (UI-006). Each check's facts are one per line, each naming its repository for a
+  // multi-repository PRD, as the multi-repo outside-workspace mockup lists them (multi-repo
+  // AC-CHECK-02).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
@@ -23,7 +25,7 @@
   const { config, router } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
-  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate));
+  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository));
   const ending = $derived(endingFact(stop));
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -81,7 +83,7 @@
                   <span class="step-title">Open the same Claude Code session in a terminal</span>
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
-                  <span class="step-title">Start a fresh Claude Code session in the worktree</span>
+                  <span class="step-title">Start a fresh Claude Code session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>
                     <pre class="prompt">{stop.freshSessionPrompt}</pre>
@@ -112,7 +114,7 @@
           {#each stop.checks as check (check.name)}
             <li>
               <span class="mark" class:passed={check.passed}>{#if check.passed}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span><span class="fact">{check.fact}</span></span>
+              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
             </li>
           {/each}
         </ul>

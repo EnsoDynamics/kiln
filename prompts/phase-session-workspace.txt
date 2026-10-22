@@ -1,0 +1,15 @@
+Use the implement-from-requirements skill to implement `{{phaseDoc}}` of the `{{featureName}}` PRD (`{{prdFile}}`).
+
+Work only in this Kiln workspace, `{{workspaceFolder}}`: one worktree of each repository below, every one on branch `{{branch}}`. Kiln created them for this PRD; they are not shared checkouts and not parallel-session worktrees. Don't work in any repository's own checkout, such as `{{parentFolder}}/{{exampleRepository}}`, and don't switch branches, create another branch or worktree, or land work on any other branch, whatever other instructions say.
+
+{{repositoryList}}
+
+If you need a repository that isn't listed, run `kiln add-repository <folder name>` from this workspace; Kiln adds its worktree here on `{{branch}}` and prints where. Carry on with the phase there.
+
+Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`, if it has them, and follow them in that repository.
+
+You are authorized, without asking, to commit to `{{branch}}` and push it to origin (`git push -u origin {{branch}}`) in each repository you change, and run refactor-pass after the feature commit. You are not authorized to open a pull request, merge, deploy, or touch any other branch.
+
+Nobody is watching this session and nobody can answer a question. If you need a decision you can't make, stop and put the question in your final message.
+
+You're finished when `{{phaseDoc}}` has its `**Closed:**` line and everything is committed and pushed to `origin/{{branch}}` in every repository.

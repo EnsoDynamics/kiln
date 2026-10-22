@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { writeSessionRecord } from "../state/records.js";
+import { displayPath } from "./worktree-setup.js";
 import { buildSnapshot } from "./snapshot.js";
 import { launchArguments } from "../session/claude-session.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -41,16 +42,16 @@ describe("the engine from Start to the pull request", () => {
     expect(phaseEvents(h)).toEqual([
       "prd_started",
       "1 started",
-      `1 done ${record.phases["1"]!.pushedSha!.slice(0, 7)}`,
+      `1 done ${record.phases["1"]!.repositories["acme-shop"]!.pushedSha!.slice(0, 7)}`,
       "2b started",
-      `2b done ${record.phases["2b"]!.pushedSha!.slice(0, 7)}`,
+      `2b done ${record.phases["2b"]!.repositories["acme-shop"]!.pushedSha!.slice(0, 7)}`,
       "3 started",
-      `3 done ${record.phases["3"]!.pushedSha!.slice(0, 7)}`,
+      `3 done ${record.phases["3"]!.repositories["acme-shop"]!.pushedSha!.slice(0, 7)}`,
       "PR started",
       "PR opened #218",
     ]);
     expect(record.completedAt).toBeDefined();
-    expect(record.pullRequest).toMatchObject({ number: 218, head: "feature/customer-returns", base: "develop", commits: 2, additions: 120, deletions: 4 });
+    expect(record.pullRequests?.[0]).toMatchObject({ number: 218, head: "feature/customer-returns", base: "develop", commits: 2, additions: 120, deletions: 4 });
 
     // AC-START-07: one new branch from develop and one worktree beside the repository, `.worktrees/<folder>/<repository>`.
     const worktree = join(h.sandbox.root, ".worktrees", "customer-returns", "acme-shop");
@@ -71,6 +72,8 @@ describe("the engine from Start to the pull request", () => {
         "--model", "opus", "--effort", "high",
         "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--forward-subagent-text",
         "--permission-mode", "auto", "--permission-prompts", "none",
+        // Multi-repo AC-SPACE-03: the workspace folder, so a repository a session adds is writable by mode.
+        "--add-dir", join(h.sandbox.root, ".worktrees", "customer-returns"),
       ]);
     }
     expect(calls[0]!.prompt).toBe(
@@ -78,6 +81,8 @@ describe("the engine from Start to the pull request", () => {
         "Use the implement-from-requirements skill to implement `docs/prds/customer-returns/phase-1-return-intake.md` of the `Customer returns` PRD (`docs/prds/customer-returns/customer-returns-prd.md`).",
         "",
         `Work only in this worktree, \`${worktree}\`, on branch \`feature/customer-returns\`. Kiln created this worktree and branch for this PRD; it is not a shared checkout and not a parallel-session worktree. Don't switch branches, create another branch or worktree, or land work on any other branch, whatever other instructions say.`,
+        "",
+        `If you need a repository that isn't in this worktree's workspace, run \`kiln add-repository <folder name>\`; Kiln adds a worktree of it on \`feature/customer-returns\` and prints where. Work there, never in a repository's own checkout such as \`${displayPath(h.sandbox.root)}/<folder name>\`. Before you change a repository, read its own \`CLAUDE.md\` and \`AGENTS.md\`, if it has them, and follow them in that repository.`,
         "",
         "You are authorized, without asking, to commit to `feature/customer-returns`, push it to origin (`git push -u origin feature/customer-returns`), and run refactor-pass after the feature commit. You are not authorized to open a pull request, merge, deploy, or touch any other branch.",
         "",
@@ -87,8 +92,8 @@ describe("the engine from Start to the pull request", () => {
       ].join("\n"),
     );
     expect(calls[1]!.prompt).toContain("implement `docs/prds/customer-returns/phase-2b-store-credit.md`");
-    expect(calls[3]!.prompt).toContain("Open one pull request on GitHub from `feature/customer-returns` into `develop`");
-    expect(calls[3]!.prompt).toContain("pass `--repo github.com/acme/acme-shop` to every `gh` command");
+    expect(calls[3]!.prompt).toContain("Open one pull request in each of these repositories, from `feature/customer-returns` into the base given");
+    expect(calls[3]!.prompt).toContain("- `acme-shop` (`acme/acme-shop`), worktree");
 
     // AC-GIT-01, AC-GIT-03: Kiln made no commit and added nothing to the repository; develop is untouched.
     expect(originTip(h, "develop")).toBe(developBefore);
@@ -104,8 +109,8 @@ describe("the engine from Start to the pull request", () => {
     }
 
     // Each phase's record: the pushed commit origin holds, one commit each, and its session's facts.
-    expect(record.phases["3"]!.pushedSha).toBe(originTip(h, "feature/customer-returns"));
-    expect(record.phases["1"]!.commitCount).toBe(1);
+    expect(record.phases["3"]!.repositories["acme-shop"]!.pushedSha).toBe(originTip(h, "feature/customer-returns"));
+    expect(record.phases["1"]!.repositories["acme-shop"]!.commitCount).toBe(1);
     const session = h.engine.latestSession("1")!;
     expect(session).toMatchObject({ model: "opus", initModel: "claude-opus-5-5", modelDisplayName: "Opus 5.5", effort: "high", permissionMode: "auto" });
     expect(session.runs).toHaveLength(1);
@@ -120,10 +125,10 @@ describe("the engine from Start to the pull request", () => {
     expect(snapshot.phases[0]).toMatchObject({
       state: "done",
       doneAt: record.phases["1"]!.doneAt,
-      pushedSha: record.phases["1"]!.pushedSha,
+      pushedSha: record.phases["1"]!.repositories["acme-shop"]!.pushedSha,
       finishedByPerson: false,
       sessionStartedAt: firstSession.runs[0]!.startedAt,
-      details: { from: firstSession.runs[0]!.startedAt, to: record.phases["1"]!.doneAt, worktree: worktree, latestCommit: record.phases["1"]!.pushedSha, sessionId: firstSession.sessionId },
+      details: { from: firstSession.runs[0]!.startedAt, to: record.phases["1"]!.doneAt, worktree: worktree, latestCommit: record.phases["1"]!.repositories["acme-shop"]!.pushedSha, sessionId: firstSession.sessionId },
     });
     expect(snapshot.phases.map((phase) => [phase.id, phase.state])).toEqual([
       ["1", "done"],
@@ -136,8 +141,8 @@ describe("the engine from Start to the pull request", () => {
     expect(snapshot.phases.find((phase) => phase.id === "2a")?.details).toBeUndefined();
     expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "high", branch: "feature/customer-returns", commitCount: 1 });
     // AC-PR-04, AC-PR-05: the Complete screen's pull request, from the record, and the pull-request session's own row.
-    expect(snapshot.pullRequest).toEqual(record.pullRequest);
-    expect(snapshot.pullRequest).toMatchObject({ number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
+    expect(snapshot.pullRequests).toEqual(record.pullRequests);
+    expect(snapshot.pullRequests?.[0]).toMatchObject({ repository: "acme-shop", number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
     const prRow = snapshot.phases.at(-1)!;
     expect(prRow).toMatchObject({ id: "pr", title: "Final pull request", file: "pull request session", state: "done" });
     expect(prRow.details).toBeUndefined();
@@ -198,7 +203,7 @@ describe("the snapshot while a phase works", () => {
     ];
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: working }, { actions: [{ result: "Stop here." }] }] }));
     await h.engine.start({ refinementConfirmed: true });
-    await waitFor(() => existsSync(reached) && buildSnapshot(h.engine).current?.commits.length === 1, 15_000);
+    await waitFor(() => existsSync(reached) && buildSnapshot(h.engine).current?.repositories[0]?.commits.length === 1, 15_000);
 
     const snapshot = buildSnapshot(h.engine);
     const session = h.engine.latestSession("1")!;
@@ -225,7 +230,7 @@ describe("the snapshot while a phase works", () => {
       startedAt,
       seenInSession: { text: "first git commit seen" },
       latestLine: { text: "Carrying on with the intake form." },
-      commits: [{ sha: head, subject: "feat: intake, first part" }],
+      repositories: [{ name: "acme-shop", commits: [{ sha: head, subject: "feat: intake, first part" }] }],
     });
     // AC-WATCH-04: Build is finished and Commit current; the steps the session never called stay unreached.
     expect(snapshot.current!.steps.map((step) => [step.name, step.state])).toEqual([
@@ -268,9 +273,9 @@ describe("a phase that doesn't land", () => {
     const stop = h.engine.record.phases["1"]!.stop!;
     expect(stop.kind).toBe("done_check");
     expect(stop.checks).toEqual([
-      { name: "Phase doc closed", passed: true, fact: "Closed line in phase-1-return-intake.md" },
-      { name: "Everything committed", passed: true, fact: expect.stringMatching(/^Latest commit [0-9a-f]{7}, tree clean$/) },
-      { name: "Pushed", passed: false, fact: "feature/customer-returns isn't on origin yet" },
+      { name: "Phase doc closed", passed: true, facts: ["Closed line in phase-1-return-intake.md"] },
+      { name: "Everything committed", passed: true, facts: [expect.stringMatching(/^Latest commit [0-9a-f]{7}, tree clean$/)] },
+      { name: "Pushed", passed: false, facts: ["feature/customer-returns isn't on origin yet"] },
     ]);
 
     // AC-STOP-01, AC-STOP-08: no retry and no later phase, however long Kiln waits.
@@ -304,7 +309,7 @@ describe("a phase that doesn't land", () => {
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
     expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "high", sessionStartedAt: session.runs[0]!.startedAt });
     const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
-    expect(snapshot.needsYou!.commits).toEqual([{ sha: head, subject: "feat: intake" }]);
+    expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
     // The stopped row's Details, drawn on the Disconnected layout, has the same commits (AC-WATCH-01).
     expect(snapshot.phases.find((phase) => phase.id === "1")?.details).toMatchObject({ commitCount: 1, latestCommit: head });
     // A fresh session starts in the worktree (UI-007): the path needs no quoting here, and isn't under the home folder.
@@ -314,10 +319,10 @@ describe("a phase that doesn't land", () => {
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
     expect(await h.engine.checkAgain()).toEqual({ ok: true });
     await h.engine.settled();
-    expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, pushedSha: expect.stringMatching(/^[0-9a-f]{40}$/) });
+    expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, repositories: { "acme-shop": { pushedSha: expect.stringMatching(/^[0-9a-f]{40}$/) } } });
     expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
     // Its row says the person finished it, with the commit they pushed (AC-WATCH-01).
-    expect(buildSnapshot(h.engine).phases[0]).toMatchObject({ id: "1", state: "done", finishedByPerson: true, pushedSha: h.engine.record.phases["1"]!.pushedSha });
+    expect(buildSnapshot(h.engine).phases[0]).toMatchObject({ id: "1", state: "done", finishedByPerson: true, pushedSha: h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha });
     expect(phaseEvents(h).slice(3, 5)).toEqual([expect.stringMatching(/^1 done /), "2b started"]);
   });
 
@@ -348,7 +353,7 @@ describe("a phase that doesn't land", () => {
     const checks = () => h.engine.record.phases["1"]!.stop!.checks;
     // Setup's --no-track: the branch has no upstream until a session pushes, so a bare `git push` never targets the base.
     expect(() => git(h.sandbox, h.repository, "rev-parse", "--abbrev-ref", "feature/customer-returns@{upstream}")).toThrow();
-    expect(checks().map((check) => check.fact)).toEqual(["No Closed line in phase-1-return-intake.md", "4 files changed, not committed", "feature/customer-returns isn't on origin yet"]);
+    expect(checks().map((check) => check.facts[0])).toEqual(["No Closed line in phase-1-return-intake.md", "4 files changed, not committed", "feature/customer-returns isn't on origin yet"]);
     const snapshot = buildSnapshot(h.engine);
     // No final message: the last output lines show instead, ending with the exit.
     expect(snapshot.needsYou!.finalMessage).toBeUndefined();
@@ -378,11 +383,11 @@ describe("a phase that doesn't land", () => {
     git(h.sandbox, worktree, "commit", "-q", "--allow-empty", "-m", "local only");
     await h.engine.checkAgain();
     const local = git(h.sandbox, worktree, "rev-parse", "--short=7", "HEAD").trim();
-    expect(checks()[2]!.fact).toBe(`${local} isn't on origin yet`);
+    expect(checks()[2]!.facts[0]).toBe(`${local} isn't on origin yet`);
 
     git(h.sandbox, worktree, "switch", "-q", "-c", "elsewhere");
     await h.engine.checkAgain();
-    expect(checks()[2]!.fact).toBe("The worktree is on elsewhere, not feature/customer-returns");
+    expect(checks()[2]!.facts[0]).toBe("The worktree is on elsewhere, not feature/customer-returns");
     expect(h.claudeCalls()).toHaveLength(1);
   });
 
@@ -472,7 +477,7 @@ describe("the done check needs all three", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases["1"]!.stop!.checks[0]).toEqual({ name: "Phase doc closed", passed: false, fact: "No Closed line in phase-1a-intake-form.md" });
+    expect(h.engine.record.phases["1"]!.stop!.checks[0]).toEqual({ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-1a-intake-form.md"] });
     expect(phaseEvents(h).at(-1)).toBe("1a stopped");
     expect(buildSnapshot(h.engine).needsYou!.phaseId).toBe("1a");
     // The fresh-session prompt points at the leaf judged, the split's first child (AC-STOP-06).
@@ -530,7 +535,7 @@ describe("Kiln's own Git changes", () => {
 
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await h.engine.settled();
-    expect(h.engine.record.baseCommit).toBe(newTip);
+    expect(h.engine.record.repositories[0]?.baseCommit).toBe(newTip);
     expect(git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns~0").trim()).toBe(newTip);
     expect(git(h.sandbox, h.repository, "rev-parse", "refs/remotes/origin/develop").trim()).toBe(trackingBefore);
     expect(existsSync(join(h.repository, ".git", "FETCH_HEAD"))).toBe(false);
@@ -660,7 +665,7 @@ describe("a plan that breaks after Start", () => {
     await h.engine.start();
     await h.engine.settled();
     const stop = h.engine.record.phases["2b"]!.stop!;
-    expect(stop).toMatchObject({ kind: "plan", checks: [{ name: "Phase plan reads", passed: false, fact: "phase-2-refunds.md lists 2b, which has no file." }] });
+    expect(stop).toMatchObject({ kind: "plan", checks: [{ name: "Phase plan reads", passed: false, facts: ["phase-2-refunds.md lists 2b, which has no file."] }] });
     expect(h.claudeCalls()).toHaveLength(1);
     const needsYou = buildSnapshot(h.engine).needsYou!;
     expect(needsYou.resumeCommand).toBeUndefined();
@@ -672,7 +677,7 @@ describe("a plan that breaks after Start", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await h.engine.checkAgain();
     await h.engine.settled();
-    expect(h.engine.record.phases["2b"]!.stop).toMatchObject({ kind: "plan", checks: [{ passed: false, fact: "phase-2-refunds.md lists 2b, which has no file." }] });
+    expect(h.engine.record.phases["2b"]!.stop).toMatchObject({ kind: "plan", checks: [{ passed: false, facts: ["phase-2-refunds.md lists 2b, which has no file."] }] });
     expect(h.engine.record.phases["2b"]!.stop!.checkedAt > firstCheckedAt).toBe(true);
     const reopened = h.reopen();
     await reopened.prepare();
@@ -732,7 +737,7 @@ describe("a plan that breaks after Start", () => {
     await h.engine.settled();
     const stop = h.engine.record.phases["1"]!.stop!;
     expect(stop.kind).toBe("done_check");
-    expect(stop.checks[0]!.fact).toBe(`Couldn't read the phase plan: ${prdDirectory} doesn't exist`);
+    expect(stop.checks[0]!.facts[0]).toBe(`Couldn't read the phase plan: ${prdDirectory} doesn't exist`);
     expect(h.ghCalls()).toHaveLength(0);
   });
 });
@@ -743,7 +748,7 @@ describe("the pull request", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases.pr!.stop).toMatchObject({ kind: "pull_request_check", checks: [{ name: "Pull request open", passed: false, fact: "#31 is a draft" }] });
+    expect(h.engine.record.phases.pr!.stop).toMatchObject({ kind: "pull_request_check", checks: [{ name: "Pull request open", passed: false, facts: ["#31 is a draft"] }] });
     // AC-STOP-01: the pull-request session isn't rerun either.
     expect(h.claudeCalls()).toHaveLength(4);
     expect(buildSnapshot(h.engine).needsYou!.freshSessionPrompt).toMatch(/^Every phase of the `Customer returns` PRD/);
@@ -771,7 +776,7 @@ describe("the pull request", () => {
     writeFileSync(release, "");
     await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(3);
-    expect(h.engine.record.pullRequest?.number).toBe(6);
+    expect(h.engine.record.pullRequests?.[0]?.number).toBe(6);
     expect(phaseEvents(h).at(-1)).toBe("PR opened #6");
     expect(phaseEvents(h)).not.toContain("PR started");
   });
@@ -788,7 +793,7 @@ describe("the pull request", () => {
     expect(buildSnapshot(h.engine).pause).toEqual({ pending: false, active: false });
     writeFileSync(release, "");
     await h.engine.settled();
-    expect(h.engine.record.pullRequest?.number).toBe(40);
+    expect(h.engine.record.pullRequests?.[0]?.number).toBe(40);
   });
 
   it("stops at Needs you when the pull-request session opens nothing", async () => {
@@ -796,7 +801,7 @@ describe("the pull request", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases.pr!.stop!.checks).toEqual([{ name: "Pull request open", passed: false, fact: "No open pull request from feature/customer-returns into develop" }]);
+    expect(h.engine.record.phases.pr!.stop!.checks).toEqual([{ name: "Pull request open", passed: false, facts: ["No open pull request from feature/customer-returns into develop"] }]);
     expect(h.engine.record.completedAt).toBeUndefined();
     expect(phaseEvents(h).at(-1)).toBe("PR stopped");
   });
@@ -808,7 +813,7 @@ describe("the pull request", () => {
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(4);
-    expect(h.engine.record.phases.pr!.stop!.checks[0]).toEqual({ name: "Pull request open", passed: false, fact: "HTTP 502: Bad Gateway" });
+    expect(h.engine.record.phases.pr!.stop!.checks[0]).toEqual({ name: "Pull request open", passed: false, facts: ["HTTP 502: Bad Gateway"] });
   });
 });
 
@@ -875,7 +880,7 @@ describe("Start and the settings", () => {
     expect(second.slice(second.indexOf("--model"), second.indexOf("--model") + 4)).toEqual(["--model", "sonnet", "--effort", "max"]);
     // The session already working keeps what it started with.
     expect(h.engine.latestSession("1")!.model).toBe("opus");
-    expect(buildSnapshot(h.engine).settings.fixed).toBe(true);
+    expect(buildSnapshot(h.engine).settings.fixed).toEqual({ workspaceFolder: true, featureBranch: true, worktreePath: true });
   });
 });
 
@@ -893,10 +898,10 @@ describe("setup that fails", () => {
     expect(failed).toMatchObject({ ok: false, status: 409, reason: expect.stringMatching(/^Couldn’t set up the worktree: /) });
     const record = h.engine.record;
     expect(record.startedAt).toBeUndefined();
-    expect(record.baseCommit).toBeUndefined();
+    expect(record.repositories[0]?.baseCommit).toBeUndefined();
     expect(record.refinementConfirmedAt).toBeUndefined();
     const branchCommit = git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns").trim();
-    expect(record.createdBranch).toEqual({ name: "feature/customer-returns", commit: branchCommit, baseBranch: "develop" });
+    expect(record.repositories[0]?.createdBranch).toEqual({ name: "feature/customer-returns", commit: branchCommit, baseBranch: "develop" });
     expect(h.engine.startError).toMatch(/^Couldn’t set up the worktree: /);
     expect(h.events.at(-1)).toMatchObject({ kind: "message", text: h.engine.startError });
     expect(buildSnapshot(h.engine, undefined).feature.state).toBe("not_started");
@@ -906,8 +911,8 @@ describe("setup that fails", () => {
     expect(h.engine.fieldErrors).toEqual({});
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await h.engine.settled();
-    expect(record.baseCommit).toBe(branchCommit);
-    expect(record.createdBranch).toBeUndefined();
+    expect(record.repositories[0]?.baseCommit).toBe(branchCommit);
+    expect(record.repositories[0]?.createdBranch).toBeUndefined();
     expect(git(h.sandbox, join(h.sandbox.root, "good", "worktree"), "branch", "--show-current").trim()).toBe("feature/customer-returns");
   });
 });
@@ -937,7 +942,7 @@ describe("the done check's facts", () => {
     })();
     const local = git(h.sandbox, worktree, "rev-parse", "--short=7", "HEAD").trim();
     const remote = git(h.sandbox, other, "rev-parse", "--short=7", "HEAD").trim();
-    expect(facts[2]!.fact).toBe(`origin is at ${remote}, not ${local}`);
+    expect(facts[2]!.facts[0]).toBe(`origin is at ${remote}, not ${local}`);
 
     const prdDirectory = join(worktree, "docs", "prds", "customer-returns");
     const text = readFileSync(join(prdDirectory, "phase-1-return-intake.md"), "utf8");
@@ -946,8 +951,8 @@ describe("the done check's facts", () => {
     git(h.sandbox, worktree, "remote", "set-url", "origin", join(h.sandbox.root, "missing.git"));
     await h.engine.checkAgain();
     const after = h.engine.record.phases["1"]!.stop!.checks;
-    expect(after[0]!.fact).toBe("Phase 1 is no longer in the plan");
-    expect(after[2]!.fact).toMatch(/^Couldn't reach origin: /);
+    expect(after[0]!.facts[0]).toBe("Phase 1 is no longer in the plan");
+    expect(after[2]!.facts[0]).toMatch(/^Couldn't reach origin: /);
   });
 
   it("saves every event as received with its arrival time, leaving out partial-message deltas", async () => {
@@ -980,7 +985,7 @@ describe("kiln run on a feature underway", () => {
     // As if Kiln stopped between phase 1's exit and recording its verdict.
     const record = h.engine.record;
     delete record.phases["1"]!.doneAt;
-    delete record.phases["1"]!.pushedSha;
+    delete record.phases["1"]!.repositories["acme-shop"]!.pushedSha;
     record.pause = {};
     const engine = h.reopen();
     await engine.prepare();
@@ -1004,7 +1009,7 @@ describe("kiln run on a feature underway", () => {
     git(h.sandbox, engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
     const sessionId = "0f6a2c1e-0000-4000-8000-000000000001";
     writeSessionRecord(h.stateDirectory, { schemaVersion: 1, sessionId, phaseId: "2b", kind: "phase", createdAt: new Date().toISOString(), model: "opus", modelDisplayName: "opus", effort: "high", runs: [], sleeps: [], steps: [] });
-    engine.record.phases["2b"] = { sessionIds: [sessionId], finishedByPerson: false };
+    engine.record.phases["2b"] = { sessionIds: [sessionId], finishedByPerson: false, repositories: {} };
     engine = h.reopen();
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "start_phase", phaseId: "2b", doneFirst: { phaseId: "1", byPerson: true } });
@@ -1033,7 +1038,7 @@ describe("kiln run on a feature underway", () => {
     h.setPulls([{ number: 12, title: "t", url: "u", isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 1, deletions: 0, commits: [] }]);
     expect(await engine.start()).toEqual({ ok: true });
     await engine.settled();
-    expect(engine.record.pullRequest?.number).toBe(12);
+    expect(engine.record.pullRequests?.[0]?.number).toBe(12);
     expect(h.claudeCalls()).toHaveLength(3);
   });
 
@@ -1042,7 +1047,17 @@ describe("kiln run on a feature underway", () => {
     const h = harness;
     const record = h.engine.record;
     record.startedAt = new Date().toISOString();
-    record.baseCommit = git(h.sandbox, h.repository, "rev-parse", "develop").trim();
+    record.repositories = [
+      {
+        name: "acme-shop",
+        kind: "prd",
+        mainCheckoutPath: h.repository,
+        github: "acme/acme-shop",
+        baseBranch: "develop",
+        worktreePath: record.settings.worktreePath,
+        baseCommit: git(h.sandbox, h.repository, "rev-parse", "develop").trim(),
+      },
+    ];
     const engine = h.reopen();
     expect(await engine.prepare()).toEqual({ ok: true });
     expect(existsSync(engine.worktreePath)).toBe(true);

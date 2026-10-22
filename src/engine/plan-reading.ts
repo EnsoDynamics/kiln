@@ -59,6 +59,7 @@ export function recordedPlan(plan: PhasePlan): RecordedPlanPhase[] {
     file: phase.fileName,
     ...(phase.splitInto === undefined ? {} : { splitInto: phase.splitInto }),
     closed: phase.closed,
+    repositories: phase.repositories,
   }));
 }
 

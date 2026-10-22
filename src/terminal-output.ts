@@ -30,10 +30,15 @@ export function terminalColors(stream: { isTTY?: boolean }, env: NodeJS.ProcessE
 
 export const USAGE = [
   "Usage: kiln run <PRD directory or PRD file>",
+  "       kiln add-repository <folder name>",
   "",
-  "  Moves one PRD's phase plan forward. The path is one PRD's directory,",
-  "  docs/prds/<name>/ or docs/changes/<name>/, or the PRD file in it.",
-  "  kiln run is the only command; everything else happens in the browser view.",
+  "  kiln run moves one PRD's phase plan forward. The path is one PRD's directory,",
+  "  docs/prds/<name>/ or docs/changes/<name>/, or the PRD file in it. Everything",
+  "  else happens in the browser view.",
+  "",
+  "  kiln add-repository, run from a PRD's workspace while kiln run works on it,",
+  "  adds the repository of that folder name beside the PRD's repository to the",
+  "  workspace, on the feature branch, and prints where its worktree is.",
 ].join("\n");
 
 /**
@@ -84,8 +89,9 @@ export type PhaseLineEvent =
   | { kind: "stopped" }
   | { kind: "interrupted" }
   | { kind: "resumed" }
-  | { kind: "done"; pushedSha: string }
-  | { kind: "opened"; number: number };
+  | { kind: "done"; pushedSha: string; pushes?: { name: string; sha: string }[] }
+  | { kind: "opened"; number: number; opened?: { repository: string; number: number }[] }
+  | { kind: "added"; name: string };
 
 /**
  * One line per phase event, as drawn: the time and id in grey, the title, then the event in
@@ -102,14 +108,21 @@ export function formatPhaseLine(at: Date, id: string, title: string, event: Phas
       : event.kind === "stopped" || event.kind === "interrupted"
         ? colors.amber(event.kind)
         : event.kind === "done"
-          ? colors.green("done") + colors.grey(` · pushed ${event.pushedSha.slice(0, 7)}`)
-          : colors.green("opened") + colors.grey(` #${event.number}`);
+          ? colors.green("done") +
+            colors.grey(event.pushes ? ` · pushed ${event.pushes.map((push) => `${push.name} ${push.sha.slice(0, 7)}`).join(" · ")}` : ` · pushed ${event.pushedSha.slice(0, 7)}`)
+          : event.kind === "added"
+            ? `added ${event.name}`
+            : colors.green("opened") + colors.grey(event.opened ? ` ${event.opened.map((pull) => `${pull.repository} #${pull.number}`).join(" · ")}` : ` #${event.number}`);
   return `${colors.grey(`${terminalTime(at)}  ${pad(id, columns.idWidth)}`)}${pad(title, columns.titleWidth)}${what}`;
 }
 
-/** ` 9:17  Started  ·  feature/customer-returns from develop` */
-export function formatStartedLine(at: Date, branch: string, baseBranch: string, colors: TerminalColors): string {
-  return `${colors.grey(`${terminalTime(at)}  `)}Started${colors.grey(`  ·  ${branch} from ${baseBranch}`)}`;
+/**
+ * ` 9:17  Started  ·  feature/customer-returns from develop`, or with several repositories
+ * ` 9:17  Started  ·  feature/customer-returns in 3 repositories`.
+ */
+export function formatStartedLine(at: Date, branch: string, baseBranch: string, colors: TerminalColors, repositoryCount = 1): string {
+  const where = repositoryCount > 1 ? `in ${repositoryCount} repositories` : `from ${baseBranch}`;
+  return `${colors.grey(`${terminalTime(at)}  `)}Started${colors.grey(`  ·  ${branch} ${where}`)}`;
 }
 
 /**
@@ -137,9 +150,11 @@ export function formatOpenedLine(address: string, openError: string | undefined,
  *
  *   Customer returns  ·  PRD, technical design, assumptions, 6 phase docs  ·  all checks passed
  */
-export function formatDocumentsFound(featureName: string, found: StartCheckReport["found"], colors: TerminalColors): string {
+export function formatDocumentsFound(featureName: string, found: StartCheckReport["found"], colors: TerminalColors, repositoryCount = 1): string {
   const documents = ["PRD", "technical design"];
   if (found.assumptionsFile) documents.push("assumptions");
   documents.push(`${found.phaseDocCount} ${found.phaseDocCount === 1 ? "phase doc" : "phase docs"}`);
+  // The repository count only when more than one (multi-repo AC-REPO-03).
+  if (repositoryCount > 1) documents.push(`${repositoryCount} repositories`);
   return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  all checks passed`);
 }

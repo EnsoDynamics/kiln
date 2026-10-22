@@ -21,6 +21,7 @@ export function newPrdRecord(input: NewRecordInput): PrdRecord {
     featureName: input.featureName,
     token: newToken(),
     settings: input.settings,
+    repositories: [],
     phases: {},
     pause: {},
   };

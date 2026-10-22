@@ -113,6 +113,26 @@ A command is also something a person could type by hand, as everything Kiln asks
 
 ---
 
+### REPO-005. Does Documents found tell the person that sessions don't follow each repository's own Claude Code settings or hooks? — ⏳ PENDING (Added 2026-10-22 — new question; 85% confidence)
+
+**Assumption**: Kiln **accepts the gap and says so**. A multi-repository PRD's Documents found gains one line under the repositories: **"Sessions follow each repository's CLAUDE.md, but not its .claude/settings.json or hooks."** Kiln writes **no merged settings** into the workspace folder.
+
+**Example**: In the sample feature, if `returns-api/.claude/settings.json` denies `npm publish` or runs a formatter hook after each edit, a Kiln session working in `returns-api`'s worktree **gets neither**. It does read `returns-api/CLAUDE.md`, because every prompt tells it to.
+
+**Evidence**: Tried on Claude Code 2.1.307 (technical design, "Per-repository instructions"): a session started in the workspace folder honors only that folder's settings and the person's own user settings. Kiln can't fix that without writing a `.claude/settings.json` into the workspace folder, which needs a **merge rule for permissions and hooks that disagree** between repositories, a bigger change the PRD doesn't ask for.
+
+The PRD's "Depends On" expected each repository's settings to apply, so the person would otherwise assume protection they don't have. One sentence costs nothing and can be dropped later if Kiln ever merges settings.
+
+**Confirm or Correct**:
+- [ ] Correct — accept it, and say so in one line on Documents found
+- [ ] Wrong — accept it and say nothing
+- [ ] Wrong — Kiln writes merged settings into the workspace folder
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 85% | **Impact if Wrong**: 🟢 LOW
+
+---
+
 ## Branch Assumptions
 
 ### BRANCH-001. Is the feature branch the same name in every repository?

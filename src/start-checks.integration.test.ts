@@ -37,6 +37,7 @@ describe("runStartChecks", () => {
     expect(report.missingDocuments).toEqual([]);
     expect(report.problems).toEqual([]);
     expect(startChecksPassed(report)).toBe(true);
+    expect(report.repositories).toEqual([]);
     expect(report.found).toEqual({ designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 5 });
     expect(report.plan?.phases.map((phase) => phase.id)).toEqual(["1", "2", "2a", "2b", "3"]);
   });
@@ -61,8 +62,9 @@ describe("runStartChecks", () => {
     git(sandbox, repository, "commit", "-q", "-m", "name the documents after the folder");
     const report = await check();
     expect(startChecksPassed(report)).toBe(true);
+    expect(report.repositories).toEqual([]);
     expect(report.found).toEqual({ designFile: `${FOLDER}-technical-design.md`, assumptionsFile: `${FOLDER}-assumptions.md`, phaseDocCount: 5 });
-    const documents = documentsFound(join(repository, prdDirectory), FOLDER, report.plan!, report.found);
+    const documents = documentsFound(join(repository, prdDirectory), FOLDER, report.plan!, { ...report.found, repositories: report.repositories }, "acme-shop");
     expect(documents.design.file).toBe(`${FOLDER}-technical-design.md`);
     expect(documents.design.criteriaCited).toBeGreaterThan(0);
     expect(documents.assumptions?.file).toBe(`${FOLDER}-assumptions.md`);

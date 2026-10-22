@@ -19,12 +19,14 @@ if (args[0] === "pr" && args[1] === "list") {
   }
   const head = option("--head");
   const base = option("--base");
+  // A pull request is in the repository it names, acme/acme-shop unless it says.
+  const repo = option("--repo")?.replace(/^github\.com\//, "");
   // As gh does: --state filters (a pull request with no "state" is open; gh's default is open),
   // and --json prints only the fields asked for.
   const wanted = option("--state") ?? "open";
   const fields = option("--json")?.split(",");
   const pulls = state.pulls
-    .filter((pull) => pull.headRefName === head && pull.baseRefName === base)
+    .filter((pull) => pull.headRefName === head && pull.baseRefName === base && (repo === undefined || (pull.repo ?? "acme/acme-shop") === repo))
     .filter((pull) => wanted === "all" || (pull.state ?? "open") === wanted)
     .map((pull) => (fields ? Object.fromEntries(fields.filter((field) => field in pull).map((field) => [field, pull[field]])) : pull));
   process.stdout.write(`${JSON.stringify(pulls)}\n`);

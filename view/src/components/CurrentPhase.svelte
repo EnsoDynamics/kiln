@@ -2,9 +2,11 @@
   // The phase being implemented, full width above the plan (PRD AC-WATCH-03): its number and
   // title, when it started, its progress steps (AC-WATCH-04), the last thing seen in the session,
   // its latest output line, a link to its live output, and its own Details. Once the view has
-  // lost Kiln it is dimmed and relabelled "Last seen" (technical design, "Connection").
+  // lost Kiln it is dimmed and relabelled "Last seen" (technical design, "Connection"). For a
+  // multi-repository PRD the Details' Commits are grouped by repository, as Complete's Details
+  // draw them (multi-repo AC-SHOW-01).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import { commitsLine, modelAndEffort, phaseOfTotal, PR_ID } from "../lib/progress.js";
+  import { commitsAcross, commitsByRepository, commitsLine, modelAndEffort, phaseOfTotal, PR_ID, type DetailRow } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { ago, clockTime, elapsed, outputTime } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
@@ -22,13 +24,22 @@
   const isPr = $derived(current.phaseId === PR_ID);
   const nowDate = $derived(new Date(now));
   const link = $derived(phasePath(config.base, current.phaseId));
-  const details = $derived([
-    { term: "Model", value: modelAndEffort(current.model, current.effort) },
-    { term: "Worktree", value: snapshot.settings.worktreePath, mono: true as const },
-    { term: "Branch", value: snapshot.settings.featureBranch, mono: true as const },
-    ...(isPr ? [] : [{ term: "Commits", value: commitsLine(current.commits.length, current.commits[0]?.sha) }]),
-    ...(current.sessionId ? [{ term: "Session", value: current.sessionId, mono: true as const }] : []),
-  ]);
+  const commits = $derived(current.repositories.flatMap((repository) => repository.commits));
+  const details = $derived.by((): DetailRow[] => {
+    const session = current.sessionId ? [{ term: "Session", value: current.sessionId, mono: true as const }] : [];
+    const model = { term: "Model", value: modelAndEffort(current.model, current.effort) };
+    if (snapshot.feature.multiRepository) {
+      const grouped = commits.length > 0 ? { commits: commitsByRepository(snapshot, current.repositories) } : {};
+      return [model, ...(isPr ? [] : [{ term: "Commits", value: commitsAcross(commits.length, current.repositories.length), ...grouped }]), ...session];
+    }
+    return [
+      model,
+      { term: "Worktree", value: snapshot.settings.worktreePath, mono: true },
+      { term: "Branch", value: snapshot.settings.featureBranch, mono: true },
+      ...(isPr ? [] : [{ term: "Commits", value: commitsLine(commits.length, commits[0]?.sha) }]),
+      ...session,
+    ];
+  });
 </script>
 
 <section class="now" class:lost={!connected} aria-labelledby="now-h">

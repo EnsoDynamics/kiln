@@ -1,11 +1,13 @@
 // The start checks `kiln run` runs for a feature not started (PRD AC-START-02): the documents
 // are where the Enso Method skills put them, the plan reads, every leaf cites criteria,
-// dependencies point backward, the checkout is clean, and the tools Kiln needs are there.
+// dependencies point backward, the checkout is clean, and the tools Kiln needs are there; and
+// each repository the phase documents name is beside the PRD's repository (multi-repo AC-REPO-02).
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseGithubOrigin } from "./github-origin.js";
-import { readPhasePlan, planStartProblems, type PhasePlan } from "./plan/phase-plan.js";
+import { findRepository, repositoriesParent, type FoundRepository } from "./engine/repositories.js";
+import { namedRepositories, readPhasePlan, planStartProblems, type PhasePlan } from "./plan/phase-plan.js";
 import { displayPath } from "./engine/worktree-setup.js";
 import { isPhaseFileName } from "./plan/phase-ids.js";
 import { runHelper } from "./platform/helper-process.js";
@@ -32,6 +34,8 @@ export interface StartCheckReport {
   plan: PhasePlan | undefined;
   /** `<owner>/<name>` on GitHub, parsed from origin's URL, when it is there. */
   github?: string;
+  /** The named repositories found beside the PRD's repository, in plan order. */
+  repositories: FoundRepository[];
 }
 
 /**
@@ -103,6 +107,18 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     if (plan.problems.length === 0) problems.push(...planStartProblems(plan, location.prdDirectoryFromRoot));
   }
 
+  const named = plan && plan.problems.length === 0 ? namedRepositories(plan.phases, location.repositoryName) : [];
+  const parent = repositoriesParent(location.mainCheckoutPath);
+  const gitContext = { git: tools.git, env };
+  const lookups = await Promise.all(
+    named.map((name) => findRepository(gitContext, parent, name, plan!.phases.find((phase) => phase.repositories.includes(name))!.fileName)),
+  );
+  const repositories: FoundRepository[] = [];
+  for (const lookup of lookups) {
+    if (lookup.ok) repositories.push(lookup.repository);
+    else problems.push(lookup.problem);
+  }
+
   const [status, originUrl, ghAuth] = await Promise.all([
     runHelper(tools.git, ["status", "--porcelain", "--untracked-files=all"], { cwd: location.checkoutRoot, env }),
     runHelper(tools.git, ["remote", "get-url", "origin"], { cwd: location.checkoutRoot, env }),
@@ -131,5 +147,6 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     found: { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: phaseFileNames.length },
     plan,
     ...(github ? { github: `${github.owner}/${github.name}` } : {}),
+    repositories,
   };
 }

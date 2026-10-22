@@ -18,34 +18,69 @@ function fill(text: string, values: Record<string, string>): string {
   });
 }
 
-export interface PhasePromptValues {
-  /** The phase document's path from the worktree root: `docs/prds/customer-returns/phase-2b-store-credit.md`. */
-  phaseDoc: string;
-  featureName: string;
-  /** The PRD file's path from the worktree root. */
-  prdFile: string;
+/** One of the PRD's repositories, as a prompt lists it. */
+export interface PromptRepository {
+  name: string;
+  /** `<owner>/<name>`. */
+  github: string;
   /** Absolute. */
   worktreePath: string;
+  baseBranch: string;
+  isPrd: boolean;
+}
+
+export interface PhasePromptValues {
+  /** The phase document's path from the folder the session starts in: `docs/prds/customer-returns/phase-2b-store-credit.md`. */
+  phaseDoc: string;
+  featureName: string;
+  /** The PRD file's path from the folder the session starts in. */
+  prdFile: string;
+  /** The PRD's repository's worktree, absolute. */
+  worktreePath: string;
   branch: string;
+  /** The folder the PRD's repositories sit in, as shown: `~/devel/acme`. */
+  parentFolder: string;
+  /** Present for a multi-repository PRD: its workspace folder, absolute, and its repositories in list order. */
+  workspace?: { folder: string; repositories: PromptRepository[] };
 }
 
 export interface PullRequestPromptValues {
   featureName: string;
   prdFile: string;
   branch: string;
-  baseBranch: string;
-  /** `<owner>/<name>`. */
-  github: string;
+  /** The repositories that get a pull request, in list order. */
+  repositories: PromptRepository[];
 }
 
-/** The phase session's launch prompt (AC-RUN-03, AC-RUN-05). */
+/**
+ * The phase session's launch prompt (AC-RUN-03, AC-RUN-05): v1's for a one-repository PRD, with
+ * the paragraph on adding a repository; for a multi-repository PRD, the workspace and its
+ * repositories in place of the one worktree (multi-repo AC-SPACE-02).
+ */
 export function phaseSessionPrompt(values: PhasePromptValues): string {
-  return fill(template("phase-session.txt"), { ...values });
+  const { workspace } = values;
+  const common = { phaseDoc: values.phaseDoc, featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, parentFolder: values.parentFolder };
+  if (!workspace) return fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath });
+  const list = workspace.repositories
+    .map((repository) => `- \`${repository.name}\`: \`${repository.worktreePath}\`, base \`${repository.baseBranch}\`${repository.isPrd ? " (the PRD's repository)" : ""}`)
+    .join("\n");
+  const example = workspace.repositories.find((repository) => !repository.isPrd)?.name ?? workspace.repositories[0]!.name;
+  return fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list });
 }
 
-/** The pull-request session's prompt (AC-PR-01). */
+/** The pull-request session's prompt (AC-PR-01; multi-repo AC-PRS-02, AC-PRS-05): one pull request per repository listed. */
 export function pullRequestSessionPrompt(values: PullRequestPromptValues): string {
-  return fill(template("pull-request-session.txt"), { ...values });
+  const list = values.repositories
+    .map((repository) => `- \`${repository.name}\` (\`${repository.github}\`), worktree \`${repository.worktreePath}\`, into \`${repository.baseBranch}\``)
+    .join("\n");
+  const crossLinks = values.repositories.length > 1 ? template("pull-request-cross-links.txt") : "";
+  return fill(template("pull-request-session.txt"), {
+    featureName: values.featureName,
+    prdFile: values.prdFile,
+    branch: values.branch,
+    repositoryList: list,
+    crossLinks: crossLinks === "" ? "" : `\n${crossLinks}\n`,
+  });
 }
 
 /**
@@ -57,7 +92,7 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
   const prompt = phaseSessionPrompt(values);
   if (!previousSessionRan) return prompt;
   const firstBreak = prompt.indexOf("\n\n");
-  const note = template("fresh-session-note.txt");
+  const note = fill(template("fresh-session-note.txt"), { place: values.workspace ? "workspace" : "worktree" });
   return `${prompt.slice(0, firstBreak)} ${note}${prompt.slice(firstBreak)}`;
 }
 
@@ -69,8 +104,10 @@ export interface ResumePromptValues {
   cause?: keyof typeof INTERRUPT_CAUSES;
   /** `interruptedAt`, or the run's last output time when Kiln recorded no interruption. */
   time: string;
-  /** The launched leaf's document, from the worktree root; absent for the pull-request session. */
+  /** The launched leaf's document, from the folder the session started in; absent for the pull-request session. */
   phaseDoc?: string;
+  /** The session works across a workspace, not one worktree; for the pull-request session, opens several pull requests. */
+  multiRepository?: boolean;
 }
 
 /**
@@ -84,6 +121,9 @@ export function resumePrompt(values: ResumePromptValues): string {
     values.cause === undefined
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
-  const carryOn = values.phaseDoc === undefined ? template("resume-carry-on-pull-request.txt") : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc });
+  const carryOn =
+    values.phaseDoc === undefined
+      ? fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
+      : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   return `${opening} ${carryOn}`;
 }

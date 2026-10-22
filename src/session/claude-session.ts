@@ -13,8 +13,12 @@ import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
 
-/** The flags every session gets (technical design, "Starting a phase's session"). */
-export function launchArguments(sessionId: string, model: string, effort: string | undefined): string[] {
+/**
+ * The flags every session gets (technical design, "Starting a phase's session"), plus an
+ * `--add-dir` for each folder of the workspace outside the one it starts in (multi-repo
+ * technical design, "Sessions"), so writes there are allowed by mode.
+ */
+export function launchArguments(sessionId: string, model: string, effort: string | undefined, addDirs: string[] = []): string[] {
   return [
     "-p",
     "--input-format",
@@ -33,6 +37,7 @@ export function launchArguments(sessionId: string, model: string, effort: string
     "auto",
     "--permission-prompts",
     "none",
+    ...addDirs.flatMap((directory) => ["--add-dir", directory]),
   ];
 }
 
@@ -44,8 +49,8 @@ export function launchArguments(sessionId: string, model: string, effort: string
  *   resumeArguments("7c1e9f2a-…", "claude-opus-5-5", "high")
  *   // ["-p", "--input-format", "stream-json", "--resume", "7c1e9f2a-…", "--model", "claude-opus-5-5", "--effort", "high", "--output-format", …]
  */
-export function resumeArguments(sessionId: string, model: string, effort: string | undefined): string[] {
-  const launch = launchArguments(sessionId, model, effort);
+export function resumeArguments(sessionId: string, model: string, effort: string | undefined, addDirs: string[] = []): string[] {
+  const launch = launchArguments(sessionId, model, effort, addDirs);
   launch.splice(launch.indexOf("--session-id"), 1, "--resume");
   return launch;
 }

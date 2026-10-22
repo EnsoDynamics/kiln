@@ -1,1 +1,1 @@
-A previous session stopped partway through this phase; check the worktree's state before you start.
+A previous session stopped partway through this phase; check the {{place}}'s state before you start.

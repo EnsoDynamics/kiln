@@ -11,10 +11,10 @@ import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type SessionRecord, type StopKind } from "../state/records.js";
-import type { Engine } from "./engine.js";
+import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind } from "../state/records.js";
+import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
-import { displayPath, type FieldErrors } from "./worktree-setup.js";
+import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 
 export const PR_TITLE = "Final pull request";
 
@@ -25,7 +25,13 @@ export interface DocumentsFound {
   prd: { file: string; criteriaCount: number; firstLabel?: string; lastLabel?: string };
   design: { file: string; criteriaCited: number };
   assumptions: { file: string; total: number; notYetConfirmed: number } | null;
-  plan: { phaseDocCount: number; leafCount: number; closedCount: number; phases: { id: string; title: string; splitInto?: string[]; closed: boolean }[] };
+  plan: {
+    phaseDocCount: number;
+    leafCount: number;
+    closedCount: number;
+    /** `repositories`: the names on each document's `**Repositories:**` line (multi-repo AC-REPO-03). */
+    phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[] }[];
+  };
   checks: { name: string; passed: boolean }[];
 }
 
@@ -39,13 +45,56 @@ export interface PhaseView {
   doneAt?: string;
   pushedSha?: string;
   finishedByPerson: boolean;
-  details?: { from: string; to?: string; model: string; effort?: Effort; worktree: string; branch: string; commitCount?: number; latestCommit?: string; sessionId: string };
+  /** A multi-repository PRD's Done: how many repositories the phase pushed to, in place of its pushed commit (AC-PRS-03). */
+  pushedRepositoryCount?: number;
+  details?: {
+    from: string;
+    to?: string;
+    model: string;
+    effort?: Effort;
+    worktree: string;
+    branch: string;
+    commitCount?: number;
+    latestCommit?: string;
+    sessionId: string;
+    /** A multi-repository PRD: each repository with commits in the phase, in list order (AC-PRS-03). */
+    repositories?: RepositoryDetails[];
+  };
+}
+
+export interface RepositoryDetails {
+  name: string;
+  /** The judged leaf it was added in, for an added repository. */
+  addedInPhase?: string;
+  worktree: string;
+  branch: string;
+  commitCount: number;
+  latestCommit: string;
+}
+
+/** One of the PRD's repositories, as Documents found and the settings list them (multi-repo AC-REPO-03, AC-PRS-04). */
+export interface RepositoryRow {
+  name: string;
+  kind: RepositoryKind;
+  /** The judged leaf it was added in, for an added repository. */
+  addedInPhase?: string;
+  baseBranch: string;
+  /** Not started only: the base field's list, from its origin. */
+  baseBranches?: string[];
+  baseCheck?: "checking" | "ok" | "error";
+  /** Shown under `~/`. */
+  worktreePath: string;
+  fixed: boolean;
+  /** That row's base message. */
+  fieldErrors: { baseBranch?: string };
 }
 
 export interface Snapshot {
   feature: {
     name: string;
     repositoryName: string;
+    /** More than one repository (multi-repo AC-SPACE-03): the screens then show them. */
+    multiRepository: boolean;
     prdFolder: string;
     state: FeatureState;
     currentPhaseId?: string;
@@ -64,15 +113,19 @@ export interface Snapshot {
     modelListError?: string;
     keepAwake: boolean;
     keepAwakeError?: string;
+    /** Shown under `~/`; only a multi-repository PRD's screens show it. */
+    workspaceFolder: string;
     worktreePath: string;
     featureBranch: string;
     baseBranch: string;
     /** Not started only: the base field's list and whether the base check is running. */
     baseBranches?: string[];
     baseCheck?: "checking" | "ok" | "error";
-    fixed: boolean;
+    fixed: { workspaceFolder: boolean; featureBranch: boolean; worktreePath: boolean };
     fieldErrors: FieldErrors;
   };
+  /** The PRD's repositories in list order: the PRD's repository, named, then added. */
+  repositories: RepositoryRow[];
   /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
   models?: { value: string; displayName: string }[];
   phases: PhaseView[];
@@ -85,7 +138,8 @@ export interface Snapshot {
     steps: StepView[];
     seenInSession?: { text: string; at: string };
     latestLine?: OutputLine;
-    commits: { sha: string; subject: string }[];
+    /** The phase's commits by repository, only those with commits, newest first. */
+    repositories: RepositoryCommits[];
     reviewerWorking?: boolean;
   };
   needsYou?: {
@@ -115,12 +169,14 @@ export interface Snapshot {
     model?: string;
     effort?: Effort;
     sessionStartedAt?: string;
-    commits?: { sha: string; subject: string }[];
+    /** The phase's commits by repository, only those with commits, newest first. */
+    repositories?: RepositoryCommits[];
   };
   pause: { pending: boolean; active: boolean };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
   account?: AccountView;
-  pullRequest?: PullRequestFacts;
+  /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
+  pullRequests?: PullRequestFacts[];
 }
 
 /**
@@ -154,6 +210,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     feature: {
       name: engine.paths.featureName,
       repositoryName: engine.paths.repositoryName,
+      multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
       phasesDone: leaves.filter((leaf) => leaf.closed).length,
@@ -172,18 +229,24 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("modelListError", claude?.modelListError),
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
-      worktreePath: displayPath(settings.worktreePath),
+      workspaceFolder: displayPath(expandHome(settings.workspaceFolder)),
+      worktreePath: displayPath(engine.worktreePath),
       featureBranch: settings.featureBranch,
       baseBranch: settings.baseBranch,
       ...(state === "not_started" ? { ...optional("baseBranches", engine.baseBranches), ...optional("baseCheck", engine.baseCheck) } : {}),
-      fixed: engine.isUnderway,
+      fixed: {
+        workspaceFolder: engine.isUnderway || engine.workspaceFixed || !engine.multiRepository,
+        featureBranch: engine.isUnderway || engine.workspaceFixed,
+        worktreePath: engine.isUnderway || engine.workspaceFixed,
+      },
       fieldErrors: engine.currentFieldErrors,
     },
+    repositories: repositoryRows(engine, state),
     ...optional("models", claude?.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: phaseViews(engine, state),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", claude?.account),
-    ...optional("pullRequest", record.pullRequest),
+    ...optional("pullRequests", record.pullRequests),
     ...optional("current", current),
     ...optional("needsYou", needsYou),
   };
@@ -214,7 +277,7 @@ function currentView(engine: Engine): Snapshot["current"] {
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: settings.model, effort: settings.effort, steps: stepStates([]), commits: [] };
+    return { phaseId: current.phaseKey, model: settings.model, effort: settings.effort, steps: stepStates([]), repositories: [] };
   }
   const steps = stepStates(session.steps);
   const latestStep = [...session.steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).at(-1);
@@ -230,7 +293,7 @@ function currentView(engine: Engine): Snapshot["current"] {
     steps,
     ...optional("seenInSession", seen),
     ...optional("latestLine", current.latestLine),
-    commits: current.commits,
+    repositories: current.commits,
     ...(current.processRunning && current.reader?.reviewerWorking ? { reviewerWorking: true } : {}),
   };
 }
@@ -266,23 +329,26 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     checkedAt: stop.checkedAt,
     ...(engine.checking ? { checking: true as const } : {}),
   };
-  const phaseDoc = `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`;
+  const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
+  // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
+  const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   const prompts = (ran: boolean) =>
     isPr
       ? pullRequestSessionPrompt({
           featureName: engine.paths.featureName,
-          prdFile: engine.prdFile(),
+          prdFile: engine.pathFrom(folder, engine.prdFile()),
           branch: record.settings.featureBranch,
-          baseBranch: record.settings.baseBranch,
-          github: record.repository.github,
+          repositories: engine.pullRequestRepositories().map((entry) => ({
+            name: entry.name,
+            github: entry.github,
+            worktreePath: expandHome(entry.worktreePath),
+            baseBranch: entry.baseBranch,
+            isPrd: entry.kind === "prd",
+          })),
         })
-      : freshSessionPrompt(
-          { phaseDoc, featureName: engine.paths.featureName, prdFile: engine.prdFile(), worktreePath: engine.worktreePath, branch: record.settings.featureBranch },
-          ran,
-        );
+      : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
-  const freshSessionCommand = claudeCommand(engine.worktreePath);
-  const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
+  const freshSessionCommand = claudeCommand(folder);
   if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
 
   const run = session.runs.at(-1);
@@ -291,7 +357,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
     ...optional("sessionStartedAt", session.runs[0]?.startedAt),
-    commits: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
   };
   const everStarted = session.runs.some((candidate) => candidate.pid !== undefined);
   const lines = engine.outputLines(session);
@@ -327,7 +393,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...optional("spawnError", run?.spawnError),
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
-    ...(everStarted ? { resumeCommand: resumeCommand(engine.worktreePath, session.sessionId) } : {}),
+    ...(everStarted ? { resumeCommand: resumeCommand(folder, session.sessionId) } : {}),
     freshSessionPrompt: prompts(everStarted),
     freshSessionCommand,
     outputLineCount: lines.length,
@@ -364,6 +430,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     if (key !== PR_PHASE_KEY) factsByRow.set(judgedKeyFor(plan, key), key);
   }
   const nextLeaf = recordedLeaves(plan).find((leaf) => !leaf.closed);
+  const multi = engine.multiRepository;
   const currentRow = engine.current ? judgedKeyFor(plan, engine.current.phaseKey) : undefined;
 
   const rows: PhaseView[] = plan.map((phase) => {
@@ -373,7 +440,11 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const facts = key === undefined ? undefined : record.phases[key];
     const session = key === undefined ? undefined : sessionFor(engine, key);
     const view: PhaseView = { ...base, state: "planned" };
-    if (facts?.doneAt) Object.assign(view, { state: "done", doneAt: facts.doneAt, finishedByPerson: facts.finishedByPerson }, optional("pushedSha", facts.pushedSha));
+    const prdFacts = facts?.repositories[engine.paths.repositoryName];
+    if (facts?.doneAt) {
+      Object.assign(view, { state: "done", doneAt: facts.doneAt, finishedByPerson: facts.finishedByPerson }, optional("pushedSha", prdFacts?.pushedSha));
+      if (multi) view.pushedRepositoryCount = Object.values(facts.repositories).filter((repository) => repository.pushedSha !== undefined && repository.pushedSha !== repository.startCommit).length;
+    }
     else if (facts?.stop) view.state = "needs_you";
     else if (state === "implementing" && currentRow === phase.id) view.state = "implementing";
     else if (phase.closed) view.state = "done";
@@ -385,16 +456,18 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
       // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
       const read = engine.stoppedCommits;
       const stopped = view.state === "needs_you" && read?.phaseKey === key ? read?.commits : undefined;
+      const prdStopped = stopped?.find((repository) => repository.name === engine.paths.repositoryName)?.commits;
       view.details = {
         from: startedAt,
         ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt),
         model: session.modelDisplayName,
         ...optional("effort", session.effort),
-        worktree: displayPath(record.settings.worktreePath),
+        worktree: displayPath(engine.worktreePath),
         branch: record.settings.featureBranch,
-        ...optional("commitCount", stopped ? stopped.length : facts?.commitCount),
-        ...optional("latestCommit", stopped ? stopped[0]?.sha : facts?.pushedSha),
+        ...optional("commitCount", stopped ? (prdStopped?.length ?? 0) : prdFacts?.commitCount),
+        ...optional("latestCommit", stopped ? prdStopped?.[0]?.sha : prdFacts?.pushedSha),
         sessionId: session.sessionId,
+        ...(multi ? { repositories: repositoryDetails(engine, facts!, stopped) } : {}),
       };
     }
     return view;
@@ -419,7 +492,13 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
  * What Documents found shows beside the PRD (AC-START-04), read from the checkout once per
  * `kiln run`, after the start checks passed.
  */
-export function documentsFound(prdDirectory: string, folderName: string, plan: PhasePlan, found: StartCheckReport["found"]): DocumentsFound {
+export function documentsFound(
+  prdDirectory: string,
+  folderName: string,
+  plan: PhasePlan,
+  found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"] },
+  repositoryName: string,
+): DocumentsFound {
   const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
   const prdFile = `${folderName}-prd.md`;
   const criteria = countPrdCriteria(read(prdFile));
@@ -432,12 +511,61 @@ export function documentsFound(prdDirectory: string, folderName: string, plan: P
       phaseDocCount: found.phaseDocCount,
       leafCount: leaves.length,
       closedCount: leaves.filter((leaf) => leaf.closed).length,
-      phases: plan.phases.map((phase) => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed })),
+      phases: plan.phases.map((phase) => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })),
     },
     checks: [
       { name: "Every phase cites its criteria", passed: true },
       { name: "Dependencies point backward", passed: true },
-      { name: "Working tree is clean", passed: true },
+      ...(found.repositories.length > 0
+        ? [
+            { name: `Named repositories found beside ${repositoryName}`, passed: true },
+            { name: `Working tree of ${repositoryName} is clean`, passed: true },
+          ]
+        : [{ name: "Working tree is clean", passed: true }]),
     ],
   };
+}
+
+/** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */
+function repositoryDetails(engine: Engine, facts: { repositories: Record<string, { startCommit: string; pushedSha?: string; commitCount?: number }> }, stopped: RepositoryCommits[] | undefined): RepositoryDetails[] {
+  const rows: RepositoryDetails[] = [];
+  for (const entry of engine.setUpRepositories) {
+    const added = entry.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {};
+    const base = { name: entry.name, ...added, worktree: displayPath(expandHome(entry.worktreePath)), branch: engine.record.settings.featureBranch };
+    if (stopped) {
+      const commits = stopped.find((repository) => repository.name === entry.name)?.commits ?? [];
+      if (commits.length > 0) rows.push({ ...base, commitCount: commits.length, latestCommit: commits[0]!.sha });
+      continue;
+    }
+    const repository = facts.repositories[entry.name];
+    if (repository?.pushedSha === undefined || !repository.commitCount) continue;
+    rows.push({ ...base, commitCount: repository.commitCount, latestCommit: repository.pushedSha });
+  }
+  return rows;
+}
+
+/** The PRD's repositories as rows: before Start the planned list with its bases and messages, after it the set-up entries. */
+function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
+  const notStarted = state === "not_started";
+  const { settings } = engine.record;
+  const multi = engine.multiRepository;
+  const repositories = notStarted ? engine.plannedRepositories : engine.setUpRepositories.map((entry) => ({ ...entry, entry }));
+  return repositories.map((repository) => {
+    const entry = repository.entry;
+    const isPrd = repository.kind === "prd";
+    const fixed = !notStarted || entry?.setupCompletedAt !== undefined || (engine.workspaceFixed && entry?.createdBranch !== undefined);
+    const message = isPrd ? engine.currentFieldErrors.baseBranch : engine.baseErrors[repository.name];
+    const choices = isPrd ? engine.baseBranches : engine.repositoryBaseBranches[repository.name];
+    const worktreePath = entry?.setupCompletedAt !== undefined ? expandHome(entry.worktreePath) : isPrd && !multi ? engine.worktreePath : `${expandHome(settings.workspaceFolder)}/${repository.name}`;
+    return {
+      name: repository.name,
+      kind: repository.kind,
+      ...(entry?.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {}),
+      baseBranch: baseFor(repository, settings, engine.workspaceFixed),
+      ...(notStarted && !fixed ? { ...optional("baseBranches", choices), ...optional("baseCheck", engine.baseCheck) } : {}),
+      worktreePath: displayPath(worktreePath),
+      fixed,
+      fieldErrors: message === undefined ? {} : { baseBranch: message },
+    };
+  });
 }

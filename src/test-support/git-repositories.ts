@@ -149,3 +149,21 @@ export function createGithubOrigin(sandbox: Sandbox, owner: string, name: string
   sandbox.env.GIT_SSH_COMMAND = `sh '${script.replace(/\\/g, "/")}'`;
   return { url: `git@github.com:${owner}/${name}.git`, bare };
 }
+
+/**
+ * Installs `kiln` as a command in a folder, running the built `dist/cli.js` with this Node, so a
+ * stand-in session can run `kiln add-repository` as a real one does. Returns its path.
+ */
+export function installKiln(directory: string): string {
+  mkdirSync(directory, { recursive: true });
+  const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
+  if (process.platform === "win32") {
+    const path = join(directory, "kiln.cmd");
+    writeFileSync(path, `@"${process.execPath}" "${cli}" %*\r\n`);
+    return path;
+  }
+  const path = join(directory, "kiln");
+  writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${cli}" "$@"\n`);
+  chmodSync(path, 0o755);
+  return path;
+}

@@ -1,13 +1,13 @@
 // The mockups' sample data as Snapshots (fictional), for the view's tests: Documents found,
-// then the progress screens.
+// then the progress screens, then the multi-repo delivery mockups' PRD across repositories.
 
-import type { PhaseView, Snapshot } from "../engine/snapshot.js";
+import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../engine/snapshot.js";
 import type { OutputLine } from "../session/session-output.js";
 
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
   return {
-    feature: { name: "Customer returns", repositoryName: "acme-shop", prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
+    feature: { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
     documents: {
       prd: { file: "customer-returns-prd.md", criteriaCount: 14, firstLabel: "AC-RET-01", lastLabel: "AC-RET-14" },
       design: { file: "technical-design.md", criteriaCited: 14 },
@@ -17,12 +17,12 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
         leafCount: 5,
         closedCount: 0,
         phases: [
-          { id: "1", title: "Return intake", closed: false },
-          { id: "2", title: "Refund routing", splitInto: ["2a", "2b"], closed: false },
-          { id: "2a", title: "Card refunds", closed: false },
-          { id: "2b", title: "Store credit", closed: false },
-          { id: "3", title: "Returns dashboard", closed: false },
-          { id: "4", title: "Restock check-in", closed: false },
+          { id: "1", title: "Return intake", closed: false, repositories: [] },
+          { id: "2", title: "Refund routing", splitInto: ["2a", "2b"], closed: false, repositories: [] },
+          { id: "2a", title: "Card refunds", closed: false, repositories: [] },
+          { id: "2b", title: "Store credit", closed: false, repositories: [] },
+          { id: "3", title: "Returns dashboard", closed: false, repositories: [] },
+          { id: "4", title: "Restock check-in", closed: false, repositories: [] },
         ],
       },
       checks: [
@@ -38,15 +38,19 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       effort: "high",
       effortLevels: ["low", "medium", "high", "xhigh", "max"],
       keepAwake: true,
+      workspaceFolder: "~/devel/.worktrees/customer-returns",
       worktreePath: "~/devel/acme-shop-kiln/customer-returns",
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
       baseBranches: ["develop", "main"],
       baseCheck: "ok",
-      fixed: false,
+      fixed: { workspaceFolder: true, featureBranch: false, worktreePath: false },
       fieldErrors: {},
       ...settings,
     },
+    repositories: [
+      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
+    ],
     models: [
       { value: "opus", displayName: "Opus 5.5" },
       { value: "fable", displayName: "Fable 5.1" },
@@ -122,11 +126,14 @@ const SESSION_2B = "7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04";
 const SESSION_3 = "e3b07d51-92c4-4f8e-a1d6-5c0f4e7b2a19";
 
 function underwaySettings(): Snapshot["settings"] {
-  const settings: Snapshot["settings"] = { ...documentsFoundSnapshot().settings, fixed: true };
+  const settings: Snapshot["settings"] = { ...documentsFoundSnapshot().settings, fixed: { workspaceFolder: true, featureBranch: true, worktreePath: true } };
   delete settings.baseBranches;
   delete settings.baseCheck;
   return settings;
 }
+
+/** The PRD's one repository once Kiln has set it up. */
+const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
 
 const ACCOUNT: NonNullable<Snapshot["account"]> = {
   email: "alex@acme-shop.dev",
@@ -140,10 +147,10 @@ const ACCOUNT: NonNullable<Snapshot["account"]> = {
 };
 
 function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">): Snapshot {
-  return { settings: underwaySettings(), models: documentsFoundSnapshot().models!, pause: { pending: false, active: false }, account: ACCOUNT, ...rest };
+  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, models: documentsFoundSnapshot().models!, pause: { pending: false, active: false }, account: ACCOUNT, ...rest };
 }
 
-const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
+const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
 
 /** Running and Phase detail: phase 2b, Store credit, at Deliverable review, its reviewer working. */
 export function runningSnapshot(): Snapshot {
@@ -166,7 +173,7 @@ export function runningSnapshot(): Snapshot {
       ],
       seenInSession: { text: "deliverable-review skill started", at: "2026-10-17T15:45:00Z" },
       latestLine: { line: 1284, at: "2026-10-17T15:46:58Z", source: "reviewer", text: "The credit multiplier is applied before rounding; checking that against…" },
-      commits: [],
+      repositories: [],
       reviewerWorking: true,
     },
   });
@@ -206,9 +213,9 @@ export function needsYouMessageSnapshot(): Snapshot {
       exitCode: 0,
       lastSkill: { name: "deliverable-review", at: "2026-10-17T15:44:00Z" },
       checks: [
-        { name: "Phase doc closed", passed: false, fact: "No Closed line in phase-2b-store-credit.md" },
-        { name: "Everything committed", passed: false, fact: "12 files changed, not committed" },
-        { name: "Pushed", passed: true, fact: "Matches origin at 5d81b37" },
+        { name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] },
+        { name: "Everything committed", passed: false, facts: ["12 files changed, not committed"] },
+        { name: "Pushed", passed: true, facts: ["Matches origin at 5d81b37"] },
       ],
       checkedAt: "2026-10-17T15:52:00Z",
       resumeCommand: `cd ${WORKTREE}\nclaude --resume ${SESSION_2B}`,
@@ -228,7 +235,7 @@ export function needsYouMessageSnapshot(): Snapshot {
       model: "Opus 5.5",
       effort: "high",
       sessionStartedAt: "2026-10-17T14:58:00Z",
-      commits: [],
+      repositories: [],
     },
   });
 }
@@ -252,9 +259,9 @@ export function needsYouCrashedSnapshot(): Snapshot {
         { line: 2031, at: "2026-10-17T17:21:03Z", source: "exit", text: "Process exited with code 1" },
       ],
       checks: [
-        { name: "Phase doc closed", passed: false, fact: "No Closed line in phase-3-returns-dashboard.md" },
-        { name: "Everything committed", passed: true, fact: "Latest commit a41c9e2, tree clean" },
-        { name: "Pushed", passed: false, fact: "a41c9e2 isn’t on origin yet" },
+        { name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-3-returns-dashboard.md"] },
+        { name: "Everything committed", passed: true, facts: ["Latest commit a41c9e2, tree clean"] },
+        { name: "Pushed", passed: false, facts: ["a41c9e2 isn’t on origin yet"] },
       ],
       checkedAt: "2026-10-17T17:21:00Z",
       steps: [
@@ -274,7 +281,7 @@ export function needsYouCrashedSnapshot(): Snapshot {
       model: "Opus 5.5",
       effort: "high",
       sessionStartedAt: "2026-10-17T16:17:00Z",
-      commits: [{ sha: "a41c9e2d0b11", subject: "feat(returns): returns dashboard (phase 3)" }],
+      repositories: [{ name: "acme-shop", commits: [{ sha: "a41c9e2d0b11", subject: "feat(returns): returns dashboard (phase 3)" }] }],
     },
   });
 }
@@ -301,6 +308,150 @@ export function completeSnapshot(): Snapshot {
       done({ id: "4", title: "Restock check-in", file: "phase-4-restock-check-in.md" }, "2026-10-17T17:48:00Z", "2026-10-17T18:46:00Z", "0c4d8a2e9f10", 3, "2d6c8f40-5e1b-4a9d-8c73-0f4e9b1a6d28", false),
       { id: "pr", title: "Final pull request", file: "pull request session", state: "done", sessionStartedAt: "2026-10-17T18:46:00Z", doneAt: "2026-10-17T18:55:00Z", finishedByPerson: false },
     ],
-    pullRequest: { number: 218, title: "Customer returns: intake, refund routing, dashboard and restock", url: "https://github.com/acme/acme-shop/pull/218", head: BRANCH, base: "develop", commits: 17, additions: 2184, deletions: 312 },
+    pullRequests: [{ repository: "acme-shop", number: 218, title: "Customer returns: intake, refund routing, dashboard and restock", url: "https://github.com/acme/acme-shop/pull/218", head: BRANCH, base: "develop", commits: 17, additions: 2184, deletions: 312 }],
+  });
+}
+
+// ---- The multi-repo delivery mockups' sample data (fictional): the same feature with its PRD in
+// product and its code in returns-api and storefront, notifications added in phase 2b
+// (docs/changes/kiln-multi-repo-delivery/mockups/).
+
+const WORKSPACE = "~/devel/acme/.worktrees/customer-returns";
+const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", multiRepository: true };
+
+function multiRow(name: string, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow {
+  return { name, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
+}
+
+/** Documents found for the PRD across three repositories (kiln-screen-documents-found-repositories.html). */
+export function documentsFoundRepositoriesSnapshot(): Snapshot {
+  const snapshot = documentsFoundSnapshot({ settings: { workspaceFolder: WORKSPACE, worktreePath: `${WORKSPACE}/product`, baseBranch: "main", baseBranches: ["main"], fixed: { workspaceFolder: false, featureBranch: false, worktreePath: false } } });
+  const repositories: Record<string, string[]> = { "1": ["returns-api"], "2": ["returns-api"], "2a": ["returns-api"], "2b": ["returns-api", "storefront"], "3": ["storefront"], "4": ["returns-api"] };
+  const documents = snapshot.documents!;
+  return {
+    ...snapshot,
+    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    documents: {
+      ...documents,
+      plan: { ...documents.plan, phases: documents.plan.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
+      checks: [
+        { name: "Every phase cites its criteria", passed: true },
+        { name: "Dependencies point backward", passed: true },
+        { name: "Named repositories found beside product", passed: true },
+        { name: "Working tree of product is clean", passed: true },
+      ],
+    },
+    repositories: [
+      multiRow("product", "prd", "main", { baseBranches: ["main"], baseCheck: "ok", fixed: false }),
+      multiRow("returns-api", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
+      multiRow("storefront", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
+    ],
+  };
+}
+
+/** The four repositories once underway, notifications added in phase 2b. */
+const MULTI_REPOSITORIES: RepositoryRow[] = [
+  multiRow("product", "prd", "main"),
+  multiRow("returns-api", "named", "develop"),
+  multiRow("storefront", "named", "develop"),
+  multiRow("notifications", "added", "main", { addedInPhase: "2b" }),
+];
+
+/** A screen underway across the four repositories: their settings and rows replace any one-repository snapshot's in `rest`. */
+function multiUnderway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">): Snapshot {
+  return underway({ ...rest, settings: { ...underwaySettings(), workspaceFolder: WORKSPACE, worktreePath: `${WORKSPACE}/product`, baseBranch: "main" }, repositories: MULTI_REPOSITORIES });
+}
+
+/** A repository's line in a phase's Details: its worktree and branch, commit count and latest commit. */
+function inRepository(name: string, commitCount: number, latestCommit: string, addedInPhase?: string): RepositoryDetails {
+  return { name, ...(addedInPhase ? { addedInPhase } : {}), worktree: `${WORKSPACE}/${name}`, branch: BRANCH, commitCount, latestCommit };
+}
+
+/** A Done phase across repositories: the snapshot keeps the PRD's repository's pushed commit and count beside the per-repository facts. */
+function multiDone(phase: { id: string; title: string; file: string }, from: string, to: string, sessionId: string, effort: "high" | "medium", byPerson: boolean, repositories: RepositoryDetails[]): PhaseView {
+  const product = repositories.find((repository) => repository.name === "product")!;
+  return {
+    ...phase,
+    state: "done",
+    sessionStartedAt: from,
+    doneAt: to,
+    pushedSha: product.latestCommit,
+    finishedByPerson: byPerson,
+    pushedRepositoryCount: repositories.length,
+    details: { ...details(from, to, effort, product.commitCount, product.latestCommit, sessionId), worktree: `${WORKSPACE}/product`, repositories },
+  };
+}
+
+const MULTI_PHASE_1 = multiDone(PHASE_1, "2026-10-17T13:17:00Z", "2026-10-17T14:09:00Z", "4f2a9c1e-7b3d-4c8a-a5e6-1d9f0b2c7e34", "high", false, [inRepository("product", 1, "3e8b2f1d4a07"), inRepository("returns-api", 2, "a1c4e09f3b2d")]);
+const MULTI_PHASE_2A = multiDone(PHASE_2A, "2026-10-17T14:09:00Z", "2026-10-17T14:57:00Z", "9b0e3d72-1c5a-4f6e-b8d2-3a7c6e0f9d15", "medium", false, [inRepository("product", 1, "9a0c6e2b5d18"), inRepository("returns-api", 3, "5d81b37a90c1")]);
+
+/** Complete: four pull requests ready for review at 2:55 PM (kiln-screen-complete-repositories.html). */
+export function completeRepositoriesSnapshot(): Snapshot {
+  const github = (repository: string, number: number) => `https://github.com/acme/${repository}/pull/${number}`;
+  return multiUnderway({
+    feature: { ...MULTI_FEATURE, state: "complete", phasesDone: 5, completedAt: "2026-10-17T18:55:00Z" },
+    phases: [
+      MULTI_PHASE_1,
+      PHASE_2,
+      MULTI_PHASE_2A,
+      multiDone(PHASE_2B, "2026-10-17T14:58:00Z", "2026-10-17T16:17:00Z", SESSION_2B, "high", true, [
+        inRepository("product", 1, "e07a4c8f2b91"),
+        inRepository("returns-api", 2, "7f3d9a0c6e12"),
+        inRepository("storefront", 1, "c41e8b5d7a03"),
+        inRepository("notifications", 2, "2b6f1d3e9c48", "2b"),
+      ]),
+      multiDone(PHASE_3, "2026-10-17T16:17:00Z", "2026-10-17T17:48:00Z", SESSION_3, "high", true, [inRepository("product", 1, "2f7b9e0a4c65"), inRepository("storefront", 4, "8d4a1c6f0e27")]),
+      multiDone({ id: "4", title: "Restock check-in", file: "phase-4-restock-check-in.md" }, "2026-10-17T17:48:00Z", "2026-10-17T18:46:00Z", "2d6c8f40-5e1b-4a9d-8c73-0f4e9b1a6d28", "high", false, [
+        inRepository("product", 1, "61d2f0c8b3a4"),
+        inRepository("returns-api", 2, "0b9e3a7d5f16"),
+      ]),
+      { id: "pr", title: "Final pull request", file: "pull request session", state: "done", sessionStartedAt: "2026-10-17T18:46:00Z", doneAt: "2026-10-17T18:55:00Z", finishedByPerson: false },
+    ],
+    pullRequests: [
+      { repository: "product", number: 12, title: "Customer returns: phase documents", url: github("product", 12), head: BRANCH, base: "main", commits: 5, additions: 5, deletions: 0 },
+      { repository: "returns-api", number: 57, title: "Customer returns: intake, refunds, store credit and restock", url: github("returns-api", 57), head: BRANCH, base: "develop", commits: 9, additions: 1402, deletions: 201 },
+      { repository: "storefront", number: 218, title: "Customer returns: store credit and returns dashboard", url: github("storefront", 218), head: BRANCH, base: "develop", commits: 5, additions: 694, deletions: 103 },
+      { repository: "notifications", number: 9, title: "Customer returns: store credit emails", url: github("notifications", 9), head: BRANCH, base: "main", commits: 2, additions: 88, deletions: 8 },
+    ],
+  });
+}
+
+/** Running across repositories: phase 2b, with commits so far in returns-api and in notifications, added during it. */
+export function runningRepositoriesSnapshot(): Snapshot {
+  const snapshot = runningSnapshot();
+  return multiUnderway({
+    ...snapshot,
+    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    phases: [MULTI_PHASE_1, PHASE_2, MULTI_PHASE_2A, ...snapshot.phases.slice(3)],
+    current: {
+      ...snapshot.current!,
+      repositories: [
+        { name: "returns-api", commits: [{ sha: "7f3d9a0c6e12", subject: "feat(credit): store credit ledger (phase 2b)" }, { sha: "4c1a8e5b2d90", subject: "test(credit): ledger balances" }] },
+        { name: "notifications", commits: [{ sha: "2b6f1d3e9c48", subject: "feat(emails): store credit issued email (phase 2b)" }] },
+      ],
+    },
+  });
+}
+
+/** Needs you across repositories: phase 3 stopped with storefront's work not committed or pushed. */
+export function needsYouRepositoriesSnapshot(): Snapshot {
+  const snapshot = needsYouCrashedSnapshot();
+  const complete = completeRepositoriesSnapshot();
+  return multiUnderway({
+    ...snapshot,
+    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    phases: [...complete.phases.slice(0, 4), { ...PHASE_3, state: "needs_you", sessionStartedAt: "2026-10-17T16:17:00Z" }, PHASE_4],
+    needsYou: {
+      ...snapshot.needsYou!,
+      checks: [
+        { name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-3-returns-dashboard.md"] },
+        { name: "Everything committed", passed: false, facts: ["storefront: 3 files changed, not committed"] },
+        { name: "Pushed", passed: false, facts: ["product: 2f7b9e0 on origin", "storefront: 8d4a1c6 isn’t on origin yet"] },
+      ],
+      repositories: [
+        { name: "product", commits: [{ sha: "2f7b9e0a4c65", subject: "docs(returns): close phase 3" }] },
+        { name: "storefront", commits: [{ sha: "8d4a1c6f0e27", subject: "feat(dashboard): returns list and filters (phase 3)" }] },
+      ],
+    },
   });
 }

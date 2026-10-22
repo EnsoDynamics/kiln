@@ -2,8 +2,12 @@
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
   // they are made (AC-START-06), the refinement confirmation (AC-START-05), what Kiln may and
-  // may not do (AC-START-08), and Start.
-  import type { Snapshot } from "../../../src/engine/snapshot.js";
+  // may not do (AC-START-08), and Start. A multi-repository PRD (docs/changes/
+  // kiln-multi-repo-delivery/mockups/kiln-screen-documents-found-repositories.html) shows each
+  // phase's repositories, the workspace folder in place of the worktree, and a base per
+  // repository (multi-repo AC-REPO-03, AC-SPACE-01, AC-PRS-04); a field Start already set up is
+  // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03).
+  import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
   import CodeText from "../components/CodeText.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
@@ -22,6 +26,10 @@
     prdLine,
     startState,
   } from "../lib/documents-found.js";
+  import { addedLabel } from "../lib/progress.js";
+
+  /** What sessions may do in a repository they add (multi-repo AC-ADD-01, AC-PRS-04), on both Documents found screens. */
+  const SESSIONS_ADD = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
 
   let { snapshot, config, connected, lastSeenAt, now = Date.now() }: { snapshot: Snapshot; config: PageConfig; connected: boolean; lastSeenAt?: number | undefined; now?: number } = $props();
 
@@ -32,6 +40,10 @@
   const models = $derived(modelOptions(snapshot));
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
   const fixedLocked = $derived(!connected || documents.starting === true);
+  const multi = $derived(snapshot.feature.multiRepository);
+  const repositoryName = $derived(snapshot.feature.repositoryName);
+  // The PRD's repository's row: its base is fixed once Start set it up.
+  const prdRow = $derived(snapshot.repositories.find((row) => row.kind === "prd"));
 
   // The confirmation box belongs to the view: the same tab keeps it ticked, and a reload asks again.
   let refined = $state(false);
@@ -40,29 +52,37 @@
   const startNow = $derived(startState(snapshot, refined, connected));
 
   // Text fields keep what the person types; the saved value comes back with the next snapshot.
-  let worktreeDraft = $state<string | undefined>(undefined);
-  let branchDraft = $state<string | undefined>(undefined);
-  const timers: Partial<Record<"worktreePath" | "featureBranch", ReturnType<typeof setTimeout>>> = {};
+  // A folder is shown with its trailing slash, as the mockup draws it; Kiln reads it either way.
+  const withSlash = (folder: string) => (folder === "" || folder.endsWith("/") ? folder : `${folder}/`);
+  type TextField = "workspaceFolder" | "worktreePath" | "featureBranch";
+  let drafts = $state<Partial<Record<TextField, string>>>({});
+  const timers: Partial<Record<TextField, ReturnType<typeof setTimeout>>> = {};
 
   function save(change: Partial<Settings>) {
     startReason = undefined;
     void changeSettings(config, change);
   }
 
-  function typed(field: "worktreePath" | "featureBranch", value: string) {
-    if (field === "worktreePath") worktreeDraft = value;
-    else branchDraft = value;
+  function typed(field: TextField, value: string) {
+    drafts[field] = value;
     clearTimeout(timers[field]);
     timers[field] = setTimeout(() => save({ [field]: value }), 400);
   }
 
-  function committed(field: "worktreePath" | "featureBranch") {
+  function committed(field: TextField) {
     clearTimeout(timers[field]);
-    const value = field === "worktreePath" ? worktreeDraft : branchDraft;
+    const value = drafts[field];
     if (value !== undefined && value !== settings[field]) save({ [field]: value });
-    if (field === "worktreePath") worktreeDraft = undefined;
-    else branchDraft = undefined;
+    delete drafts[field];
   }
+
+  /** The PRD's repository's base is v1's `baseBranch`; every other repository's goes under `bases`, by name (multi-repo HTTP API). */
+  function chooseBase(row: RepositoryRow, base: string) {
+    save(row.kind === "prd" ? { baseBranch: base } : { bases: { [row.name]: base } });
+  }
+
+  /** A row's choices: its origin's branches, or its base alone until they arrive. */
+  const rowChoices = (row: RepositoryRow) => (row.baseBranches && row.baseBranches.length > 0 ? row.baseBranches : row.baseBranch ? [row.baseBranch] : []);
 
   function chooseEffort(effort: Effort) {
     if (!effortDisabled(settings, effort)) save({ effort });
@@ -122,7 +142,7 @@
               {#each rows as row (row.id)}
                 {#if row.children.length > 0 || row.splitNote}
                   <li class="split">
-                    <span class="phase"><span class="circle dashed mono">{row.id}</span><span class="title split-title">{row.title}</span><span class="note">{row.splitNote}</span></span>
+                    <span class="phase"><span class="circle dashed mono">{row.id}</span><span class="title split-title">{row.title}</span><span class="note">{row.splitNote}</span>{@render repositories(row.repositories)}</span>
                     <ol class="phases">
                       {#each row.children as child (child.id)}
                         {@render phase(child)}
@@ -139,7 +159,12 @@
       </ul>
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
-          <span class="passed">{@render check(12)}{passed.name}</span>
+          {@const named = passed.name.split(` ${repositoryName}`)}
+          {#if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
+            <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{repositoryName}</span>{named[1]}</span></span>
+          {:else}
+            <span class="passed">{@render check(12)}{passed.name}</span>
+          {/if}
         {/each}
       </div>
     </section>
@@ -147,28 +172,65 @@
     <section class="panel settings" aria-labelledby="settings-h">
       <h2 id="settings-h" class="eyebrow">How Kiln will deliver it</h2>
 
-      <div class="field">
-        <label for="worktree">Worktree</label>
-        <input id="worktree" type="text" class="mono" value={worktreeDraft ?? settings.worktreePath} disabled={fixedLocked} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
-        {#if settings.fieldErrors.worktreePath}<span class="message">{settings.fieldErrors.worktreePath}</span>{/if}
-        <span class="help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
-      </div>
+      {#if multi}
+        <div class="field">
+          <label for="workspace">Workspace folder</label>
+          <input id="workspace" type="text" class="mono" value={drafts.workspaceFolder ?? withSlash(settings.workspaceFolder)} disabled={fixedLocked || settings.fixed.workspaceFolder} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
+          {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
+          <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+        </div>
 
-      <div class="pair">
         <div class="field">
           <label for="branch">Feature branch</label>
-          <input id="branch" type="text" class="mono" value={branchDraft ?? settings.featureBranch} disabled={fixedLocked} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
+          <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={fixedLocked || settings.fixed.featureBranch} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
           {#if settings.fieldErrors.featureBranch}<span class="message">{settings.fieldErrors.featureBranch}</span>{/if}
+          <span class="help">Used in every repository.</span>
         </div>
+
         <div class="field">
-          <label for="base">Branch from, and PR into</label>
-          <select id="base" class="mono" value={settings.baseBranch} disabled={fixedLocked} onchange={(event) => save({ baseBranch: event.currentTarget.value })}>
-            {#if settings.baseBranch === ""}<option value=""></option>{/if}
-            {#each baseChoices as base (base)}<option value={base}>{base}</option>{/each}
-          </select>
-          {#if settings.fieldErrors.baseBranch}<span class="message">{settings.fieldErrors.baseBranch}</span>{/if}
+          <div class="repos-head"><span id="repos-h" class="label">Repositories</span><span class="help">Branch from, and PR into</span></div>
+          <ul aria-labelledby="repos-h" class="repos">
+            {#each snapshot.repositories as row (row.name)}
+              <li>
+                <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.name}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
+                <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
+                  {#if row.baseBranch === ""}<option value=""></option>{/if}
+                  {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
+                </select>
+                {#if row.fieldErrors.baseBranch}<span class="message row-message">{row.fieldErrors.baseBranch}</span>{/if}
+              </li>
+            {/each}
+          </ul>
+          <span class="help sessions">{SESSIONS_ADD}</span>
+          <span class="help">Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.</span>
         </div>
-      </div>
+      {:else}
+        <div class="field">
+          <label for="worktree">Worktree</label>
+          <input id="worktree" type="text" class="mono" value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
+          {#if settings.fieldErrors.worktreePath}<span class="message">{settings.fieldErrors.worktreePath}</span>{/if}
+          <span class="help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+        </div>
+
+        <div class="field">
+          <div class="pair">
+            <div class="field">
+              <label for="branch">Feature branch</label>
+              <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={fixedLocked || settings.fixed.featureBranch} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
+              {#if settings.fieldErrors.featureBranch}<span class="message">{settings.fieldErrors.featureBranch}</span>{/if}
+            </div>
+            <div class="field">
+              <label for="base">Branch from, and PR into</label>
+              <select id="base" class="mono" value={settings.baseBranch} disabled={fixedLocked || prdRow?.fixed === true} onchange={(event) => save({ baseBranch: event.currentTarget.value })}>
+                {#if settings.baseBranch === ""}<option value=""></option>{/if}
+                {#each baseChoices as base (base)}<option value={base}>{base}</option>{/each}
+              </select>
+              {#if settings.fieldErrors.baseBranch}<span class="message">{settings.fieldErrors.baseBranch}</span>{/if}
+            </div>
+          </div>
+          <span class="help">{SESSIONS_ADD}</span>
+        </div>
+      {/if}
 
       <div class="pair">
         <div class="field">
@@ -206,7 +268,7 @@
 
       <dl class="fixed">
         <dt>Pushes</dt><dd>After every phase</dd>
-        <dt>Ends at</dt><dd>One PR, ready for review. Kiln won’t merge.</dd>
+        <dt>Ends at</dt><dd>{multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
     </section>
   </div>
@@ -225,8 +287,13 @@
     <div class="column">
       <span class="lets">Starting lets Kiln</span>
       <ul class="allowed">
-        <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
-        <li>{@render check(14, true)}<span>Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes</span></li>
+        {#if multi}
+          <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
+          <li>{@render check(14, true)}<span>In each repository, open one pull request into its base branch once every phase closes</span></li>
+        {:else}
+          <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
+          <li>{@render check(14, true)}<span>Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes</span></li>
+        {/if}
         <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>Never merge, deploy, or touch other branches</span></li>
       </ul>
     </div>
@@ -243,8 +310,12 @@
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class={inline ? "mark" : size === 16 ? "found-mark" : undefined}><path d="M3 8.5l3 3 7-7"></path></svg>
 {/snippet}
 
-{#snippet phase(row: { id: string; title: string; closed: boolean })}
-  <li class="phase"><span class="circle mono">{row.id}</span><span class="title">{row.title}</span>{#if row.closed}<span class="closed">closed</span>{/if}</li>
+{#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[] })}
+  <li class="phase"><span class="circle mono">{row.id}</span><span class="title">{row.title}</span>{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
+{/snippet}
+
+{#snippet repositories(names: string[])}
+  {#if multi && names.length > 0}<span class="phase-repos mono">{names.join(" · ")}</span>{/if}
 {/snippet}
 
 <style>
@@ -275,8 +346,10 @@
   .split-title { color: var(--muted); }
   .note { font-size: 12.5px; color: var(--dim); }
   .closed { font-size: 12.5px; color: var(--green); }
+  .phase-repos { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--dim); text-align: right; }
   .checks { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .passed { display: inline-flex; align-items: center; gap: 6px; }
+  .check-name { font-size: 12px; color: var(--text); }
   .settings { display: flex; flex-direction: column; gap: 20px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
   label, .label, legend { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -287,6 +360,14 @@
   .help { font-size: 12.5px; font-weight: 400; color: var(--dim); line-height: 1.55; }
   .message { font-size: 12.5px; font-weight: 400; color: var(--amber); line-height: 1.55; }
   .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; }
+  .repos-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+  .repos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+  .repos li { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+  .repo-name { font-size: 13px; font-weight: 400; color: var(--text); overflow-wrap: anywhere; }
+  .repos select { height: 36px; padding: 0 8px; border-radius: 8px; }
+  .row-message { grid-column: 1 / -1; }
+  .sessions { padding-top: 2px; }
   .agent { min-height: 44px; display: flex; flex-direction: column; justify-content: center; font-size: 14.5px; color: var(--text); }
   .sub { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .effort { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -317,6 +398,7 @@
   .allowed li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 0 10px; }
   .mark { margin-top: 4px; }
   .code { font-size: 12.5px; color: var(--text); }
+  .nowrap { white-space: nowrap; }
   .start { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: var(--sans); font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: var(--dim); border: 1px solid var(--line-strong); width: 100%; cursor: not-allowed; }
   .start.ready { background: var(--text); color: var(--bg); border-color: var(--text); cursor: pointer; }
 </style>

@@ -157,6 +157,17 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
 
+  // A session's `kiln add-repository` (multi-repo AC-ADD-01). Kiln carries a setup through to
+  // its end even when the requester disconnects, so the request is never tied to the response.
+  app.post("/api/repositories", async (c) => {
+    const body = await jsonBody(c);
+    const name = body?.name;
+    if (typeof name !== "string" || name.trim() === "") return refuse(c, 400, "The body must name a repository: { \"name\": \"<folder name>\" }.");
+    const result = await engine.addRepository(name);
+    if (!result.ok) return c.json({ ok: false, reason: result.reason }, result.status);
+    return c.json({ name: result.name, worktreePath: result.worktreePath, branch: result.branch, baseBranch: result.baseBranch, added: result.added });
+  });
+
   app.post("/api/pause", (c) => answer(c, engine.pause()));
   app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
   app.post("/api/check-again", async (c) => answer(c, await engine.checkAgain()));
@@ -218,7 +229,10 @@ function refuse(c: Context, status: 400 | 403 | 404 | 409, reason: string) {
 }
 
 function commandRefused(c: Context, result: Extract<CommandResult, { ok: false }>) {
-  return c.json({ ok: false, reason: result.reason, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) }, result.status);
+  return c.json(
+    { ok: false, reason: result.reason, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}) },
+    result.status,
+  );
 }
 
 function answer(c: Context, result: CommandResult) {
@@ -237,7 +251,7 @@ async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined
 /** `POST /api/settings`'s body, checked field by field; a string is why it was refused. */
 function settingsChange(body: Record<string, unknown>): Partial<Settings> | string {
   const change: Partial<Settings> = {};
-  for (const field of ["model", "worktreePath", "featureBranch", "baseBranch"] as const) {
+  for (const field of ["model", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
     const value = body[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${field} must be text.`;
@@ -251,7 +265,15 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     if (typeof body.keepAwake !== "boolean") return "keepAwake must be true or false.";
     change.keepAwake = body.keepAwake;
   }
-  const unknown = Object.keys(body).filter((key) => !["model", "effort", "keepAwake", "worktreePath", "featureBranch", "baseBranch"].includes(key));
+  if (body.bases !== undefined) {
+    // The other repositories' bases, by name; the PRD's repository's is baseBranch (multi-repo technical design, "HTTP API").
+    const bases = body.bases;
+    if (typeof bases !== "object" || bases === null || Array.isArray(bases) || Object.values(bases).some((value) => typeof value !== "string")) {
+      return "bases must map repository names to branch names.";
+    }
+    change.bases = bases as Record<string, string>;
+  }
+  const unknown = Object.keys(body).filter((key) => !["model", "effort", "keepAwake", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

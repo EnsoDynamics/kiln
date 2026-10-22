@@ -3,7 +3,7 @@
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
-import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 
 const config = { token: "t", base: "/customer-returns" };
@@ -108,5 +108,55 @@ describe("Documents found", () => {
     expect(words).toContain("Agent Claude Code Not signed in to Claude Code. Run claude auth login . Model");
     // The command is drawn as code, not with its backticks (UI-010 item 7).
     expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
+  });
+});
+
+describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-01, AC-PRS-04)", () => {
+  const sessionsAdd = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
+
+  it("names each phase's repositories, and the checks that name the PRD's repository", () => {
+    const words = text(html(documentsFoundRepositoriesSnapshot()));
+    expect(words).toContain("2 Refund routing split into 2a and 2b returns-api 2a Card refunds returns-api 2b Store credit returns-api · storefront 3 Returns dashboard storefront");
+    expect(words).toContain("Every phase cites its criteria Dependencies point backward Named repositories found beside product Working tree of product is clean");
+  });
+
+  it("asks for the workspace folder, one feature branch, and a base for each repository, the PRD's marked", () => {
+    const page = html(documentsFoundRepositoriesSnapshot());
+    expect(page).toMatch(/<input id="workspace"[^>]*value="~\/devel\/acme\/\.worktrees\/customer-returns\/"/);
+    expect(page).not.toMatch(/id="worktree"/);
+    expect(page).toMatch(/<select id="base-product"[^>]*>[\s\S]*?<option value="main"[^>]*>main<\/option><\/select>/);
+    expect(page).toMatch(/<select id="base-returns-api"[^>]*>[\s\S]*?<option value="develop"[^>]*>develop<\/option><option value="main"[^>]*>main<\/option><\/select>/);
+    const words = text(page);
+    expect(words).toContain("Feature branch Used in every repository. Repositories Branch from, and PR into product PRD’s repository main returns-api develop main storefront develop main");
+    expect(words).toContain(`${sessionsAdd} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.`);
+    expect(words).toContain("Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.");
+    expect(words).toContain(
+      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Never merge, deploy, or touch other branches",
+    );
+  });
+
+  it("shows each repository's base message under its row, and the workspace folder's under its field", () => {
+    const snapshot = documentsFoundRepositoriesSnapshot();
+    snapshot.settings.fieldErrors = { workspaceFolder: "That folder is inside a checkout of returns-api. Choose one outside it." };
+    snapshot.repositories[2] = { ...snapshot.repositories[2]!, fieldErrors: { baseBranch: "Couldn’t reach origin: timed out" } };
+    const page = html(snapshot);
+    expect(page).toMatch(/<input id="workspace"[^>]*\/?>\s*<span class="message[^"]*">That folder is inside a checkout of returns-api\. Choose one outside it\.<\/span>/);
+    expect(page).toMatch(/<select id="base-storefront"[\s\S]*?<\/select>\s*<span class="message row-message[^"]*">Couldn’t reach origin: timed out<\/span>/);
+  });
+
+  it("shows what a partly failed Start set up as fixed, and leaves a repository not yet set up editable", () => {
+    const snapshot = documentsFoundRepositoriesSnapshot();
+    snapshot.settings.fixed = { workspaceFolder: true, featureBranch: true, worktreePath: true };
+    snapshot.repositories = snapshot.repositories.map((row) => (row.name === "storefront" ? row : { ...row, fixed: true }));
+    const page = html(snapshot);
+    for (const id of ["workspace", "branch", "base-product", "base-returns-api"]) expect(page).toMatch(new RegExp(`id="${id}"[^>]* disabled`));
+    expect(page).not.toMatch(/id="base-storefront"[^>]* disabled/);
+  });
+
+  it("adds the sessions-can-add line to a one-repository PRD, without the CLAUDE.md line (multi-repo AC-SPACE-03)", () => {
+    const words = text(html());
+    expect(words).toContain(`Branch from, and PR into develop main ${sessionsAdd} Agent`);
+    expect(words).not.toContain("CLAUDE.md");
+    expect(words).not.toContain("Workspace folder");
   });
 });

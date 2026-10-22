@@ -3,7 +3,9 @@
   // live output, its progress steps, its session and its commits (PRD AC-WATCH-04 to 06). For a
   // stopped phase it is Full session output (AC-WATCH-10; technical design, "Full session
   // output"): the same layout without the LIVE badge, the live text or the pause, its time
-  // stopped at the session's end, and a back link to Needs you (UI-010 item 2).
+  // stopped at the session's end, and a back link to Needs you (UI-010 item 2). A
+  // multi-repository PRD's Commits are grouped by repository, each name with its added-in-phase
+  // label (multi-repo AC-SHOW-01).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
@@ -13,7 +15,7 @@
   import ProgressSteps from "../components/ProgressSteps.svelte";
   import SessionOutput from "../components/SessionOutput.svelte";
   import { keepGoing, pause } from "../lib/api.js";
-  import { capitalized, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
+  import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
   import { clockTime, elapsed } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
@@ -30,9 +32,11 @@
   const shownNow = $derived(connected ? now : (lastSeenAt ?? now));
   const session = $derived(
     stopped
-      ? { id: stopped.sessionId, model: stopped.model ?? "", effort: stopped.effort, startedAt: stopped.sessionStartedAt, endsAt: stopped.sessionEndedAt ? Date.parse(stopped.sessionEndedAt) : shownNow, steps: stopped.steps ?? [], commits: stopped.commits ?? [], total: stopped.outputLineCount ?? 0 }
-      : { id: current?.sessionId, model: current?.model ?? "", effort: current?.effort, startedAt: current?.startedAt, endsAt: shownNow, steps: current?.steps ?? [], commits: current?.commits ?? [], total: current?.latestLine?.line ?? 0 },
+      ? { id: stopped.sessionId, model: stopped.model ?? "", effort: stopped.effort, startedAt: stopped.sessionStartedAt, endsAt: stopped.sessionEndedAt ? Date.parse(stopped.sessionEndedAt) : shownNow, steps: stopped.steps ?? [], repositories: stopped.repositories ?? [], total: stopped.outputLineCount ?? 0 }
+      : { id: current?.sessionId, model: current?.model ?? "", effort: current?.effort, startedAt: current?.startedAt, endsAt: shownNow, steps: current?.steps ?? [], repositories: current?.repositories ?? [], total: current?.latestLine?.line ?? 0 },
   );
+  const commits = $derived(session.repositories.flatMap((repository) => repository.commits));
+  const grouped = $derived(snapshot.feature.multiRepository ? commitsByRepository(snapshot, session.repositories) : undefined);
   const sinceStart = $derived(session.startedAt ? elapsed(session.endsAt - Date.parse(session.startedAt)) : undefined);
   /** "10:58 AM · 49 min" on its own; after "Started" a day reads in lowercase (UI-010 item 8). */
   const started = (afterWord: boolean) => (session.startedAt ? `${clockTime(session.startedAt, new Date(now), { afterWord })} · ${sinceStart}` : undefined);
@@ -83,16 +87,29 @@
       {#if !isPr}
         <aside class="card side">
           <span class="eyebrow">Commits</span>
-          {#if session.commits.length === 0}
+          {#if commits.length === 0}
             <p class="commits-none">{stopped ? "None for this phase." : "None for this phase yet. The feature commit comes after test hardening."}</p>
+          {:else if grouped}
+            <div class="groups">
+              {#each grouped as repository (repository.name)}
+                <div class="group">
+                  <div class="repo"><span class="mono repo-name">{repository.name}</span>{#if repository.addedInPhase !== undefined}<span class="tag">{addedLabel(repository.addedInPhase)}</span>{/if}</div>
+                  {@render list(repository.commits)}
+                </div>
+              {/each}
+            </div>
           {:else}
-            <ul class="commits">{#each session.commits as commit (commit.sha)}<li><span class="mono sha">{commit.sha.slice(0, 7)}</span><span>{commit.subject}</span></li>{/each}</ul>
+            {@render list(commits)}
           {/if}
         </aside>
       {/if}
     </div>
   </div>
 </main>
+
+{#snippet list(commits: { sha: string; subject: string }[])}
+  <ul class="commits">{#each commits as commit (commit.sha)}<li><span class="mono sha">{commit.sha.slice(0, 7)}</span><span>{commit.subject}</span></li>{/each}</ul>
+{/snippet}
 
 <style>
   .phase { display: flex; flex-direction: column; gap: 16px; padding-top: 28px; border-top: 1px solid var(--line); }
@@ -114,4 +131,8 @@
   .commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; color: var(--muted); }
   .commits li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 10px; }
   .sha { font-size: 12.5px; color: var(--text); }
+  .groups { display: flex; flex-direction: column; gap: 16px; }
+  .group { display: flex; flex-direction: column; gap: 8px; }
+  .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .repo-name { font-size: 13px; color: var(--text); }
 </style>

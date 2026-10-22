@@ -6,6 +6,7 @@ import { runHelper } from "../platform/helper-process.js";
 import type { CheckResult, PullRequestFacts } from "../state/records.js";
 import { gitError, isAncestor, localBranchCommit, runGit, shortSha, type GitContext } from "./git-reads.js";
 import { judgedLeaf, readPlanAt, type PlanRead } from "./plan-reading.js";
+import { joinNames } from "./worktree-setup.js";
 
 export const CHECK_NAMES = { closed: "Phase doc closed", committed: "Everything committed", pushed: "Pushed", pullRequest: "Pull request open", plan: "Phase plan reads" } as const;
 
@@ -13,12 +14,26 @@ export const CHECK_NAMES = { closed: "Phase doc closed", committed: "Everything 
 export const ORIGIN_RETRY_MS = 2 * 60 * 1000;
 const ORIGIN_RETRY_INTERVAL_MS = 5_000;
 
-export interface DoneCheckInput {
-  git: GitContext;
+/** One of the PRD's set-up repositories, as the done and pull-request checks read it. */
+export interface CheckedRepository {
+  name: string;
+  /** `<owner>/<name>`. */
+  github: string;
+  baseBranch: string;
   /** Where git runs from; the worktree is reached with `git -C`, so a missing worktree is git's own error. */
   mainCheckoutPath: string;
   worktreePath: string;
+  /** The commit its feature branch started from: a tip still here has no commits of its own. */
+  baseCommit: string | undefined;
+}
+
+export interface DoneCheckInput {
+  git: GitContext;
+  /** The PRD's repository's worktree, where the phase documents are read. */
+  prdWorktreePath: string;
   prdDirectoryFromRoot: string;
+  /** The PRD's set-up repositories, the PRD's repository first. */
+  repositories: CheckedRepository[];
   branch: string;
   /** The leaf Kiln launched; when the session split it, its first leaf is judged instead. */
   launchedLeafId: string;
@@ -37,82 +52,118 @@ export interface DoneCheckOutcome {
   plan: PlanRead;
   /** The leaf judged, from this read: the launched leaf, or its first leaf after a split. */
   judgedLeafId: string;
-  /** The branch tip origin matched, when Pushed passed. */
-  pushedSha?: string;
+  /** Each repository's branch tip, when Pushed passed: matched on origin, or its base commit when it has no commits of its own. */
+  pushedShas?: Record<string, string>;
 }
 
 /**
- * Runs the done check's three checks in the worktree. All three must pass.
+ * Runs the done check's three checks: Closed in the PRD's repository's worktree, Committed and
+ * Pushed in every repository's (multi-repo AC-CHECK-01). All three must pass. A one-repository
+ * PRD's facts are v1's; with several, each names its repository (AC-CHECK-02).
  *
- *   const outcome = await runDoneCheck({ git, mainCheckoutPath, worktreePath, prdDirectoryFromRoot, branch, launchedLeafId: "2b" });
- *   outcome.checks  // [{ name: "Phase doc closed", passed: false, fact: "No Closed line in phase-2b-store-credit.md" }, …]
+ *   const outcome = await runDoneCheck({ git, prdWorktreePath, prdDirectoryFromRoot, repositories, branch, launchedLeafId: "2b" });
+ *   outcome.checks  // [{ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] }, …]
  */
 export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutcome> {
-  const plan = readPlanAt(input.worktreePath, input.prdDirectoryFromRoot);
+  const plan = readPlanAt(input.prdWorktreePath, input.prdDirectoryFromRoot);
   const closed = closedCheck(plan, input.launchedLeafId);
-  const [committed, pushed] = await Promise.all([committedCheck(input), pushedCheck(input)]);
-  const checks = [closed.check, committed, pushed.check];
+  const multi = input.repositories.length > 1;
+  const [committed, pushed] = await Promise.all([
+    Promise.all(input.repositories.map((repository) => committedCheck(input, repository))),
+    Promise.all(input.repositories.map((repository) => pushedCheck(input, repository))),
+  ]);
+  const committedCheckResult = combineCommitted(committed, input.repositories, multi);
+  const pushedPassed = pushed.every((one) => one.passed);
+  const pushedCheckResult: CheckResult = {
+    name: CHECK_NAMES.pushed,
+    passed: pushedPassed,
+    // Passing, one line per repository; failing, the repositories that failed.
+    facts: multi ? pushed.filter((one) => one.passed === pushedPassed).map((one) => `${one.name}: ${one.fact}`) : [pushed[0]!.fact],
+  };
+  const checks = [closed.check, committedCheckResult, pushedCheckResult];
   return {
     passed: checks.every((check) => check.passed),
     checks,
     plan,
     judgedLeafId: closed.judgedLeafId,
-    ...(pushed.sha === undefined ? {} : { pushedSha: pushed.sha }),
+    ...(pushedPassed ? { pushedShas: Object.fromEntries(pushed.map((one) => [one.name, one.sha!])) } : {}),
   };
 }
 
 function closedCheck(plan: PlanRead, launchedLeafId: string): { check: CheckResult; judgedLeafId: string } {
   const name = CHECK_NAMES.closed;
-  if (!plan.ok) return { check: { name, passed: false, fact: plan.problem }, judgedLeafId: launchedLeafId };
+  if (!plan.ok) return { check: { name, passed: false, facts: [plan.problem] }, judgedLeafId: launchedLeafId };
   const leaf = judgedLeaf(plan.plan, launchedLeafId);
-  if (!leaf) return { check: { name, passed: false, fact: `Phase ${launchedLeafId} is no longer in the plan` }, judgedLeafId: launchedLeafId };
+  if (!leaf) return { check: { name, passed: false, facts: [`Phase ${launchedLeafId} is no longer in the plan`] }, judgedLeafId: launchedLeafId };
   return {
-    check: leaf.closed ? { name, passed: true, fact: `Closed line in ${leaf.fileName}` } : { name, passed: false, fact: `No Closed line in ${leaf.fileName}` },
+    check: leaf.closed ? { name, passed: true, facts: [`Closed line in ${leaf.fileName}`] } : { name, passed: false, facts: [`No Closed line in ${leaf.fileName}`] },
     judgedLeafId: leaf.id,
   };
 }
 
-function worktreeGit(input: DoneCheckInput, args: string[]) {
-  return runGit(input.git, input.mainCheckoutPath, ["-C", input.worktreePath, ...args]);
+function worktreeGit(input: { git: GitContext }, repository: CheckedRepository, args: string[]) {
+  return runGit(input.git, repository.mainCheckoutPath, ["-C", repository.worktreePath, ...args]);
 }
 
-async function committedCheck(input: DoneCheckInput): Promise<CheckResult> {
-  const name = CHECK_NAMES.committed;
-  const status = await worktreeGit(input, ["status", "--porcelain", "--untracked-files=all"]);
-  if (status.exitCode !== 0) return { name, passed: false, fact: gitError(status) };
+interface RepositoryCommitted {
+  passed: boolean;
+  fact: string;
+}
+
+async function committedCheck(input: DoneCheckInput, repository: CheckedRepository): Promise<RepositoryCommitted> {
+  const status = await worktreeGit(input, repository, ["status", "--porcelain", "--untracked-files=all"]);
+  if (status.exitCode !== 0) return { passed: false, fact: gitError(status) };
   const count = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").length;
-  if (count > 0) return { name, passed: false, fact: `${count} ${count === 1 ? "file" : "files"} changed, not committed` };
-  const head = await worktreeGit(input, ["rev-parse", "HEAD"]);
-  if (head.exitCode !== 0) return { name, passed: true, fact: "Tree clean" };
-  return { name, passed: true, fact: `Latest commit ${shortSha(head.stdout.trim())}, tree clean` };
+  if (count > 0) return { passed: false, fact: `${count} ${count === 1 ? "file" : "files"} changed, not committed` };
+  const head = await worktreeGit(input, repository, ["rev-parse", "HEAD"]);
+  if (head.exitCode !== 0) return { passed: true, fact: "Tree clean" };
+  return { passed: true, fact: `Latest commit ${shortSha(head.stdout.trim())}, tree clean` };
 }
 
-async function pushedCheck(input: DoneCheckInput): Promise<{ check: CheckResult; sha?: string }> {
-  const name = CHECK_NAMES.pushed;
-  const fail = (fact: string) => ({ check: { name, passed: false, fact } });
-  const branch = await worktreeGit(input, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+/** Failing: one fact per dirty repository; passing: `Clean in product, returns-api and storefront`. */
+function combineCommitted(results: RepositoryCommitted[], repositories: CheckedRepository[], multi: boolean): CheckResult {
+  const name = CHECK_NAMES.committed;
+  const passed = results.every((one) => one.passed);
+  if (!multi) return { name, passed, facts: [results[0]!.fact] };
+  if (passed) return { name, passed, facts: [`Clean in ${joinNames(repositories.map((repository) => repository.name))}`] };
+  return { name, passed, facts: results.flatMap((one, index) => (one.passed ? [] : [`${repositories[index]!.name}: ${one.fact}`])) };
+}
+
+interface RepositoryPushed {
+  name: string;
+  passed: boolean;
+  fact: string;
+  sha?: string;
+}
+
+async function pushedCheck(input: DoneCheckInput, repository: CheckedRepository): Promise<RepositoryPushed> {
+  const { name } = repository;
+  const fail = (fact: string): RepositoryPushed => ({ name, passed: false, fact });
+  const branch = await worktreeGit(input, repository, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (branch.exitCode !== 0 && branch.exitCode !== 1) return fail(gitError(branch));
   const onBranch = branch.exitCode === 0 ? branch.stdout.trim() : undefined;
   if (onBranch !== input.branch) {
     return fail(onBranch === undefined ? `The worktree is on a detached HEAD, not ${input.branch}` : `The worktree is on ${onBranch}, not ${input.branch}`);
   }
-  const local = await localBranchCommit(input.git, input.worktreePath, input.branch);
+  const local = await localBranchCommit(input.git, repository.worktreePath, input.branch);
   if (local === undefined) return fail(`${input.branch} has no commit in the worktree`);
+  // A repository whose branch has no commits of its own needs no push (multi-repo AC-CHECK-01).
+  if (input.repositories.length > 1 && local === repository.baseCommit) return { name, passed: true, fact: "no commits yet", sha: local };
 
-  const origin = await readOriginWithRetry(input);
+  const origin = await readOriginWithRetry(input, repository);
   if (!origin.ok) return fail(`Couldn't reach origin: ${origin.error}`);
   if (origin.commit === undefined) return fail(`${input.branch} isn't on origin yet`);
-  if (origin.commit === local) return { check: { name, passed: true, fact: `Matches origin at ${shortSha(local)}` }, sha: local };
-  if (await isAncestor(input.git, input.worktreePath, origin.commit, local)) return fail(`${shortSha(local)} isn't on origin yet`);
+  if (origin.commit === local) return { name, passed: true, fact: input.repositories.length > 1 ? `${shortSha(local)} on origin` : `Matches origin at ${shortSha(local)}`, sha: local };
+  if (await isAncestor(input.git, repository.worktreePath, origin.commit, local)) return fail(`${shortSha(local)} isn't on origin yet`);
   return fail(`origin is at ${shortSha(origin.commit)}, not ${shortSha(local)}`);
 }
 
-async function readOriginWithRetry(input: DoneCheckInput): Promise<{ ok: true; commit: string | undefined } | { ok: false; error: string }> {
+async function readOriginWithRetry(input: DoneCheckInput, repository: CheckedRepository): Promise<{ ok: true; commit: string | undefined } | { ok: false; error: string }> {
   const retryMs = input.originRetryMs ?? ORIGIN_RETRY_MS;
   const startedAt = Date.now();
   let deadline = startedAt + retryMs;
   for (;;) {
-    const result = await worktreeGit(input, ["ls-remote", "origin", `refs/heads/${input.branch}`]);
+    const result = await worktreeGit(input, repository, ["ls-remote", "origin", `refs/heads/${input.branch}`]);
     if (result.exitCode === 0) {
       const line = result.stdout.split(/\r?\n/).find((row) => row.endsWith(`\trefs/heads/${input.branch}`));
       return { ok: true, commit: line?.split("\t")[0] };
@@ -128,7 +179,7 @@ async function readOriginWithRetry(input: DoneCheckInput): Promise<{ ok: true; c
 
 /** The plan check a `plan` stop shows: whether the plan reads (technical design, "A plan that breaks after Start"). */
 export function planCheck(plan: PlanRead): CheckResult {
-  return plan.ok ? { name: CHECK_NAMES.plan, passed: true, fact: "The phase plan reads" } : { name: CHECK_NAMES.plan, passed: false, fact: plan.problem };
+  return plan.ok ? { name: CHECK_NAMES.plan, passed: true, facts: ["The phase plan reads"] } : { name: CHECK_NAMES.plan, passed: false, facts: [plan.problem] };
 }
 
 export interface PullRequestCheckInput {
@@ -139,6 +190,8 @@ export interface PullRequestCheckInput {
   github: string;
   branch: string;
   baseBranch: string;
+  /** The repository's name, recorded with its pull request. */
+  repository: string;
   signal?: AbortSignal;
 }
 
@@ -148,6 +201,31 @@ export interface PullRequestCheckOutcome {
   /** gh failed, rather than answering. */
   ghError: boolean;
   pullRequest?: PullRequestFacts;
+}
+
+export interface PullRequestsCheckOutcome {
+  passed: boolean;
+  check: CheckResult;
+  /** In list order, when every one is open. */
+  pullRequests?: PullRequestFacts[];
+}
+
+/**
+ * The pull-request check across the repositories whose feature branch has commits of its own
+ * (multi-repo AC-PRS-05): every one has an open, ready pull request into its base. With one
+ * repository the facts are v1's; with several, each names its repository.
+ */
+export async function runPullRequestChecks(inputs: PullRequestCheckInput[]): Promise<PullRequestsCheckOutcome> {
+  const name = CHECK_NAMES.pullRequest;
+  const outcomes = await Promise.all(inputs.map((input) => runPullRequestCheck(input)));
+  const passed = outcomes.length > 0 && outcomes.every((outcome) => outcome.passed);
+  const facts =
+    outcomes.length === 1 ? outcomes[0]!.check.facts : outcomes.map((outcome, index) => `${inputs[index]!.repository}: ${outcome.check.facts.join(" ")}`);
+  return {
+    passed,
+    check: { name, passed, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts },
+    ...(passed ? { pullRequests: outcomes.map((outcome) => outcome.pullRequest!) } : {}),
+  };
 }
 
 interface GhPullRequest {
@@ -188,19 +266,19 @@ export async function runPullRequestCheck(input: PullRequestCheckInput): Promise
     ],
     { cwd: input.mainCheckoutPath, env: input.env, ...(input.signal ? { signal: input.signal } : {}) },
   );
-  if (result.exitCode !== 0) return { passed: false, ghError: true, check: { name, passed: false, fact: gitError(result) } };
-  return readPullRequestList(result.stdout, input.branch, input.baseBranch);
+  if (result.exitCode !== 0) return { passed: false, ghError: true, check: { name, passed: false, facts: [gitError(result)] } };
+  return readPullRequestList(result.stdout, input.branch, input.baseBranch, input.repository);
 }
 
 /** Judges `gh pr list --json …` output, already narrowed by gh to the branch and base. */
-export function readPullRequestList(stdout: string, branch: string, baseBranch: string): PullRequestCheckOutcome {
+export function readPullRequestList(stdout: string, branch: string, baseBranch: string, repository: string): PullRequestCheckOutcome {
   const name = CHECK_NAMES.pullRequest;
   let pulls: GhPullRequest[];
   try {
     pulls = JSON.parse(stdout) as GhPullRequest[];
     if (!Array.isArray(pulls)) throw new Error("not a list");
   } catch {
-    return { passed: false, ghError: true, check: { name, passed: false, fact: `gh printed something Kiln can't read: ${stdout.trim().slice(0, 200)}` } };
+    return { passed: false, ghError: true, check: { name, passed: false, facts: [`gh printed something Kiln can't read: ${stdout.trim().slice(0, 200)}`] } };
   }
   const own = pulls.filter((pull) => pull.isCrossRepository === false);
   const ready = own.find((pull) => !pull.isDraft);
@@ -208,8 +286,9 @@ export function readPullRequestList(stdout: string, branch: string, baseBranch: 
     return {
       passed: true,
       ghError: false,
-      check: { name, passed: true, fact: `#${ready.number} open` },
+      check: { name, passed: true, facts: [`#${ready.number} open`] },
       pullRequest: {
+        repository,
         number: ready.number,
         title: ready.title,
         url: ready.url,
@@ -222,6 +301,6 @@ export function readPullRequestList(stdout: string, branch: string, baseBranch: 
     };
   }
   const draft = own.find((pull) => pull.isDraft);
-  if (draft) return { passed: false, ghError: false, check: { name, passed: false, fact: `#${draft.number} is a draft` } };
-  return { passed: false, ghError: false, check: { name, passed: false, fact: `No open pull request from ${branch} into ${baseBranch}` } };
+  if (draft) return { passed: false, ghError: false, check: { name, passed: false, facts: [`#${draft.number} is a draft`] } };
+  return { passed: false, ghError: false, check: { name, passed: false, facts: [`No open pull request from ${branch} into ${baseBranch}`] } };
 }

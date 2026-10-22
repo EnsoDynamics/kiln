@@ -4,8 +4,8 @@ process.env.TZ = "America/New_York";
 
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import { completeSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { detailRows, endingFact, headerState, modelAndEffort, needsYouCopy, pausedAfter, phaseOfTotal, rowFacts, rowPill, rowState, settingsModel } from "./progress.js";
+import { completeRepositoriesSnapshot, completeSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { commitsAcross, detailRows, endingFact, folderShown, headerState, modelAndEffort, needsYouCopy, openedLabel, pausedAfter, phaseOfTotal, repositoriesLine, repositoryCommitsLine, rowFacts, rowPill, rowState, settingsModel } from "./progress.js";
 
 const now = new Date(RUNNING_NOW);
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -45,7 +45,7 @@ describe("a plan row", () => {
     const rows = completeSnapshot().phases;
     expect(rowFacts(rows[0]!, "done", RUNNING_NOW)).toBe("52m · pushed a1c4e09");
     expect(rowFacts(rows[3]!, "done", RUNNING_NOW)).toBe("1h 19m · finished by you · pushed 7f3a91c");
-    expect(rowPill(rows.at(-1)!, "done", 218)).toBe("Opened #218");
+    expect(rowPill(rows.at(-1)!, "done", openedLabel(completeSnapshot()))).toBe("Opened #218");
     expect(rowFacts(rows.at(-1)!, "done", RUNNING_NOW)).toBe("9m");
   });
 
@@ -103,6 +103,7 @@ describe("the Needs you screen's copy", () => {
 
   it("reads as drawn for a session that ended with a message, or crashed with none (AC-STOP-02)", () => {
     expect(needsYouCopy(base, settings, now)).toMatchObject({ headline: "Phase 2b ended before it was done.", line: "Kiln doesn’t try to interpret why. This is how the session ended.", firstStep: "resume", freshLink: true, sideHeading: "Kiln continues when" });
+    expect(needsYouCopy({ ...base, phaseId: "pr" }, settings, now, true).finishText).toContain("into each repository’s base branch, in every repository that changed");
     expect(needsYouCopy(needsYouCrashedSnapshot().needsYou!, settings, now).line).toBe("The session exited with an error and no final message. These are the last lines it wrote.");
     expect(endingFact(base)).toBe("exit 0");
   });
@@ -157,5 +158,36 @@ describe("the Needs you screen's copy", () => {
     expect(needsYouCopy({ ...neverRan, spawnError }, settings, now)).toMatchObject({ line: "Kiln couldn’t start this session. This is the error it got.", firstStep: "fresh", freshLink: false });
     expect(copyOf({ spawnError })).toMatchObject({ line: "Kiln couldn’t restart this session. These are the last lines it wrote, ending with the error it got.", firstStep: "resume", freshLink: true });
     expect(endingFact({ ...base, spawnError })).toBe("ENOENT");
+  });
+});
+
+describe("across repositories (multi-repo AC-PRS-03, AC-ADD-03, AC-SPACE-05)", () => {
+  it("counts the repositories a Done phase pushed to in place of its commit, and the pull requests opened", () => {
+    const rows = completeRepositoriesSnapshot().phases;
+    expect(rowFacts(rows[0]!, "done", RUNNING_NOW)).toBe("52m · pushed to 2 repositories");
+    expect(rowFacts(rows[3]!, "done", RUNNING_NOW)).toBe("1h 19m · finished by you · pushed to 4 repositories");
+    expect(rowFacts({ ...rows[0]!, pushedRepositoryCount: 1 }, "done", RUNNING_NOW)).toBe("52m · pushed to 1 repository");
+    expect(rowFacts({ ...rows[0]!, pushedRepositoryCount: 0 }, "done", RUNNING_NOW)).toBe("52m");
+    expect(openedLabel(completeRepositoriesSnapshot())).toBe("Opened 4 pull requests");
+    const one = completeRepositoriesSnapshot();
+    one.pullRequests = one.pullRequests!.slice(0, 1);
+    expect(openedLabel(one)).toBe("Opened 1 pull request");
+  });
+
+  it("lists Details as Complete draws them: no single worktree or branch, the commits by repository", () => {
+    const rows = detailRows(completeRepositoriesSnapshot().phases[0]!.details!, now);
+    expect(rows.map((row) => `${row.term} ${row.value}`)).toEqual(["Ran 9:17 to 10:09 AM", "Model Opus 5.5 · high effort", "Commits 3 in 2 repositories", "Session 4f2a9c1e-7b3d-4c8a-a5e6-1d9f0b2c7e34"]);
+    expect(rows[2]!.repositories!.map((repository) => repository.name)).toEqual(["product", "returns-api"]);
+    expect(repositoryCommitsLine(1, "3e8b2f1d4a07")).toBe("1 commit · latest 3e8b2f1");
+    expect(commitsAcross(0, 0)).toBe("None yet for this phase");
+  });
+
+  it("counts the repositories under the workspace folder, with the ones sessions added", () => {
+    const rows = completeRepositoriesSnapshot().repositories;
+    expect(repositoriesLine(rows)).toBe("4 repositories, one added in phase 2b");
+    expect(repositoriesLine(rows.slice(0, 3))).toBe("3 repositories");
+    expect(repositoriesLine([...rows, { ...rows[3]!, name: "search", addedInPhase: "3" }])).toBe("5 repositories, two added in phases 2b and 3");
+    expect(repositoriesLine([...rows, { ...rows[3]!, name: "search" }])).toBe("5 repositories, two added in phase 2b");
+    expect(folderShown("~/devel/acme/.worktrees/customer-returns")).toEqual(["~/devel/acme/.worktrees/", "customer-returns/"]);
   });
 });

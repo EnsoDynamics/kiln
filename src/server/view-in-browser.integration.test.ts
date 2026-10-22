@@ -1,6 +1,6 @@
 // The browser view in a real browser (technical design, Testing Approach, "The view"): each
 // mockup screen rendered by headless Chrome from a fixture Snapshot carrying that mockup's
-// sample data, under Kiln's own Content Security Policy, with its copy checked against the
+// sample data, v1's and the multi-repo delivery change's (multi-repo AC-SHOW-01), under Kiln's own Content Security Policy, with its copy checked against the
 // mockup's; the Disconnected and reconnect behavior against a server that stops and returns;
 // and a final message holding raw HTML shown as text (PRD AC-STOP-02).
 //
@@ -18,17 +18,25 @@ import { createHarness, landingSession, waitFor } from "../test-support/engine-h
 import { startLocalServer } from "./local-server.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import {
+  completeRepositoriesSnapshot,
   completeSnapshot,
+  documentsFoundRepositoriesSnapshot,
   documentsFoundSnapshot,
   needsYouCrashedSnapshot,
   needsYouMessageSnapshot,
   pausedSnapshot,
+  needsYouRepositoriesSnapshot,
   PHASE_DETAIL_LINES,
   RUNNING_NOW,
+  runningRepositoriesSnapshot,
   runningSnapshot,
 } from "../test-support/sample-snapshots.js";
 
 const MOCKUPS = new URL("../../docs/design/mockups/", import.meta.url);
+/** The multi-repo delivery change's mockups, from MOCKUPS. */
+const REPOSITORIES_MOCKUPS = "../../changes/kiln-multi-repo-delivery/mockups/";
+/** Documents found's line on what sessions may do in a repository they add (multi-repo AC-SPACE-03, AC-PRS-04). */
+const SESSIONS_ADD = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
 const AMBER = "rgb(230, 180, 80)";
 const GREEN = "rgb(156, 196, 154)";
 const TIME_ZONE = "America/New_York";
@@ -150,11 +158,12 @@ const USE_VIEW_FONTS = `(async () => {
   return true;
 })()`;
 
-/** The text layout of a mockup, drawn with the view's fonts. */
-async function mockupLayout(mockup: string, clock: number): Promise<TextBox[]> {
+/** The text layout of a mockup, drawn with the view's fonts, after any `addition` to it runs. */
+async function mockupLayout(mockup: string, clock: number, addition?: string): Promise<TextBox[]> {
   const drawn = await chrome.open(new URL(mockup, MOCKUPS).href, { clock, timeZone: TIME_ZONE });
   try {
     await drawn.waitFor(`document.readyState === "complete"`);
+    if (addition) await drawn.evaluate(addition);
     await drawn.evaluate(USE_VIEW_FONTS);
     return await drawn.evaluate<TextBox[]>(TEXT_LAYOUT);
   } finally {
@@ -205,18 +214,45 @@ const SCREENS: {
   partial?: { source: OutputLine["source"]; text: string };
   /** Mockup text the view draws differently on purpose, with what it draws instead. */
   decided?: Record<string, string>;
+  /** A script that adds to the mockup what a later change decided and nobody drew, before it is measured. */
+  addition?: string;
 }[] = [
   {
     // The view's own choice of screen: a feature not started, with what Kiln found, opens on Documents found (AC-START-03).
     name: "documents-found",
     mockup: "kiln-screen-documents-found.html",
     snapshot: documentsFoundSnapshot,
+    // Multi-repo AC-SPACE-03: v1's screen plus one line, under the worktree fields, in the
+    // multi-repository screen's words; the v1 mockup gets the line where the view draws it.
+    addition: `(() => {
+      const pair = document.querySelector("#branch").closest('div[style*="grid"]');
+      const field = Object.assign(document.createElement("div"), { style: "display: flex; flex-direction: column; gap: 6px" });
+      pair.replaceWith(field);
+      field.append(pair, Object.assign(document.createElement("span"), { style: "font-size: 12.5px; color: #8c8577", textContent: ${JSON.stringify(SESSIONS_ADD)} }));
+      return true;
+    })()`,
     copy: [
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
       "PRD customer-returns-prd.md 14 acceptance criteria, AC-RET-01 to AC-RET-14 Technical design technical-design.md Cites all 14 criteria",
       "Every phase cites its criteria Dependencies point backward Working tree is clean",
+      `${SESSIONS_ADD} Agent Claude Code`,
       "Keep this computer awake while a session works Stops idle sleep only.",
       "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start",
+    ],
+  },
+  {
+    name: "documents-found-repositories",
+    mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-documents-found-repositories.html`,
+    snapshot: documentsFoundRepositoriesSnapshot,
+    copy: [
+      "Repository product PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
+      "Phase plan 6 phase docs 5 phases to implement, in this order 1 Return intake returns-api 2 Refund routing split into 2a and 2b returns-api 2a Card refunds returns-api 2b Store credit returns-api · storefront 3 Returns dashboard storefront 4 Restock check-in returns-api",
+      "Every phase cites its criteria Dependencies point backward Named repositories found beside product Working tree of product is clean",
+      "Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn.",
+      "Used in every repository. Repositories Branch from, and PR into product PRD’s repository",
+      `${SESSIONS_ADD} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks. Agent Claude Code`,
+      "Pushes After every phase Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.",
+      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Never merge, deploy, or touch other branches Start",
     ],
   },
   {
@@ -317,6 +353,24 @@ const SCREENS: {
       "Kiln Connected Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay.",
     ],
   },
+  {
+    name: "complete-repositories",
+    mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-complete-repositories.html`,
+    snapshot: completeRepositoriesSnapshot,
+    clock: Date.parse("2026-10-17T19:00:00Z"),
+    // The mockup draws phase 2b's Details open.
+    open: ["2b"],
+    copy: [
+      "Customer returns PR ready for review 5 of 5 phases done · 5h 38m · Finished 2:55 PM",
+      "4 pull requests · feature/customer-returns One in each repository that changed product #12 PRD’s repository Customer returns: phase documents feature/customer-returns → main · 5 commits · +5 −0 Open on GitHub returns-api #57",
+      "notifications #9 added in phase 2b Customer returns: store credit emails feature/customer-returns → main · 2 commits · +88 −8 Open on GitHub Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.",
+      "1 Return intake phase-1-return-intake.md 52m · pushed to 2 repositories Done",
+      "2b Store credit phase-2b-store-credit.md 1h 19m · finished by you · pushed to 4 repositories Done",
+      "PR Final pull request pull request session 9m Opened 4 pull requests",
+      "Settings for this PRD Set before the first phase. Agent Claude Code Each phase’s Details show the model and effort it ran with. Workspace folder ~/devel/acme/.worktrees/customer-returns/ 4 repositories, one added in phase 2b Kiln keeps the folder and its worktrees until you remove them.",
+      "Kiln Connected Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay.",
+    ],
+  },
 ];
 
 describe("each screen in a real browser, from its mockup's sample data", () => {
@@ -342,7 +396,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
   for (const screen of SCREENS) {
     it(`lays out ${screen.name} as drawn: each text where the mockup puts it, in its color, type and panel (AC-LOOK-01)`, async () => {
       const clock = screen.clock ?? RUNNING_NOW;
-      const mockup = await mockupLayout(screen.mockup, clock);
+      const mockup = await mockupLayout(screen.mockup, clock, screen.addition);
       const { server, page } = await openScreen(screen.snapshot(), screen.path ?? "", clock);
       try {
         await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.copy[0]!.split(" ").slice(-3).join(" "))})`);
@@ -714,6 +768,46 @@ describe("the controls, in a real browser", () => {
     }
   });
 
+  it("saves the workspace folder, and each repository's base under its own name, from the multi-repository Documents found (multi-repo AC-REPO-03, AC-SPACE-01)", async () => {
+    const { server, page } = await openScreen(documentsFoundRepositoriesSnapshot());
+    try {
+      await page.waitFor(`document.querySelector("#workspace")`);
+      await page.evaluate(`(() => { const input = document.querySelector("#workspace"); input.focus(); input.value = "~/devel/acme/returns-work"; input.dispatchEvent(new Event("input", { bubbles: true })); input.blur(); return true; })()`);
+      const choose = (id: string, value: string) =>
+        page.evaluate(`(() => { const select = document.getElementById(${JSON.stringify(id)}); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
+      await choose("base-returns-api", "main");
+      await choose("base-product", "main");
+      await waitUntil(() => server.commands.length >= 3);
+      expect(server.commands).toEqual([
+        'POST /api/settings {"workspaceFolder":"~/devel/acme/returns-work"}',
+        'POST /api/settings {"bases":{"returns-api":"main"}}',
+        'POST /api/settings {"baseBranch":"main"}',
+      ]);
+      // There is no worktree field: each worktree is <workspace folder>/<name>.
+      expect(await page.evaluate<boolean>(`document.querySelector("#worktree") === null`)).toBe(true);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("shows the fields a partly failed Start set up as fixed, leaving the rest editable (multi-repo AC-SPACE-01)", async () => {
+    const snapshot = documentsFoundRepositoriesSnapshot();
+    snapshot.settings.fixed = { workspaceFolder: true, featureBranch: true, worktreePath: true };
+    snapshot.repositories = snapshot.repositories.map((row) => (row.name === "storefront" ? row : { ...row, fixed: true }));
+    snapshot.documents!.startError = "Couldn’t set up storefront’s worktree: fatal: could not create work tree dir";
+    const { server, page } = await openScreen(snapshot);
+    try {
+      await page.waitFor(`document.querySelector("#workspace")`);
+      const disabled = await page.evaluate<boolean[]>(`["workspace", "branch", "base-product", "base-returns-api", "base-storefront"].map((id) => document.getElementById(id).disabled)`);
+      expect(disabled).toEqual([true, true, true, true, false]);
+      expect(await words(page)).toContain(flat("Couldn’t set up storefront’s worktree: fatal: could not create work tree dir"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
   it("sends Pause after this phase from the live Phase detail too (AC-VIEW-02)", async () => {
     const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
     try {
@@ -803,7 +897,9 @@ describe("the controls, in a real browser", () => {
 describe("what the screens never claim (AC-WATCH-11)", () => {
   it("shows an acceptance criterion's label only inside the session's own words", async () => {
     const complete = completeSnapshot();
-    complete.pullRequest!.title = "Customer returns (AC-RET-01 to AC-RET-14)";
+    complete.pullRequests![0]!.title = "Customer returns (AC-RET-01 to AC-RET-14)";
+    const completeAcross = completeRepositoriesSnapshot();
+    completeAcross.pullRequests![1]!.title = "Customer returns: intake (AC-RET-01 to AC-RET-04)";
     // Every screen that shows a session or its outcome, connected and not.
     for (const [snapshot, path, connected] of [
       [runningSnapshot(), "", true],
@@ -814,6 +910,9 @@ describe("what the screens never claim (AC-WATCH-11)", () => {
       [needsYouCrashedSnapshot(), "", true],
       [needsYouCrashedSnapshot(), "/phase/3", true],
       [complete, "", true],
+      [completeAcross, "", true],
+      [runningRepositoriesSnapshot(), "", true],
+      [needsYouRepositoriesSnapshot(), "/phase/3", true],
     ] as const) {
       const { server, page } = await openScreen(snapshot, path);
       try {
@@ -830,7 +929,7 @@ describe("what the screens never claim (AC-WATCH-11)", () => {
           while (walker.nextNode()) {
             const node = walker.currentNode;
             const claim = /AC-[A-Z]+-\\d+/.test(node.textContent) || /\\bcriteri(on|a)\\b.*\\b(met|tested|pass(ed|es|ing)?|covered|proven)\\b/i.test(node.textContent);
-            if (claim && !node.parentElement.closest(".lines, .latest, .final, .pr h2")) found.push(node.textContent.trim());
+            if (claim && !node.parentElement.closest(".lines, .latest, .final, .pr h2, .pr-title")) found.push(node.textContent.trim());
           }
           return found;
         })()`);

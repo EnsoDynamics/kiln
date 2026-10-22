@@ -1,17 +1,20 @@
-// The `kiln` command line: `kiln run <path>` is the only command (PRD AC-START-01, AC-CLI-02).
-// It resolves the PRD, takes the PRD's instance lock and port, and moves the feature forward
-// (AC-CLI-01; technical design, "Where a Feature Stands").
+// The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
+// takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
+// design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
+// repository (multi-repo AC-ADD-01; add-repository-command.ts).
 
 import { basename, dirname, resolve } from "node:path";
 import { ClaudeInfo } from "./account/claude-info.js";
 import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
 import { originBranches } from "./engine/git-reads.js";
 import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
-import { defaultSettings, prdTreeAtHead } from "./engine/worktree-setup.js";
+import { defaultBaseBranch, defaultSettings, prdTreeAtHead } from "./engine/worktree-setup.js";
 import { findExecutable, WINDOWS_CTRL_C_GRACE_MS } from "./platform/helper-process.js";
 import { KeepAwake } from "./platform/keep-awake.js";
 import { openBrowser } from "./platform/open-browser.js";
 import type { PhasePlan } from "./plan/phase-plan.js";
+import { runAddRepository } from "./add-repository-command.js";
+import type { FoundRepository } from "./engine/repositories.js";
 import { featureNameFor, resolvePrdPath, type PrdLocation } from "./prd-location.js";
 import { startLocalServer, type LocalServer } from "./server/local-server.js";
 import { runStartChecks, startChecksPassed } from "./start-checks.js";
@@ -121,7 +124,8 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return 0;
   }
   if (command === undefined) return usageError(context);
-  if (command !== "run") return usageError(context, `kiln: unknown command "${command}". kiln run is the only command.`);
+  if (command === "add-repository") return runAddRepository(rest, context);
+  if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run and kiln add-repository.`);
   if (rest.length === 0) return usageError(context);
   if (rest.length > 1) return usageError(context, "kiln: kiln run takes one path.");
 
@@ -196,7 +200,12 @@ interface KilnRun {
 }
 
 /** An engine over the PRD's record, with keep-awake for the sessions it runs. */
-function makeEngine(run: KilnRun, record: PrdRecord, write: (line: string) => void, start?: { prdTree: string | undefined; plan: PhasePlan | undefined }): Engine {
+function makeEngine(
+  run: KilnRun,
+  record: PrdRecord,
+  write: (line: string) => void,
+  start?: { prdTree: string | undefined; plan: PhasePlan | undefined; repositories: FoundRepository[] },
+): Engine {
   const { location, tools, context } = run;
   const colors = terminalColors(context.stdout, context.env);
   const keepAwake = new KeepAwake({ featureName: location.featureName, env: context.env, onError: (message) => write(`${colors.amber("✗")} ${message}`) });
@@ -215,6 +224,8 @@ function makeEngine(run: KilnRun, record: PrdRecord, write: (line: string) => vo
     record,
     ...(start?.prdTree === undefined ? {} : { prdTree: start.prdTree }),
     ...(start?.plan === undefined ? {} : { startPlan: start.plan }),
+    ...(start === undefined ? {} : { namedRepositories: start.repositories }),
+    ...kilnBinDirectory(),
     onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
     keepAwake,
     claude: run.claude,
@@ -281,15 +292,22 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   } else {
     record.repository.github = report.github!;
   }
+  // Each named repository starts from v1's rule: develop on its origin, else origin's default branch (AC-SPACE-01).
+  const unset = report.repositories.filter((repository) => record!.settings.bases[repository.name] === undefined);
+  const origins = await Promise.all(unset.map((repository) => originBranches(git, repository.mainCheckoutPath)));
+  unset.forEach((repository, index) => {
+    const origin = origins[index]!;
+    if (origin.ok) record!.settings.bases[repository.name] = defaultBaseBranch(origin.value);
+  });
   if (stop.stopping) return stop.done;
   writePrdRecord(run.stateDirectory, record);
 
   const write = terminalWriter(run);
-  const engine = makeEngine(run, record, write, { prdTree, plan: report.plan });
+  const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories });
   if (startError !== undefined) engine.startError = startError;
-  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, report.found);
+  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories }, location.repositoryName);
   const outColors = terminalColors(context.stdout, context.env);
-  write(formatDocumentsFound(location.featureName, report.found, outColors));
+  write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length));
   const { address, openError } = await serveAndOpen(run, engine, documents);
   write(formatOpenedLine(address, openError, outColors));
   // Kiln lives in its terminal until Ctrl+C or a closed terminal (AC-KEEP-01); Start comes from the view.
@@ -327,11 +345,27 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
     case "prd_started":
-      return formatStartedLine(event.at, event.branch, event.baseBranch, colors);
+      return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);
     case "phase":
-      return formatPhaseLine(event.at, event.phaseId, event.title, event.event === "done" ? { kind: "done", pushedSha: event.pushedSha ?? "" } : { kind: event.event }, columns, colors);
+      return formatPhaseLine(
+        event.at,
+        event.phaseId,
+        event.title,
+        event.event === "done" ? { kind: "done", pushedSha: event.pushedSha ?? "", ...(event.pushes ? { pushes: event.pushes } : {}) } : { kind: event.event },
+        columns,
+        colors,
+      );
+    case "repository_added":
+      return formatPhaseLine(event.at, event.phaseId, event.title, { kind: "added", name: event.name }, columns, colors);
     case "pull_request":
-      return formatPhaseLine(event.at, "PR", PR_TITLE, event.event === "opened" ? { kind: "opened", number: event.number ?? 0 } : { kind: event.event }, columns, colors);
+      return formatPhaseLine(
+        event.at,
+        "PR",
+        PR_TITLE,
+        event.event === "opened" ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) } : { kind: event.event },
+        columns,
+        colors,
+      );
     case "message":
       return `${colors.amber("✗")} ${event.text}`;
   }
@@ -344,6 +378,18 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
 function portRange(env: NodeJS.ProcessEnv): { first: number; last: number } {
   const match = /^(\d+)-(\d+)$/.exec(env.KILN_PORT_RANGE ?? "");
   return match ? { first: Number(match[1]), last: Number(match[2]) } : PORT_RANGE;
+}
+
+/**
+ * On macOS and Linux, the directory of the `kiln` the person ran, put first on each session's
+ * PATH so `kiln add-repository` reaches this Kiln: npm links `kiln` to `dist/cli.js`, and Node
+ * keeps the link's path in `process.argv[1]`. On Windows npm's shim hides it, so PATH is left
+ * as it is (multi-repo technical design, "The command").
+ */
+function kilnBinDirectory(): { kilnBinDirectory?: string } {
+  const script = process.argv[1];
+  if (process.platform === "win32" || script === undefined || basename(script) !== "kiln") return {};
+  return { kilnBinDirectory: dirname(script) };
 }
 
 function usageError(context: CommandContext, message?: string): number {

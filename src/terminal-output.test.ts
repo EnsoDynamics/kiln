@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDocumentsFound, formatStartFailure, terminalColors, formatOpenedLine } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, terminalColors } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -85,5 +85,31 @@ describe("the not-started ● line (AC-START-09)", () => {
       "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
     ]);
     expect(formatOpenedLine("http://127.0.0.1:4700/x", "no display", plain, true)).toBe("✗ Couldn’t open the browser: no display. Open http://127.0.0.1:4700/x yourself.");
+  });
+});
+
+describe("the terminal lines for several repositories (multi-repo technical design, Command line)", () => {
+  const at = new Date(2026, 9, 22, 11, 31);
+  const columns = { idWidth: 4, titleWidth: 19 };
+  it("counts the repositories on the first line and the Started line, only when there is more than one", () => {
+    const found = { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 6 };
+    expect(formatDocumentsFound("Customer returns", found, plain, 3)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs, 3 repositories  ·  all checks passed");
+    expect(formatDocumentsFound("Customer returns", found, plain, 1)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs  ·  all checks passed");
+    expect(formatStartedLine(at, "feature/customer-returns", "develop", plain, 3)).toBe("11:31  Started  ·  feature/customer-returns in 3 repositories");
+    expect(formatStartedLine(at, "feature/customer-returns", "develop", plain)).toBe("11:31  Started  ·  feature/customer-returns from develop");
+  });
+
+  it("draws the added line, the done line by repository and the opened line by repository", () => {
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "added", name: "notifications" }, columns, plain)).toBe("11:31  2b  Store credit       added notifications");
+    const pushes = [
+      { name: "returns-api", sha: "7f3d9a0aaaaaaa" },
+      { name: "product", sha: "e07a4c8bbbbbbb" },
+    ];
+    expect(formatPhaseLine(at, "2b", "Store credit", { kind: "done", pushedSha: "e07a4c8", pushes }, columns, plain)).toBe("11:31  2b  Store credit       done · pushed returns-api 7f3d9a0 · product e07a4c8");
+    const opened = [
+      { repository: "product", number: 12 },
+      { repository: "returns-api", number: 57 },
+    ];
+    expect(formatPhaseLine(at, "PR", "Final pull request", { kind: "opened", number: 12, opened }, columns, plain)).toBe("11:31  PR  Final pull request  opened product #12 · returns-api #57");
   });
 });

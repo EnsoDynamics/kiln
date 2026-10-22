@@ -181,8 +181,8 @@ describe("a stop before the first phase", () => {
     const { engine } = harness;
     engine.record.startedAt = "2026-10-17T13:00:00Z";
     engine.record.plan = [
-      { id: "1", title: "Return intake", file: "phase-1-return-intake.md", closed: true },
-      { id: "2b", title: "Store credit", file: "phase-2b-store-credit.md", closed: false },
+      { id: "1", title: "Return intake", file: "phase-1-return-intake.md", closed: true, repositories: [] },
+      { id: "2b", title: "Store credit", file: "phase-2b-store-credit.md", closed: false, repositories: [] },
     ];
     expect(await engine.stop("sigint")).toEqual({ text: "Kiln stopped before phase 2b started.", grey: "kiln run picks it back up." });
   });
