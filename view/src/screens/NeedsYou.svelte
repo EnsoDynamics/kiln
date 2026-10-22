@@ -7,14 +7,16 @@
   // never gives a reason of its own (AC-STOP-04). It is the screen alone: no plan, settings or
   // account (UI-006). Each check's facts are one per line, each naming its repository for a
   // multi-repository PRD, as the multi-repo outside-workspace mockup lists them (multi-repo
-  // AC-CHECK-02).
+  // AC-CHECK-02). After work outside the workspace (docs/changes/kiln-multi-repo-delivery/mockups/
+  // kiln-screen-needs-you-outside-workspace.html), step 2 is the prompt that brings the work into
+  // the workspace, and the confirmation sits under the checks (multi-repo AC-OUTSIDE-02, 03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
-  import { checkAgain } from "../lib/api.js";
+  import { checkAgain, confirmOutside } from "../lib/api.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
@@ -29,7 +31,8 @@
   const ending = $derived(endingFact(stop));
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
-  const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), "finish", "again"]);
+  const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), copy.outside ? "outside" : "finish", "again"]);
+  const STAYED = "Stayed in the workspace";
   let showPrompt = $state(false);
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
@@ -37,6 +40,11 @@
   async function copyFreshPrompt() {
     showPrompt = true;
     await navigator.clipboard.writeText(stop.freshSessionPrompt);
+  }
+
+  async function toggleConfirmation(event: Event) {
+    const answer = await confirmOutside(config, (event.currentTarget as HTMLInputElement).checked);
+    reason = answer.ok ? undefined : answer.reason;
   }
 
   async function pressCheckAgain() {
@@ -92,9 +100,16 @@
                 {:else if step === "finish"}
                   <span class="step-title">{copy.finishTitle}</span>
                   <p><CodeText text={copy.finishText} /></p>
+                {:else if step === "outside" && copy.outside}
+                  <span class="step-title">{copy.outside.title}</span>
+                  {#if copy.outside.prompt}
+                    <div class="block"><pre>{copy.outside.prompt}</pre><div class="actions"><CopyButton text={copy.outside.prompt} label="Copy prompt" /><span class="hint">Or deal with it however you like.</span></div></div>
+                  {:else}
+                    <p>{copy.outside.text}</p>
+                  {/if}
                 {:else}
-                  <span class="step-title">Come back and check again</span>
-                  <p>{copy.checkAgainText}</p>
+                  <span class="step-title">{copy.outside?.againTitle ?? "Come back and check again"}</span>
+                  <p>{copy.outside?.againText ?? copy.checkAgainText}</p>
                 {/if}
               </div>
             </li>
@@ -114,10 +129,20 @@
           {#each stop.checks as check (check.name)}
             <li>
               <span class="mark" class:passed={check.passed}>{#if check.passed}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+              {#if check.name === STAYED && !check.passed && stop.outside}
+                <span class="check"><span class="check-head">{check.name}<span class="verdict">No</span></span>{#each stop.outside.changes as fact, index (index)}<span class="fact">{fact}</span>{/each}{#if stop.outside.changes.length > 0}<span class="note">Kiln changed nothing in that checkout, since it may hold other work too.</span>{/if}{#each stop.outside.missingTranscripts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+              {:else}
+                <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+              {/if}
             </li>
           {/each}
         </ul>
+        {#if stop.outside?.confirmation.offered}
+          <label for="outside-dealt-with" class="confirm">
+            <input id="outside-dealt-with" type="checkbox" checked={stop.outside.confirmation.ticked} onchange={toggleConfirmation} />
+            <span class="confirm-text"><span class="confirm-title">The changes outside the workspace have been dealt with</span><span class="confirm-hint">Covers every change outside the workspace up to when you tick it. Any later one fails the check again.</span></span>
+          </label>
+        {/if}
         <div class="again">
           <button type="button" class="button solid wide" disabled={pressing || stop.checking === true} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
           <span class="checked">{stop.checking ? "Checking…" : `Checked ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.`}</span>
@@ -170,6 +195,12 @@
   .verdict { font-size: 12px; color: var(--amber); }
   .verdict.passed { color: var(--green); }
   .fact { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+  .note { margin-top: 8px; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .confirm { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230, 180, 80, 0.55); cursor: pointer; }
+  .confirm input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--amber); }
+  .confirm-text { display: flex; flex-direction: column; gap: 2px; }
+  .confirm-title { font-size: 14.5px; color: var(--text); text-wrap: pretty; }
+  .confirm-hint { font-size: 12.5px; color: var(--dim); }
   .again { display: flex; flex-direction: column; gap: 10px; }
   .checked { font-size: 12.5px; color: var(--dim); }
   .reason { font-size: 12.5px; color: var(--amber); }

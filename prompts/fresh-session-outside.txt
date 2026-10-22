@@ -1,0 +1,2 @@
+The previous session also changed {{aCheckout}} outside the {{place}}, and Kiln changed nothing there:
+{{facts}}

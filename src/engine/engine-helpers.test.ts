@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPhasePlan } from "../plan/phase-plan.js";
 import { launchArguments, modelNameFromId, resumeArguments } from "../session/claude-session.js";
-import { freshSessionPrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { freshSessionPrompt, outsideWorkspacePrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { keepAwakeMissingMessage, keepAwakeTool } from "../platform/keep-awake.js";
 import { formatPhaseLine, formatStartedLine, planColumns, terminalColors, terminalTime } from "../terminal-output.js";
 import { PHASES } from "../test-support/fixture-documents.js";
@@ -146,11 +146,37 @@ describe("the resumed session's prompt", () => {
     );
   });
 
+  it("asks a session that changed several checkouts outside the workspace to add only the repositories the workspace lacks (multi-repo AC-OUTSIDE-02)", () => {
+    const facts = ["Ran git stash in ~/devel/acme/storefront", "Edited a.ts in ~/devel/acme/design-system"];
+    expect(
+      outsideWorkspacePrompt({
+        phaseName: "phase 2b",
+        facts,
+        checkouts: [
+          { shownPath: "~/devel/acme/storefront", name: "storefront", inWorkspace: true },
+          { shownPath: "~/devel/acme/design-system", name: "design-system", inWorkspace: false },
+        ],
+        branch: "feature/customer-returns",
+        multiRepository: true,
+      }),
+    ).toBe(
+      [
+        "While working on phase 2b, you changed checkouts outside the Kiln workspace, the worktrees listed in your instructions:",
+        "- Ran git stash in ~/devel/acme/storefront",
+        "- Edited a.ts in ~/devel/acme/design-system",
+        "",
+        "Bring the changes you made there into the workspace, committed and pushed on feature/customer-returns, and nothing else from those checkouts. design-system isn’t in the workspace yet, so ask Kiln to add it first. Leave ~/devel/acme/storefront and ~/devel/acme/design-system as they are, and tell me what in them still needs putting back.",
+      ].join("\n"),
+    );
+  });
+
   it("resumes with --resume in place of --session-id, the same flags otherwise", () => {
     const args = resumeArguments("7c1e9f2a-0000", "claude-opus-5-5", "high");
     expect(args.slice(0, 7)).toEqual(["-p", "--input-format", "stream-json", "--resume", "7c1e9f2a-0000", "--model", "claude-opus-5-5"]);
     expect(args).not.toContain("--session-id");
     expect(args.slice(7)).toEqual(launchArguments("x", "y", "high").slice(7));
+    // A resumed run gets no PowerShell tool either (multi-repo design, "Sessions").
+    expect(args[args.indexOf("--disallowedTools") + 1]).toBe("PowerShell");
     expect(resumeArguments("id", "claude-haiku-4-5", undefined)).not.toContain("--effort");
   });
 });

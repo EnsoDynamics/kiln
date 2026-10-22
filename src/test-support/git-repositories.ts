@@ -31,6 +31,8 @@ export function createSandbox(): Sandbox {
     // Kiln's state goes in the sandbox, never the person's own state folder.
     XDG_STATE_HOME: join(root, "state"),
     LOCALAPPDATA: join(root, "state"),
+    // Session transcripts, which the stand-in claude keeps and Stayed in the workspace reads, stay in the sandbox too.
+    CLAUDE_CONFIG_DIR: join(root, "claude-config"),
   };
   // On Windows a folder can't be removed while a process that just ended still holds it, and
   // taskkill returns before the tree it ends is gone. rmSync's own retries don't cover an EBUSY

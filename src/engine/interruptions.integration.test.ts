@@ -66,7 +66,7 @@ describe("Ctrl+C while a session works", () => {
     // No Claude Code process is left behind (AC-KEEP-02).
     expect(await isProcessLive(run!.pid!, run!.processStartTime)).toBe(false);
     // Nothing was judged: no Needs you, no Done (technical design, "Once a stop begins").
-    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } } });
+    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } }, outsideConfirmations: [] });
     // The work in progress stays exactly as it was (AC-KEEP-03), staged and unstaged alike.
     expect(workState()).toEqual(workBefore);
 
@@ -81,6 +81,8 @@ describe("Ctrl+C while a session works", () => {
 
     const resumed = h.claudeCalls()[1]!;
     expect(resumed.args.slice(0, 7)).toEqual(["-p", "--input-format", "stream-json", "--resume", session.sessionId, "--model", "claude-opus-5-5"]);
+    // Multi-repo design, "Sessions": a resumed run gets no PowerShell tool either.
+    expect(resumed.args[resumed.args.indexOf("--disallowedTools") + 1]).toBe("PowerShell");
     expect(resumed.args[resumed.args.indexOf("--effort") + 1]).toBe(session.effort);
     expect(resumed.prompt).toBe(
       `Kiln was interrupted at \`${run!.interruptedAt!.replace(/\.\d+Z$/, "Z")}\` (Ctrl+C) while this session was working, and has resumed it. ` +

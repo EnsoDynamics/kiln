@@ -72,6 +72,8 @@ describe("the engine from Start to the pull request", () => {
         "--model", "opus", "--effort", "high",
         "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--forward-subagent-text",
         "--permission-mode", "auto", "--permission-prompts", "none",
+        // Multi-repo design, "Sessions": no PowerShell tool, so every shell command is one Stayed in the workspace reads.
+        "--disallowedTools", "PowerShell",
         // Multi-repo AC-SPACE-03: the workspace folder, so a repository a session adds is writable by mode.
         "--add-dir", join(h.sandbox.root, ".worktrees", "customer-returns"),
       ]);
@@ -411,13 +413,13 @@ describe("a phase that doesn't land", () => {
 });
 
 describe("a session that would ask (AC-RUN-05)", () => {
-  // Two real Claude Code sessions recorded with Kiln's launch flags (2026-10-19, Claude Code
-  // 2.1.299): one whose Bash call auto mode refused instead of asking, and one told to use
+  // Two real Claude Code sessions recorded with Kiln's launch flags (2026-10-22, Claude Code
+  // 2.1.307): one whose Bash call auto mode refused instead of asking, and one told to use
   // AskUserQuestion, which a headless session doesn't offer. Each ended on its own with its
   // question as its final message.
   const recordings = [
-    { name: "refused-tool-call-ends-with-question", question: "Which name do you want, `alpha.txt` or `beta.txt`?" },
-    { name: "ask-user-question-unavailable", question: "Which name should it have: `alpha.txt` or `beta.txt`?" },
+    { name: "refused-tool-call-ends-with-question", question: "should the new file be named `alpha.txt` or `beta.txt`?" },
+    { name: "ask-user-question-unavailable", question: "Which name do you want: `alpha.txt` or `beta.txt`?" },
   ];
   const fixture = (file: string) => readFileSync(new URL(`../../test/fixtures/proof-gate-1/${file}`, import.meta.url), "utf8");
 
@@ -1009,7 +1011,7 @@ describe("kiln run on a feature underway", () => {
     git(h.sandbox, engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
     const sessionId = "0f6a2c1e-0000-4000-8000-000000000001";
     writeSessionRecord(h.stateDirectory, { schemaVersion: 1, sessionId, phaseId: "2b", kind: "phase", createdAt: new Date().toISOString(), model: "opus", modelDisplayName: "opus", effort: "high", runs: [], sleeps: [], steps: [] });
-    engine.record.phases["2b"] = { sessionIds: [sessionId], finishedByPerson: false, repositories: {} };
+    engine.record.phases["2b"] = { sessionIds: [sessionId], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
     engine = h.reopen();
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "start_phase", phaseId: "2b", doneFirst: { phaseId: "1", byPerson: true } });

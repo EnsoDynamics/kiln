@@ -52,6 +52,7 @@ claudeArgs.push(
   "--output-format", "stream-json", "--verbose", "--include-partial-messages",
   "--forward-subagent-text",
   "--permission-mode", "auto", "--permission-prompts", "none",
+  "--disallowedTools", "PowerShell",
 );
 
 // A person's own terminal has none of the variables a parent Claude Code session sets.

@@ -40,6 +40,12 @@ export interface PhaseStop {
   at: string;
   checks: CheckResult[];
   checkedAt: string;
+  /**
+   * Set when an interrupted session's check found work outside the workspace, so Kiln stopped
+   * instead of resuming it (multi-repo AC-OUTSIDE-04): when it was interrupted, and whether that
+   * time is its last output because Kiln recorded none.
+   */
+  interrupted?: { at: string; atIsLastOutput: boolean };
 }
 
 /** A phase's facts in one repository: where its commits start, and what its Done recorded. */
@@ -56,6 +62,11 @@ export interface PhaseFacts {
   stop?: PhaseStop;
   /** By repository name. */
   repositories: Record<string, RepositoryPhaseFacts>;
+  /**
+   * Each tick of Needs you's confirmation that the changes outside the workspace were dealt
+   * with; the latest covers every change recorded at or before it (multi-repo AC-OUTSIDE-03).
+   */
+  outsideConfirmations: { at: string }[];
 }
 
 export interface PullRequestFacts {
@@ -213,6 +224,8 @@ interface SchemaOnePhase {
  * as a one-entry list and each check's fact as a one-item list. Written as schema 2 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
+  // A schema 2 record written before Stayed in the workspace was built holds no confirmations.
+  for (const facts of Object.values(record.phases)) facts.outsideConfirmations ??= [];
   if (record.schemaVersion >= 2) return record;
   const old = record as PrdRecord & { baseCommit?: string; createdBranch?: CreatedBranch; pullRequest?: Omit<PullRequestFacts, "repository"> };
   const name = record.repository.name;

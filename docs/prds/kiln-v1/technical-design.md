@@ -166,7 +166,7 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 
 ### Starting a phase's session
 
-Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree)
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
 
 ```
 claude -p --input-format stream-json
@@ -289,6 +289,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 
 ### Interruptions, sleep and resume
 
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Stayed in the workspace (no resume after work outside the workspace)
+
 **Detecting sleep.** Kiln reads the operating system's own record of suspend, not the difference between two clocks (Node's monotonic clock counts sleep on macOS but not on Linux):
 
 - **macOS:** `sysctl -n kern.sleeptime kern.waketime`. A non-zero wake time different from the last reading means the computer slept from `sleeptime` to `waketime`.
@@ -322,7 +324,7 @@ Kiln has no watchdog for a session that stops producing output without exiting; 
 
 ## The Done Check
 
-Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check (Committed and Pushed per repository), §The Pull Requests (the pull-request check per repository)
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check, Stayed in the workspace), §The Pull Requests (the pull-request check per repository, with Stayed in the workspace)
 
 Run in the worktree after every phase's session, on Check again and on `kiln run` for a stopped phase (not a `plan` stop), on `kiln run` for a session whose verdict was never recorded, and before any resume (AC-DONE-03). All three must pass (AC-DONE-01); the session's exit code and words play no part (AC-DONE-02, AC-DONE-04).
 
@@ -405,7 +407,7 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 ### HTTP API
 
-Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories)
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories, the outside-workspace confirmation)
 
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
@@ -437,7 +439,7 @@ While disconnected, every screen renders from that last snapshot by the rules th
 
 ### Snapshot
 
-Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request)
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request; work outside the workspace on Needs you)
 
 What every screen renders from. Outline:
 
@@ -529,7 +531,7 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 
 ## Kiln's State on Disk
 
-Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository)
+Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository; the outside-workspace confirmations and an interrupted stop)
 
 Root: `$XDG_STATE_HOME/kiln`, else `~/.local/state/kiln`, on macOS and Linux alike; `%LOCALAPPDATA%\kiln` on Windows, readable by its owner only. Never inside the repository (AC-GIT-03).
 

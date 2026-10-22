@@ -53,7 +53,7 @@ describe("migrating a schema 1 record", () => {
       expect.objectContaining({ name: "acme-shop", kind: "prd", baseCommit: "b0", setupCompletedAt: "2026-10-17T13:00:05Z", worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop" }),
     ]);
     expect(record.setupCompletedAt).toBe("2026-10-17T13:00:05Z");
-    expect(record.phases["1"]).toEqual({ sessionIds: ["s1"], doneAt: "2026-10-17T14:00:00Z", finishedByPerson: false, repositories: { "acme-shop": { startCommit: "b0", pushedSha: "p1", commitCount: 2 } } });
+    expect(record.phases["1"]).toEqual({ sessionIds: ["s1"], doneAt: "2026-10-17T14:00:00Z", finishedByPerson: false, repositories: { "acme-shop": { startCommit: "b0", pushedSha: "p1", commitCount: 2 } }, outsideConfirmations: [] });
     expect(record.phases["2b"]!.stop!.checks).toEqual([{ name: "Pushed", passed: false, facts: ["p2 isn't on origin yet"] }]);
     expect(record.plan![0]!.repositories).toEqual([]);
     expect(record).not.toHaveProperty("baseCommit");
@@ -69,5 +69,18 @@ describe("migrating a schema 1 record", () => {
   it("leaves a schema 2 record as it is", () => {
     const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
     expect(migrateRecord(record)).toBe(record);
+  });
+});
+
+describe("a record without Stayed in the workspace's confirmations (multi-repo AC-OUTSIDE-03)", () => {
+  it("gets none for each phase, from schema 1 and from a schema 2 record written before the check existed", () => {
+    const phase = { sessionIds: ["s1"], finishedByPerson: false, stop: { kind: "done_check", at: "t", checkedAt: "t", checks: [] } };
+    expect(migrateRecord(schemaOne({ phases: { "1": { ...phase } } })).phases["1"]!.outsideConfirmations).toEqual([]);
+    const two = migrateRecord(schemaOne({ phases: { "1": { ...phase } } }));
+    delete (two.phases["1"] as Partial<typeof two.phases["1"]>).outsideConfirmations;
+    expect(migrateRecord(two).phases["1"]!.outsideConfirmations).toEqual([]);
+    // One already recorded stays.
+    two.phases["1"]!.outsideConfirmations = [{ at: "2026-10-17T17:30:00Z" }];
+    expect(migrateRecord(two).phases["1"]!.outsideConfirmations).toEqual([{ at: "2026-10-17T17:30:00Z" }]);
   });
 });

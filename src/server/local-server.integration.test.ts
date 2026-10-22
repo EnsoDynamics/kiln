@@ -119,10 +119,14 @@ describe("the local server", () => {
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: "null" }, "POST", change)).status).toBe(403);
     expect((await raw(port, "/api/start", { Host: host, Origin: `http://${host}` }, "POST", JSON.stringify({ refinementConfirmed: true }))).status).toBe(403);
     // Every control and every read: Start, Pause, Keep going and Check again from another site, and output without the token.
-    for (const [method, path] of [["POST", "/api/start"], ["POST", "/api/pause"], ["DELETE", "/api/pause"], ["POST", "/api/check-again"]] as const) {
+    for (const [method, path] of [["POST", "/api/start"], ["POST", "/api/pause"], ["DELETE", "/api/pause"], ["POST", "/api/check-again"], ["POST", "/api/outside-confirmation"], ["DELETE", "/api/outside-confirmation"]] as const) {
       expect((await raw(port, path, { Host: host, "X-Kiln-Token": token, Origin: "https://evil.example" }, method, JSON.stringify({ refinementConfirmed: true }))).status, `${method} ${path}`).toBe(403);
     }
     expect((await raw(port, "/api/sessions/any/output", { Host: host })).status).toBe(403);
+    // Multi-repo AC-OUTSIDE-03: with the token and Kiln's own Origin, the confirmation reaches the engine, which refuses it while nothing has failed.
+    const confirm = await raw(port, "/api/outside-confirmation", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST");
+    expect(confirm.status).toBe(409);
+    expect(JSON.parse(confirm.body).reason).toBe("Stayed in the workspace hasn't failed, so there is nothing to confirm.");
     expect(h.engine.record.settings.effort).toBe("high");
     expect(h.engine.record.startedAt).toBeUndefined();
 

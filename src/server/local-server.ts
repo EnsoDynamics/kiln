@@ -171,6 +171,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/pause", (c) => answer(c, engine.pause()));
   app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
   app.post("/api/check-again", async (c) => answer(c, await engine.checkAgain()));
+  // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
+  app.post("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(true)));
+  app.delete("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(false)));
 
   app.all("/api/*", (c) => refuse(c, 404, "No such API."));
 

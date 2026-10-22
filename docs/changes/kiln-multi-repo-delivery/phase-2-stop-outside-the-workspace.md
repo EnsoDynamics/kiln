@@ -1,5 +1,7 @@
 # Phase 2: Stop a session that works outside the workspace
 
+**Closed:** 2026-10-22
+
 **Parent PRD:** docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md
 **Technical design:** docs/changes/kiln-multi-repo-delivery/technical-design.md — relevant sections: "Claude Code Behaviors This Design Relies On" ("Transcripts", "Subagent worktrees", "Shell tools"), "Sessions" (Flags), "The Done Check" ("Stayed in the workspace"), "The Pull Requests" (the check), "Interfaces" (HTTP API, Snapshot), "Data Models", "Screens", "Seam With Usage-Limit Recovery"
 

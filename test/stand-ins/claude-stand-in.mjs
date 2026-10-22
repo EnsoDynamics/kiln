@@ -10,7 +10,7 @@
 //   { "text": "Building phase 1." }                           an assistant text block
 //   { "partial": "Buil" }                                     a partial-message delta (stream_event)
 //   { "close": true }                                         Closed line on the prompt's phase doc
-//   { "write": { "path": "src/a.txt", "content": "…" } }      a file in the worktree, relative to it
+//   { "write": { "path": "src/a.txt", "content": "…" } }      a file in the worktree, relative to it; an absolute path is used as is
 //   { "stage": "src/a.txt" }                                  a Bash call running git add on that path, without committing
 //   { "commit": "feat: x" }                                   a Bash call running git add -A and git commit
 //   { "push": true }                                          a Bash call running git push -u origin <branch>
@@ -22,6 +22,8 @@
 //                                                             status and output go to <scenario>.add-repository.jsonl
 // write, stage, commit and push take "repository": "<name>": they run in that repository's worktree,
 // the folder of that name in the session's folder (a workspace), or else beside it.
+//   { "bash": "<command>" }                                   a Bash call running the command with sh in the session's folder
+//   { "powershell": "<command>" }                             a PowerShell tool call, run nowhere
 //   { "stderr": "text" }                                      a line on stderr
 //   { "waitForFile": "<path>" }                               blocks until the file exists
 //   { "result": "final message" }                             the result event; then waits for stdin to close
@@ -34,7 +36,12 @@
 // A session may also say { "noInit": true }: a resume whose transcript is gone, as proof gate 1
 // recorded it (no init, one error result, the same line on stderr, exit 1), and
 // { "ignoreInterrupt": true }: the interrupt request and SIGINT are ignored, so only a forced
-// end stops it.
+// end stops it, and { "noTranscript": true }: no transcript is kept, as with Claude Code's
+// CLAUDE_CODE_SKIP_PROMPT_HISTORY.
+//
+// Like Claude Code, a session keeps its transcript in <CLAUDE_CONFIG_DIR>/projects/<folder>/<id>.jsonl:
+// each tool call an assistant record and its result a user record, with timestamp, cwd and
+// sessionId. A resumed session appends to the file it already has. Replayed events aren't added.
 //
 // The interrupt control request on stdin, or SIGINT, ends the turn the way proof gate 1 recorded
 // it: the running tool's result "The user doesn't want to proceed with this tool use", the text
@@ -42,8 +49,9 @@
 // and exit code 1 for the request, 0 for SIGINT.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
@@ -112,13 +120,29 @@ const worktreeOf = (repository) => {
 const git = (...gitArgs) => gitIn(process.cwd(), ...gitArgs);
 const gitIn = (cwd, ...gitArgs) => execFileSync("git", gitArgs, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 let toolId = 0;
+const transcriptPath = () => {
+  const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+  const existing = existsSync(projects) ? readdirSync(projects).map((name) => join(projects, name, `${sessionId}.jsonl`)).find((file) => existsSync(file)) : undefined;
+  return existing ?? join(projects, process.cwd().replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
+};
+const keepRecord = (type, message) => {
+  if (session?.noTranscript || !sessionId) return;
+  const path = transcriptPath();
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, `${JSON.stringify({ type, sessionId, timestamp: new Date().toISOString(), cwd: process.cwd(), message })}\n`);
+};
 const toolCall = (name, input) => {
-  const id = `toolu_stand_in_${++toolId}`;
-  emit({ type: "assistant", parent_tool_use_id: null, message: { model: "claude-opus-5-5", content: [{ type: "tool_use", id, name, input }] } });
+  const id = `toolu_stand_in_${process.pid}_${++toolId}`;
+  const message = { model: "claude-opus-5-5", content: [{ type: "tool_use", id, name, input }] };
+  keepRecord("assistant", message);
+  emit({ type: "assistant", parent_tool_use_id: null, message });
   return id;
 };
-const toolResult = (id, content, isError = false) =>
-  emit({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } });
+const toolResult = (id, content, isError = false) => {
+  const message = { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] };
+  keepRecord("user", message);
+  emit({ type: "user", parent_tool_use_id: null, message });
+};
 
 let stdinText = "";
 let stdinClosed = false;
@@ -185,6 +209,8 @@ function currentBranch() {
 // An alias resolves to its concrete model, as in proof gate 1's model list.
 const concrete = { opus: "claude-opus-5-5", fable: "claude-fable-5-1", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" };
 emit({ type: "system", subtype: "init", model: concrete[model] ?? model, permissionMode: "auto", claude_code_version: "2.1.299-stand-in" });
+// Claude Code records the prompt as the session's first record, so every session that started has a transcript.
+keepRecord("user", { role: "user", content: prompt });
 
 let exitCode = 0;
 let resultSent = false;
@@ -233,7 +259,7 @@ for (const action of session.actions) {
     writeFileSync(path, lines.join("\n"));
     toolResult(toolCall("Edit", { file_path: path }), "Edited.");
   } else if (action.write) {
-    const path = join(worktreeOf(action.write.repository), action.write.path);
+    const path = isAbsolute(action.write.path) ? action.write.path : join(worktreeOf(action.write.repository), action.write.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, action.write.content);
     toolResult(toolCall("Write", { file_path: path }), "Written.");
@@ -299,6 +325,12 @@ for (const action of session.actions) {
     });
     writeFileSync(statePath, JSON.stringify(state));
     toolResult(toolCall("Bash", { command: `gh pr create --repo github.com/${repo} --head ${branch} --base ${base}` }), state.pulls.at(-1).url);
+  } else if (action.bash) {
+    const id = toolCall("Bash", { command: action.bash });
+    const run = spawnSync("sh", ["-c", action.bash], { cwd: process.cwd(), encoding: "utf8" });
+    toolResult(id, `${run.stdout ?? ""}${run.stderr ?? ""}`, run.status !== 0);
+  } else if (action.powershell) {
+    toolResult(toolCall("PowerShell", { command: action.powershell }), "");
   } else if (action.stderr) {
     process.stderr.write(`${action.stderr}\n`);
   } else if (action.waitForFile) {

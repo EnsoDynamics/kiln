@@ -3,6 +3,7 @@
 
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../engine/snapshot.js";
 import type { OutputLine } from "../session/session-output.js";
+import { outsideWorkspacePrompt } from "../session/prompts.js";
 
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
@@ -454,4 +455,55 @@ export function needsYouRepositoriesSnapshot(): Snapshot {
       ],
     },
   });
+}
+
+const OUTSIDE_SESSION = "4d9a2c7e-1f53-4b8e-9a06-3c5e7b1d2f88";
+const DESIGN_SYSTEM = "~/devel/acme/design-system";
+
+/**
+ * Needs you after work outside the workspace (multi-repo AC-OUTSIDE-01 to 03), as the mockup
+ * draws it: phase 3 closed, committed and pushed in every repository, but its session edited
+ * and committed in design-system's own checkout; stopped at 1:20 PM.
+ */
+export function needsYouOutsideWorkspaceSnapshot(): Snapshot {
+  const snapshot = needsYouRepositoriesSnapshot();
+  const changes = [`Edited src/tokens/colors.ts in ${DESIGN_SYSTEM}`, `Committed 6b0d2fa to main in ${DESIGN_SYSTEM}`];
+  return {
+    ...snapshot,
+    feature: { ...snapshot.feature, stoppedAt: "2026-10-17T17:20:00Z" },
+    needsYou: {
+      ...snapshot.needsYou!,
+      stoppedAt: "2026-10-17T17:20:00Z",
+      exitCode: 0,
+      lastSkill: { name: "refactor-pass", at: "2026-10-17T17:18:00Z" },
+      finalMessage:
+        "**Phase 3 is done.** The returns dashboard is at `/admin/returns` in storefront: the returns list with status filters, a detail drawer, and approve and refund actions that call returns-api. All 14 Playwright tests pass, phase-3-returns-dashboard.md is closed, and storefront and product are pushed to feature/customer-returns.\n\nAlong the way I adjusted the badge colors in design-system. Pending and refunded were nearly the same amber in dark mode, so refunded now has its own token in `src/tokens/colors.ts`, committed there. Refactor pass: no refactor warranted.",
+      checks: [
+        { name: "Phase doc closed", passed: true, facts: ["Closed line in phase-3-returns-dashboard.md"] },
+        { name: "Everything committed", passed: true, facts: ["Clean in product, returns-api, storefront and notifications"] },
+        { name: "Pushed", passed: true, facts: ["product: 2f7b9e0 on origin", "returns-api: 7f3d9a0 on origin", "storefront: 8d4a1c6 on origin", "notifications: 2b6f1d3 on origin"] },
+        { name: "Stayed in the workspace", passed: false, facts: [...changes, "Kiln changed nothing in that checkout, since it may hold other work too."] },
+      ],
+      checkedAt: "2026-10-17T17:20:00Z",
+      resumeCommand: `cd ${WORKSPACE}\nclaude --resume ${OUTSIDE_SESSION}`,
+      freshSessionCommand: `cd ${WORKSPACE}\nclaude`,
+      outputLineCount: 1148,
+      sessionEndedAt: "2026-10-17T17:20:00Z",
+      sessionId: OUTSIDE_SESSION,
+      outside: {
+        changes,
+        missingTranscripts: [],
+        checkouts: ["design-system"],
+        // Built from Kiln's own template, so the layout test proves it reads as the mockup draws it.
+        prompt: outsideWorkspacePrompt({
+          phaseName: "phase 3",
+          facts: changes,
+          checkouts: [{ shownPath: DESIGN_SYSTEM, name: "design-system", inWorkspace: false }],
+          branch: BRANCH,
+          multiRepository: true,
+        }),
+        confirmation: { offered: true, ticked: false },
+      },
+    },
+  };
 }

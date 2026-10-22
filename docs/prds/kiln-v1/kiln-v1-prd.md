@@ -44,6 +44,7 @@ There is one way in: point `kiln run` at one PRD. Kiln checks that the documents
 - [ ] **AC-START-03 — The browser opens on what Kiln found.** When the checks pass, Kiln opens the browser view itself: on Documents found for a feature not started, where no session starts until the person presses Start, or on the PRD's progress for a feature already underway (AC-CLI-01).
 - [ ] **AC-START-04 — Kiln shows what it found beside the PRD.** For the PRD: its acceptance-criteria count and label range. For the technical design: how many of the PRD's acceptance criteria it cites. For assumptions: how many there are and how many stakeholders haven't confirmed yet ("not yet confirmed"), labeled as green lights that nothing waits on, or that there is no assumptions document. For the phase plan: how many phase documents there are, and the phases to implement in order, by number and title, showing which phases are split and into what. It also lists the checks from AC-START-02 as passed.
   - Superseded in part by: AC-REPO-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Documents found and the terminal's first line show the repositories)
+  - Superseded in part by: AC-SPACE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one line added to a one-repository PRD's Documents found)
 - [ ] **AC-START-05 — The person confirms the documents were refined.** Kiln can't tell from the files whether the documents have been through requirements refinement, because that workflow deletes its working file when it finishes. Documents found says so, and Start stays unavailable until the person confirms they have.
 - [ ] **AC-START-06 — The PRD's settings are shown, can be changed before starting, and are remembered.** Documents found shows the new worktree's path, the feature branch and the base branch it starts from, the agent, model and effort level, when pushes happen, where Kiln stops, and whether Kiln keeps the computer awake. Before Start, the person can change the worktree path, the feature branch, the base branch, the model (any Claude Code offers the signed-in account), the effort level (low, medium, high, extra high or max) and keep-awake; the model starts as the latest Opus and the effort as high (UI-004). In v1 the agent is always Claude Code, pushes always happen after every phase, and Kiln always stops at "PR ready for review". Once Start is pressed, Kiln keeps the settings for the PRD, and every later `kiln run` uses them without asking again.
   - Superseded in part by: AC-SPACE-01 and AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a worktree and the feature branch in every one of the PRD's repositories, in one workspace, each with its own base branch, and what a failed Start fixes; per repository, and where Kiln stops)
@@ -84,9 +85,11 @@ A phase counts as done only when Git and the phase document say so. How the sess
   - **Committed:** the PRD's worktree has no uncommitted changes.
   - **Pushed:** the feature branch and its copy on `origin` point at the same commit.
   - Superseded in part by: AC-CHECK-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Committed and Pushed cover every repository)
+  - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a fourth check, listed only when it failed)
 
   Otherwise the phase is Needs you.
 - [ ] **AC-DONE-02 — Exit codes and messages don't decide.** A session that exits cleanly saying it finished, but fails a check, is Needs you. A session that crashed, but whose work passes all three checks, is Done.
+  - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a fourth check, listed only when it failed)
 - [ ] **AC-DONE-03 — The same check runs everywhere.** It is the same check after every phase's session, when the person presses Check again, when `kiln run` is run on a stopped feature, and before an interrupted session is resumed. (A broken-plan stop is checked as AC-STOP-07 says.)
 - [ ] **AC-DONE-04 — No model judges how a session ended.** Kiln makes no model call to decide or explain how a session ended.
 
@@ -95,20 +98,26 @@ A phase counts as done only when Git and the phase document say so. How the sess
 When a phase fails the done check, Kiln stops and gives the person everything needed to finish that phase themselves, then continues once they have.
 
 - [ ] **AC-STOP-01 — Kiln stops and doesn't retry.** When a phase is Needs you, no later phase starts and Kiln doesn't rerun the phase on its own. (An interrupted session is resumed instead, per AC-KEEP-04.)
+  - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (an interrupted session that worked outside the workspace goes to Needs you instead of being resumed, shown as interrupted with the resume command)
 - [ ] **AC-STOP-02 — The person sees how the session ended, word for word.** The Needs you screen shows:
   - the session's last assistant message, verbatim;
   - the exit code and the time the session stopped;
   - the last skill seen in the session;
   - when the session ended without a final message, its last lines of output, errors included.
+  - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (an interrupted session that worked outside the workspace goes to Needs you instead of being resumed, shown as interrupted with the resume command)
 - [ ] **AC-STOP-03 — The person sees which checks failed and why.** Each of the three checks shows whether it passed, with the specific fact behind it. Examples: "No Closed line in phase-2b-store-credit.md", "12 files changed, not committed", "a41c9e2 isn't on origin yet".
   - Superseded in part by: AC-CHECK-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (facts name their repository)
+  - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a fourth check, listed only when it failed)
 - [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words, quoted, never summarized.
 - [ ] **AC-STOP-05 — The person can reopen the exact session.** Kiln shows a copyable command that changes to the PRD's worktree and runs `claude --resume <session ID>`. It opens that session in a terminal with its full history.
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
+  - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (no resume command for a session whose transcript Kiln can't find)
 - [ ] **AC-STOP-06 — A fresh-session prompt is there when the session can't be opened.** The Needs you screen also offers a copyable prompt for a fresh session that points at the phase document, for when the session can't be reopened, for example because its transcript is gone.
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
+  - Superseded in part by: AC-OUTSIDE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the fresh-session prompt carries the facts)
 - [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check. When it passes, the phase shows as Done, finished by the person, and the next phase starts, unless a pause is waiting (AC-VIEW-03). When it fails, the phase stays Needs you with the updated check results. At a broken-plan stop, Check again and `kiln run` read the phase plan again in place of the done check: once the plan reads correctly, the phase starts, unless a pause is waiting, and nothing is marked Done; until then, the stop stays, showing the problem found.
   - Superseded in part by: AC-ADD-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a named repository Kiln can't add is a broken-plan stop, including one a session's own split names)
+  - Superseded in part by: AC-OUTSIDE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Check again passes the fourth check only for changes a confirmation covers)
 - [ ] **AC-STOP-08 — Nothing starts while the person may be in the stopped session.** After a stop, Kiln starts no session for that PRD until the person presses Check again or runs `kiln run`.
 
 ### Leave the Git Work to the Sessions
@@ -130,6 +139,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - Superseded in part by: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed)
 - [ ] **AC-PR-02 — Kiln confirms the pull request is open.** The pull-request session's check, in place of the done check, is that a pull request from the feature branch into the base branch is open. When it passes, the PRD is complete; when it fails, Kiln goes to Needs you.
   - Superseded in part by: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed)
+  - Superseded in part by: AC-PRS-06 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (its check includes Stayed in the workspace)
 - [ ] **AC-PR-03 — Kiln stops at "PR ready for review".** Kiln doesn't merge the pull request, wait on CI to merge it, or deploy anything.
 - [ ] **AC-PR-04 — The Complete screen is the progress screen, finished.** It shows:
   - the pull request's number, title, branches and link, with its commit count and lines added and removed;
@@ -188,6 +198,7 @@ The terminal only starts Kiln and hosts it. Everything the person does after tha
   - Superseded in part by: AC-ADD-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Kiln also sets up a repository after Start, and has a second command for asking it to)
 - [ ] **AC-VIEW-01 — The browser view is local only.** The browser view can be reached only from the same machine, never from another computer on the network.
 - [ ] **AC-VIEW-02 — The browser view is where Kiln is controlled.** It offers Start (on Documents found, and to continue after a pause), Pause after this phase (with Keep going to cancel it, AC-VIEW-03) and Check again, and session output is read there.
+  - Superseded in part by: AC-OUTSIDE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the confirmation joins the browser view's controls)
 - [ ] **AC-VIEW-03 — Pause after this phase stops Kiln between phases.** The current session finishes, including its commit and push, and the pause holds until that phase is Done by any route (its session, a resumed one, or the person after Needs you); then no phase starts until the person presses Start, even if Kiln is interrupted or restarted in between. Until that phase is Done, the person can cancel the pause with Keep going, and the view says Kiln will pause once the current phase is Done (UI-002).
 - [ ] **AC-VIEW-04 — The browser view stays current.** The browser view updates on its own while Kiln works, without a reload, and shows when it was last updated.
 - [ ] **AC-VIEW-05 — The browser view lasts as long as `kiln run`.** While `kiln run` is running for a feature, its browser view works, including while Kiln is stopped at Needs you, paused or complete.
@@ -214,6 +225,7 @@ Working through a PRD can take many hours, but each phase is its own session, so
 - [ ] **AC-KEEP-02 — Ctrl+C is a controlled interruption.** On Ctrl+C, Kiln ends the current session's turn so the session stays resumable, records which phase and session were interrupted, and exits leaving no Claude Code process behind.
 - [ ] **AC-KEEP-03 — Interrupted work is never thrown away.** Changed and new files, partly written tests and uncommitted work in an interrupted phase stay exactly as they were. Kiln never starts a fresh session on top of them on its own.
 - [ ] **AC-KEEP-04 — An interrupted session is resumed.** When the phase in progress was interrupted, Kiln first runs the done check: at the next `kiln run`, or on waking when Kiln itself kept running through a sleep. If it passes, the phase is Done. If not, Kiln resumes that same session, with its full history, and tells it the session was interrupted and to carry on with the phase. Kiln never resumes a session that ended on its own.
+  - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (an interrupted session that worked outside the workspace goes to Needs you instead of being resumed, shown as interrupted with the resume command)
 - [ ] **AC-KEEP-05 — A session that can't be resumed comes to the person.** If an interrupted session can't be resumed, for example because its transcript is gone, the phase goes to Needs you showing, in place of AC-STOP-02's list, when the session was interrupted and its last lines of output, with the fresh-session prompt (AC-STOP-06) and no resume command.
 - [ ] **AC-KEEP-06 — Kiln keeps the computer awake while it works.** While a phase's session is working, Kiln stops the computer from going to sleep when idle. This is on by default and can be turned off in the PRD's settings. Kiln lets the computer sleep again whenever no session is working: at Needs you, when paused, when complete, and when Kiln exits.
 - [ ] **AC-KEEP-07 — Kiln is honest about sleep.** Wherever keep-awake is shown, Kiln says that closing the lid can still put the computer to sleep; Documents found also says keep-awake stops idle sleep only.

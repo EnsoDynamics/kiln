@@ -1,0 +1,4 @@
+While {{doing}}, you changed {{aCheckout}} outside the Kiln workspace, {{workspace}}:
+{{facts}}
+
+{{bringIn}}Leave {{checkouts}} as {{asItIs}}, and tell me what in {{it}} still needs putting back.

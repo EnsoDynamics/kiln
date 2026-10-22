@@ -195,7 +195,11 @@ function scanDoubleQuoted(scanner: Scanner): string {
       return value;
     }
     if (char === "\\") {
-      value += text[scanner.position + 1] ?? "";
+      // As in Bash, a backslash escapes only $, `, ", \ and a newline; before anything else it stays.
+      const next = text[scanner.position + 1] ?? "";
+      if (next === "\n") value += "";
+      else if ("$`\"\\".includes(next) && next !== "") value += next;
+      else value += `\\${next}`;
       scanner.position += 2;
       continue;
     }

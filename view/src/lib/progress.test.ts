@@ -4,7 +4,7 @@ process.env.TZ = "America/New_York";
 
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import { completeRepositoriesSnapshot, completeSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { completeRepositoriesSnapshot, completeSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, needsYouOutsideWorkspaceSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { commitsAcross, detailRows, endingFact, folderShown, headerState, modelAndEffort, needsYouCopy, openedLabel, pausedAfter, phaseOfTotal, repositoriesLine, repositoryCommitsLine, rowFacts, rowPill, rowState, settingsModel } from "./progress.js";
 
 const now = new Date(RUNNING_NOW);
@@ -191,3 +191,66 @@ describe("across repositories (multi-repo AC-PRS-03, AC-ADD-03, AC-SPACE-05)", (
     expect(folderShown("~/devel/acme/.worktrees/customer-returns")).toEqual(["~/devel/acme/.worktrees/", "customer-returns/"]);
   });
 });
+
+describe("Needs you after work outside the workspace (multi-repo AC-OUTSIDE-02 to 04)", () => {
+  const stop = needsYouOutsideWorkspaceSnapshot().needsYou!;
+  const settings = needsYouOutsideWorkspaceSnapshot().settings;
+  const outside = stop.outside!;
+
+  it("asks the reopened session to bring its work in, and to confirm and check again, naming each checkout", () => {
+    expect(needsYouCopy(stop, settings, now, true)).toMatchObject({
+      firstStep: "resume",
+      freshLink: true,
+      outside: {
+        title: "Ask it to bring its design-system work into the workspace",
+        prompt: outside.prompt,
+        againTitle: "Come back, confirm and check again",
+        againText: "Once what’s left in design-system’s own checkout is put back, tick the confirmation on the right and press Check again. If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.",
+      },
+    });
+    const two = needsYouCopy({ ...stop, outside: { ...outside, checkouts: ["design-system", "storefront"] } }, settings, now, true).outside!;
+    expect(two.title).toBe("Ask it to bring its design-system and storefront work into the workspace");
+    expect(two.againText).toMatch(/^Once what’s left in design-system’s and storefront’s own checkouts is put back/);
+    const pr = needsYouCopy({ ...stop, phaseId: "pr" }, settings, now, true).outside!;
+    expect(pr.title).toBe("Ask it what still needs putting back in design-system");
+    expect(pr.againText).toMatch(/If every pull request is open and ready for review, the feature is complete\.$/);
+  });
+
+  it("offers the fresh session in place of the resume command when Kiln found no transcript, with no link to it (OUT-003)", () => {
+    const noPrompt = { changes: [], checkouts: [], missingTranscripts: ["No transcript found for session 4d9a in ~/.claude/projects, so Kiln can't tell what it did outside the workspace"], confirmation: outside.confirmation };
+    expect(needsYouCopy({ ...without(stop, "resumeCommand"), outside: noPrompt }, settings, now, true)).toMatchObject({
+      firstStep: "fresh",
+      freshLink: false,
+      outside: {
+        title: "Check your own checkouts for anything this session changed",
+        text: "Kiln found no transcript for this session, so it can’t see what it did outside the workspace. Deal with anything it changed however you like.",
+        againText: "Once your checkouts are as they should be, tick the confirmation on the right and press Check again. If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.",
+      },
+    });
+    // An unreadable transcript keeps the resume command.
+    const unreadable = needsYouCopy({ ...stop, outside: { ...noPrompt, missingTranscripts: ["Kiln couldn't read ~/.claude/projects/x/4d9a.jsonl: line 3 isn't JSON"] } }, settings, now, true);
+    expect(unreadable).toMatchObject({ firstStep: "resume", outside: { text: expect.stringMatching(/^Kiln couldn’t read this session’s transcript/) } });
+  });
+
+  it("says the four checks once Stayed in the workspace is listed, and offers no fresh-session link wherever there is no resume command", () => {
+    const four = { ...stop, checks: [...stop.checks.slice(0, 3), { name: "Stayed in the workspace", passed: true, facts: ["The changes outside the workspace have been dealt with"] }] };
+    const confirmed = without(four, "outside");
+    expect(needsYouCopy(confirmed, settings, now, true).finishText).toContain("Kiln only looks at the four checks on the right");
+    expect(needsYouCopy(without(confirmed, "resumeCommand"), settings, now, true)).toMatchObject({ firstStep: "fresh", freshLink: false });
+  });
+
+  it("says Kiln couldn't see what an interrupted session did when it has no transcript to go on", () => {
+    const unseen = { ...without(stop, "finalMessage", "resumeCommand"), interrupted: { at: "2026-10-17T17:20:00Z", atIsLastOutput: false }, outside: { ...outside, changes: [], checkouts: [], missingTranscripts: ["No transcript found for session 4d9a in ~/.claude/projects, so Kiln can't tell what it did outside the workspace"] } };
+    expect(needsYouCopy(unseen, settings, now, true).line).toBe("Kiln was interrupted at 1:20 PM while this session was working, and didn’t resume it, since it can’t see what the session did outside the workspace. These are the last lines it wrote.");
+  });
+
+  it("says Kiln was interrupted and didn't resume the session, with its last lines", () => {
+    const interrupted = { ...without(stop, "finalMessage"), interrupted: { at: "2026-10-17T17:20:00Z", atIsLastOutput: false } };
+    expect(needsYouCopy(interrupted, settings, now, true)).toMatchObject({
+      line: "Kiln was interrupted at 1:20 PM while this session was working, and didn’t resume it, since it worked outside the workspace. These are the last lines it wrote.",
+      showFacts: false,
+      firstStep: "resume",
+    });
+  });
+});
+

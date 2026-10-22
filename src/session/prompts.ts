@@ -127,3 +127,68 @@ export function resumePrompt(values: ResumePromptValues): string {
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   return `${opening} ${carryOn}`;
 }
+
+/** A checkout outside the workspace that a session changed, as the prompt names it. */
+export interface OutsideCheckout {
+  /** As shown: `~/devel/acme/design-system`. */
+  shownPath: string;
+  /** Its folder name. */
+  name: string;
+  /** Whether a repository of that name is among the PRD's, so the workspace already has its worktree. */
+  inWorkspace: boolean;
+}
+
+export interface OutsidePromptValues {
+  /** The phase as the prompt names it, `phase 3`; absent for the pull-request session. */
+  phaseName?: string;
+  /** For the pull-request session: whether it opens several pull requests. */
+  pullRequests?: "one" | "several";
+  /** Each uncovered change's fact. */
+  facts: string[];
+  checkouts: OutsideCheckout[];
+  branch: string;
+  multiRepository: boolean;
+}
+
+const listed = (facts: string[]) => facts.map((fact) => `- ${fact}`).join("\n");
+
+/**
+ * The prompt Needs you offers for the reopened session after work outside the workspace
+ * (multi-repo AC-OUTSIDE-02): the changes, the request to bring only its own edits into the
+ * workspace on the feature branch (adding a repository first where the workspace lacks it), and
+ * to leave each checkout as it is and say what still needs putting back. The pull-request
+ * session changes no code, so it is asked only the last.
+ *
+ *   outsideWorkspacePrompt({ phaseName: "phase 3", facts: ["Edited src/tokens/colors.ts in ~/devel/acme/design-system"], … })
+ *   // "While working on phase 3, you changed a checkout outside the Kiln workspace, the worktrees listed in your instructions:\n- Edited …"
+ */
+export function outsideWorkspacePrompt(values: OutsidePromptValues): string {
+  const several = values.checkouts.length > 1;
+  const shown = values.checkouts.map((checkout) => checkout.shownPath);
+  const bringIn =
+    values.phaseName === undefined
+      ? ""
+      : [
+          fill(template("outside-workspace-bring-in.txt"), { branch: values.branch, thatCheckout: several ? "those checkouts" : "that checkout" }),
+          ...[...new Set(values.checkouts.filter((checkout) => !checkout.inWorkspace).map((checkout) => checkout.name))].map((name) => fill(template("outside-workspace-add-first.txt"), { name })),
+        ].join(" ") + " ";
+  return fill(template("outside-workspace.txt"), {
+    doing: values.phaseName === undefined ? (values.pullRequests === "several" ? "opening the pull requests" : "opening the pull request") : `working on ${values.phaseName}`,
+    aCheckout: several ? "checkouts" : "a checkout",
+    workspace: values.multiRepository ? "the worktrees listed in your instructions" : "the worktree named in your instructions",
+    facts: listed(values.facts),
+    bringIn,
+    checkouts: shown.length === 0 ? "every checkout outside the workspace" : joinWithAnd(shown),
+    asItIs: several ? "they are" : "it is",
+    it: several ? "them" : "it",
+  });
+}
+
+/** The fresh-session prompt's addition after work outside the workspace: the same change facts (AC-OUTSIDE-02). */
+export function freshSessionOutsideNote(facts: string[], checkoutCount: number, multiRepository: boolean): string {
+  return fill(template("fresh-session-outside.txt"), { aCheckout: checkoutCount > 1 ? "checkouts" : "a checkout", place: multiRepository ? "workspace" : "worktree", facts: listed(facts) });
+}
+
+function joinWithAnd(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}

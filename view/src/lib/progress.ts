@@ -255,6 +255,48 @@ export interface NeedsYouCopy {
   sideHeading: string;
   /** The line under Check again; empty when the stop shows none. */
   footnote: string;
+  /**
+   * Steps 2 and 3 after work outside the workspace, in place of finishing the phase (multi-repo
+   * AC-OUTSIDE-02, AC-OUTSIDE-03): the prompt for the reopened session, or, when Kiln has no
+   * transcript to go on, what to check by hand; then the confirmation.
+   */
+  outside?: { title: string; prompt?: string; text?: string; againTitle: string; againText: string };
+}
+
+const MISSING_TRANSCRIPT = "No transcript found for session ";
+
+/** `design-system’s own checkout`, `design-system’s and storefront’s own checkouts`, or `your own checkouts`. */
+function ownCheckouts(names: string[]): string {
+  if (names.length === 0) return "your own checkouts";
+  const owned = names.map((name) => `${name}’s`);
+  return `${owned.length === 1 ? owned[0] : `${owned.slice(0, -1).join(", ")} and ${owned.at(-1)}`} own checkout${names.length === 1 ? "" : "s"}`;
+}
+
+function joinedNames(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/** Steps 2 and 3 for Stayed in the workspace, as the outside-workspace mockup draws them. */
+function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside"] {
+  const outside = stop.outside!;
+  const names = outside.checkouts;
+  const againTitle = "Come back, confirm and check again";
+  if (outside.changes.length > 0) {
+    const where = joinedNames(names);
+    return {
+      title: stop.phaseId === PR_ID ? `Ask it what still needs putting back in ${where || "those checkouts"}` : `Ask it to bring its ${where ? `${where} ` : ""}work into the workspace`,
+      ...(outside.prompt === undefined ? {} : { prompt: outside.prompt }),
+      againTitle,
+      againText: `Once what’s left in ${ownCheckouts(names)} is put back, tick the confirmation on the right and press Check again. ${afterCheck}`,
+    };
+  }
+  const missing = outside.missingTranscripts.some((fact) => fact.startsWith(MISSING_TRANSCRIPT));
+  return {
+    title: "Check your own checkouts for anything this session changed",
+    text: `${missing ? "Kiln found no transcript for this session" : "Kiln couldn’t read this session’s transcript"}, so it can’t see what it did outside the workspace. Deal with anything it changed however you like.`,
+    againTitle,
+    againText: `Once your checkouts are as they should be, tick the confirmation on the right and press Check again. ${afterCheck}`,
+  };
 }
 
 /**
@@ -276,7 +318,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
       ? multiRepository
         ? `Open them however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into each repository’s base branch, in every repository that changed, that isn’t a draft, so it doesn’t matter who opens them.`
         : `Open it however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into ${settings.baseBranch} that isn’t a draft, so it doesn’t matter who opens it.`
-      : "Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
+      : `Finish it however you like. Kiln only looks at the ${stop.checks.length === 4 ? "four" : "three"} checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.`,
     checkAgainText: isPr
       ? "Kiln re-checks GitHub. If the pull request is open and ready for review, the feature is complete."
       : "Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.",
@@ -297,6 +339,29 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
       sideHeading: "Kiln continues when",
       footnote: "",
       checkAgainText: `Kiln reads the plan again. If it reads, Kiln starts ${phaseName(stop.phaseId)}, or pauses first if you pressed Pause.`,
+    };
+  }
+  if (stop.outside) {
+    // What Check again then does, as the mockup's step 3 says it.
+    const afterCheck = isPr
+      ? `If ${multiRepository ? "every pull request" : "the pull request"} is open and ready for review, the feature is complete.`
+      : "If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.";
+    copy.outside = outsideSteps(stop, afterCheck);
+  }
+  // A session that ran with no resume command has no transcript for `claude --resume`: step 1 is the fresh session (OUT-003).
+  if (stop.sessionId !== undefined && stop.resumeCommand === undefined && !stop.spawnError && stop.kind !== "not_resumable") {
+    copy.firstStep = "fresh";
+    copy.freshLink = false;
+  }
+  if (stop.interrupted) {
+    const when = clockTime(stop.stoppedAt, now, { afterWord: true });
+    // Kiln saw changes outside the workspace, or couldn't see what the session did there.
+    const unseen = stop.outside !== undefined && stop.outside.changes.length === 0;
+    const why = unseen ? "since it can’t see what the session did outside the workspace" : "since it worked outside the workspace";
+    return {
+      ...copy,
+      line: `Kiln was interrupted ${stop.stoppedAtIsLastOutput ? "" : `at ${when} `}while this session was working, and didn’t resume it, ${why}.${stop.stoppedAtIsLastOutput ? ` Its last output was at ${when}.` : ""} These are the last lines it wrote.`,
+      showFacts: false,
     };
   }
   if (stop.kind === "not_resumable") {

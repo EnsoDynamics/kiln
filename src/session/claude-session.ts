@@ -16,7 +16,8 @@ import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdi
 /**
  * The flags every session gets (technical design, "Starting a phase's session"), plus an
  * `--add-dir` for each folder of the workspace outside the one it starts in (multi-repo
- * technical design, "Sessions"), so writes there are allowed by mode.
+ * technical design, "Sessions"), so writes there are allowed by mode, and `--disallowedTools
+ * PowerShell`, so that every shell command is a Bash call Stayed in the workspace reads.
  */
 export function launchArguments(sessionId: string, model: string, effort: string | undefined, addDirs: string[] = []): string[] {
   return [
@@ -37,6 +38,8 @@ export function launchArguments(sessionId: string, model: string, effort: string
     "auto",
     "--permission-prompts",
     "none",
+    "--disallowedTools",
+    "PowerShell",
     ...addDirs.flatMap((directory) => ["--add-dir", directory]),
   ];
 }

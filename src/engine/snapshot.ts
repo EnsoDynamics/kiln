@@ -8,7 +8,9 @@ import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
-import { freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { basename } from "node:path";
+import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
+import { freshSessionOutsideNote, freshSessionPrompt, outsideWorkspacePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind } from "../state/records.js";
@@ -171,6 +173,20 @@ export interface Snapshot {
     sessionStartedAt?: string;
     /** The phase's commits by repository, only those with commits, newest first. */
     repositories?: RepositoryCommits[];
+    /**
+     * While Stayed in the workspace fails (multi-repo AC-OUTSIDE-02, 03): each uncovered change's
+     * fact; each uncovered missing or unreadable transcript's; the changed checkouts' folder names;
+     * the prompt for the reopened session, when there are changes; and the confirmation.
+     */
+    outside?: {
+      changes: string[];
+      missingTranscripts: string[];
+      checkouts: string[];
+      prompt?: string;
+      confirmation: { offered: boolean; ticked: boolean };
+    };
+    /** Kiln stopped this interrupted session instead of resuming it, since it worked outside the workspace (AC-OUTSIDE-04). */
+    interrupted?: { at: string; atIsLastOutput: boolean };
   };
   pause: { pending: boolean; active: boolean };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
@@ -322,31 +338,37 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
+  const outside = outsideView(engine, phaseKey, judged);
   const base = {
     phaseId: judged,
     kind: stop.kind,
     checks: stop.checks,
     checkedAt: stop.checkedAt,
     ...(engine.checking ? { checking: true as const } : {}),
+    ...optional("outside", outside?.view),
   };
   const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
+  // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
+  const withOutside = (prompt: string) => (outside?.note === undefined ? prompt : `${prompt}\n\n${outside.note}`);
   const prompts = (ran: boolean) =>
-    isPr
-      ? pullRequestSessionPrompt({
-          featureName: engine.paths.featureName,
-          prdFile: engine.pathFrom(folder, engine.prdFile()),
-          branch: record.settings.featureBranch,
-          repositories: engine.pullRequestRepositories().map((entry) => ({
-            name: entry.name,
-            github: entry.github,
-            worktreePath: expandHome(entry.worktreePath),
-            baseBranch: entry.baseBranch,
-            isPrd: entry.kind === "prd",
-          })),
-        })
-      : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
+    withOutside(
+      isPr
+        ? pullRequestSessionPrompt({
+            featureName: engine.paths.featureName,
+            prdFile: engine.pathFrom(folder, engine.prdFile()),
+            branch: record.settings.featureBranch,
+            repositories: engine.pullRequestRepositories().map((entry) => ({
+              name: entry.name,
+              github: entry.github,
+              worktreePath: expandHome(entry.worktreePath),
+              baseBranch: entry.baseBranch,
+              isPrd: entry.kind === "prd",
+            })),
+          })
+        : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran),
+    );
 
   const freshSessionCommand = claudeCommand(folder);
   if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
@@ -382,23 +404,71 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
       steps: stepStates(session.steps),
     };
   }
-  const finalMessage = run?.result?.text?.trim() ? run.result.text : undefined;
+  // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
+  const interrupted = stop.interrupted;
+  const finalMessage = interrupted === undefined && run?.result?.text?.trim() ? run.result.text : undefined;
+  // `claude --resume` needs the transcript Kiln couldn't find (OUT-003).
+  const resumable = everStarted && !engine.transcriptMissing(session);
   return {
     ...base,
     ...sessionFacts,
-    stoppedAt: endedAt,
+    stoppedAt: interrupted?.at ?? endedAt,
+    ...(interrupted?.atIsLastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
+    ...optional("interrupted", interrupted),
     ...optional("finalMessage", finalMessage),
     ...optional("exitCode", run?.exitCode),
     ...optional("signal", run?.signal),
     ...optional("spawnError", run?.spawnError),
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
-    ...(everStarted ? { resumeCommand: resumeCommand(folder, session.sessionId) } : {}),
+    ...(resumable ? { resumeCommand: resumeCommand(folder, session.sessionId) } : {}),
     freshSessionPrompt: prompts(everStarted),
     freshSessionCommand,
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
     steps: stepStates(session.steps),
+  };
+}
+
+/**
+ * Needs you's part for Stayed in the workspace while it fails (multi-repo AC-OUTSIDE-02, 03):
+ * the facts and checkouts from the phase's latest check, the prompt for the reopened session,
+ * the fresh-session prompt's addition, and whether the confirmation is ticked: a tick made
+ * since the stop was last checked.
+ */
+function outsideView(engine: Engine, phaseKey: string, judged: string): { view: NonNullable<Snapshot["needsYou"]>["outside"]; note?: string } | undefined {
+  const facts = engine.record.phases[phaseKey]!;
+  const stop = facts.stop!;
+  if (!stop.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed)) return undefined;
+  const outcome = engine.latestStayed(phaseKey);
+  const repositories = new Set(engine.setUpRepositories.map((entry) => entry.name));
+  // Each checkout once, named by its repository: a subagent's worktree by its main checkout's.
+  const seen = new Map<string, string>();
+  for (const change of outcome.changes) if (change.checkout !== undefined) seen.set(change.checkout, change.repository ?? basename(change.checkout));
+  const checkouts = [...seen].map(([path, name]) => ({ shownPath: displayPath(path), name, inWorkspace: repositories.has(name) }));
+  const changes = outcome.changes.map((change) => change.fact);
+  const multi = engine.multiRepository;
+  const isPr = phaseKey === PR_PHASE_KEY;
+  const prompt =
+    changes.length === 0
+      ? undefined
+      : outsideWorkspacePrompt({
+          ...(isPr ? { pullRequests: engine.pullRequestRepositories().length > 1 ? ("several" as const) : ("one" as const) } : { phaseName: `phase ${judged}` }),
+          facts: changes,
+          checkouts,
+          branch: engine.record.settings.featureBranch,
+          multiRepository: multi,
+        });
+  const ticked = facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
+  return {
+    view: {
+      changes,
+      missingTranscripts: outcome.transcripts.map((problem) => problem.fact),
+      checkouts: [...new Set(checkouts.map((checkout) => checkout.name))],
+      ...optional("prompt", prompt),
+      confirmation: { offered: true, ticked },
+    },
+    ...(changes.length === 0 ? {} : { note: freshSessionOutsideNote(changes, checkouts.length, multi) }),
   };
 }
 

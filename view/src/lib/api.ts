@@ -36,6 +36,8 @@ export const start = (config: PageConfig, refinementConfirmed: boolean) => send(
 export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
 export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");
 export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
+/** Ticks or unticks Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03). */
+export const confirmOutside = (config: PageConfig, ticked: boolean) => send(config, ticked ? "POST" : "DELETE", "/api/outside-confirmation");
 
 /** A page of a session's output: the lines before `before` (all, when absent), at most `limit` (AC-WATCH-05, AC-WATCH-10). */
 export async function outputPage(config: PageConfig, sessionId: string, before?: number, limit = 200): Promise<{ lines: OutputLine[]; total: number }> {
