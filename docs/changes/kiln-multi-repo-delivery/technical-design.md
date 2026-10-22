@@ -83,7 +83,7 @@ No new process, store or dependency. The engine, session runner, local server an
 | What Stayed in the workspace reads | Claude Code's transcript files for the session's ID, the main session's and its subagents', never Kiln's own `events.jsonl` | The PRD's transcript includes turns of a `claude --resume` the person runs by hand, which only Claude Code's files hold |
 | Git subcommands Kiln doesn't recognize | Fail Stayed in the workspace, as a change | A false stop costs one tick of the confirmation; a false pass is the harm the check exists to catch (OUT-002) |
 | Pushed for a repository with no commits of its own | Passes without asking origin; "commits of its own" means the feature branch tip differs from that repository's `baseCommit` | AC-CHECK-01; a repository added for reading only never needs a push |
-| Pull requests | One per repository whose feature branch tip differs from its `baseCommit`, opened by the one pull-request session | AC-PRS-01; one session keeps the cross-links and merge order in one reading of the technical design (AC-PRS-02) |
+| Pull requests | One per repository whose feature branch tip differs from its `baseCommit`, opened by the one pull-request session | AC-PRS-05; one session keeps the cross-links and merge order in one reading of the technical design (AC-PRS-02) |
 | Record schema | `schemaVersion: 2`, a schema 1 record migrated when read | v1's rule: a newer Kiln migrates an older record; an older Kiln refuses a newer one |
 
 Each section below that changes a v1 section carries its `Replaces in part:` line. When the change is built, each of those v1 sections gets its `Superseded in part by:` line in the same commit as the code.
@@ -186,7 +186,7 @@ So that sessions reach the same Kiln, on macOS and Linux Kiln puts the directory
 
 ### In the engine (AC-ADD-01, AC-ADD-02, AC-ADD-03)
 
-`addRepository(name, phaseId)` is an engine command like v1's others. It is allowed only as AC-ADD-01 gives. During the pull-request session, at its Needs you and in every other state it is refused with 409 and the reason ("Kiln adds a repository only while a phase is running or stopped at Needs you."). The pull-request session changes no code, so a repository added then would have no commits of its own and get no pull request (AC-PRS-01). Requests are serialized: a request for a repository already in `PrdRecord.repositories` and set up answers with its path and changes nothing; one for a repository whose setup is under way waits for it.
+`addRepository(name, phaseId)` is an engine command like v1's others. It is allowed only as AC-ADD-01 gives. During the pull-request session, at its Needs you and in every other state it is refused with 409 and the reason ("Kiln adds a repository only while a phase is running or stopped at Needs you."). The pull-request session changes no code, so a repository added then would have no commits of its own and get no pull request (AC-PRS-05). Requests are serialized: a request for a repository already in `PrdRecord.repositories` and set up answers with its path and changes nothing; one for a repository whose setup is under way waits for it.
 
 The checks, in order, each failure answered with its own words and nothing changed:
 
@@ -256,7 +256,7 @@ Four checks. The first is v1's Closed check, run in the PRD's repository's workt
 | Pushed | In every repository, v1's predicate. A repository whose worktree is on the feature branch and whose branch tip equals its `baseCommit` passes with no origin read; a worktree on another branch fails with v1's `The worktree is on <other>, not <branch>` either way | Failing: v1's facts prefixed `<name>: `. Passing: one line per repository, `returns-api: 7f3d9a0 on origin`; a repository with no commits of its own, `notifications: no commits yet` |
 | Stayed in the workspace | No change outside the workspace that no confirmation covers ([below](#stayed-in-the-workspace-ac-outside-01-to-04)) | Failing: one per uncovered change, then "Kiln changed nothing in that checkout, since it may hold other work too."; one per uncovered missing or unreadable transcript. Passing: shown only as a passed row when it has failed earlier in this stop; otherwise left out of Needs you (AC-OUTSIDE-01) |
 
-The git reads for the repositories run in parallel; v1's 2-minute origin retry applies per repository. A pass records per repository the pushed commit and the phase's commit count (v1's `--first-parent` count, from that repository's start commit for the phase). The pull-request check gets the fourth check too (AC-PRS-01).
+The git reads for the repositories run in parallel; v1's 2-minute origin retry applies per repository. A pass records per repository the pushed commit and the phase's commit count (v1's `--first-parent` count, from that repository's start commit for the phase). The pull-request check gets the fourth check too (AC-PRS-06).
 
 ### Stayed in the workspace (AC-OUTSIDE-01 to 04)
 
@@ -309,7 +309,7 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request ch
 
 **Which repositories.** Every repository whose feature branch tip, read locally, differs from its `baseCommit`. The PRD's repository always qualifies once a phase has closed (PR-001).
 
-**The check (AC-PRS-01).** v1's `gh pr list` query, run per qualifying repository with its own `--repo`, head and base, plus Stayed in the workspace for the pull-request session. It passes when every qualifying repository has an open, ready, same-repository pull request and the session stayed in the workspace. Facts per repository: `product: #12 open`, `storefront: No open pull request from feature/customer-returns into develop`, `returns-api: #57 is a draft`. On a pass Kiln records each pull request's facts (v1's fields plus `repository`) with `completedAt`. The engine loop's check before the session uses the same per-repository query and starts no session when every one is already open.
+**The check (AC-PRS-05, AC-PRS-06).** v1's `gh pr list` query, run per qualifying repository with its own `--repo`, head and base, plus Stayed in the workspace for the pull-request session. It passes when every qualifying repository has an open, ready, same-repository pull request and the session stayed in the workspace. Facts per repository: `product: #12 open`, `storefront: No open pull request from feature/customer-returns into develop`, `returns-api: #57 is a draft`. On a pass Kiln records each pull request's facts (v1's fields plus `repository`) with `completedAt`. The engine loop's check before the session uses the same per-repository query and starts no session when every one is already open.
 
 **The prompt (AC-PRS-02).** One template for one and several repositories:
 
@@ -426,7 +426,7 @@ The view renders all of it from the snapshot; no new view logic decides anything
 
 ## Seam With Usage-Limit Recovery
 
-That PRD has no design yet. This design asks of it, so its design honors AC-OUTSIDE-01, AC-OUTSIDE-04, AC-PRS-01 and AC-SHOW-01's `Replaces in part:` lines on it, the last by naming each failed fact's repository on its Needs you screens:
+That PRD has no design yet. This design asks of it, so its design honors AC-OUTSIDE-01, AC-OUTSIDE-04, AC-PRS-05 and AC-SHOW-01's `Replaces in part:` lines on it, the last by naming each failed fact's repository on its Needs you screens:
 
 - Before a usage-limit wait starts, and before Resume, Resume now or a resume by itself, Kiln runs Stayed in the workspace. A failure means Needs you with no wait; Resume honors the confirmation as Check again does.
 - Resume is offered on an interrupted session's Needs you that this design produces (`interrupted` set), and to a pull-request session whose check failed for any reason.
@@ -462,7 +462,7 @@ As v1's, against real temporary Git repositories with local bare repositories as
 | AC-ADD-01 to 04 | Adding a Repository; HTTP API; Command line |
 | AC-OUTSIDE-01 to 04 | Claude Code Behaviors; Sessions; The Done Check; HTTP API; Snapshot; Data Models; Screens; Seam With Usage-Limit Recovery |
 | AC-CHECK-01, 02 | The Done Check |
-| AC-PRS-01 to 04 | The Pull Requests; Command line; Screens; Settings before Start |
+| AC-PRS-02 to 06 | The Pull Requests; Command line; Screens; Settings before Start |
 | AC-SHOW-01 | Screens; Seam With Usage-Limit Recovery |
 | AC-PROOF-01 | Testing Approach |
 
