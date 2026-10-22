@@ -7,7 +7,7 @@
 // Set KILN_SCREENSHOTS=<folder> to also write each screen and its mockup as PNGs side by side,
 // for comparing them by eye (AC-LOOK-01).
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
@@ -36,6 +36,34 @@ import {
 const MOCKUPS = new URL("../../docs/design/mockups/", import.meta.url);
 /** The multi-repo delivery change's mockups, from MOCKUPS. */
 const REPOSITORIES_MOCKUPS = "../../changes/kiln-multi-repo-delivery/mockups/";
+/** The usage-limit recovery change's mockups, from MOCKUPS. */
+const RECOVERY_MOCKUPS = "../../changes/kiln-usage-limit-recovery/mockups/";
+/**
+ * Resume's card as kiln-screen-needs-you-resume.html draws it (usage-limit recovery AC-RESUME-01),
+ * with no example note, since the view's note starts empty and shows only its placeholder.
+ */
+const RESUME_CARD = (() => {
+  const html = readFileSync(new URL(`${RECOVERY_MOCKUPS}kiln-screen-needs-you-resume.html`, MOCKUPS), "utf8");
+  const card = html.slice(html.lastIndexOf("<section", html.indexOf("Let Kiln carry on")));
+  return card.slice(0, card.indexOf("</section>") + "</section>".length).replace(/(<textarea[^>]*>)[^<]*(<\/textarea>)/, "$1$2");
+})();
+/** Empties the Resume mockup's example note, as the view's note starts. */
+const EMPTY_NOTE = `(() => { document.querySelector("textarea").textContent = ""; return true; })()`;
+/**
+ * Adds Resume's card, for `phase`, to a Needs you mockup drawn before it: above the steps, which
+ * become the other way, where the Resume mockup puts it (AC-RESUME-01; multi-repo AC-SHOW-01).
+ */
+const withResumeCard = (phase: string) => `(() => {
+  const eyebrow = [...document.querySelectorAll("span")].find((e) => e.textContent === "Pick it up yourself");
+  const holder = document.createElement("div");
+  holder.innerHTML = ${JSON.stringify(RESUME_CARD)};
+  const card = holder.firstElementChild;
+  const text = [...card.querySelectorAll("p")].find((e) => e.textContent.includes("carry on with Phase 2b"));
+  text.textContent = text.textContent.replace("Phase 2b", ${JSON.stringify(phase)});
+  eyebrow.closest("section").before(card);
+  eyebrow.textContent = "Or pick it up yourself";
+  return true;
+})()`;
 /** Documents found's line on what sessions may do in a repository they add (multi-repo AC-SPACE-03, AC-PRS-04). */
 const SESSIONS_ADD = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
 const AMBER = "rgb(230, 180, 80)";
@@ -312,16 +340,19 @@ const SCREENS: {
     ],
   },
   {
-    name: "needs-you-ended-with-message",
-    mockup: "kiln-screen-needs-you-ended-with-message.html",
+    // v1's ended-with-message screen, with Resume, as usage-limit recovery redrew it (AC-RESUME-01 to 03).
+    name: "needs-you-resume",
+    mockup: `${RECOVERY_MOCKUPS}kiln-screen-needs-you-resume.html`,
     snapshot: needsYouMessageSnapshot,
     clock: Date.parse("2026-10-17T15:53:00Z"),
+    addition: EMPTY_NOTE,
     copy: [
       "Customer returns Needs you Phase 2b · Store credit · Stopped 11:52 AM",
       "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier",
       "Last message from Claude Code Critical finding, stopping to surface: the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s 0042_store_credits clashes with it.",
       "Full session output · 612 lines",
-      "Pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command Full history, right where it stopped. Kiln stays out of it.",
+      "Let Kiln carry on Resume this session in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with Phase 2b. Then the plan continues as usual. Anything to tell the session first? Optional Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.",
+      "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command Full history, right where it stopped. Kiln stays out of it.",
       "2 Finish the phase with Claude, the way you normally would Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
       "3 Come back and check again Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase. Session can’t be opened? Copy a prompt for a fresh session instead",
       "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
@@ -332,6 +363,7 @@ const SCREENS: {
     mockup: "kiln-screen-needs-you-crashed.html",
     snapshot: needsYouCrashedSnapshot,
     clock: Date.parse("2026-10-17T17:22:00Z"),
+    addition: withResumeCard("Phase 3"),
     copy: [
       "Needs you Phase 3 · Returns dashboard · Stopped 1:21 PM",
       "Phase 3 ended before it was done. The session exited with an error and no final message. These are the last lines it wrote. exit 1 1:21 PM last skill seen: test-hardening, 6 min earlier",
@@ -345,6 +377,7 @@ const SCREENS: {
     mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-needs-you-outside-workspace.html`,
     snapshot: needsYouOutsideWorkspaceSnapshot,
     clock: Date.parse("2026-10-17T17:21:00Z"),
+    addition: withResumeCard("Phase 3"),
     copy: [
       "Customer returns Needs you Phase 3 · Returns dashboard · Stopped 1:20 PM",
       "Phase 3 ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 1:20 PM last skill seen: refactor-pass, 2 min earlier",
@@ -730,6 +763,25 @@ describe("the controls, in a real browser", () => {
       await click(page, "Check again");
       await page.waitFor(`document.body.innerText.includes("Kiln is already checking.")`);
       expect(server.commands).toEqual(["POST /api/check-again"]);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
+  it("sends Resume with the note typed beside it, and shows Kiln's reason when it refuses (usage-limit recovery AC-RESUME-02, 03)", async () => {
+    const { server, page } = await openScreen(needsYouMessageSnapshot(), "", Date.parse("2026-10-17T15:53:00Z"), PHASE_DETAIL_LINES, { "POST /api/resume": "Kiln is already checking." });
+    try {
+      await page.waitFor(`document.querySelector("textarea")`);
+      await page.evaluate(`(() => { const box = document.querySelector("textarea"); box.value = "Renumber the migration to 0043, then carry on."; box.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+      await click(page, "Resume");
+      await page.waitFor(`document.body.innerText.includes("Kiln is already checking.")`);
+      expect(server.commands).toEqual([`POST /api/resume ${JSON.stringify({ note: "Renumber the migration to 0043, then carry on." })}`]);
+      // While Kiln holds the stop for a check or a resume, neither button can be pressed.
+      const held = needsYouMessageSnapshot();
+      held.needsYou!.checking = true;
+      server.send("snapshot", held);
+      await page.waitFor(`[...document.querySelectorAll("button")].filter((e) => ["Resume", "Check again"].includes(e.textContent.trim())).every((e) => e.disabled)`);
     } finally {
       await page.close();
       await server.close();

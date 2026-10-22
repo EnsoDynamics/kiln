@@ -341,6 +341,8 @@ For a one-repository PRD the list has one entry and the cross-link paragraph is 
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`POST /api/resume`)
+
 | Method and path | Change |
 |---|---|
 | `POST /api/settings` | Gains `workspaceFolder?` and `bases?: { <name>: <branch> }` for the other repositories, where a key naming the PRD's repository is refused; `baseBranch` still sets `settings.baseBranch`, the PRD's repository's base. Each is refused once that field is fixed |
@@ -352,6 +354,8 @@ Every new route carries v1's Host, Origin and token checks.
 ### Snapshot
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Snapshot (`resumeOffered` on Needs you)
 
 ```
 Snapshot (changed and added fields only):
@@ -388,6 +392,8 @@ While a phase works, Kiln reads its commits in every set-up repository in parall
 ## Data Models
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (schema 3; a run the person resumed, with its note)
 
 ```
 PrdRecord (schema 2; fields not shown are v1's):

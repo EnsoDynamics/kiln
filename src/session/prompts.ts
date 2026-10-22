@@ -102,30 +102,47 @@ const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigt
 export interface ResumePromptValues {
   /** The interrupted run's cause; absent when Kiln was killed outright and recorded none. */
   cause?: keyof typeof INTERRUPT_CAUSES;
+  /**
+   * The session ended on its own and the person pressed Resume (usage-limit recovery
+   * AC-RESUME-02): the opening says so, with the run's `endedAt` as `time`, in place of an interruption's.
+   */
+  endedOnItsOwn?: boolean;
   /** `interruptedAt`, or the run's last output time when Kiln recorded no interruption. */
   time: string;
   /** The launched leaf's document, from the folder the session started in; absent for the pull-request session. */
   phaseDoc?: string;
   /** The session works across a workspace, not one worktree; for the pull-request session, opens several pull requests. */
   multiRepository?: boolean;
+  /** The person's note with Resume, trimmed: its own paragraph, first (AC-RESUME-03). */
+  note?: string;
+  /** AC-OUTSIDE-02's prompt, after the note, while Stayed in the workspace fails (multi-repo AC-OUTSIDE-04). */
+  outside?: string;
 }
 
 /**
- * The first message of a resumed session (AC-KEEP-04; technical design, "The prompts").
+ * The first message of a resumed session (AC-KEEP-04; technical design, "The prompts"). For a
+ * Resume the person pressed, any note comes first as its own paragraph, then the prompt about
+ * work outside the workspace, then the opening and the instruction to carry on (usage-limit
+ * recovery technical design, "Resume").
  *
  *   resumePrompt({ cause: "sigint", time: "2026-10-17T15:02:11Z", phaseDoc: "docs/prds/customer-returns/phase-2b-store-credit.md" })
  *   // "Kiln was interrupted at `2026-10-17T15:02:11Z` (Ctrl+C) while this session was working, and has resumed it. Carry on with `docs/…/phase-2b-store-credit.md` from where you stopped; …"
+ *
+ *   resumePrompt({ endedOnItsOwn: true, time: "2026-10-17T15:52:40Z", phaseDoc: "…/phase-2b-store-credit.md", note: "Renumber the migration to 0043." })
+ *   // "The person running Kiln says:\n\nRenumber the migration to 0043.\n\nThis session ended at `2026-10-17T15:52:40Z` before its work was done, and the person running Kiln has asked Kiln to resume it. Carry on with …"
  */
 export function resumePrompt(values: ResumePromptValues): string {
-  const opening =
-    values.cause === undefined
+  const opening = values.endedOnItsOwn
+    ? fill(template("resume-opening-stopped.txt"), { time: values.time })
+    : values.cause === undefined
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
     values.phaseDoc === undefined
       ? fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
-  return `${opening} ${carryOn}`;
+  const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
+  return [...before, `${opening} ${carryOn}`].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */

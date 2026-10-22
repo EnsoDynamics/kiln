@@ -339,6 +339,8 @@ describe("the pull-request session's check (AC-PRS-06)", () => {
         `Leave ${displayPath(outside.path)} as it is, and tell me what in it still needs putting back.`,
       ].join("\n"),
     );
+    // Resume is offered to a pull-request session whose check failed with its pull request open (AC-PRS-05, usage-limit recovery AC-RESUME-01).
+    expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(true);
 
     h.engine.setOutsideConfirmation(true);
     await h.engine.checkAgain();
@@ -388,6 +390,9 @@ describe("more interruptions (AC-OUTSIDE-04)", () => {
     expect(needsYou.interrupted).toBeDefined();
     expect(needsYou.resumeCommand).toBeUndefined();
     expect(needsYou.outside).toMatchObject({ changes: [], missingTranscripts: [expect.stringMatching(/^No transcript found for session /)] });
+    // No transcript, no Resume, after an interruption too (AC-OUTSIDE-01, usage-limit recovery AC-RESUME-01).
+    expect(needsYou.resumeOffered).toBe(false);
+    expect(await engine.resume()).toMatchObject({ ok: false, status: 409 });
   });
 });
 

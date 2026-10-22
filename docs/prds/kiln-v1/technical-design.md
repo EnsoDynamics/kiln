@@ -189,6 +189,8 @@ Before spawning, Kiln writes the session record (ID, phase, model, the effort it
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions, §The Pull Requests (the workspace in place of the one worktree; one pull request per repository)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the resume prompt after the person's Resume, with its note)
+
 Each is a template file; `<…>` are filled from the record. Everything in them is something a person could type (AC-RUN-06). `<phase doc>` and `<PRD file>` are paths relative to the worktree root (`docs/prds/customer-returns/phase-2b-store-credit.md`), never main-checkout paths, which would send the session to files outside its worktree. After a session splits its leaf, the fresh-session prompt's `<phase doc>` is its judged leaf's document and the resume prompt's stays the launched leaf's ([Which phase a split session is shown as](#snapshot)).
 
 **Phase session (AC-RUN-03, AC-RUN-05):**
@@ -409,6 +411,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories, the outside-workspace confirmation)
 
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`POST /api/resume`)
+
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
 | Method and path | Purpose |
@@ -440,6 +444,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 ### Snapshot
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request; work outside the workspace on Needs you)
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume, §Snapshot, §Screens (`resumeOffered` and Resume on Needs you)
 
 What every screen renders from. Outline:
 
@@ -532,6 +538,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 ## Kiln's State on Disk
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository; the outside-workspace confirmations and an interrupted stop)
+
+Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (schema 3; a run the person resumed, with its note)
 
 Root: `$XDG_STATE_HOME/kiln`, else `~/.local/state/kiln`, on macOS and Linux alike; `%LOCALAPPDATA%\kiln` on Windows, readable by its owner only. Never inside the repository (AC-GIT-03).
 

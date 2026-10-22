@@ -280,7 +280,8 @@ describe("resuming", () => {
     expect(engine.record.phases["1"]!.stop?.kind).toBe("not_resumable");
     expect(h.claudeCalls()).toHaveLength(2);
     const needsYou = buildSnapshot(engine).needsYou!;
-    expect(needsYou).toMatchObject({ phaseId: "1", kind: "not_resumable", stoppedAt: interruptedAt });
+    // An interrupted session that already couldn't be resumed gets no Resume (usage-limit recovery AC-RESUME-01).
+    expect(needsYou).toMatchObject({ phaseId: "1", kind: "not_resumable", stoppedAt: interruptedAt, resumeOffered: false });
     expect(needsYou.stoppedAtIsLastOutput).toBeUndefined();
     for (const absent of ["resumeCommand", "exitCode", "signal", "lastSkill", "finalMessage"] as const) expect(needsYou[absent]).toBeUndefined();
     expect(needsYou.lastLines!.map((line) => line.text)).toContain(`No conversation found with session ID: ${sessionOf(h, "1").sessionId}`);

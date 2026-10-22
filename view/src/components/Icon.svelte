@@ -1,11 +1,11 @@
 <script lang="ts" module>
-  export type IconName = "check" | "spinner" | "pause" | "warning" | "arrow" | "back" | "copy" | "chevron" | "check-again" | "pull-request" | "external" | "cross";
+  export type IconName = "check" | "spinner" | "pause" | "warning" | "arrow" | "back" | "copy" | "chevron" | "check-again" | "pull-request" | "external" | "cross" | "play";
 </script>
 
 <script lang="ts">
   // The mockups' line icons, drawn in the current color.
   let { name, size = 13, strokeWidth, spin = false }: { name: IconName; size?: number; strokeWidth?: number; spin?: boolean } = $props();
-  const width = $derived(strokeWidth ?? ({ check: 2, spinner: 2, pause: 1.8, warning: 1.9, arrow: 1.9, back: 1.9, copy: 1.8, chevron: 2, "check-again": 1.8, "pull-request": 1.9, external: 1.8, cross: 2 } as const)[name]);
+  const width = $derived(strokeWidth ?? ({ check: 2, spinner: 2, pause: 1.8, warning: 1.9, arrow: 1.9, back: 1.9, copy: 1.8, chevron: 2, "check-again": 1.8, "pull-request": 1.9, external: 1.8, cross: 2, play: 1.8 } as const)[name]);
 </script>
 
 <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width={width} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon" class:spin>
@@ -19,6 +19,7 @@
   {:else if name === "chevron"}<path d="M6 4l4 4-4 4"></path>
   {:else if name === "check-again"}<circle cx="8" cy="8" r="2.4"></circle><path d="M1.5 8h4.1M10.4 8h4.1"></path>
   {:else if name === "pull-request"}<circle cx="4" cy="3.5" r="1.6"></circle><circle cx="4" cy="12.5" r="1.6"></circle><circle cx="12" cy="12.5" r="1.6"></circle><path d="M4 5.1v5.8M12 10.9V7a2 2 0 0 0-2-2H7.5"></path><path d="M9 3.5L7.5 5 9 6.5"></path>
+  {:else if name === "play"}<path d="M5 3.2v9.6L12.6 8z"></path>
   {:else if name === "external"}<path d="M6.5 3H3v10h10V9.5M9.5 3H13v3.5M13 3L7.5 8.5"></path>
   {:else}<path d="M4 4l8 8M12 4l-8 8"></path>{/if}
 </svg>

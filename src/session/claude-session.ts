@@ -80,6 +80,8 @@ export interface SessionProcessOptions {
   env: NodeJS.ProcessEnv;
   prompt: string;
   cause: SessionRun["cause"];
+  /** The person's note sent with Resume, recorded on the run (usage-limit recovery AC-RESUME-03). */
+  note?: string;
   stateDirectory: string;
   /** The session's record, already written before spawning; this run is added to it. */
   record: SessionRecord;
@@ -195,6 +197,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       startedAt,
       endedAt: startedAt,
       cause: options.cause,
+      ...(options.note === undefined ? {} : { note: options.note }),
       spawnError: { code: error.code ?? "ERROR", message: error.message },
     };
     record.runs.push(run);
@@ -205,7 +208,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   const closed = new Promise<[number | null, NodeJS.Signals | null]>((resolve) => child.once("close", (exitCode, exitSignal) => resolve([exitCode, exitSignal])));
   const pid = child.pid;
-  const run: SessionRun = { pid, startedAt, cause: options.cause };
+  const run: SessionRun = { pid, startedAt, cause: options.cause, ...(options.note === undefined ? {} : { note: options.note }) };
   // The run is recorded at once, so a Kiln stopped from here on leaves it, never a session with no run.
   record.runs.push(run);
   saveRecord();

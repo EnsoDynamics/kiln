@@ -44,7 +44,7 @@ function stopped(change: Partial<NonNullable<Snapshot["needsYou"]>>, drop: (keyo
 describe("Needs you, for the stops nobody drew (UI-007)", () => {
   it("offers a fresh session in step 1, with no resume command, facts row or link, when the session can't be resumed (item 2, AC-KEEP-05)", () => {
     const page = needsYou(
-      stopped({ kind: "not_resumable", stoppedAt: "2026-10-17T15:30:00Z", lastLines: [{ line: 9, at: "2026-10-17T15:29:58Z", source: "claude", text: "Writing the store-credit tests." }] }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"]),
+      stopped({ kind: "not_resumable", resumeOffered: false, stoppedAt: "2026-10-17T15:30:00Z", lastLines: [{ line: 9, at: "2026-10-17T15:29:58Z", source: "claude", text: "Writing the store-credit tests." }] }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"]),
     );
     const words = text(page);
     expect(words).toContain("Phase 2b ended before it was done. Kiln was interrupted at 11:30 AM while this session was working, and couldn’t resume it. These are the last lines it wrote.");
@@ -59,7 +59,7 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
 
   it("shows only the plan problem, the fresh-session link and Check again at a broken plan (item 3)", () => {
     const page = needsYou(
-      stopped({ kind: "plan", phaseId: "3", checks: [{ name: "Phase plan reads", passed: false, facts: ["phase-2-refund-routing.md lists 2c, which has no file"] }] }, [
+      stopped({ kind: "plan", resumeOffered: false, phaseId: "3", checks: [{ name: "Phase plan reads", passed: false, facts: ["phase-2-refund-routing.md lists 2c, which has no file"] }] }, [
         "finalMessage",
         "exitCode",
         "lastSkill",
@@ -79,12 +79,12 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
     expect(words).toContain("Phase 3 hasn’t started. Kiln read the phase plan and found the problem shown on the right. Pick it up yourself 1 Fix the phase plan Kiln only checks that the plan reads");
     expect(words).toContain("2 Come back and check again Kiln reads the plan again. If it reads, Kiln starts phase 3, or pauses first if you pressed Pause. Session can’t be opened? Copy a prompt for a fresh session instead");
     expect(words).toContain("Kiln continues when Phase plan reads Not yet phase-2-refund-routing.md lists 2c, which has no file Check again");
-    for (const absent of ["Last message from Claude Code", "Full session output", "exit ", "last skill seen", "claude --resume"]) expect(words).not.toContain(absent);
+    for (const absent of ["Last message from Claude Code", "Full session output", "exit ", "last skill seen", "claude --resume", "Resume this session in Kiln"]) expect(words).not.toContain(absent);
   });
 
   it("shows the spawn error with its code, and the fresh session in step 1, when claude never started (item 4)", () => {
     const page = needsYou(
-      stopped({ spawnError: { code: "ENOENT", message: "spawn claude ENOENT" }, lastLines: [{ line: 1, at: "2026-10-17T15:52:00Z", source: "stderr", text: "Couldn't start claude in /home/person/devel/acme-shop-kiln/customer-returns: spawn claude ENOENT" }] }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"]),
+      stopped({ spawnError: { code: "ENOENT", message: "spawn claude ENOENT" }, resumeOffered: false, lastLines: [{ line: 1, at: "2026-10-17T15:52:00Z", source: "stderr", text: "Couldn't start claude in /home/person/devel/acme-shop-kiln/customer-returns: spawn claude ENOENT" }] }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"]),
     );
     const words = text(page);
     expect(words).toContain("Kiln couldn’t start this session. This is the error it got. ENOENT 11:52 AM 11:52:00 stderr Couldn't start claude in /home/person/devel/acme-shop-kiln/customer-returns: spawn claude ENOENT");
@@ -113,6 +113,52 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
     const words = text(needsYou(stopped({ checking: true })));
     expect(words).toContain("Check again Checking…");
     expect(words).not.toContain("Checked 11:52 AM.");
+  });
+});
+
+describe("Resume on Needs you (usage-limit recovery AC-RESUME-01 to 03)", () => {
+  const resumeButton = (page: string) => /<button[^>]*>(?:(?!<\/button>).)*Resume<\/button>/s.exec(page)?.[0];
+  const checkAgainButton = (page: string) => /<button[^>]*>(?:(?!<\/button>).)*Check again<\/button>/s.exec(page)?.[0];
+
+  it("offers Resume and its optional note above the steps, which become the other way", () => {
+    const page = needsYou(stopped({}));
+    expect(text(page)).toContain(
+      "Let Kiln carry on Resume this session in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with Phase 2b. Then the plan continues as usual. Anything to tell the session first? Optional Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal. Or pick it up yourself 1 Open the same Claude Code session",
+    );
+    expect(page).toContain('placeholder="It gets this in your words, then the instruction to carry on with the phase."');
+    expect(resumeButton(page)).not.toContain("disabled");
+  });
+
+  it("says Kiln couldn't resume the session when the person pressed Resume, never that it was interrupted (AC-RESUME-04, AC-STOP-04)", () => {
+    const words = text(needsYou(stopped({ kind: "not_resumable", resumeOffered: false, pressedResume: true, stoppedAt: "2026-10-17T15:30:00Z" }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"])));
+    expect(words).toContain("Phase 2b ended before it was done. Kiln couldn’t resume this session when you pressed Resume. It had stopped at 11:30 AM. These are the last lines it wrote.");
+    expect(words).not.toContain("interrupted");
+    expect(words).toContain("1 Start a fresh Claude Code session in the worktree");
+  });
+
+  it("offers no Resume where Kiln can't pick the session up, and keeps the steps as v1's", () => {
+    const words = text(needsYou(stopped({ resumeOffered: false })));
+    expect(words).not.toContain("Resume this session in Kiln");
+    expect(words).toContain("Pick it up yourself 1 Open the same Claude Code session");
+    expect(words).not.toContain("Or pick it up yourself");
+  });
+
+  it("holds Resume and Check again while a check or a resume is under way (AC-RESUME-02)", () => {
+    const page = needsYou(stopped({ checking: true }));
+    expect(resumeButton(page)).toContain("disabled");
+    expect(checkAgainButton(page)).toContain("disabled");
+  });
+
+  it("tells the pull-request session to carry on opening the pull request, or the pull requests (technical design, Screens)", () => {
+    const snapshot = stopped({ phaseId: "pr", kind: "pull_request_check", checks: [{ name: "Pull request open", passed: false, facts: ["No open pull request from feature/customer-returns into develop"] }] });
+    snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "needs_you", finishedByPerson: false });
+    const page = needsYou(snapshot);
+    expect(text(page)).toContain(
+      "Resume this session in Kiln Kiln checks GitHub first. If the pull request isn’t open, it picks up the same session, with its full history, and tells it to carry on opening the pull request. Anything to tell",
+    );
+    expect(page).toContain('placeholder="It gets this in your words, then the instruction to carry on opening the pull request."');
+    snapshot.feature.multiRepository = true;
+    expect(text(needsYou(snapshot))).toContain("If the pull requests aren’t all open, it picks up the same session, with its full history, and tells it to carry on opening the pull requests.");
   });
 });
 

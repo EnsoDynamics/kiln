@@ -1,12 +1,14 @@
 // The PRD record and session records Kiln keeps on disk (technical design, "Kiln's State on
 // Disk"). Git and the phase documents stay the record of what is done; these remember
 // settings, sessions, stops and the facts shown for finished work. Schema 2 keeps every
-// per-repository fact per repository (multi-repo technical design, "Data Models").
+// per-repository fact per repository (multi-repo technical design, "Data Models"); schema 3
+// adds a run the person asked Kiln to resume, with their note (usage-limit recovery technical
+// design, "Data Models").
 
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -149,7 +151,10 @@ export interface SessionRun {
   exitCode?: number;
   signal?: string;
   spawnError?: { code: string; message: string };
-  cause: "launch" | "resume";
+  /** `person_resume`: the person pressed Resume at Needs you (usage-limit recovery AC-RESUME-02). */
+  cause: "launch" | "resume" | "person_resume";
+  /** The note the person sent with Resume, trimmed, as the session got it (AC-RESUME-03). */
+  note?: string;
   interruptedBy?: InterruptCause;
   interruptedAt?: string;
   result?: { subtype: string; isError: boolean; text?: string };
@@ -219,14 +224,19 @@ interface SchemaOnePhase {
 }
 
 /**
- * Reads a schema 1 record as schema 2, with no Git call: one `prd` repository entry when it was
- * started or holds Kiln's branch, each phase's commits under that repository, the pull request
- * as a one-entry list and each check's fact as a one-item list. Written as schema 2 at its next write.
+ * Reads an older record as schema 3, with no Git call. Schema 1 to 2: one `prd` repository entry
+ * when it was started or holds Kiln's branch, each phase's commits under that repository, the
+ * pull request as a one-entry list and each check's fact as a one-item list. Schema 2 to 3 adds
+ * nothing to the record, since no record before it holds a run the person resumed; the version
+ * alone moves, so an older Kiln refuses it. Written as schema 3 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   // A schema 2 record written before Stayed in the workspace was built holds no confirmations.
   for (const facts of Object.values(record.phases)) facts.outsideConfirmations ??= [];
-  if (record.schemaVersion >= 2) return record;
+  if (record.schemaVersion >= 2) {
+    record.schemaVersion = SCHEMA_VERSION;
+    return record;
+  }
   const old = record as PrdRecord & { baseCommit?: string; createdBranch?: CreatedBranch; pullRequest?: Omit<PullRequestFacts, "repository"> };
   const name = record.repository.name;
   record.settings.workspaceFolder ??= defaultWorkspaceFolder(record.repository.mainCheckoutPath, record.prdDirectory);

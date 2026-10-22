@@ -75,9 +75,9 @@ describe("a schema 1 record read by this Kiln", () => {
     const engine = reopenAsSchemaOne(harness);
     expect(buildSnapshot(engine)).toEqual(before);
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
-    // Written as schema 2 at its next write.
+    // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ effort: "max" });
-    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(2);
+    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(3);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {

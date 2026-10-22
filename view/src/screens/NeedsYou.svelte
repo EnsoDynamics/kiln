@@ -10,13 +10,16 @@
   // AC-CHECK-02). After work outside the workspace (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-needs-you-outside-workspace.html), step 2 is the prompt that brings the work into
   // the workspace, and the confirmation sits under the checks (multi-repo AC-OUTSIDE-02, 03).
+  // Where Kiln can pick the session back up, Resume and its optional note sit between how the
+  // session ended and the steps, as docs/changes/kiln-usage-limit-recovery/mockups/
+  // kiln-screen-needs-you-resume.html draws them (usage-limit recovery AC-RESUME-01 to 03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
-  import { checkAgain, confirmOutside } from "../lib/api.js";
+  import { checkAgain, confirmOutside, resume } from "../lib/api.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
@@ -36,6 +39,11 @@
   let showPrompt = $state(false);
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
+  let note = $state("");
+  let resuming = $state(false);
+  let resumeReason = $state<string | undefined>(undefined);
+  // From a press of Resume or Check again until the session runs again or the result is shown, neither can be pressed (AC-RESUME-02).
+  const busy = $derived(pressing || resuming || stop.checking === true);
 
   async function copyFreshPrompt() {
     showPrompt = true;
@@ -45,6 +53,13 @@
   async function toggleConfirmation(event: Event) {
     const answer = await confirmOutside(config, (event.currentTarget as HTMLInputElement).checked);
     reason = answer.ok ? undefined : answer.reason;
+  }
+
+  async function pressResume() {
+    resuming = true;
+    const answer = await resume(config, note);
+    resuming = false;
+    resumeReason = answer.ok ? undefined : answer.reason;
   }
 
   async function pressCheckAgain() {
@@ -80,8 +95,27 @@
         {/if}
       </section>
 
+      {#if stop.resumeOffered}
+        <section class="card resume">
+          <span class="eyebrow">Let Kiln carry on</span>
+          <div class="resume-head">
+            <span class="step-title">Resume this session in Kiln</span>
+            <p>{copy.resumeText}</p>
+          </div>
+          <label class="note-field">
+            <span class="note-label">Anything to tell the session first? <span class="optional">Optional</span></span>
+            <textarea rows="3" placeholder={copy.notePlaceholder} bind:value={note}></textarea>
+          </label>
+          <div class="actions">
+            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />Resume</button>
+            <span class="hint">Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.</span>
+          </div>
+          {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
+        </section>
+      {/if}
+
       <section class="card pick">
-        <span class="eyebrow">Pick it up yourself</span>
+        <span class="eyebrow">{stop.resumeOffered ? "Or pick it up yourself" : "Pick it up yourself"}</span>
         <ol>
           {#each steps as step, index (step)}
             <li>
@@ -144,7 +178,7 @@
           </label>
         {/if}
         <div class="again">
-          <button type="button" class="button solid wide" disabled={pressing || stop.checking === true} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
           <span class="checked">{stop.checking ? "Checking…" : `Checked ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.`}</span>
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
@@ -171,6 +205,14 @@
   .final :global(pre) { white-space: pre-wrap; background: var(--deep); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   .lines { font-size: 12.5px; line-height: 1.75; display: grid; grid-template-columns: minmax(70px, max-content) 66px minmax(0, 1fr); gap: 2px 12px; background: var(--deep); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .arrow-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--red); text-decoration: none; align-self: flex-start; }
+  .resume { gap: 18px; }
+  .resume-head { display: flex; flex-direction: column; gap: 8px; }
+  .resume-head p { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
+  .note-field { display: flex; flex-direction: column; gap: 8px; }
+  .note-label { font-size: 13.5px; color: var(--muted); }
+  .optional { color: var(--dim); }
+  textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--sans); font-size: 14.5px; line-height: 1.6; color: var(--text); background: var(--deep); border: 1px solid var(--line-stronger); border-radius: 12px; padding: 12px 14px; }
+  textarea::placeholder { color: var(--dim); }
   .pick { gap: 18px; }
   ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 26px; }
   ol > li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 0 16px; }

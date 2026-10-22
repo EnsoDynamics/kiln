@@ -1,5 +1,7 @@
 # Phase 1: Resume a stopped session
 
+**Closed:** 2026-10-22
+
 **Parent PRD:** docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md
 **Technical design:** docs/changes/kiln-usage-limit-recovery/technical-design.md — relevant sections: "Resume", "Interfaces" (HTTP API, Snapshot), "Data Models", "Screens", "Seam With Multi-Repo Delivery"
 

@@ -120,7 +120,7 @@ describe("the local server", () => {
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: "null" }, "POST", change)).status).toBe(403);
     expect((await raw(port, "/api/start", { Host: host, Origin: `http://${host}` }, "POST", JSON.stringify({ refinementConfirmed: true }))).status).toBe(403);
     // Every control and every read: Start, Pause, Keep going and Check again from another site, and output without the token.
-    for (const [method, path] of [["POST", "/api/start"], ["POST", "/api/pause"], ["DELETE", "/api/pause"], ["POST", "/api/check-again"], ["POST", "/api/outside-confirmation"], ["DELETE", "/api/outside-confirmation"]] as const) {
+    for (const [method, path] of [["POST", "/api/start"], ["POST", "/api/pause"], ["DELETE", "/api/pause"], ["POST", "/api/check-again"], ["POST", "/api/resume"], ["POST", "/api/outside-confirmation"], ["DELETE", "/api/outside-confirmation"]] as const) {
       expect((await raw(port, path, { Host: host, "X-Kiln-Token": token, Origin: "https://evil.example" }, method, JSON.stringify({ refinementConfirmed: true }))).status, `${method} ${path}`).toBe(403);
     }
     expect((await raw(port, "/api/sessions/any/output", { Host: host })).status).toBe(403);
@@ -297,6 +297,24 @@ describe("the local server", () => {
     await waitFor(() => h.claudeCalls().length === 2);
     expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
     await h.engine.settled();
+  });
+
+  it("carries Resume and its note to the engine, answering once its check has run (usage-limit recovery AC-RESUME-01 to 03)", async () => {
+    const { h, origin, token } = await serve([{ actions: [{ text: "Building the intake form." }, { result: "Which fields does the form need?" }] }, landingSession("src/intake.txt")]);
+    const post = async (body?: unknown) => {
+      const response = await fetch(`${origin}/api/resume`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      return { status: response.status, body: (await response.json()) as { ok?: boolean; reason?: string } };
+    };
+    // Not offered before anything stopped.
+    expect(await post()).toEqual({ status: 409, body: { ok: false, reason: "Resume isn't offered here." } });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(await post({ note: ["not", "text"] })).toEqual({ status: 400, body: { ok: false, reason: "The note must be text." } });
+    expect(await post({ note: "x".repeat(4_001) })).toMatchObject({ status: 400 });
+    expect(await post({ note: "Use the mockup's fields." })).toEqual({ status: 200, body: { ok: true } });
+    await h.engine.settled();
+    expect(h.claudeCalls()[1]!.prompt.startsWith("The person running Kiln says:\n\nUse the mockup's fields.\n\n")).toBe(true);
+    expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
   });
 
   it("closes every open event stream when it closes", async () => {

@@ -1,0 +1,1 @@
+This session ended at `{{time}}` before its work was done, and the person running Kiln has asked Kiln to resume it.

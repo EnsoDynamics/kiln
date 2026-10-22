@@ -674,6 +674,8 @@ describe("a plan that breaks after Start", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     const needsYou = buildSnapshot(h.engine).needsYou!;
     expect(needsYou.resumeCommand).toBeUndefined();
+    // No session to pick up at a broken plan: no Resume (usage-limit recovery AC-RESUME-01).
+    expect(needsYou.resumeOffered).toBe(false);
     expect(needsYou.finalMessage).toBeUndefined();
     expect(needsYou.freshSessionPrompt).not.toContain("A previous session stopped");
 

@@ -36,6 +36,8 @@ export const start = (config: PageConfig, refinementConfirmed: boolean) => send(
 export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
 export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");
 export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
+/** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
+export const resume = (config: PageConfig, note: string) => send(config, "POST", "/api/resume", note.trim() === "" ? {} : { note });
 /** Ticks or unticks Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03). */
 export const confirmOutside = (config: PageConfig, ticked: boolean) => send(config, ticked ? "POST" : "DELETE", "/api/outside-confirmation");
 

@@ -209,6 +209,8 @@ export function needsYouMessageSnapshot(): Snapshot {
       phaseId: "2b",
       kind: "done_check",
       stoppedAt: "2026-10-17T15:52:00Z",
+      // A session that ended on its own, with its transcript: Resume is offered (usage-limit recovery AC-RESUME-01).
+      resumeOffered: true,
       finalMessage:
         "**Critical finding, stopping to surface:** the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s `0042_store_credits` clashes with it. The store-credit tests pass here, but the migration won’t apply once this branch meets develop.\n\nRecommendation: rebase feature/customer-returns on develop and renumber this migration to 0043. Nothing for 2b is committed yet.",
       exitCode: 0,
@@ -251,6 +253,7 @@ export function needsYouCrashedSnapshot(): Snapshot {
       phaseId: "3",
       kind: "done_check",
       stoppedAt: "2026-10-17T17:21:00Z",
+      resumeOffered: true,
       exitCode: 1,
       lastSkill: { name: "test-hardening", at: "2026-10-17T17:15:00Z" },
       lastLines: [

@@ -119,6 +119,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
   - Superseded in part by: AC-ADD-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a named repository Kiln can't add is a broken-plan stop, including one a session's own split names)
   - Superseded in part by: AC-OUTSIDE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Check again passes the fourth check only for changes a confirmation covers)
 - [ ] **AC-STOP-08 — Nothing starts while the person may be in the stopped session.** After a stop, Kiln starts no session for that PRD until the person presses Check again or runs `kiln run`.
+  - Superseded in part by: AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume is a third way for a session to start after a stop)
 
 ### Leave the Git Work to the Sessions
 
@@ -199,6 +200,7 @@ The terminal only starts Kiln and hosts it. Everything the person does after tha
 - [ ] **AC-VIEW-01 — The browser view is local only.** The browser view can be reached only from the same machine, never from another computer on the network.
 - [ ] **AC-VIEW-02 — The browser view is where Kiln is controlled.** It offers Start (on Documents found, and to continue after a pause), Pause after this phase (with Keep going to cancel it, AC-VIEW-03) and Check again, and session output is read there.
   - Superseded in part by: AC-OUTSIDE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the confirmation joins the browser view's controls)
+  - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume joins the browser view's controls)
 - [ ] **AC-VIEW-03 — Pause after this phase stops Kiln between phases.** The current session finishes, including its commit and push, and the pause holds until that phase is Done by any route (its session, a resumed one, or the person after Needs you); then no phase starts until the person presses Start, even if Kiln is interrupted or restarted in between. Until that phase is Done, the person can cancel the pause with Keep going, and the view says Kiln will pause once the current phase is Done (UI-002).
 - [ ] **AC-VIEW-04 — The browser view stays current.** The browser view updates on its own while Kiln works, without a reload, and shows when it was last updated.
 - [ ] **AC-VIEW-05 — The browser view lasts as long as `kiln run`.** While `kiln run` is running for a feature, its browser view works, including while Kiln is stopped at Needs you, paused or complete.
@@ -226,6 +228,7 @@ Working through a PRD can take many hours, but each phase is its own session, so
 - [ ] **AC-KEEP-03 — Interrupted work is never thrown away.** Changed and new files, partly written tests and uncommitted work in an interrupted phase stay exactly as they were. Kiln never starts a fresh session on top of them on its own.
 - [ ] **AC-KEEP-04 — An interrupted session is resumed.** When the phase in progress was interrupted, Kiln first runs the done check: at the next `kiln run`, or on waking when Kiln itself kept running through a sleep. If it passes, the phase is Done. If not, Kiln resumes that same session, with its full history, and tells it the session was interrupted and to carry on with the phase. Kiln never resumes a session that ended on its own.
   - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (an interrupted session that worked outside the workspace goes to Needs you instead of being resumed, shown as interrupted with the resume command)
+  - Superseded in part by: AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (the person can ask Kiln to resume a session that ended on its own)
 - [ ] **AC-KEEP-05 — A session that can't be resumed comes to the person.** If an interrupted session can't be resumed, for example because its transcript is gone, the phase goes to Needs you showing, in place of AC-STOP-02's list, when the session was interrupted and its last lines of output, with the fresh-session prompt (AC-STOP-06) and no resume command.
 - [ ] **AC-KEEP-06 — Kiln keeps the computer awake while it works.** While a phase's session is working, Kiln stops the computer from going to sleep when idle. This is on by default and can be turned off in the PRD's settings. Kiln lets the computer sleep again whenever no session is working: at Needs you, when paused, when complete, and when Kiln exits.
 - [ ] **AC-KEEP-07 — Kiln is honest about sleep.** Wherever keep-awake is shown, Kiln says that closing the lid can still put the computer to sleep; Documents found also says keep-awake stops idle sleep only.
@@ -244,6 +247,7 @@ The v1 mockups are the design of record.
 
 - [ ] **AC-LOOK-01 — The screens match the v1 mockups.** These screens match their mockups in `docs/design/mockups/` for layout, copy, colors and type, with no exceptions: terminal, Documents found, Running, Paused, Disconnected, Phase detail live, both Needs you screens and Complete.
   - Superseded in part by: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the screens this change alters, as the table says)
+  - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you matches that change's mockups where they differ from v1's)
 - [ ] **AC-LOOK-02 — The feature name is the largest text on every browser screen.**
 - [ ] **AC-LOOK-03 — Phase numbers and titles stay put.** Phase titles come from the phase documents word for word. A phase's number stays in its circle in every state.
 - [ ] **AC-LOOK-04 — Each color has one role.** Red is Kiln's accent: the phase in progress, links and the keep-awake checkbox. Amber marks what needs the person: Needs you, a disconnected Kiln or interrupted phase, an error, a confirmation still to give, a usage limit nearly used. Green means done, passed or connected. In session output, each source's label is colored as the mockups show. The look is the Enso Method website's dark theme: Instrument Serif headings, Inter body text, and JetBrains Mono for code.

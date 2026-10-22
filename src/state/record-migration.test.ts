@@ -72,9 +72,12 @@ describe("migrating a schema 1 record", () => {
     expect(record).not.toHaveProperty("pullRequest");
   });
 
-  it("leaves a schema 2 record as it is", () => {
+  it("reads a schema 2 record as schema 3, changing nothing but the version (usage-limit recovery, Data Models)", () => {
     const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
+    const before = JSON.parse(JSON.stringify(record)) as PrdRecord;
     expect(migrateRecord(record)).toBe(record);
+    expect(record).toEqual({ ...before, schemaVersion: 3 });
+    expect(SCHEMA_VERSION).toBe(3);
   });
 });
 

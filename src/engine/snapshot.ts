@@ -8,9 +8,8 @@ import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
-import { basename } from "node:path";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { freshSessionOutsideNote, freshSessionPrompt, outsideWorkspacePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind } from "../state/records.js";
@@ -150,6 +149,8 @@ export interface Snapshot {
     stoppedAt: string;
     /** `stoppedAt` is the interrupted run's last output, since Kiln recorded no interruption time. */
     stoppedAtIsLastOutput?: true;
+    /** A `not_resumable` stop left by the person's Resume, not by Kiln resuming an interruption (usage-limit recovery AC-RESUME-04). */
+    pressedResume?: true;
     finalMessage?: string;
     exitCode?: number;
     signal?: string;
@@ -159,6 +160,8 @@ export interface Snapshot {
     checks: CheckResult[];
     checkedAt: string;
     checking?: true;
+    /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
+    resumeOffered: boolean;
     resumeCommand?: string;
     freshSessionPrompt: string;
     /** `cd <worktree>` then `claude`: how a fresh session starts when there is nothing to resume (UI-007). */
@@ -338,13 +341,14 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  const outside = outsideView(engine, phaseKey, judged);
+  const outside = outsideView(engine, phaseKey);
   const base = {
     phaseId: judged,
     kind: stop.kind,
     checks: stop.checks,
     checkedAt: stop.checkedAt,
     ...(engine.checking ? { checking: true as const } : {}),
+    resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("outside", outside?.view),
   };
   const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
@@ -387,15 +391,19 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   if (stop.kind === "not_resumable") {
     // In place of AC-STOP-02's list: when the session was interrupted, its last lines, and the
     // fresh session with no resume command (AC-KEEP-05). The interrupted run is the one before the failed resume.
+    // After the person's Resume (usage-limit recovery AC-RESUME-04) that run may have ended on its own: then it stopped at its end.
     const interruptedIndex = session.runs.length - 2;
     const interrupted = session.runs[interruptedIndex];
-    const lastOutput = interrupted?.interruptedAt === undefined;
-    const stoppedAt = interrupted?.interruptedAt ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
+    const pressedResume = run?.cause === "person_resume";
+    const ended = pressedResume && interrupted?.interruptedAt === undefined ? interrupted?.endedAt : undefined;
+    const lastOutput = interrupted?.interruptedAt === undefined && ended === undefined;
+    const stoppedAt = interrupted?.interruptedAt ?? ended ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
     return {
       ...base,
       ...sessionFacts,
       stoppedAt,
       ...(lastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
+      ...(pressedResume ? { pressedResume: true as const } : {}),
       lastLines: lines.slice(-10),
       freshSessionPrompt: prompts(true),
       freshSessionCommand,
@@ -436,29 +444,13 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
  * the fresh-session prompt's addition, and whether the confirmation is ticked: a tick made
  * since the stop was last checked.
  */
-function outsideView(engine: Engine, phaseKey: string, judged: string): { view: NonNullable<Snapshot["needsYou"]>["outside"]; note?: string } | undefined {
+function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snapshot["needsYou"]>["outside"]; note?: string } | undefined {
   const facts = engine.record.phases[phaseKey]!;
   const stop = facts.stop!;
   if (!stop.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed)) return undefined;
   const outcome = engine.latestStayed(phaseKey);
-  const repositories = new Set(engine.setUpRepositories.map((entry) => entry.name));
-  // Each checkout once, named by its repository: a subagent's worktree by its main checkout's.
-  const seen = new Map<string, string>();
-  for (const change of outcome.changes) if (change.checkout !== undefined) seen.set(change.checkout, change.repository ?? basename(change.checkout));
-  const checkouts = [...seen].map(([path, name]) => ({ shownPath: displayPath(path), name, inWorkspace: repositories.has(name) }));
-  const changes = outcome.changes.map((change) => change.fact);
+  const { changes, checkouts, prompt } = engine.uncoveredOutside(phaseKey);
   const multi = engine.multiRepository;
-  const isPr = phaseKey === PR_PHASE_KEY;
-  const prompt =
-    changes.length === 0
-      ? undefined
-      : outsideWorkspacePrompt({
-          ...(isPr ? { pullRequests: engine.pullRequestRepositories().length > 1 ? ("several" as const) : ("one" as const) } : { phaseName: `phase ${judged}` }),
-          facts: changes,
-          checkouts,
-          branch: engine.record.settings.featureBranch,
-          multiRepository: multi,
-        });
   const ticked = facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
   return {
     view: {

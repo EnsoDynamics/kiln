@@ -261,6 +261,9 @@ export interface NeedsYouCopy {
    * transcript to go on, what to check by hand; then the confirmation.
    */
   outside?: { title: string; prompt?: string; text?: string; againTitle: string; againText: string };
+  /** What Resume does, and the note's placeholder, when Resume is offered (usage-limit recovery AC-RESUME-01 to 03). */
+  resumeText: string;
+  notePlaceholder: string;
 }
 
 const MISSING_TRANSCRIPT = "No transcript found for session ";
@@ -324,6 +327,11 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
       : "Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.",
     sideHeading: isPr ? "Kiln finishes when" : "Kiln continues when",
     footnote: isPr ? "This is the check Kiln runs after the pull-request session." : "This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    // The pull-request session carries on opening the pull request in place of the phase (usage-limit recovery technical design, "Screens").
+    resumeText: isPr
+      ? `Kiln checks GitHub first. If ${multiRepository ? "the pull requests aren’t all open" : "the pull request isn’t open"}, it picks up the same session, with its full history, and tells it to carry on opening ${multiRepository ? "the pull requests" : "the pull request"}.`
+      : `Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with ${name}. Then the plan continues as usual.`,
+    notePlaceholder: `It gets this in your words, then the instruction to carry on ${isPr ? `opening ${multiRepository ? "the pull requests" : "the pull request"}` : "with the phase"}.`,
   };
 
   if (stop.kind === "plan") {
@@ -366,9 +374,13 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   }
   if (stop.kind === "not_resumable") {
     const when = clockTime(stop.stoppedAt, now, { afterWord: true });
+    // After the person's Resume nothing need have been interrupted (usage-limit recovery AC-RESUME-04).
+    const line = stop.pressedResume
+      ? `Kiln couldn’t resume this session when you pressed Resume. ${stop.stoppedAtIsLastOutput ? "Its last output was" : "It had stopped"} at ${when}. These are the last lines it wrote.`
+      : `Kiln was interrupted ${stop.stoppedAtIsLastOutput ? "" : `at ${when} `}while this session was working, and couldn’t resume it.${stop.stoppedAtIsLastOutput ? ` Its last output was at ${when}.` : ""} These are the last lines it wrote.`;
     return {
       ...copy,
-      line: `Kiln was interrupted ${stop.stoppedAtIsLastOutput ? "" : `at ${when} `}while this session was working, and couldn’t resume it.${stop.stoppedAtIsLastOutput ? ` Its last output was at ${when}.` : ""} These are the last lines it wrote.`,
+      line,
       showFacts: false,
       firstStep: "fresh",
       freshLink: false,

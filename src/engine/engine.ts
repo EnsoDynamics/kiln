@@ -1,12 +1,12 @@
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
 // "Where a Feature Stands", engine loop). The server and view reach it only through its
-// commands (start, pause, cancel a pause, check again, change settings) and its snapshots. State
+// commands (start, pause, cancel a pause, check again, resume, change settings) and its snapshots. State
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, effortFor, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
@@ -25,7 +25,15 @@ import {
   runSessionProcess,
   type SessionControl,
 } from "../session/claude-session.js";
-import { phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt, type PhasePromptValues, type PromptRepository } from "../session/prompts.js";
+import {
+  outsideWorkspacePrompt,
+  phaseSessionPrompt,
+  pullRequestSessionPrompt,
+  resumePrompt,
+  type OutsideCheckout,
+  type PhasePromptValues,
+  type PromptRepository,
+} from "../session/prompts.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
 import {
   EFFORT_LEVELS,
@@ -163,6 +171,8 @@ const STOP_WAIT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 const SLEEP_CHECK_MS = 10_000;
 const WINDOWS_EXIT_GRACE_MS = 1_000;
+/** The longest note Resume takes (usage-limit recovery technical design, "Prompts"). */
+export const NOTE_LIMIT = 4_000;
 
 /**
  * The phase Kiln is working on: between a Done and the next spawn it has no session; while the
@@ -244,6 +254,8 @@ export class Engine {
   private control: SessionControl | undefined;
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
+  /** A Resume the person pressed whose check failed: the loop resumes that stopped session next, with any note. */
+  private personResume: { phaseKey: string; note?: string } | undefined;
   /** The phase whose check is running, for the line a stop prints. */
   private activeCheck: string | undefined;
   private readonly sleepReader: SleepReader;
@@ -522,6 +534,53 @@ export class Engine {
     }
     this.kick();
     return { ok: true };
+  }
+
+  /**
+   * Resume at Needs you (usage-limit recovery AC-RESUME-01 to 03): the stop's check first, honoring
+   * the confirmation as Check again does. A pass is Done, finished by the person, and the note is
+   * dropped; a failure resumes that same session, the note first, and Kiln carries on as after any
+   * session. From the press until the session runs again or the result is recorded, `checking`
+   * stays set, so Resume and Check again are refused (AC-RESUME-02).
+   *
+   *   await engine.resume({ note: "Renumber the migration to 0043, then carry on." })  // { ok: true }
+   */
+  async resume(body: { note?: unknown } = {}): Promise<CommandResult> {
+    const key = this.stoppedPhaseKey();
+    if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
+    if (this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (body.note !== undefined && typeof body.note !== "string") return { ok: false, status: 400, reason: "The note must be text." };
+    const note = (body.note ?? "").trim();
+    if (note.length > NOTE_LIMIT) return { ok: false, status: 400, reason: `The note can be at most ${NOTE_LIMIT.toLocaleString("en-US")} characters.` };
+    this.checking = true;
+    this.changed();
+    let verdict: "done" | "complete" | "cleared" | "still_stopped" | undefined;
+    try {
+      verdict = await this.recheckStop(key);
+    } finally {
+      // Held on through the resume only when the check failed; the run's start releases it.
+      if (verdict !== "still_stopped" || this.stopping) {
+        this.checking = false;
+        this.changed();
+      }
+    }
+    if (verdict === "still_stopped" && !this.stopping) this.personResume = { phaseKey: key, ...(note === "" ? {} : { note }) };
+    this.kick();
+    return { ok: true };
+  }
+
+  /**
+   * Whether Needs you offers Resume (usage-limit recovery AC-RESUME-01): at a done-check or
+   * pull-request-check stop, an interrupted one included (multi-repo AC-OUTSIDE-04), whose session
+   * has a run that started, and never when Claude Code holds no transcript for it (multi-repo
+   * AC-OUTSIDE-01). It reads only the record and the transcripts, so a restarted Kiln offers it the same way.
+   */
+  resumeOffered(phaseKey: string): boolean {
+    const kind = this.record.phases[phaseKey]?.stop?.kind;
+    if (kind !== "done_check" && kind !== "pull_request_check") return false;
+    const session = this.latestSession(phaseKey);
+    if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
+    return !this.transcriptMissing(session);
   }
 
   /**
@@ -894,6 +953,13 @@ export class Engine {
     const { record } = this;
     for (;;) {
       if (this.stopping || !this.isUnderway || record.completedAt) return;
+      if (this.personResume !== undefined) {
+        const { phaseKey, note } = this.personResume;
+        this.personResume = undefined;
+        await this.resumeSession(phaseKey, { ...(note === undefined ? {} : { note }) });
+        if ((await this.settleSession(phaseKey)).kind !== "done") return;
+        continue;
+      }
       if (this.stoppedPhaseKey() !== undefined) return;
       if (this.pendingResume !== undefined) {
         const key = this.pendingResume;
@@ -1008,33 +1074,53 @@ export class Engine {
   }
 
   /**
-   * Resumes an interrupted session with its full history (AC-KEEP-04): the same session ID, its
-   * own concrete model and recorded effort, and the resume prompt as its first message.
+   * Resumes a session with its full history (AC-KEEP-04): the same session ID, its own concrete
+   * model and recorded effort, and the resume prompt as its first message. An interrupted session
+   * Kiln resumes by itself gets v1's openings. With `person`, the stopped session the person
+   * pressed Resume for (usage-limit recovery AC-RESUME-02, 03): the opening for a session that
+   * ended on its own, or an interruption's after multi-repo delivery's interrupted Needs you; any
+   * note first, then AC-OUTSIDE-02's prompt while Stayed in the workspace fails (multi-repo
+   * AC-OUTSIDE-04). Its stop, and `checking`, are cleared as the run starts.
    */
-  private async resumeSession(phaseKey: string): Promise<void> {
+  private async resumeSession(phaseKey: string, person?: { note?: string }): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
     await this.stopLiveProcess(session);
     if (this.stopping) return;
+    const facts = this.record.phases[phaseKey]!;
     const runIndex = session.runs.length - 1;
     const run = session.runs[runIndex]!;
+    const endedOnItsOwn = person !== undefined && facts.stop?.interrupted === undefined;
     const recorded = run.interruptedBy !== undefined && run.interruptedAt !== undefined;
-    const time = recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
+    const time = endedOnItsOwn ? (run.endedAt ?? run.startedAt) : recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
+    const outsideFailed = person !== undefined && facts.stop!.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
+    const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt : undefined;
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
     const prompt = resumePrompt({
-      ...(recorded ? { cause: run.interruptedBy! } : {}),
+      ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
       ...(phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
+      ...(person?.note === undefined ? {} : { note: person.note }),
+      ...(outside === undefined ? {} : { outside }),
     });
     this.emitSessionEvent(phaseKey, "resumed");
+    // The person's stop ends as the run starts, and with it the hold on Resume and Check again.
+    const started = person
+      ? () => {
+          delete facts.stop;
+          this.checking = false;
+          this.save();
+        }
+      : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
-    await this.runProcess(phaseKey, session, resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd)), prompt, "resume", cwd);
+    const args = resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
+    await this.runProcess(phaseKey, session, args, prompt, person ? "person_resume" : "resume", cwd, person?.note, started);
   }
 
-  /** Runs one process of a session, holding keep-awake while it runs and reading sleep around it. */
-  private async runProcess(phaseKey: string, session: SessionRecord, args: string[], prompt: string, cause: SessionRun["cause"], cwd: string): Promise<void> {
+  /** Runs one process of a session, holding keep-awake while it runs and reading sleep around it; `started` runs once it is the current phase's. */
+  private async runProcess(phaseKey: string, session: SessionRecord, args: string[], prompt: string, cause: SessionRun["cause"], cwd: string, note?: string, started?: () => void): Promise<void> {
     if (this.stopping) return;
     this.watchSleep();
     await this.readSleep(true);
@@ -1042,6 +1128,7 @@ export class Engine {
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
     this.interruptedKey = undefined;
+    started?.();
     this.updateKeepAwake();
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
@@ -1053,6 +1140,7 @@ export class Engine {
       env: this.sessionEnv(),
       prompt,
       cause,
+      ...(note === undefined ? {} : { note }),
       stateDirectory: this.options.stateDirectory,
       record: session,
       now: this.now,
@@ -1144,15 +1232,16 @@ export class Engine {
 
   /**
    * Judges a phase after its session ended on its own: its check alone decides (AC-DONE-02,
-   * AC-STOP-01). A resumed run that started and ended without its stream reporting the
-   * session's `init` couldn't resume it (AC-KEEP-05): a failing check is then `not_resumable`.
+   * AC-STOP-01). A resumed run, Kiln's or the person's, that started and ended without its stream
+   * reporting the session's `init` couldn't resume it (AC-KEEP-05, usage-limit recovery
+   * AC-RESUME-04): a failing check is then `not_resumable`.
    */
   private async judgeEndedSession(phaseKey: string, byPerson: boolean): Promise<Verdict> {
     try {
       const session = this.latestSession(phaseKey);
       const runIndex = (session?.runs.length ?? 0) - 1;
       const run = session?.runs[runIndex];
-      const notResumable = session !== undefined && run?.cause === "resume" && run.pid !== undefined && !runReportedInit(this.options.stateDirectory, session, runIndex);
+      const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && !runReportedInit(this.options.stateDirectory, session, runIndex);
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return { kind: "stopping" };
@@ -1839,6 +1928,31 @@ export class Engine {
     });
     this.stayedOutcomes.set(phaseKey, outcome);
     return outcome;
+  }
+
+  /**
+   * The changes outside the workspace Stayed in the workspace found uncovered at the phase's latest
+   * check (multi-repo AC-OUTSIDE-02): each change's fact, each changed checkout as the prompt names
+   * it (a subagent's worktree by its main checkout's repository), and the prompt when there are changes.
+   */
+  uncoveredOutside(phaseKey: string): { changes: string[]; checkouts: OutsideCheckout[]; prompt?: string } {
+    const outcome = this.latestStayed(phaseKey);
+    const repositories = new Set(this.setUpRepositories.map((entry) => entry.name));
+    // Each checkout once, named by its repository: a subagent's worktree by its main checkout's.
+    const seen = new Map<string, string>();
+    for (const change of outcome.changes) if (change.checkout !== undefined) seen.set(change.checkout, change.repository ?? basename(change.checkout));
+    const checkouts = [...seen].map(([path, name]) => ({ shownPath: displayPath(path), name, inWorkspace: repositories.has(name) }));
+    const changes = outcome.changes.map((change) => change.fact);
+    if (changes.length === 0) return { changes, checkouts };
+    const isPr = phaseKey === PR_PHASE_KEY;
+    const prompt = outsideWorkspacePrompt({
+      ...(isPr ? { pullRequests: this.pullRequestRepositories().length > 1 ? ("several" as const) : ("one" as const) } : { phaseName: `phase ${this.judgedId(phaseKey)}` }),
+      facts: changes,
+      checkouts,
+      branch: this.record.settings.featureBranch,
+      multiRepository: this.multiRepository,
+    });
+    return { changes, checkouts, prompt };
   }
 
   /** Stayed in the workspace as the phase's latest check found it, for Needs you; read again only when Kiln has none in memory. */

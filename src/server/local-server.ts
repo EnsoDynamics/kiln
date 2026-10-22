@@ -171,6 +171,11 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/pause", (c) => answer(c, engine.pause()));
   app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
   app.post("/api/check-again", async (c) => answer(c, await engine.checkAgain()));
+  // Resume at Needs you, with an optional note (usage-limit recovery AC-RESUME-01 to 03); answered once its check has run.
+  app.post("/api/resume", async (c) => {
+    const body = (await jsonBody(c)) ?? {};
+    return answer(c, await engine.resume(body.note === undefined ? {} : { note: body.note }));
+  });
   // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
   app.post("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(true)));
   app.delete("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(false)));
