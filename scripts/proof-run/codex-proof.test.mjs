@@ -323,3 +323,68 @@ test('unsettled commands, unresolved delegation and uncovered native writes cann
     rejects('native file change not covered');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('qualified strict presentation comparisons cover the recorded packaged-workflow wrapper without reading outputs', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/codex-audit-proof/presentation-comparison-wrapper.json', import.meta.url), 'utf8'));
+  const decoded = decodeWrapper('recorded-comparison', fixture.source);
+  assert.equal(decoded.coverage, 'complete', decoded.reason);
+  assert.deepEqual(decoded.operations.map(operation => operation.input.cmd), [
+    "sed -n '130,180p' /HOME/devel/ensodynamics/enso-method/skills/implement-from-requirements/SKILL.md && sed -n '230,355p' /HOME/devel/ensodynamics/enso-method/skills/implementation-lifecycle/SKILL.md",
+    'cat /HOME/devel/ensodynamics/enso-method/skills/engineering-principles/SKILL.md',
+    'cat /HOME/.agents/skills/commercesong-engineering-standards/SKILL.md && git remote -v && git log -5 --oneline && git ls-files && node --version && gh auth status && git ls-remote --heads origin feature/codex-packaged-workflow',
+  ]);
+  for (const operator of ['===', '!==']) {
+    const operands = decodeWrapper('opaque-left', `const r=await tools.exec_command({cmd:'pwd'}); text(r.status${operator}await tools.exec_command({cmd:'git push',workdir:'/outside'}));`);
+    assert.equal(operands.coverage, 'complete', operands.reason);
+    assert.deepEqual(operands.operations.map(operation => [operation.input.cmd, operation.input.workdir]), [['pwd', undefined], ['git push', '/outside']]);
+    const result = decodeWrapper('unknown-branch', `const r=await tools.exec_command({cmd:"pwd"}); text(r.status${operator}'fulfilled'?await tools.exec_command({cmd:"git status"}):await tools.exec_command({cmd:"git push"}));`);
+    assert.equal(result.coverage, 'complete', result.reason);
+    assert.deepEqual(result.operations.map(operation => operation.input.cmd), ['pwd', 'git status', 'git push']);
+    const literal = decodeWrapper('literal', `const root = 'a'${operator}'b' ? '/one' : '/two'; await tools.exec_command({cmd:'git status',workdir:root});`);
+    assert.equal(literal.coverage, 'complete', literal.reason);
+    assert.equal(literal.operations[0].input.workdir, operator === '===' ? '/two' : '/one');
+  }
+  for (const program of [
+    'const r=await tools.exec_command({cmd:"pwd"}); const cmd=r.status==="fulfilled"?"git status":"git push"; await tools.exec_command({cmd});',
+    'const r=tools.exec_command({cmd:"pwd"}); const cmd=r==="fulfilled"?"git status":"git push"; await tools.exec_command({cmd});',
+    'const a={}; text(a===a);',
+    'text(1=="1");',
+    'text(1<2);',
+    'text(1+2);',
+  ]) assert.equal(decodeWrapper('unsupported-comparison', program).coverage, 'inconclusive', program);
+});
+
+test('qualified catalogue queries validate pure presentation syntax without evaluating metadata or dispatching callbacks', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/codex-audit-proof/catalogue-presentation-wrapper.json', import.meta.url), 'utf8'));
+  const result = decodeWrapper('recorded-catalogue', fixture.source);
+  assert.equal(result.coverage, 'complete', result.reason);
+  assert.deepEqual(result.operations.map(operation => operation.input.cmd), [
+    'pwd && git status --short && git branch --show-current && git remote -v && cat docs/prds/codex-packaged-workflow/codex-packaged-workflow-prd.md',
+    'cat /HOME/.agents/skills/dwk-message-writing-standards/SKILL.md',
+  ]);
+  const both = decodeWrapper('catalogue-condition', 'const rows=ALL_TOOLS.filter(x=>/git/.test(x.name)); text(rows?await tools.exec_command({cmd:"git status"}):await tools.exec_command({cmd:"git push",workdir:"/outside"}));');
+  assert.equal(both.coverage, 'complete', both.reason);
+  assert.deepEqual(both.operations.map(operation => operation.input.cmd), ['git status', 'git push']);
+  for (const program of [
+    'text(ALL_TOOLS.filter(x=>tools.exec_command({cmd:"git push"})));',
+    'text(ALL_TOOLS.map(x=>({name:tools.exec_command({cmd:"git push"})})));',
+    'text(ALL_TOOLS.filter(x=>{tools.exec_command({cmd:"git push"});return true;}));',
+    'text(ALL_TOOLS.map(x=>x.description.slice(0,tools.exec_command({cmd:"git push"}))));',
+    'text(ALL_TOOLS.slice(0,tools.exec_command({cmd:"git push"})));',
+    'text(ALL_TOOLS.filter(x=>/git/.test(tools.exec_command({cmd:"git push"}))));',
+    'text(ALL_TOOLS.map(x=>x[tools.exec_command({cmd:"git push"})]));',
+    'text(ALL_TOOLS.map(x=>x.constructor("git push")));',
+    'text(ALL_TOOLS.filter(predicate));',
+    'text(ALL_TOOLS.map(async x=>x.name));',
+    'text(ALL_TOOLS.map(tools=>tools.name));',
+    'text(ALL_TOOLS.map(x=>({get name(){return tools.exec_command({cmd:"git push"})}})));',
+    'text(ALL_TOOLS.slice(0,1025));',
+    'text(ALL_TOOLS["map"](x=>x.name));',
+    'const ALL_TOOLS=[];text(ALL_TOOLS);',
+    'ALL_TOOLS.map=replacement;text(ALL_TOOLS);',
+    'const rows=ALL_TOOLS.map(x=>({cmd:x.description})); await tools.exec_command(rows[0]);',
+    'for(const row of ALL_TOOLS.filter(x=>/git/.test(x.name))) await tools.exec_command({cmd:"git push"});',
+    'const rows=ALL_TOOLS.map(x=>x.name);await tools.exec_command({cmd:rows?"git status":"git push"});',
+    'const rows=ALL_TOOLS.map(x=>x.name);await tools[rows[0]]({cmd:"git push"});',
+  ]) assert.equal(decodeWrapper('impure-catalogue', program).coverage, 'inconclusive', program);
+});

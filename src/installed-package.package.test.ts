@@ -89,6 +89,12 @@ describe("the installed package", () => {
     const decoder = await import(pathToFileURL(join(installedPackage, "dist/session/codex-wrapper-decoder.mjs")).href) as { decodeWrapper(id: string, source: string): { coverage: string; operations: unknown[] } };
     const result = decoder.decodeWrapper("package-proof", 'text(await tools.exec_command({cmd:"git status",workdir:"/assigned"}));');
     expect(result).toMatchObject({ coverage: "complete", operations: [{ name: "exec_command", input: { cmd: "git status", workdir: "/assigned" } }] });
+    const presentation = decoder.decodeWrapper("package-presentation-proof", 'const results = await Promise.all([tools.exec_command({cmd:"git status",workdir:"/assigned"})]); results.forEach(text);');
+    expect(presentation).toMatchObject({ coverage: "complete", operations: [{ name: "exec_command", input: { cmd: "git status", workdir: "/assigned" } }] });
+    const comparison = decoder.decodeWrapper("package-comparison-proof", 'const rs = await Promise.allSettled([tools.exec_command({cmd:"git status",workdir:"/assigned"})]); for(let i=0;i<rs.length;i++){text(rs[i].status==="fulfilled"?rs[i].value.output:rs[i].reason);}');
+    expect(comparison).toMatchObject({ coverage: "complete", operations: [{ name: "exec_command", input: { cmd: "git status", workdir: "/assigned" } }] });
+    const catalogue = decoder.decodeWrapper("package-catalogue-proof", 'text(await tools.exec_command({cmd:"git status",workdir:"/assigned"})); text(ALL_TOOLS.filter(x=>/git/.test(x.name+" "+x.description)).map(x=>({name:x.name,description:x.description.slice(0,180)})).slice(0,60));');
+    expect(catalogue).toMatchObject({ coverage: "complete", operations: [{ name: "exec_command", input: { cmd: "git status", workdir: "/assigned" } }] });
     expect(packedFiles).toContain("prompts/codex-powershell-ast.ps1");
     const evidence = await import(pathToFileURL(join(installedPackage, "dist/session/codex-evidence.js")).href) as { auditCodexConversation: unknown };
     expect(typeof evidence.auditCodexConversation).toBe("function");
@@ -111,13 +117,19 @@ describe("the installed package", () => {
       expect(page).toMatch(/<meta name="kiln-token" content="[^"_]+">/);
 
       const assets = [...page.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1]!);
-      expect(assets.length).toBe(2);
+      expect(assets.filter((path) => path.endsWith(".js"))).toHaveLength(1);
+      expect(assets.filter((path) => path.endsWith(".css"))).toHaveLength(1);
+      const favicon = /<link\b[^>]*rel="icon"[^>]*href="([^"]+)"/.exec(page)?.[1];
+      expect(favicon).toMatch(/^\/assets\/kiln-favicon-[^/]+\.svg$/);
+      expect(assets).toContain(favicon);
       const origin = new URL(address).origin;
       const bodies = await Promise.all(assets.map(async (path) => {
         const response = await fetch(`${origin}${path}`);
         expect(response.status, path).toBe(200);
+        if (path === favicon) expect(response.headers.get("content-type")).toContain("image/svg+xml");
         return response.text();
       }));
+      expect(bodies[assets.indexOf(favicon!)]).toContain("<svg");
       const css = bodies[assets.findIndex((path) => path.endsWith(".css"))]!;
       const fonts = [...css.matchAll(/url\((\/assets\/[^)]+\.woff2)\)/g)].map((match) => match[1]!);
       expect(fonts.length).toBeGreaterThan(0);

@@ -1,8 +1,8 @@
-# Codex support for Kiln — Prerequisite proof results
+# Codex support for Kiln — Proof results
 
 **Recorded:** 2026-10-23 UTC. **Phase:** [1 — Prove Codex can be audited before integration](phase-1-codex-audit-proof.md). **Criterion:** AC-PROOF-02.
 
-**Gate 1: PASS for the corrected prerequisite candidate.** The original grammar failed; it was corrected and the unchanged recorded work was re-audited in this phase. Normal Codex execution remains unavailable. Release support still requires the remaining planned phases.
+**Gate 1: PASS for the corrected prerequisite candidate.** The original grammar failed; it was corrected and the unchanged recorded work was re-audited in this phase. This was the pre-integration prerequisite. Subsequent sections record integrated execution and the installed Mac workflow; product publication is not authorized.
 
 ## Platform validation scope — available Mac only
 
@@ -75,7 +75,7 @@ The technical design now explicitly defines bounded static dataflow for those fo
 
 Independent review identified and fixed counted-loop reevaluation, async callback/promise handling, missed delegation, unsettled commands, structured-question overwrite and already-signaled-process cleanup. Regressions cover them. These defects were addressed here, not deferred.
 
-## Remaining planned work and owner
+## Remaining planned work at Phase 1 closure — historical ownership
 
 | Owner | Remaining obligation |
 |---|---|
@@ -111,3 +111,49 @@ Final `npm run verify` passed dependency audit, ESLint, TypeScript/Svelte checks
 The initial implementation verification passes dependency audit, ESLint, TypeScript/Svelte, 487 unit tests and 14 pinned protocol proofs. Complete integration: 450 pass, two existing skips, one existing paused-CLI Start timeout. That same timeout reproduces under full-suite load in an unchanged `a88935f` source export; the full CLI file’s nine tests pass separately on both predecessor (69.04 seconds) and current code (65.20 seconds). The quota file’s twenty tests pass, and the durable retry/restart scenario passes again with the hardened child dispatch guard. This is complete test coverage with a recorded pre-existing combined-run instability, not a claim that `npm run verify` exited green.
 
 Deliverable review and independent test hardening finish without remaining material findings. Phase 4 closes under Doug’s explicit live-quota deferral; Phase 5 retains the missing Mac package/workflow proofs and inherited combined-run limitation under the platform scope above. No product push, merge, deployment, publication or Enso Method change was performed.
+
+
+## Phase 5 — Installed macOS package and actual GitHub workflow
+
+**Recorded:** 2026-10-23 UTC. **Workflow result: PASS.** [Phase 5](phase-5-codex-platform-proof.md) closes the missing installed-package and actual-GitHub boundaries on the available Mac. Final routine verification is recorded in the phase's final validation section; this workflow result alone is not a package publication or product-push authorization.
+
+### Installed artifact and real delivery
+
+Node 22.16.0, macOS 26.6.1 / arm64, Git 2.50.1, codex-cli 0.162.1, existing ChatGPT authentication, reported `gpt-6.1-sol` / High. Seed mode packed Kiln and installed it globally into a dedicated temporary prefix; the run invoked that installed `prefix/bin/kiln run docs/prds/codex-packaged-workflow`, never the source Engine or a local `gh` peer. Selecting Codex and starting used the normal authenticated loopback API. Only the disposable fixture's GitHub writes were authorized by Doug's “Authorize disposable proof only” answer in implementing chat `01a16abe-da90-7ae0-8c0a-be086b7b1742`.
+
+| Conversation | Provider thread | Pushed commit / final result | Complete workspace evidence |
+|---|---|---|---|
+| Phase 1 — Plain greeting | `01a16aca-ec0e-7441-a0fd-ab41be2f59b9` | `7ca35c00c2fd5ae136486840e2d9febabe83c2c0` | 39 operations across parent and two children; no problems/findings |
+| Phase 2 — Uppercase greeting | `01a16ad1-5ef5-7bc1-ad3f-a29a3a11435a` | `0b27d19451970a00557517b4efd2839348c06b2f` | 42 operations across parent and two children; no problems/findings |
+| Fresh final PR conversation | `01a16ad4-8fdb-7e02-93a5-8c28b185f5de` | [Actual GitHub PR #1](https://github.com/EnsoDynamics/kiln-proof-codex-macos-20261023/pull/1), open, ready, mergeable; head matches Phase 2 | 10 operations; no problems/findings |
+
+The driver requires three distinct recorded Codex conversations, in phase order, with completed parent terminals, the requested/effective/observed original pair, tracked-process cleanup and fresh complete clean audits. Each phase has a distinct pushed commit; Phase 1 is an ancestor of Phase 2. It inspects both pushed trees, requires Phase 1's module/tests and absence of Phase 2's module/tests, then both modules/tests in Phase 2. Driver-owned direct assertions verify normal, empty, Unicode and punctuation inputs against Phase 1's pushed source and the final worktree, independently of the model-authored tests. The final `npm test` passes; the assigned worktree is clean. Final head and actual GitHub PR head match. Remote `main` remains the original seed `a23d918d597bbb650ded08c1ac9f600dbc06ca32`. No merge or deployment occurred, and the fixture has no CI/deployment workflows.
+
+The installed browser was observed during native phase work: Codex identity, Sol/High, observed/unobserved progress, live timestamped tool/model output, a current allowance, local reset display and fixed agent settings. The installed output API retains timestamped Codex messages for all three stopped conversations. Earlier output/usage and Claude compatibility regressions are reused below; no new exhaustion, manual-terminal or repository-addition exercise was staged.
+
+### Failures retained and bounded grammar qualification
+
+Two actual ordinary wrappers first made the audit inconclusive. Phase 1 used strict equality in a presentation-only settled-result check; the final PR conversation used a display-only `ALL_TOOLS` filter/map query. Kiln correctly stopped both times despite successful Git delivery. Neither unknown evidence nor outside work was confirmed into a pass. The technical design was amended before each decoder change, and unchanged recorded inputs were requalified using sanitized raw fixtures with original digests, exact expected operations and adverse callback/operand/branch/taint tests. The installed comparison and catalogue smoke checks pass with shipped Acorn. No recorded JavaScript or catalogue callback is evaluated, and opaque outputs/catalogue data cannot provide tool inputs, loop bounds or dispatch targets. Published Enso Method skills and fixture work prompts were unchanged.
+
+After repacking and reinstalling, the normal installed command rechecked the same saved conversations and advanced only when their fresh audits passed. These were evidence-only recoveries: three implementation/PR conversations total, one model turn each; no extra inference turn or duplicate PR was needed. The initial false-negative audit artifacts remain retained separately. A pre-start driver URL parser also needed correction because Kiln's sentence punctuation followed its URL; that failed before any model dispatch and is retained separately.
+
+Owner-only retained evidence: `/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-codex-package-trqBpA`. `packaged-workflow-result.json` holds the final snapshot, session/audit records, PR and commit facts; `installed-revision.json` binds the installed compiled decoder to the build and tarball. Final compiled decoder SHA-256: `61f6b97a6754968050be0fdde4284f9c53542b763a9993e7618a809361f58873`. Tarball SHA-256: `dc92def4f5168274b4256c50a0e43fd36ea27adcd4e372bb4abfcf007a7a9a60`. Raw history remains at provider-owned returned paths. Account details, tokens and raw output are not committed.
+
+### Acceptance evidence reused and explicit limits
+
+| Phase 5 criterion / constraint | Evidence |
+|---|---|
+| AC-COMPAT-02 | All four complete Mac package checks pass, including installed CLI/browser/fonts/favicon, production evidence reader, shipped helpers/Acorn, presentation callbacks and both new recorded grammar forms. [Prerequisites and validation limits](../../release/kiln-codex-macos-validation.md) name the pinned CLI, ChatGPT sign-in, method/profile requirements and Mac-only scope. |
+| AC-PROOF-03 / AC-WORK-01 | Actual installed two-phase GitHub workflow above; independent phase behavior, ordered conversations, network pushes and ready PR. |
+| AC-WORK-02 / 03 / 04 | Actual protected runner/profile and complete parent/child audits above; earlier real repository addition/manual work and verified uncommon-request contracts remain reusable. Both newly encountered unknown forms stopped passage until qualified; no blanket permission or confirmation bypass. |
+| AC-COMPAT-01 | Complete unit/protocol/integration gate includes existing Claude migration, selection, output, usage and interruption paths. Final exact totals/outcomes are recorded in Phase 5. |
+| Required Mac interruption/restart/original pair, terminal/manual work and repository addition | Reuse [conversation runner](kiln-codex-support-conversation-results.md), [workflow recovery](kiln-codex-support-workflow-results.md), Gate 1 and production workspace-reader evidence; these boundaries were unchanged. |
+| Usage recovery | Gate 3 and Phase 4 remain initial contract/process evidence. Actual exhaustion, changed-account inference and native repeated-refusal suppression remain unproved under Doug's live-use deferral. No allowance was burned to manufacture them. |
+| Linux/Windows compatibility | Source review retains explicit MXC readiness/startup, pinned PowerShell parser, Job Object supervision, tracked native cleanup and Linux `/proc` process identities. Existing parser/path/contract checks run on the available Mac. Native Linux/Windows runtime, root/UNC/junction enforcement and cleanup remain explicitly untested under Doug's platform decision. |
+
+Independent deliverable review and test hardening corrected proof false positives (document counts versus distinct conversations; model-authored tests versus independent behavior checks) and reviewed both grammar qualifications without remaining material findings. Final product delivery remains a scoped local commit only; the staged root README and earlier local commits are preserved, and Enso Method is unchanged.
+
+
+### Phase 5 final verification and continuation
+
+The complete final gate passes with unchanged assertions and bounded integration concurrency: audit, lint, TypeScript/Svelte, 487 unit tests, 16 pinned protocol proofs, and 451 integration tests plus two existing skips (`npm run test:integration -- --maxWorkers=4`, 270.03 seconds). All four installed-package checks pass. The phase records the initial default-concurrency timing failures and passing complete reruns without claiming that the initial `npm run verify` exited green. Phase 5 is closed; all planned leaves are closed and the next fresh chat runs the whole-PRD delivery audit, then the test audit. No product push is authorized.

@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer';
 const UNKNOWN = Symbol('opaque tool result');
 const TOOLS = new Set(['exec_command', 'write_stdin', 'apply_patch', 'spawn_agent', 'send_message', 'wait_agent', 'list_agents', 'followup_task', 'interrupt_agent']);
 const OUTPUT = new Set(['text', 'notify', 'image', 'audio', 'generatedImage']);
-const RESERVED = new Set(['tools', 'Promise', 'JSON', ...OUTPUT]);
+const RESERVED = new Set(['tools', 'Promise', 'JSON', 'ALL_TOOLS', ...OUTPUT]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_ARRAY = 1024;
 
@@ -45,6 +45,48 @@ export function decodeWrapper(callId, program) {
     return node.type === 'MemberExpression' && !node.computed && !node.optional && node.object.type === 'Identifier' && node.property.type === 'Identifier'
       ? `${node.object.name}.${node.property.name}` : undefined;
   }
+  function catalogueRoot(node) {
+    if (node.type === 'Identifier') return node.name === 'ALL_TOOLS';
+    return node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && catalogueRoot(node.callee.object);
+  }
+  // Validate metadata-only syntax without consulting or evaluating the live catalogue.
+  // No callback here may dispatch work; even a validated query returns opaque data.
+  function catalogue(node, scope = new Set()) {
+    if (++visited > 50_000) fail(node, 'AST budget exceeded');
+    if (node.type === 'Identifier') {
+      if (node.name === 'ALL_TOOLS') return 'catalogue';
+      if (scope.has(node.name)) return 'descriptor';
+    }
+    if (node.type === 'Literal') {
+      if (node.regex) return 'regexp';
+      if (!node.bigint && (node.value === null || ['string', 'number', 'boolean'].includes(typeof node.value))) return typeof node.value;
+    }
+    if (node.type === 'MemberExpression' && !node.computed && !node.optional && catalogue(node.object, scope) === 'descriptor' && ['name', 'description'].includes(node.property.name)) return 'string';
+    if (node.type === 'BinaryExpression' && node.operator === '+' && catalogue(node.left, scope) === 'string' && catalogue(node.right, scope) === 'string') return 'string';
+    if (node.type === 'ObjectExpression') {
+      for (const property of node.properties) {
+        if (property.type !== 'Property' || property.computed || property.method || property.kind !== 'init') fail(property, 'Impure catalogue projection');
+        const key = property.key.type === 'Identifier' ? property.key.name : property.key.value;
+        if (typeof key !== 'string' || FORBIDDEN_KEYS.has(key) || !['string', 'number', 'boolean', 'object'].includes(catalogue(property.value, scope))) fail(property, 'Unsupported catalogue projection');
+      }
+      return 'object';
+    }
+    if (node.type === 'CallExpression' && !node.optional && node.callee.type === 'MemberExpression' && !node.callee.computed && !node.callee.optional) {
+      const receiver = catalogue(node.callee.object, scope), method = node.callee.property.name;
+      if (receiver === 'catalogue' && ['filter', 'map'].includes(method) && node.arguments.length === 1) {
+        const fn = node.arguments[0];
+        if (fn.type !== 'ArrowFunctionExpression' || fn.async || fn.params.length !== 1 || fn.params[0].type !== 'Identifier' || RESERVED.has(fn.params[0].name)) fail(fn, 'Impure catalogue callback');
+        const nested = new Set(scope); nested.add(fn.params[0].name);
+        const result = catalogue(fn.body, nested);
+        if (method === 'filter' && result !== 'boolean') fail(fn, 'Unsupported catalogue predicate');
+        if (method === 'map' && !['string', 'number', 'boolean', 'object'].includes(result)) fail(fn, 'Unsupported catalogue projection');
+        return method === 'filter' ? 'catalogue' : 'projection';
+      }
+      if (receiver === 'regexp' && method === 'test' && node.arguments.length === 1 && catalogue(node.arguments[0], scope) === 'string') return 'boolean';
+      if (['catalogue', 'projection', 'string'].includes(receiver) && method === 'slice' && node.arguments.length >= 1 && node.arguments.length <= 2 && node.arguments.every(argument => argument.type === 'Literal' && Number.isInteger(argument.value) && argument.value >= 0 && argument.value <= MAX_ARRAY)) return receiver;
+    }
+    fail(node, 'Outside pure catalogue presentation grammar');
+  }
   function callback(fn, values, scope) {
     // Built-in presentation callbacks cannot dispatch tools. Reserved bindings cannot
     // be shadowed; arbitrary identifier callbacks remain outside the grammar.
@@ -71,6 +113,7 @@ export function decodeWrapper(callId, program) {
         if (node.regex || node.bigint) fail(node, 'Unsupported literal');
         return node.value;
       case 'Identifier':
+        if (node.name === 'ALL_TOOLS') return UNKNOWN;
         if (!scope.has(node.name)) fail(node, `Unbound identifier ${node.name}`);
         return scope.get(node.name);
       case 'VariableDeclaration':
@@ -130,6 +173,11 @@ export function decodeWrapper(callId, program) {
       }
       case 'BinaryExpression': {
         const left = read(node.left, scope), right = read(node.right, scope);
+        if (node.operator === '===' || node.operator === '!==') {
+          if (!isData(left) || !isData(right)) return UNKNOWN;
+          if ((left !== null && typeof left === 'object') || (right !== null && typeof right === 'object')) fail(node, 'Object identity comparison is unsupported');
+          return node.operator === '===' ? left === right : left !== right;
+        }
         if (node.operator !== '+') fail(node, 'Unsupported binary expression');
         if (left === UNKNOWN || right === UNKNOWN) return UNKNOWN;
         if (typeof left !== 'string' || typeof right !== 'string') fail(node, 'Nonstring concatenation');
@@ -174,6 +222,7 @@ export function decodeWrapper(callId, program) {
       case 'CallExpression': {
         const name = exactMember(node.callee);
         if (node.optional) fail(node, 'Optional invocation is unsupported');
+        if (catalogueRoot(node)) { catalogue(node); return UNKNOWN; }
         if (name?.startsWith('tools.')) {
           const tool = name.slice(6);
           if (!TOOLS.has(tool) || node.arguments.length !== 1) fail(node, 'Unknown tool or invocation');
