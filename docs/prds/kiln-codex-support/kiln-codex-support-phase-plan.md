@@ -1,0 +1,50 @@
+# Phase plan: Codex support for Kiln
+
+**PRD:** [Codex support for Kiln](kiln-codex-support-prd.md) · **Design:** [single technical design](kiln-codex-support-technical-design.md) · **Decisions:** [validated assumptions](kiln-codex-support-assumptions.md) · **Evidence:** [research](kiln-codex-support-research.md)
+
+## Execution order
+
+Five leaf phases, executed sequentially. This is a plan only: no candidate proof, implementation or release proof ran during phase planning. The PRD remains one delivery; intermediate phases do not establish Codex release support.
+
+| Phase | What it does | Depends on |
+|---|---|---|
+| [1 — Prove Codex can be audited before integration](phase-1-codex-audit-proof.md) | Exercise real published-method work and manual recovery before relying on the selected Codex execution and audit candidate. | None |
+| [2 — Choose an agent and see its models and account](phase-2-codex-agent-selection.md) | Add working agent/model/account controls while preserving existing Claude records and behavior. | 1 (validated compatibility candidate and reusable metadata transport/profile) |
+| [3 — Run and recover Codex phases through pull requests](phase-3-codex-session-workflow.md) | Integrate phase execution, output, authoritative checks and same-conversation recovery through the final pull requests. | 1 (passed unattended/audit proof); 2 (agent selection, metadata, settings and migration) |
+| [4 — Wait and resume after a confirmed Codex usage stop](phase-4-codex-usage-recovery.md) | Add and prove bounded recovery from an actual structured Codex usage refusal. | 2 (fresh account/usage identity and readings); 3 (durable attempts, checks, resume and wait controls) |
+| [5 — Prove the packaged Codex workflow on every platform](phase-5-codex-platform-proof.md) | Demonstrate the installed package, native platform behavior and complete multi-phase workflow before making support claims. | 1 (recorded prerequisite proof); 3 (integrated lifecycle and platform profile); 4 (passed real usage recovery) |
+
+Each linked leaf owns its acceptance-criterion scope, exclusions and exact design pointers. No phase is closed at creation.
+
+## Sizing decision
+
+The whole delivery does not fit one dependable session: it combines an unproved audit candidate, agent selection and metadata, a persistent multi-process execution/recovery lifecycle, a separate quota-recovery state machine and native-platform release evidence. The seams follow proof dependencies and independently exercisable behavior, rather than separating storage, API and UI layers.
+
+| Phase | Single-session sizing and reason for the boundary |
+|---|---|
+| 1 | One bounded candidate proof with only the transport, decoder and evidence components needed by the harness. Its actual result determines whether normal execution may be integrated, so it must precede that work. |
+| 2 | One read/control workflow from document discovery through saved selection and live metadata, carrying the necessary adapter/schema changes inside the slice. It can be exercised through the real API/browser and metadata calls without work turns. |
+| 3 | One execution lifecycle, from Start through checks, output, stop and recovery to final PRs, using the proved candidate and existing engine. These tightly coupled paths share conversation identity and authority; splitting them would leave an unsafe or unrecoverable intermediate runner. It is the largest phase, but retains one coherent capability; re-size it before building rather than preemptively cutting layers. |
+| 4 | One distinct recovery rule set and its actual refusal/release exercise. Identity, consumed retry evidence and repeated-refusal suppression fit together and can be tested without waiting for the final package proof. |
+| 5 | One acceptance/proof pass over the delivered package and workflow, with platform prerequisites named explicitly. It changes only compatibility prerequisites/documentation or defects required by these proofs; it is not another feature build. |
+
+The sequential walkthrough leaves Phase 1 independently runnable, Phase 2 able to verify selection without an executor, Phase 3 with both its evidence prerequisite and settings in place, Phase 4 with an existing recoverable conversation, and Phase 5 with every implementation and usage proof it needs. Neighbors retain real boundaries: unknown candidate outcome, metadata versus work execution, ordinary versus quota recovery, and assembled native-platform evidence.
+
+## Proof prerequisites and closure
+
+The design's **Integration and Verification → Proof gates and tests** and **Open Questions** remain authoritative. Phase documents allocate the obligations; they do not relax them.
+
+| Design obligation | Phase that supplies the evidence | What it blocks until it passes |
+|---|---|---|
+| Gate 1 / audit candidate runtime proof | 1 | Normal Codex execution integration and automatic phase passage in 3; support claims in 5. A failed result requires correcting the design or surfacing its product consequence, never modifying published method skills to fit the decoder. |
+| Gate 2 / faithful recovery and platform runtime proof | 3 supplies the implementation and recovery evidence; 5 completes the native macOS/Linux/Windows MXC and package matrix. | Final platform support and release acceptance in 5. Metadata or schema inspection cannot replace runtime evidence. |
+| Gate 3 / usage runtime proof | 4 | Closure of 4 and final release acceptance in 5. Actual refusal, changed-account recovery and persisted repeat-refusal suppression remain required; fixtures do not close the gap. |
+| Gate 4 / assembled workflow | 5 | Release acceptance: at least two real phases through expected PRs, live/saved output, usage, interruption and manual recovery, cross-repository addition, plus Claude regression and the package/platform matrix. |
+
+Record future proof outcomes and sanitized evidence references in `kiln-codex-support-proof-results.md` beside this plan; no results file is created before a proof runs. Native test hosts, compatible CLI/PowerShell installations, ChatGPT sign-in, disposable repositories/GitHub PR destinations and natural or approved exhausted-allowance conditions are prerequisites of the affected proof, not permission to mark it passed when unavailable. Do not deliberately burn substantial allowance. A mandatory unrun case leaves its owning phase open and release blocked. The pinned candidate has no reset-only recovery path; the design's conditional future-profile rule remains intact.
+
+## Acceptance-criterion ownership
+
+AC-PROOF-01 is retired into AC-PROOF-02 (cross-repository/workspace proof, owned by 1) and AC-PROOF-03 (remaining assembled-workflow/platform/usage proof, owned by 5). This separates the existing compound proof obligation without changing product scope. The design citations were updated with those labels; no previous PRD's supersession pointers are changed during planning.
+
+Every other active criterion has exactly one owning leaf. Later leaves mark cross-cutting constraints as “also applies to this phase's work”; those entries do not transfer ownership. No assumptions, runtime findings or method guidance were changed by this plan.
