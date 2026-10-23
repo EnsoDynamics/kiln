@@ -4,6 +4,10 @@
 
 **Gate 1: PASS for the corrected prerequisite candidate.** The original grammar failed; it was corrected and the unchanged recorded work was re-audited in this phase. Normal Codex execution remains unavailable. Release support still requires the remaining planned phases.
 
+## Platform validation scope — available Mac only
+
+Doug’s 2026-10-23 decision in chat `01a16a2e-3595-7d31-b4e5-25753d32f125` limits required native validation to his Mac. Linux/Windows compatibility is best effort, explicitly untested, and does not block this delivery; no additional test hosts are required. Phase 5 closes only the missing installed-package and two-phase actual-GitHub delivery boundaries, reusing earlier real recovery/repository and output/settings/usage evidence unless a changed boundary or defect requires a repeat. This records acceptance scope, not a new proof result or push authorization.
+
 ## Gate 3 — Actual usage proof deferred to live use
 
 Phase 4 implements the pinned structured refusal and permission-based recovery rules, with deterministic verified-contract/process tests beside the earlier real runner/workflow proofs. Those tests do not establish an actual quota refusal, changed-account inference recovery or repeated native refusal. No usage-proof pass is claimed.
@@ -78,7 +82,7 @@ Independent review identified and fixed counted-loop reevaluation, async callbac
 | [Phase 2](phase-2-codex-agent-selection.md) — closed 2026-10-23 | Selection, metadata, migration and browser proof delivered; see [agent selection results](kiln-codex-support-selection-results.md). No work dispatch |
 | [Phase 3](phase-3-codex-session-workflow.md) | Execution integration and production evidence reader: bounded paginated memory, persisted frontiers, missing/corrupt/truncated/archived/compacted history and changing-frontier tests; durable stop/resume, process-tree cleanup and confirmation/repair behavior |
 | [Phase 4](phase-4-codex-usage-recovery.md) | Actual structured usage refusal and real recovery, account identity and repeat-refusal suppression |
-| [Phase 5](phase-5-codex-platform-proof.md) | Native macOS/Linux/Windows package/process/shell matrix, real GitHub PR delivery and assembled two-phase workflow before release claims |
+| [Phase 5](phase-5-codex-platform-proof.md) | Available-Mac installed package, actual GitHub PR delivery and assembled two-phase workflow; reuse earlier proofs. Linux/Windows are best effort and explicitly untested, outside the closure gate |
 
 These are the original plan's later obligations. No mandatory gate-1 case is moved there to close this phase. A newly unsupported ordinary operation discovered during integration stays inconclusive and reopens compatibility qualification; it cannot be silently accepted.
 
@@ -106,4 +110,4 @@ Final `npm run verify` passed dependency audit, ESLint, TypeScript/Svelte checks
 
 The initial implementation verification passes dependency audit, ESLint, TypeScript/Svelte, 487 unit tests and 14 pinned protocol proofs. Complete integration: 450 pass, two existing skips, one existing paused-CLI Start timeout. That same timeout reproduces under full-suite load in an unchanged `a88935f` source export; the full CLI file’s nine tests pass separately on both predecessor (69.04 seconds) and current code (65.20 seconds). The quota file’s twenty tests pass, and the durable retry/restart scenario passes again with the hardened child dispatch guard. This is complete test coverage with a recorded pre-existing combined-run instability, not a claim that `npm run verify` exited green.
 
-Deliverable review and independent test hardening finish without remaining material findings. Phase 4 closes under Doug’s explicit live-quota deferral; Phase 5 retains the package/platform/workflow proof and inherited combined-run limitation. No product push, merge, deployment, publication or Enso Method change was performed.
+Deliverable review and independent test hardening finish without remaining material findings. Phase 4 closes under Doug’s explicit live-quota deferral; Phase 5 retains the missing Mac package/workflow proofs and inherited combined-run limitation under the platform scope above. No product push, merge, deployment, publication or Enso Method change was performed.
