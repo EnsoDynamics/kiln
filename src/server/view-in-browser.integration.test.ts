@@ -654,6 +654,25 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
     }
   });
 
+  it("shows a waiting phase as Interrupted in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: waitingSnapshot(), heartbeatMs: 500 });
+    const page = await chrome.open(server.address, { clock: USAGE_LIMIT_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Resume now")`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
+      const lost = await words(page);
+      expect(lost).toContain(flat("Interrupted in phase 2b"));
+      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
+      expect(lost).toMatch(/2b store credit phase-2b-store-credit\.md [\dhm ]+ interrupted/);
+      expect(lost).not.toContain(flat("Waiting for usage"));
+      expect(lost).not.toContain(flat("Resume now"));
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+
   it("turns Needs you into the Disconnected layout, with no Check again, and back when Kiln returns (UI-006)", async () => {
     const thePort = await nextPort();
     const clock = Date.parse("2026-10-17T15:53:00Z");
@@ -886,6 +905,29 @@ describe("the controls, in a real browser", () => {
     } finally {
       await page.close();
       await server.close();
+    }
+  });
+
+  it("copies the command to switch accounts, and gives the form with an email as text to type, on both usage-limit screens (usage-limit recovery AC-LIMIT-02)", async () => {
+    for (const [snapshot, clock] of [
+      [waitingSnapshot(), USAGE_LIMIT_NOW],
+      [needsYouUsageLimitSnapshot(), USAGE_LIMIT_NOW],
+    ] as const) {
+      const { server, page } = await openScreen(snapshot, "", clock);
+      try {
+        await page.waitFor(`document.body.innerText.includes("claude auth login --email")`);
+        await recordClipboard(page);
+        const block = `[...document.querySelectorAll("pre")].find((e) => e.textContent.trim() === "claude auth login").parentElement`;
+        // One copy control in the block, for `claude auth login`; the form with an email has none.
+        expect(await page.evaluate<number>(`${block}.querySelectorAll("button").length`)).toBe(1);
+        expect(await page.evaluate<string>(`${block}.innerText`)).toContain("claude auth login --email <address>");
+        await page.evaluate(`${block}.querySelector("button").click()`);
+        await page.waitFor(`window.__copied.length === 1`);
+        expect(await copied(page)).toEqual(["claude auth login"]);
+      } finally {
+        await page.close();
+        await server.close();
+      }
     }
   });
 

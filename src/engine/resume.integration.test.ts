@@ -240,6 +240,27 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     expect(h.engine.record.completedAt).toBeDefined();
     expect(phaseEvents(h).slice(-3)).toEqual(["PR stopped", "PR resumed", "PR opened"]);
   });
+
+  it("completes the feature, resuming nothing, when Resume's pull-request check passes on a pull request opened by hand", async () => {
+    harness = await createHarness({
+      sessions: [landingSession("src/a.txt"), landingSession("src/b.txt"), landingSession("src/c.txt"), { actions: [{ result: "gh couldn't reach GitHub." }] }, pullRequestSession(218)],
+    });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.record.phases.pr!.stop!.kind).toBe("pull_request_check");
+    // The person opens the pull request by hand.
+    const repo = "acme/acme-shop";
+    const opened = { repo, number: 219, title: "Customer returns", url: `https://github.com/${repo}/pull/219`, isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 120, deletions: 4, commits: [{ oid: "a" }] };
+    writeFileSync(h.ghStatePath, JSON.stringify({ pulls: [opened] }));
+
+    expect(await h.engine.resume({ note: "I opened it myself." })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.completedAt).toBeDefined();
+    expect(h.engine.latestSession("pr")!.runs).toHaveLength(1);
+    expect(h.claudeCalls()).toHaveLength(4);
+    expect(phaseEvents(h)).not.toContain("PR resumed");
+  });
 });
 
 describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {

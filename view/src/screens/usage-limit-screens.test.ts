@@ -127,11 +127,16 @@ describe("the account card on both screens (AC-LIMIT-03)", () => {
     expect(words).not.toContain("5-hour window");
   });
 
-  it("draws the percent in the text color below 100%, and never holds Resume now for the amber line", () => {
+  it("draws the percent in the text color below 100%, and never holds Resume now or Resume for the amber line", () => {
     const page = waitingPage(waitingWith({ account: { email: "sam@acme-shop.dev", plan: "Pro plan", percent: 12, at: "2026-10-17T18:28:00Z" } }));
     expect(page).toMatch(/<span class="percent[^"]*">5-hour window 12%<\/span>/);
     expect(page).not.toMatch(/class="percent[^"]* full/);
     expect(buttonNamed(waitingPage(waitingSnapshot()), "Resume now")).not.toContain("disabled");
+    // Nor Resume on a usage-limit Needs you, beside the same amber line (AC-LIMIT-03).
+    const stopped = needsYouPage(needsYouUsageLimitSnapshot());
+    expect(text(stopped)).toContain("This account’s 5-hour usage limit is at 100% until 3:40 PM.");
+    expect(buttonNamed(stopped, "Resume")).toBeDefined();
+    expect(buttonNamed(stopped, "Resume")).not.toContain("disabled");
   });
 
   it("drops the amber line once the view's clock reaches the reset, before the next reading", () => {

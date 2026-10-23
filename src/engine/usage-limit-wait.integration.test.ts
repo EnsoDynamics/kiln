@@ -89,6 +89,19 @@ async function untilSettled(engine: Engine, condition: () => boolean): Promise<v
 
 const resetIso = (reset: number) => new Date(reset * 1000).toISOString();
 
+/** Phase 1 closed, committed and pushed by the person in the worktree, as if they finished it by hand during the wait. */
+function finishByHand(h: Harness): void {
+  const worktree = h.engine.worktreePath;
+  git(h.sandbox, worktree, "checkout", "-q", "--", ".");
+  const doc = join(worktree, PHASE_1);
+  const lines = readFileSync(doc, "utf8").split("\n");
+  lines.splice(1, 0, "", "**Closed:** 2026-10-22");
+  writeFileSync(doc, lines.join("\n"));
+  git(h.sandbox, worktree, "add", "-A");
+  git(h.sandbox, worktree, "commit", "-q", "-m", "feat: intake, finished by hand");
+  git(h.sandbox, worktree, "push", "-q", "-u", "origin", "feature/customer-returns");
+}
+
 describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
   it("waits instead of stopping, keeps waiting at a reading with no usage left, and resumes the same session at the first with usage left", async () => {
     const { states, holder } = keepAwakeRecorder();
@@ -105,6 +118,9 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
     expect(shown.feature.state).toBe("waiting");
     expect(shown.phases.find((phase) => phase.id === "1")!.state).toBe("waiting");
     expect(shown.waiting).toMatchObject({ phaseId: "1", limit: { label: "5-hour window", resetsAt: resetIso(reset), resetPassed: false }, finalMessage: "You've hit your limit" });
+    // How the session ended, as Needs you shows it (AC-LIMIT-04, Kiln v1 AC-STOP-02).
+    expect(shown.waiting).toMatchObject({ exitCode: 1, lastSkill: { name: "implement-from-requirements" }, stoppedAt: h.engine.latestSession("1")!.runs[0]!.endedAt });
+    expect(shown.waiting!.outputLineCount).toBeGreaterThan(0);
     // Before a reading after the refusal, the account card has none.
     expect(shown.waiting!.limit.account).toBeUndefined();
     // The terminal line names the phase, the limit and its reset (AC-LIMIT-05).
@@ -294,15 +310,7 @@ describe("restarts (AC-AUTO-03)", () => {
     const { h } = s;
     await startToWait(s);
     await h.engine.stop("sigint");
-    const worktree = h.engine.worktreePath;
-    git(h.sandbox, worktree, "checkout", "-q", "--", ".");
-    const doc = join(worktree, PHASE_1);
-    const lines = readFileSync(doc, "utf8").split("\n");
-    lines.splice(1, 0, "", "**Closed:** 2026-10-22");
-    writeFileSync(doc, lines.join("\n"));
-    git(h.sandbox, worktree, "add", "-A");
-    git(h.sandbox, worktree, "commit", "-q", "-m", "feat: intake, finished by hand");
-    git(h.sandbox, worktree, "push", "-q", "-u", "origin", "feature/customer-returns");
+    finishByHand(h);
 
     const engine = h.reopenFromDisk();
     expect(await engine.decide()).toEqual({ kind: "start_phase", phaseId: "2b", doneFirst: { phaseId: "1", byPerson: true } });
@@ -420,6 +428,61 @@ describe("Resume now (AC-LIMIT-02, AC-RESUME-02)", () => {
     expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}`);
     // A Resume now refused again starts a new wait, not Needs you.
     expect(h.engine.record.phases["1"]!.wait).toMatchObject({ run: 1 });
+  });
+});
+
+describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02, AC-AUTO-02)", () => {
+  it("counts the phase Done, finished by the person, when Resume now's check passes, and resumes nothing", async () => {
+    const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/credit.txt")]);
+    const { h, claude } = s;
+    await startToWait(s);
+    claude.deliver(signedIn([usageRow("session", 100)]));
+    finishByHand(h);
+    // A reading for the account read before a resume, so a resume that wrongly went ahead would run.
+    claude.queue(signedIn([usageRow("session", 100)]));
+
+    expect(await h.engine.resume()).toEqual({ ok: true });
+    await untilSettled(h.engine, () => h.claudeCalls().length === 2);
+    expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
+    expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
+    expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
+    // The next run is phase 2b's own session, not a resume of phase 1's.
+    expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
+    expect(phaseEvents(h).slice(0, 5)).toEqual(["prd_started", "1 started", "1 waiting", "1 done", "2b started"]);
+  });
+
+  it("counts the phase Done, finished by the person, when the end-of-wait check passes, and resumes nothing", async () => {
+    const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/credit.txt")]);
+    const { h, claude } = s;
+    await startToWait(s);
+    finishByHand(h);
+
+    claude.deliver(signedIn([usageRow("session", 2)]));
+    claude.queue(signedIn([usageRow("session", 2)]));
+    await untilSettled(h.engine, () => h.claudeCalls().length === 2);
+    expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
+    expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
+    expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
+    expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
+    expect(phaseEvents(h).slice(0, 5)).toEqual(["prd_started", "1 started", "1 waiting", "1 done", "2b started"]);
+  });
+
+  it("holds Resume now and Check again from the start of Kiln's own resume until its run starts", async () => {
+    const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
+    const { h, claude } = s;
+    await startToWait(s);
+    claude.deliver(signedIn([usageRow("session", 2)]));
+    // The check has failed; Kiln is reading the account before resuming.
+    await waitFor(() => claude.waiting);
+    expect(buildSnapshot(h.engine).waiting!.checking).toBe(true);
+    expect(await h.engine.resume()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.checkAgain()).toMatchObject({ ok: false, status: 409 });
+    expect(h.claudeCalls()).toHaveLength(1);
+
+    claude.deliver(signedIn([usageRow("session", 2)]));
+    await untilSettled(h.engine, () => h.engine.isPhaseDone("1"));
+    expect(h.engine.latestSession("1")!.runs.map((run) => run.cause)).toEqual(["launch", "limit_resume"]);
+    expect(h.claudeCalls()[1]!.args).toContain("--resume");
   });
 });
 
