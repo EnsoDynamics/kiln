@@ -4,13 +4,13 @@
 
 ## Execution order
 
-Five leaf phases, executed sequentially. This is a plan only: no candidate proof, implementation or release proof ran during phase planning. The PRD remains one delivery; intermediate phases do not establish Codex release support.
+Six leaf phases, executed sequentially, with Phase 3 split into 3a and 3b. This is a plan only: no candidate proof, implementation or release proof ran during phase planning. The PRD remains one delivery; intermediate phases do not establish Codex release support.
 
 | Phase | What it does | Depends on |
 |---|---|---|
 | [1 — Prove Codex can be audited before integration](phase-1-codex-audit-proof.md) | Exercise real published-method work and manual recovery before relying on the selected Codex execution and audit candidate. | None |
 | [2 — Choose an agent and see its models and account](phase-2-codex-agent-selection.md) | Add working agent/model/account controls while preserving existing Claude records and behavior. | 1 (validated compatibility candidate and reusable metadata transport/profile) |
-| [3 — Run and recover Codex phases through pull requests](phase-3-codex-session-workflow.md) | Integrate phase execution, output, authoritative checks and same-conversation recovery through the final pull requests. | 1 (passed unattended/audit proof); 2 (agent selection, metadata, settings and migration) |
+| [3 — Run and recover Codex phases through pull requests](phase-3-codex-session-workflow.md) | Split into 3a saved-conversation workspace checks and 3b execution, output and recovery through pull requests. | 1 (passed unattended/audit proof); 2 (agent selection, metadata, settings and migration) |
 | [4 — Wait and resume after a confirmed Codex usage stop](phase-4-codex-usage-recovery.md) | Add and prove bounded recovery from an actual structured Codex usage refusal. | 2 (fresh account/usage identity and readings); 3 (durable attempts, checks, resume and wait controls) |
 | [5 — Prove the packaged Codex workflow on every platform](phase-5-codex-platform-proof.md) | Demonstrate the installed package, native platform behavior and complete multi-phase workflow before making support claims. | 1 (recorded prerequisite proof); 3 (integrated lifecycle and platform profile); 4 (passed real usage recovery) |
 
@@ -18,7 +18,7 @@ Each linked leaf owns its acceptance-criterion scope, exclusions and exact desig
 
 ## Implementation progress
 
-Phases 1 and 2 closed on 2026-10-23; see their leaf closure lines, [prerequisite proof results](kiln-codex-support-proof-results.md) and [agent selection results](kiln-codex-support-selection-results.md). Phase 3 is the first open planned child and its dependencies are met in the local shared checkout. Codex normal work remains gated pending that implementation; intermediate closure establishes no platform or release support. Doug has not authorized pushing these local implementation commits.
+Phases 1 and 2 closed on 2026-10-23; see their leaf closure lines, [prerequisite proof results](kiln-codex-support-proof-results.md) and [agent selection results](kiln-codex-support-selection-results.md). Phase 3a closed on 2026-10-23 with the [production workspace evidence results](kiln-codex-support-workspace-evidence-results.md); Phase 3b is the first open planned leaf and its dependencies are met in the local shared checkout. Codex normal work remains gated pending that implementation; intermediate closure establishes no platform or release support. Doug has not authorized pushing these local implementation commits.
 
 ## Sizing decision
 
@@ -28,7 +28,7 @@ The whole delivery does not fit one dependable session: it combines an unproved 
 |---|---|
 | 1 | One bounded candidate proof with only the transport, decoder and evidence components needed by the harness. Its actual result determines whether normal execution may be integrated, so it must precede that work. |
 | 2 | One read/control workflow from document discovery through saved selection and live metadata, carrying the necessary adapter/schema changes inside the slice. It can be exercised through the real API/browser and metadata calls without work turns. |
-| 3 | One execution lifecycle, from Start through checks, output, stop and recovery to final PRs, using the proved candidate and existing engine. These tightly coupled paths share conversation identity and authority; splitting them would leave an unsafe or unrecoverable intermediate runner. It is the largest phase, but retains one coherent capability; re-size it before building rather than preemptively cutting layers. |
+| 3 | One execution lifecycle, from Start through checks, output, stop and recovery to final PRs, using the proved candidate and existing engine. Re-sized at implementation: 3a independently checks real saved trees while execution stays gated; 3b enables only the complete protected, recoverable runner. No intermediate runner is enabled. |
 | 4 | One distinct recovery rule set and its actual refusal/release exercise. Identity, consumed retry evidence and repeated-refusal suppression fit together and can be tested without waiting for the final package proof. |
 | 5 | One acceptance/proof pass over the delivered package and workflow, with platform prerequisites named explicitly. It changes only compatibility prerequisites/documentation or defects required by these proofs; it is not another feature build. |
 

@@ -42,7 +42,6 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22",
-    "acorn": "8.19.0",
     "ajv": "6.15.0",
     "eslint": "^9",
     "markdown-it": "^15.0.3",
@@ -56,6 +55,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.302",
     "@hono/node-server": "^2.1.5",
-    "hono": "^4.13.13"
+    "hono": "^4.13.13",
+    "acorn": "8.19.0"
   }
 }

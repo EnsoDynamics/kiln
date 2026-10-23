@@ -7,7 +7,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
@@ -83,6 +83,15 @@ describe("the installed package", () => {
     expect(packedFiles.filter((path) => /\.test\./.test(path) || path.startsWith("dist/test-support/"))).toEqual([]);
     expect(existsSync(join(installedPackage, "dist", "cli.js"))).toBe(true);
     expect(existsSync(kilnCommand)).toBe(true);
+  });
+
+  it("ships the production Codex decoder and its runtime parser without source checkout dependencies", async () => {
+    const decoder = await import(pathToFileURL(join(installedPackage, "dist/session/codex-wrapper-decoder.mjs")).href) as { decodeWrapper(id: string, source: string): { coverage: string; operations: unknown[] } };
+    const result = decoder.decodeWrapper("package-proof", 'text(await tools.exec_command({cmd:"git status",workdir:"/assigned"}));');
+    expect(result).toMatchObject({ coverage: "complete", operations: [{ name: "exec_command", input: { cmd: "git status", workdir: "/assigned" } }] });
+    expect(packedFiles).toContain("prompts/codex-powershell-ast.ps1");
+    const evidence = await import(pathToFileURL(join(installedPackage, "dist/session/codex-evidence.js")).href) as { auditCodexConversation: unknown };
+    expect(typeof evidence.auditCodexConversation).toBe("function");
   });
 
   it("puts kiln on the PATH, which prints how to use it", async () => {

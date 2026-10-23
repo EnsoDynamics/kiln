@@ -24,3 +24,7 @@ Merging, deploying or publishing a release; changing published method skills; br
 ## Phase-specific notes
 
 Complete the native Linux/Windows and installed-package matrix, including Windows parser/path coverage, rather than treating schema or macOS evidence as platform proof. The whole-workflow run uses at least two phases and the expected GitHub PRs; disposable proof repositories are not product repositories changed by this phase, so there is no Repositories line. Consolidate actual results in the shared proof-results document, retain any unrun case as an open release gap, and run the existing Claude regression path. No phase closes over an unrun mandatory proof.
+
+## Inherited package verification failure
+
+Phase 3a ran `npm run test:package` on 2026-10-23. The new installed production decoder/Acorn/helper smoke passed, as did package contents and CLI help. The existing browser assets case fails because it expects exactly two assets while the favicon adds a third. Both the favicon link and two-asset expectation already exist at baseline `59de3ed` (favicon commit `aaaba96`); this is not caused by the evidence reader. Resolve this existing package-matrix failure when proving the installed package here; do not treat the Phase 3a parser smoke as a passed whole package gate.

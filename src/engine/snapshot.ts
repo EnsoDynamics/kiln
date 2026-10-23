@@ -583,14 +583,17 @@ function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snap
   const outcome = engine.latestStayed(phaseKey);
   const { changes, checkouts, prompt } = engine.uncoveredOutside(phaseKey);
   const multi = engine.multiRepository;
-  const ticked = facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
+  const codex = engine.record.settings.agentId === "codex";
+  const ticked = codex
+    ? (facts.codexConfirmations ?? []).some(confirmation => Object.entries(facts.codexAudits ?? {}).some(([id, audit]) => audit.coverage === "complete" && audit.findings.length > 0 && confirmation.fingerprints[id] === audit.fingerprint))
+    : facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
   return {
     view: {
       changes,
       missingTranscripts: outcome.transcripts.map((problem) => problem.fact),
       checkouts: [...new Set(checkouts.map((checkout) => checkout.name))],
       ...optional("prompt", prompt),
-      confirmation: { offered: true, ticked },
+      confirmation: { offered: !codex || outcome.changes.length > 0, ticked },
     },
     ...(changes.length === 0 ? {} : { note: freshSessionOutsideNote(changes, checkouts.length, multi) }),
   };

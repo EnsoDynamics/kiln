@@ -5,6 +5,7 @@
 // adds a run the person asked Kiln to resume, with their note, the wait for a usage limit and the
 // "Resume after a usage limit" setting (usage-limit recovery technical design, "Data Models").
 
+import type { CodexAudit } from "../session/codex-evidence.js";
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 
@@ -138,6 +139,9 @@ export interface PhaseFacts {
    * with; the latest covers every change recorded at or before it (multi-repo AC-OUTSIDE-03).
    */
   outsideConfirmations: { at: string }[];
+  /** Compact authoritative scan records; provider history remains outside Kiln state. */
+  codexAudits?: Record<string, CodexAudit>;
+  codexConfirmations?: { at: string; fingerprints: Record<string, string> }[];
 }
 
 export interface PullRequestFacts {
@@ -246,6 +250,8 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
+  /** Codex's persistent identity; the local storage key stays sessionId. */
+  conversation?: { threadId?: string; sessionTreeId?: string; codexHome?: string; knownThreadIds?: string[] };
   agentId?: AgentId;
   schemaVersion: number;
   sessionId: string;

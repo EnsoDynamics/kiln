@@ -65,6 +65,7 @@ import {
   type StopLimit,
 } from "../state/records.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
+import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../session/codex-evidence.js";
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
 import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
@@ -676,6 +677,14 @@ export class Engine {
     }
     // A tick during a check would land after it and show unticked, so the box waits for the check to end.
     if (this.checking || this.driving) return refuse("Kiln is checking. Tick it once the check ends.");
+    if (this.record.settings.agentId === "codex") {
+      const audits = facts.codexAudits ?? {};
+      const complete = Object.values(audits).filter(audit => audit.coverage === "complete" && audit.findings.length);
+      if (!complete.length) return refuse("Missing or unreadable Codex evidence cannot be confirmed. Recover its history and Check again.");
+      if (!ticked) facts.codexConfirmations = [];
+      else facts.codexConfirmations = [{ at: this.now().toISOString(), fingerprints: Object.fromEntries(Object.entries(audits).filter(([, audit]) => audit.coverage === "complete").map(([id, audit]) => [id, audit.fingerprint])) }];
+      this.save(); this.changed(); return { ok: true };
+    }
     const sinceCheck = (confirmation: { at: string }) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt);
     if (!ticked) facts.outsideConfirmations = facts.outsideConfirmations.filter((confirmation) => !sinceCheck(confirmation));
     else if (!facts.outsideConfirmations.some(sinceCheck)) facts.outsideConfirmations.push({ at: this.now().toISOString() });
@@ -1578,7 +1587,7 @@ export class Engine {
     this.watchSleep();
     try {
       const outcome = await runDoneCheck({
-        stayed: this.stayedInWorkspace(phaseKey),
+        stayed: await this.readWorkspaceEvidence(phaseKey),
         git: this.git,
         prdWorktreePath: this.worktreePath,
         repositories: this.setUpRepositories.map((entry) => this.checkedRepository(entry)),
@@ -1614,7 +1623,7 @@ export class Engine {
           repository: entry.name,
           signal: this.abort.signal,
         })),
-        this.stayedInWorkspace(PR_PHASE_KEY),
+        await this.readWorkspaceEvidence(PR_PHASE_KEY),
       );
     } finally {
       if (phaseKey !== undefined) this.activeCheck = undefined;
@@ -2395,9 +2404,52 @@ export class Engine {
 
   /**
    * Stayed in the workspace for the sessions Kiln recorded for a phase, or for the pull-request
-   * session (multi-repo AC-OUTSIDE-01, AC-PRS-06), read from Claude Code's transcripts.
+   * session (multi-repo AC-OUTSIDE-01, AC-PRS-06), read from its recorded agent's evidence.
+   * Completion/PR verdicts always read fresh provider history; cached scans are display only.
    */
+  async readWorkspaceEvidence(phaseKey: string): Promise<StayedOutcome> {
+    if (this.record.settings.agentId !== "codex") return this.stayedInWorkspace(phaseKey);
+    const facts = this.record.phases[phaseKey];
+    if (!facts) return this.stayedInWorkspace(phaseKey);
+    facts.codexAudits = {};
+    const scanSignal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    for (const sessionId of facts.sessionIds) {
+      const session = this.sessionRecord(phaseKey, sessionId);
+      const conversation = session?.agentId === "codex" ? session.conversation : undefined;
+      if (!conversation?.threadId || !conversation.codexHome || !this.options.tools.codex) {
+        facts.codexAudits[sessionId] = this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
+      } else {
+        facts.codexAudits[sessionId] = await auditCodexConversation({
+          threadId: conversation.threadId, codexHome: conversation.codexHome,
+          worktrees: this.setUpRepositories.map(entry => expandHome(entry.worktreePath)),
+          cwd: session?.workingDirectory ?? this.worktreePath, executable: this.options.tools.codex,
+          env: this.options.env, signal: scanSignal,
+          ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}),
+        });
+      }
+    }
+    this.save();
+    return this.stayedInWorkspace(phaseKey);
+  }
+
+  private missingCodexAudit(reason: string): CodexAudit {
+    return { profile: "codex-0.162.1-static-v1", coverage: "inconclusive", at: this.now().toISOString(), fingerprint: "", frontiers: [], findings: [], problems: [reason], operationsChecked: 0 };
+  }
+
   stayedInWorkspace(phaseKey: string): StayedOutcome {
+    if (this.record.settings.agentId === "codex") {
+      const facts = this.record.phases[phaseKey];
+      const results = (facts?.sessionIds ?? []).map(id => codexStayedOutcome(id,
+        facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
+        (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : [])));
+      if (!results.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
+      const changes = results.flatMap(result => result.changes);
+      const transcripts = results.flatMap(result => result.transcripts);
+      const passed = results.every(result => result.passed);
+      const outcome: StayedOutcome = { passed, changes, transcripts, check: { name: STAYED_CHECK_NAME, passed, facts: passed ? [STAYED_PASSED_FACT] : results.filter(result => !result.passed).flatMap(result => result.check.facts) } };
+      this.stayedOutcomes.set(phaseKey, outcome);
+      return outcome;
+    }
     const facts = this.record.phases[phaseKey];
     const sessions = (facts?.sessionIds ?? []).flatMap((sessionId) => {
       const session = this.sessionRecord(phaseKey, sessionId);
