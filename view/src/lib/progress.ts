@@ -169,6 +169,8 @@ export interface DetailRow {
 export function detailRows(details: NonNullable<PhaseView["details"]>, now: Date): DetailRow[] {
   const rows: DetailRow[] = [];
   if (details.to !== undefined) rows.push({ term: "Ran", value: timeSpan(details.from, details.to, now) });
+  if (details.agent) rows.push({ term: "Agent", value: details.agent });
+  if (details.providerSessionId) rows.push({ term: "Codex conversation", value: details.providerSessionId, mono: true });
   rows.push({ term: "Model", value: modelAndEffort(details.model, details.effort) });
   if (details.repositories !== undefined) {
     const total = details.repositories.reduce((sum, repository) => sum + repository.commitCount, 0);
@@ -309,6 +311,12 @@ function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside
       againText: `Once what’s left in ${ownCheckouts(names)} is put back, tick the confirmation on the right and press Check again. ${afterCheck}`,
     };
   }
+  if (stop.agentId === "codex") return {
+    title: "Recover the missing Codex evidence",
+    text: "Kiln cannot complete the workspace check from the available conversation history. Restore the missing or unreadable evidence shown on the right. Resume can help repair the work, but does not clear this check.",
+    againTitle: "Come back and check again",
+    againText: `Check again reads the complete conversation tree afresh. Unknown evidence cannot be confirmed into a pass. ${afterCheck}`,
+  };
   const missing = outside.missingTranscripts.some((fact) => fact.startsWith(MISSING_TRANSCRIPT));
   return {
     title: "Check your own checkouts for anything this session changed",
@@ -332,7 +340,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     showFacts: true,
     firstStep: "resume",
     freshLink: true,
-    finishTitle: isPr ? "Open the pull request with Claude, the way you normally would" : "Finish the phase with Claude, the way you normally would",
+    finishTitle: isPr ? `Open the pull request with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would` : `Finish the phase with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would`,
     finishText: isPr
       ? multiRepository
         ? `Open them however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into each repository’s base branch, in every repository that changed, that isn’t a draft, so it doesn’t matter who opens them.`

@@ -64,7 +64,7 @@ export interface WaitingCopy {
 }
 
 /** The waiting screen's words (AC-LIMIT-01, AC-LIMIT-02, AC-LIMIT-04). */
-export function waitingCopy(phaseId: string, limit: LimitView, now: Date): WaitingCopy {
+export function waitingCopy(phaseId: string, limit: LimitView, now: Date, agent = "Claude Code"): WaitingCopy {
   const reset = resetLine(limit, now);
   const passed = resetHasPassed(limit, now);
   const toCome = limit.resetsAt !== undefined && !passed;
@@ -72,7 +72,7 @@ export function waitingCopy(phaseId: string, limit: LimitView, now: Date): Waiti
   const others = blocking === undefined ? "" : ` ${capitalized(limitSentence(blocking.label))} is at 100%${blocking.resetsAt === undefined ? "" : ` until ${limitTime(blocking.resetsAt, now)}`}.`;
   return {
     headline: `${sessionName(phaseId)} is waiting for ${limitSentence(limit.label)} to reset.`,
-    reported: `Claude Code reported that ${owned(limit.label, "the account")} was used up.`,
+    reported: `${agent} reported that ${owned(limit.label, "the account")} was used up.`,
     ...(reset === undefined ? {} : { reset: `${reset}.` }),
     resumes: `Kiln resumes this session by itself at the first reading that shows usage left${toCome ? ": after the reset, or sooner if you sign in to another account" : ""}.${others}`,
     footnote: `${limit.account ? `As of Kiln’s latest reading, ${limitTime(limit.account.at, now)}. ` : ""}Kiln reads again every 5 minutes${toCome ? " and at the reset" : ""}.`,
@@ -92,7 +92,7 @@ export interface LimitStopCopy {
 }
 
 /** A usage-limit Needs you's words (AC-LIMIT-01 to 03, AC-AUTO-05); without Resume the account card says nothing of it. */
-export function limitStopCopy(phaseId: string, limit: LimitView & { refusedAgainAt?: string }, resumeOffered: boolean, now: Date): LimitStopCopy {
+export function limitStopCopy(phaseId: string, limit: LimitView & { refusedAgainAt?: string }, resumeOffered: boolean, now: Date, agent = "Claude Code"): LimitStopCopy {
   const reset = resetLine(limit, now);
   const sentence = limitSentence(limit.label);
   let waitText = `Wait for ${sentence} to reset, then press Resume.`;
@@ -103,7 +103,7 @@ export function limitStopCopy(phaseId: string, limit: LimitView & { refusedAgain
   }
   return {
     headline: `${sessionName(phaseId)} stopped at ${sentence}.`,
-    reported: `Claude Code reported that ${owned(limit.label, "this account")} is used up.`,
+    reported: `${agent} reported that ${owned(limit.label, "this account")} is used up.`,
     ...(reset === undefined ? {} : { reset: `${reset}.` }),
     ...(limit.refusedAgainAt === undefined ? {} : { refusedAgain: `Kiln resumed by itself ${atTime(limit.refusedAgainAt, now)} and the limit refused it again.` }),
     waitText,

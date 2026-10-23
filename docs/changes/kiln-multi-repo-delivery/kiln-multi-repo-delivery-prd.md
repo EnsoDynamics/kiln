@@ -88,6 +88,7 @@ When a session finds it needs a repository nobody named, Kiln adds it and the ph
 A change made in a repository's own checkout bypasses the feature branch and its pull request, and may be mixed in with the person's other work there. When Kiln sees a session make one, it stops rather than let the next phase start.
 
 - [ ] **AC-OUTSIDE-01 — A fourth check: the session stayed in the workspace.** The done check gains a fourth part, **Stayed in the workspace**. It judges what the session's transcript shows the session and its subagents doing in any Git checkout outside the workspace, whether a repository's own checkout or another PRD's worktree, as the table says (OUT-002). Kiln reads only the transcript, never the state of those checkouts, so the person's other chats working there never fail it. A session that never started passes it; a session that ran but whose transcript Kiln can't find or can't read fails it, since Kiln can't see what it did, and Needs you says where Kiln looked (OUT-003). When the transcript is missing, Needs you offers the fresh-session prompt in place of the resume command, and in place of Resume where Kiln usage-limit recovery is built, since both need that transcript, as Kiln v1, AC-KEEP-05 does, after an interruption too. A phase that fails it is Needs you even when the other three checks pass. Needs you lists this check only when it failed.
+  - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (explicit Codex repair resume remains available with inconclusive audit evidence when the conversation is available).
   - Superseded in part by: AC-WORK-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex requires complete conversation-tree evidence; unknown evidence cannot be confirmed away).
 
   | In a Git checkout outside the workspace | Stayed in the workspace |
@@ -144,6 +145,7 @@ The PRD still ends at "PR ready for review", now with a pull request in each rep
 Four screens are drawn for this change. The others it touches follow the nearest drawing, so every screen has one governing picture.
 
 - [ ] **AC-SHOW-01 — The changed screens match their drawings.** Documents found, Needs you after work outside the workspace, Complete and the terminal match this change's mockups for layout, copy, colors and type, as v1's screens match theirs. The screens this change alters but doesn't draw follow the nearest drawing:
+  - Superseded in part by: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (agent-specific information on existing screens).
   - Superseded in part by: AC-AUTO-04, AC-LIMIT-01 and AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Documents found and the settings while Kiln works gain the "Resume after a usage limit" row; Needs you after work outside the workspace, when its session hit a usage limit, gains the limit facts, choices and account; the terminal gains the wait and resume lines)
 
   | Screen | Follows |

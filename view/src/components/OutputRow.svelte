@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** Each source's label color, as the mockups draw them (PRD AC-LOOK-04; UI-010 item 1: subagent like tool). */
-  export const SOURCE_TONE: Record<string, string> = { claude: "red", tool: "dim", subagent: "dim", out: "green", skill: "bright", reviewer: "amber", stderr: "amber", exit: "bright" };
+  export const SOURCE_TONE: Record<string, string> = { codex: "red", claude: "red", tool: "dim", subagent: "dim", out: "green", skill: "bright", reviewer: "amber", stderr: "amber", exit: "bright" };
 </script>
 
 <script lang="ts">
@@ -10,10 +10,10 @@
   import type { OutputLine } from "../../../src/session/session-output.js";
   import { outputTime } from "../lib/time.js";
 
-  let { line, now, live = false }: { line: Pick<OutputLine, "at" | "source" | "text">; now: Date; live?: boolean } = $props();
+  let { line, now, live = false }: { line: Pick<OutputLine, "at" | "source" | "text" | "threadId" | "timestampSource">; now: Date; live?: boolean } = $props();
 </script>
 
-<div class="row"><span class="time">{outputTime(line.at, now)}</span><span class="source {SOURCE_TONE[line.source] ?? 'dim'}">{line.source}</span><span class="text">{line.text}{#if live}<span class="cursor" aria-hidden="true"></span>{/if}</span></div>
+<div class="row"><span class="time">{outputTime(line.at, now)}</span><span class="source {SOURCE_TONE[line.source] ?? 'dim'}">{line.source === "codex" ? "Codex" : line.source}</span><span class="text">{#if line.source === "subagent" && line.threadId}<span class="origin">[{line.threadId}] </span>{/if}{#if line.timestampSource === "turn"}<span class="origin">[turn time] </span>{/if}{#if line.timestampSource === "recovery"}<span>[recovered now; item time unavailable] </span>{/if}{line.text}{#if live}<span class="cursor" aria-hidden="true"></span>{/if}</span></div>
 
 <style>
   .row { display: contents; }

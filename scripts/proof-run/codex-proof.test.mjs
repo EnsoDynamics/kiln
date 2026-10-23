@@ -8,6 +8,12 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import { decodeWrapper, decodeRawCall } from './codex-wrapper-decoder.mjs';
+
+test('qualified presentation callback preserves every decoded invocation without admitting dynamic callbacks', () => {
+  const source = 'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"git status"})]); results.forEach(text);';
+  assert.deepEqual(JSON.parse(JSON.stringify(decodeWrapper('presentation', source))), { callId: 'presentation', operations: [{ name: 'exec_command', input: { cmd: 'pwd' } }, { name: 'exec_command', input: { cmd: 'git status' } }], coverage: 'complete' });
+  for (const callback of ['dispatch', 'tools.exec_command']) assert.equal(decodeWrapper('dynamic', source.replace('forEach(text)', `forEach(${callback})`)).coverage, 'inconclusive');
+});
 import { CodexRpc, requestDecision } from './codex-rpc.mjs';
 import { auditEntries } from './codex-evidence-policy.mjs';
 

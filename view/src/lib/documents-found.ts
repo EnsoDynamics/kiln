@@ -110,7 +110,7 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
-  if (settings.metadataPending || settings.executionGate) return { enabled: false, note: settings.executionGate ?? "Reading agent information…" };
+  if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
   const held = Object.values(settings.fieldErrors).some((message) => message !== undefined) || repositories.some((row) => row.fieldErrors.baseBranch !== undefined);
   return { enabled: connected && !held };

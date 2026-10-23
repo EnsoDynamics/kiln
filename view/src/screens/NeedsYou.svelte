@@ -22,6 +22,7 @@
   // of session recovery (Codex support technical design, "Local API and snapshot changes").
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
+  import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import AccountPanel from "../components/AccountPanel.svelte";
   import ModelEffortEditor from "../components/ModelEffortEditor.svelte";
   import CodeText from "../components/CodeText.svelte";
@@ -45,8 +46,9 @@
   const nowDate = $derived(new Date(now));
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository));
   const ending = $derived(endingFact(stop));
+  const accountAgent = $derived((stop.agent ?? snapshot.settings.agent) === "Codex" ? "Codex" : "Claude");
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
-  const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate) : undefined);
+  const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, stop.agent ?? snapshot.settings.agent) : undefined);
   const atLimit = $derived(stop.limit ? atLimitLine(stop.limit, nowDate) : undefined);
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -116,7 +118,7 @@
         {/if}
         {#if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
           <div class="message-block">
-            <span class="eyebrow">Last message from Claude Code</span>
+            <span class="eyebrow">Last message from {stop.agent ?? snapshot.settings.agent}</span>
             <div class="final">{@html finalMessageHtml(stop.finalMessage)}</div>
           </div>
         {:else if stop.lastLines && stop.lastLines.length > 0}
@@ -127,6 +129,7 @@
         {/if}
       </section>
 
+      <CodexSessionFacts facts={stop} />
       {#if stop.kind === "selection"}
         <section class="card">
           <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
@@ -147,7 +150,7 @@
             <li>
               <span class="number">2</span>
               <div class="step">
-                <span class="step-title">Or switch to another Claude account now</span>
+                <span class="step-title">Or switch to another {accountAgent} account now</span>
                 <p>In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account.</p>
                 <SwitchAccountCommand agentId={snapshot.settings.agentId} />
               </div>
@@ -178,7 +181,7 @@
           </label>
           <div class="actions">
             <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />Resume</button>
-            <span class="hint">Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.</span>
+            <span class="hint">Uses whichever {accountAgent} account is signed in now. Close the session first if you opened it in a terminal.</span>
           </div>
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
         </section>
@@ -192,10 +195,10 @@
               <span class="number">{index + 1}</span>
               <div class="step">
                 {#if step === "first" && copy.firstStep === "resume" && stop.resumeCommand}
-                  <span class="step-title">Open the same Claude Code session in a terminal</span>
+                  <span class="step-title">Open the same {stop.agent ?? snapshot.settings.agent} session in a terminal</span>
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
-                  <span class="step-title">Start a fresh Claude Code session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
+                  <span class="step-title">Start a fresh {stop.agent ?? snapshot.settings.agent} session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
                   {#if stop.limit}<p>Start it after the reset, or after switching accounts.</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>

@@ -218,6 +218,8 @@ In the engine loop, after the plan is re-read and the next leaf chosen, Kiln col
 
 ## Sessions
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (agent-specific execution and assigned workspace protection; Claude behavior retained).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Starting a phase's session, §The prompts (the workspace in place of the one worktree)
 
 **Working directory.** A multi-repository PRD's sessions, launched and resumed, run in the workspace folder; a one-repository PRD's in its worktree, as v1. A one-repository PRD whose first repository was added mid-phase becomes multi-repository from its next session; the session that added it keeps the folder it started in, in every run, so the paths in its first message stay true.
@@ -341,6 +343,8 @@ For a one-repository PRD the list has one entry and the cross-link paragraph is 
 
 ### HTTP API
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (agent-specific session recovery; Claude behavior retained).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`POST /api/resume`)
@@ -356,6 +360,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
+
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (recorded Codex identity, output and provenance; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot
 

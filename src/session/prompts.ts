@@ -6,6 +6,13 @@ import { readFileSync } from "node:fs";
 // src/session/ and dist/session/ both sit two levels under the package root, beside prompts/.
 const PROMPTS = new URL("../../prompts/", import.meta.url);
 
+/** Invoke the discovered installed Codex skill without changing its published content. */
+export function codexSessionPrompt(prompt: string, skills: { name: string; path: string }[]): string {
+  const skill = skills.find(skill => ["implement-from-requirements", "enso-method:implement-from-requirements"].includes(skill.name));
+  if (!skill) throw new Error("Codex implement-from-requirements skill is unavailable.");
+  return `${fill(template("codex-session.txt"), { skillPath: skill.path })}\n\n${prompt}`;
+}
+
 function template(name: string): string {
   return readFileSync(new URL(name, PROMPTS), "utf8").replace(/\s+$/, "");
 }

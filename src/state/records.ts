@@ -279,6 +279,7 @@ export interface CodexRunFacts {
   humanRequests: { at: string; method: string; request: unknown; decision: unknown; stopped: boolean }[];
   modelActivityAt: string[];
   failure?: string;
+  verificationFailure?: string;
   /** Describes the known process set, never universal containment of detached daemons. */
   cleanup?: "tracked_processes_stopped" | "unknown";
   cleanupWarning?: string;
@@ -299,7 +300,7 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
-  codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance };
+  codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance; conversationUnavailable?: boolean; resumeError?: string; recoveryObserved?: CodexTurnExecution[]; historyError?: string };
   /** Codex's persistent identity; the local storage key stays sessionId. */
   conversation?: { threadId?: string; sessionTreeId?: string; codexHome?: string; knownThreadIds?: string[] };
   agentId?: AgentId;

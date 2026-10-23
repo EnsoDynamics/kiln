@@ -15,6 +15,7 @@
   import PhaseCircle from "../components/PhaseCircle.svelte";
   import Pill from "../components/Pill.svelte";
   import ProgressSteps from "../components/ProgressSteps.svelte";
+  import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import SessionOutput from "../components/SessionOutput.svelte";
   import { keepGoing, pause } from "../lib/api.js";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
@@ -33,6 +34,7 @@
   const live = $derived(current !== undefined && connected);
   // The live phase's clock stops when the view loses Kiln; a stopped phase's at its session's end.
   const shownNow = $derived(connected ? now : (lastSeenAt ?? now));
+  const identity = $derived(stopped ?? current ?? row?.details);
   const session = $derived(
     stopped
       ? { id: stopped.sessionId, model: stopped.model ?? "", effort: stopped.effort, startedAt: stopped.sessionStartedAt, endsAt: stopped.sessionEndedAt ? Date.parse(stopped.sessionEndedAt) : shownNow, steps: stopped.steps ?? [], repositories: stopped.repositories ?? [], total: stopped.outputLineCount ?? 0 }
@@ -65,7 +67,7 @@
       <h2>{row?.title ?? ""}</h2>
       {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Interrupted</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>Implementing</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
-    <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>Claude Code</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
+    <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} total={session.total} {now} />{/key}
   <div class="columns-main">
@@ -85,6 +87,7 @@
           <div><dt>Model and effort</dt><dd>{modelAndEffort(session.model, session.effort)}</dd></div>
           {#if session.startedAt}<div><dt>Started</dt><dd>{started(false)}</dd></div>{/if}
         </dl>
+        {#if identity}<CodexSessionFacts facts={identity} />{/if}
         {#if !stopped}<p class="note">If the phase stops before it’s done, Kiln hands you the command that opens this exact session.</p>{/if}
       </aside>
       {#if !isPr}

@@ -64,6 +64,7 @@ Kiln does the job of the person who starts each session, gives it permission to 
 
 - [ ] **AC-RUN-01 — Phases run in plan order, one at a time.** The next phase is the method's own choice: walk the plan in order, through any `## Split into` tables, to the first leaf without a `**Closed:**` line. Once the worktree exists, Kiln reads the plan and the Closed lines there, where the sessions write them. Kiln never has two sessions working on one PRD at once.
 - [ ] **AC-RUN-02 — Each phase gets a fresh session.** Each leaf is implemented by a new, unattended Claude Code session started in the PRD's worktree, with the model and effort level from the PRD's settings.
+  - Superseded in part by: AC-WORK-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (a fresh phase conversation may use Codex).
   - Superseded in part by: AC-SPACE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the session works across the workspace, and may ask Kiln for another repository)
 - [ ] **AC-RUN-03 — The session gets the authorization a person would give.** Each session is told to:
   - run `implement-from-requirements` on that leaf's phase document;
@@ -118,9 +119,11 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
 - [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words, quoted, never summarized.
   - Superseded in part by: AC-LIMIT-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a session that hit a usage limit states its cause, from Claude Code's report rather than from Kiln's reading of the session)
 - [ ] **AC-STOP-05 — The person can reopen the exact session.** Kiln shows a copyable command that changes to the PRD's worktree and runs `claude --resume <session ID>`. It opens that session in a terminal with its full history.
+  - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex resume command and saved context).
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
   - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (no resume command for a session whose transcript Kiln can't find)
 - [ ] **AC-STOP-06 — A fresh-session prompt is there when the session can't be opened.** The Needs you screen also offers a copyable prompt for a fresh session that points at the phase document, for when the session can't be reopened, for example because its transcript is gone.
+  - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex fresh-session and explicit repair prompts).
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
   - Superseded in part by: AC-OUTSIDE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the fresh-session prompt carries the facts)
 - [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check. When it passes, the phase shows as Done, finished by the person, and the next phase starts, unless a pause is waiting (AC-VIEW-03). When it fails, the phase stays Needs you with the updated check results. At a broken-plan stop, Check again and `kiln run` read the phase plan again in place of the done check: once the plan reads correctly, the phase starts, unless a pause is waiting, and nothing is marked Done; until then, the stop stays, showing the problem found.
@@ -173,6 +176,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
 The person can see how far Kiln has got, what the current session is doing, and what has been pushed, without interrupting anything. Progress is for display only and never decides whether a phase is done.
 
 - [ ] **AC-WATCH-01 — Every phase is listed with its state.** The phase plan lists every phase in plan order, all at the same level (a split phase's children are not indented), with its number, its phase document's file name, its title taken word for word from that document, and its state:
+  - Superseded in part by: AC-VIEW-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (recorded agent and Codex conversation identity).
   - Superseded in part by: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (every pull request, and commits by repository)
 
   | State | When | The row also shows |
@@ -190,10 +194,14 @@ The person can see how far Kiln has got, what the current session is doing, and 
   - Superseded in part by: AC-LIMIT-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (the Waiting for usage state and its screen)
 - [ ] **AC-WATCH-03 — The current phase is always at the top.** The phase being implemented is shown in a full-width panel above the phase plan: its number and title, when it started, its progress steps (AC-WATCH-04), the last thing seen in the session, its latest output line, a link to its live output, and its own Details.
 - [ ] **AC-WATCH-04 — The current phase shows its progress steps.** The current phase shows six steps, in the order the Enso Method runs them: Build, Deliverable review, Test hardening, Commit, Refactor pass and Push. A step starts when the session is seen doing it: starting `implement-from-requirements`, calling the `deliverable-review`, `test-hardening` or `refactor-pass` skill, running its first `git commit`, or running `git push`. A refactor commit, when `refactor-pass` makes one, belongs to the Refactor pass step, and the push sends it with the feature commit. A step counts as finished once the next one starts. A step the session never visibly calls stays unreached, and Kiln doesn't fill it in.
+  - Superseded in part by: AC-VIEW-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex activity is observed or unobserved; activity never proves step completion).
 - [ ] **AC-WATCH-05 — Session output is shown live.** For the current session, the person can watch Claude's text as it is written, each tool call and its result, and the reviewer subagent's messages labeled as the reviewer's. Every line is timestamped, and earlier output can be loaded.
+  - Superseded in part by: AC-VIEW-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex-native live output and explicit child-output visibility limits).
 - [ ] **AC-WATCH-06 — The phase detail identifies the session.** The phase detail shows the session ID, the model and effort level, the start time and elapsed time, and the commits made for the phase so far.
+  - Superseded in part by: AC-VIEW-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (recorded agent and Codex conversation identity).
   - Superseded in part by: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (every pull request, and commits by repository)
 - [ ] **AC-WATCH-07 — Settings are shown apart from per-phase facts.** While Kiln is working, paused or disconnected, the browser view shows the PRD's settings: the agent, with the model and effort level for the next session, and keep-awake, with the worktree, the feature branch and the one pull request into the base branch marked as fixed for the PRD. Facts that belong to a phase (worktree, branch, commits, times, session) are shown with that phase, not with the settings.
+  - Superseded in part by: AC-VIEW-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (selected-agent settings and recorded session identity).
   - Superseded in part by: AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (per repository, and where Kiln stops)
   - Superseded in part by: AC-AUTO-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a new setting beside keep-awake)
 - [ ] **AC-WATCH-08 — The person can see which Claude account is working and how close it is to its limits.** Documents found shows the signed-in Claude account (email and plan) with one line giving the percent used of each limit. Running and Paused give it a panel: when its usage was last updated and, for each limit (the 5-hour window, the weekly limit and any per-model limit Claude Code reports, such as a weekly Fable limit), the percent used and when it resets. In that panel, a limit at 80% or more (UI-001) turns amber and suggests switching accounts: by pausing after this phase on Running, or with `claude auth login` before starting the next phase on Paused. The next phase uses whichever account is signed in when it starts; Kiln never waits for a limit to reset (UI-005).
@@ -203,6 +211,7 @@ The person can see how far Kiln has got, what the current session is doing, and 
   - Superseded in part by: AC-USAGE-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (selected-agent metadata refresh without model turns)
   - Superseded in part by: AC-AUTO-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Kiln also reads the account and usage when a wait starts, at the stopping limit's reset time, and on waking during a wait)
 - [ ] **AC-WATCH-10 — A stopped session's full output can be read.** Every session's full output is saved on the person's machine, outside the repository, and the Needs you screen links to it.
+  - Superseded in part by: AC-VIEW-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex-native saved output).
 - [ ] **AC-WATCH-11 — Nothing claims evidence for acceptance criteria.** Kiln shows no status of its own saying an acceptance criterion is met or tested. Any such claim on screen is the session's own output, shown as session output.
 
 ### Start It in the Terminal, Control It From the Browser
@@ -225,6 +234,7 @@ The terminal only starts Kiln and hosts it. Everything the person does after tha
 - [ ] **AC-VIEW-06 — Other web pages can't use Kiln.** A page from any other site, open in the same browser, can neither read Kiln's state or output nor press Kiln's controls. The person never has to log in or handle a key to use the browser view.
 - [ ] **AC-VIEW-07 — The browser view shows whether Kiln is still there.** Every screen shows whether it is connected to the running Kiln. When Kiln has stopped (Ctrl+C, a closed terminal, a restart), the view says plainly that it is disconnected, that nothing is running, and that `kiln run` picks up where it left off; it never keeps showing Kiln as live when it isn't.
 - [ ] **AC-VIEW-08 — Model, effort and keep-awake can change between phases; the worktree and branches can't.** While Kiln is working or paused, the person can change the model and effort level in the browser view; a change applies to every session Kiln starts after it, and the session already working keeps what it started with. Keep-awake can be switched on or off at any time and applies at once. The worktree, feature branch and base branch are fixed once the first phase starts, and the view says so.
+  - Superseded in part by: AC-MODEL-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (new-session choices remain distinct from the original Codex conversation pair).
   - Superseded in part by: AC-MODEL-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (new sessions require a confirmed available catalogue and valid saved pair; unavailable lists no longer permit unchecked aliases)
   - Superseded in part by: AC-SPACE-01 and AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a worktree and the feature branch in every one of the PRD's repositories, in one workspace, each with its own base branch, and what a failed Start fixes; per repository, and where Kiln stops)
   - Superseded in part by: AC-AUTO-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a new setting beside keep-awake)
@@ -245,8 +255,10 @@ Working through a PRD can take many hours, but each phase is its own session, so
 
 - [ ] **AC-KEEP-01 — Kiln lives in its terminal.** `kiln run` stays in the foreground of its terminal, including after the pull request is ready, until the person interrupts it with Ctrl+C or by closing the terminal. Kiln installs no background or system service. Closing the browser has no effect on Kiln.
 - [ ] **AC-KEEP-02 — Ctrl+C is a controlled interruption.** On Ctrl+C, Kiln ends the current session's turn so the session stays resumable, records which phase and session were interrupted, and exits leaving no Claude Code process behind.
+  - Superseded in part by: AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex interruption stops tracked processes and discloses detached-process limits).
 - [ ] **AC-KEEP-03 — Interrupted work is never thrown away.** Changed and new files, partly written tests and uncommitted work in an interrupted phase stay exactly as they were. Kiln never starts a fresh session on top of them on its own.
 - [ ] **AC-KEEP-04 — An interrupted session is resumed.** When the phase in progress was interrupted, Kiln first runs the done check: at the next `kiln run`, or on waking when Kiln itself kept running through a sleep. If it passes, the phase is Done. If not, Kiln resumes that same session, with its full history, and tells it the session was interrupted and to carry on with the phase. Kiln never resumes a session that ended on its own.
+  - Superseded in part by: AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex same-conversation recovery and cleanup checks).
   - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (an interrupted session that worked outside the workspace goes to Needs you instead of being resumed, shown as interrupted with the resume command)
   - Superseded in part by: AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (the person can ask Kiln to resume a session that ended on its own)
   - Superseded in part by: AC-AUTO-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Kiln resumes a session that ended on its own when it hit a usage limit)
@@ -261,6 +273,7 @@ Kiln's users already run Claude Code from a terminal, so Kiln installs the way t
 
 - [ ] **AC-INSTALL-01 — One package, one command.** Kiln installs from npm as a single package with one command. That one install includes the `kiln` command and the browser view.
 - [ ] **AC-INSTALL-02 — Nothing runs outside the person's machine.** Kiln uses only the Claude Code, Git and GitHub access already on the machine; it has no account, credential, server or cloud service of its own. Nothing Kiln handles leaves the person's machine, apart from what Claude Code and Git already send and Kiln's reads from GitHub (AC-PR-02, AC-PR-04).
+  - Superseded in part by: AC-AGENT-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex readiness and existing ChatGPT authentication).
 - [ ] **AC-INSTALL-03 — macOS, Linux and Windows.** v1 runs on macOS, Linux and Windows, with the same behavior and screens on each.
 
 ### Look and Read Like the Design
@@ -268,6 +281,7 @@ Kiln's users already run Claude Code from a terminal, so Kiln installs the way t
 The v1 mockups are the design of record.
 
 - [ ] **AC-LOOK-01 — The screens match the v1 mockups.** These screens match their mockups in `docs/design/mockups/` for layout, copy, colors and type, with no exceptions: terminal, Documents found, Running, Paused, Disconnected, Phase detail live, both Needs you screens and Complete.
+  - Superseded in part by: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (agent-specific information on existing screens).
   - Superseded in part by: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the screens this change alters, as the table says)
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you matches that change's mockups where they differ from v1's)
   - Superseded in part by: AC-AUTO-03, AC-AUTO-04 and AC-LIMIT-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (keep-awake's "While a session works" names the wait too; Documents found, Running, Paused and Disconnected gain the "Resume after a usage limit" row; the Waiting for usage state and its screen)

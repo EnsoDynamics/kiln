@@ -72,7 +72,7 @@ describe("agent selection before work", () => {
     expect(await page.evaluate<boolean>(`document.documentElement.scrollWidth <= window.innerWidth`)).toBe(true);
     expect(page.problems).toEqual([]); await page.close();
   });
-  it("saves per-agent choices, blocks stale editors and gated work, and keeps a second PRD independent", async () => {
+  it("saves per-agent choices, blocks stale editors and invalid work settings, and keeps a second PRD independent", async () => {
     const fixture = await setup();
     expect(await h.engine.changeSettings({ agentId: "codex" })).toEqual({ ok: true });
     expect(buildSnapshot(h.engine).account).toBeUndefined();
@@ -84,7 +84,10 @@ describe("agent selection before work", () => {
     expect(await h.engine.changeSettings({ ...pair(), model: "gpt-6-luna" })).toEqual({ ok: true });
     expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
     expect(buildSnapshot(h.engine).settings.choiceNotice).toContain("low");
-    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: expect.stringContaining("gated") });
+    // AC-AGENT-03 now permits integrated Codex work. Invalid choices still allocate no session.
+    h.engine.record.settings.agentChoices.codex = { model: "retired-sol", effort: "low" };
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: expect.stringContaining("retired-sol") });
+    h.engine.record.settings.agentChoices.codex = { model: "gpt-6-luna", effort: "low" };
     expect(h.engine.record.startedAt).toBeUndefined(); expect(h.claudeCalls()).toEqual([]);
     expect(await h.engine.changeSettings({ agentId: "claude_code" })).toEqual({ ok: true }); await h.engine.agents.refresh();
     expect(await h.engine.changeSettings({ ...old, model: "gpt-6-sol" })).toMatchObject({ ok: false, status: 409 });

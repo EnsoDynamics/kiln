@@ -1,5 +1,7 @@
 # Phase 3b2: Connect Codex conversations to the phase and pull-request workflow
 
+**Closed:** 2026-10-23. Protected phase/final-PR execution, truthful saved/live output and same-conversation recovery are integrated. Native Codex interruption/restart/explicit repair retained the original pair and edit; fresh complete audits passed before completion. `npm run verify` passes: 483 unit tests, 14 classifier proofs, 429 integration tests with two existing skips; audit/lint/TypeScript/Svelte pass. Deliverable review and test hardening completed. See [workflow results](kiln-codex-support-workflow-results.md) for exact proof boundaries and the Phase 4 handoff. Product commits remain local; no push authorized.
+
 **Parent PRD:** [Codex support for Kiln](kiln-codex-support-prd.md)
 **Technical design:** [Codex support for Kiln](kiln-codex-support-technical-design.md) — Codex Authority and Conversation Lifecycle; Persisted schema 4; Live and saved output; Local API and snapshot changes; proof gates 2 and 4.
 **Parent phase:** [Phase 3b](phase-3b-codex-conversation-workflow.md)

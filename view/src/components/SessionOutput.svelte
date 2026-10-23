@@ -81,12 +81,11 @@
       connection.onOutput((event) => {
         if (event.sessionId !== sessionId) return;
         add(event.lines);
-        const finished = new Set(event.lines.map((line) => line.source));
-        partials = partials.filter((partial) => !finished.has(partial.source));
+        partials = partials.filter(partial => !event.lines.some(line => line.source === partial.source && (!partial.itemId || line.itemId === partial.itemId) && (!partial.threadId || line.threadId === partial.threadId)));
       }),
       connection.onPartial((event) => {
         if (event.sessionId !== sessionId) return;
-        const same = partials.find((partial) => partial.source === event.source);
+        const same = partials.find((partial) => partial.source === event.source && partial.threadId === event.threadId && partial.itemId === event.itemId);
         partials = same ? partials.map((partial) => (partial === same ? { ...partial, text: partial.text + event.text } : partial)) : [...partials, event];
       }),
     );
@@ -101,7 +100,7 @@
   </div>
   <div class="lines mono">
     {#each lines as line (line.line)}<OutputRow {line} now={new Date(now)} />{/each}
-    {#if live}{#each partials as partial (partial.source)}<OutputRow line={{ at: new Date(now).toISOString(), source: partial.source, text: partial.text }} now={new Date(now)} live />{/each}{/if}
+    {#if live}{#each partials as partial (`${partial.source}:${partial.threadId}:${partial.itemId}`)}<OutputRow line={{ at: new Date(now).toISOString(), source: partial.source, text: partial.text }} now={new Date(now)} live />{/each}{/if}
     {#if loadError}<span class="error">{loadError}</span>{/if}
   </div>
 </section>

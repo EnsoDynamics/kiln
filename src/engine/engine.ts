@@ -1,3 +1,11 @@
+import { appendJsonLine, readJsonLines } from "../state/state-files.js";
+import { runCodexSession, reconcileCodexAttempt } from "../session/codex-session.js";
+import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
+import { recoverCodexOutput } from "../session/codex-recovery-output.js";
+import { prepareCodexLaunch } from "../session/codex-launch-profile.js";
+import { CodexOutputReader, CODEX_CHILD_OUTPUT_NOTICE } from "../session/codex-output.js";
+import { CODEX_NATIVE_CLEANUP_WARNING } from "../session/codex-background-terminals.js";
+import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { latestSol } from "../agents/codex-metadata.js";
@@ -22,6 +30,7 @@ import type { KeepAwakeHolder } from "../platform/keep-awake.js";
 import { isProcessLive } from "../platform/process-start-time.js";
 import { platformSleepReader, type SleepReader } from "../platform/sleep-readings.js";
 import {
+  sessionFiles,
   launchArguments,
   modelNameFromId,
   eventsOfRun,
@@ -358,9 +367,6 @@ export class Engine {
     if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
     return metadata.agentId === "claude_code" ? autoModeError(entry) : undefined;
   }
-  get executionGate(): string | undefined {
-    return this.record.settings.agentId === "codex" ? "Codex model and account information is available. Codex work execution remains gated in this version." : undefined;
-  }
   private modelsChanged(): void {
     if (this.observedClaude !== this.claude) {
       this.offUsage?.(); this.observedClaude = this.claude;
@@ -501,7 +507,7 @@ export class Engine {
     const { record } = this;
     if (record.completedAt) return refuse("The feature is complete.");
     if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
-    if (this.selectionError || this.executionGate) return refuse(this.selectionError ?? this.executionGate!);
+    if (this.selectionError) return refuse(this.selectionError);
     if (record.pause.activeSince !== undefined) {
       record.pause = {};
       this.save();
@@ -659,7 +665,7 @@ export class Engine {
     if (kind !== "done_check" && kind !== "pull_request_check") return false;
     const session = this.latestSession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
-    return !this.transcriptMissing(session);
+    return !this.transcriptMissing(session) && this.codexSafetyProblems(phaseKey, false).length === 0;
   }
 
   /**
@@ -818,7 +824,7 @@ export class Engine {
     // 2. Every git and gh call still running ends; the session gets the interrupt request.
     this.abort.abort();
     const control = this.control;
-    control?.interrupt();
+    if (session?.agentId !== "codex") control?.interrupt();
 
     // 3 and 4. Up to 30 seconds for it to exit, then its whole tree is ended.
     if (control) {
@@ -847,7 +853,7 @@ export class Engine {
     // A live run, or an interrupted session about to be resumed: either way its phase is interrupted.
     const interrupted = this.current?.session && run && run.endedAt === undefined ? this.current.phaseKey : this.interruptedKey;
     if (interrupted !== undefined) {
-      const kept = "Its session and uncommitted work are kept.";
+      const kept = "Its session and uncommitted work are kept." + (this.current?.session?.agentId === "codex" ? ` ${CODEX_NATIVE_CLEANUP_WARNING}` : "");
       if (interrupted === PR_PHASE_KEY) return { text: "Interrupted the pull-request session.", grey: kept };
       const judged = this.judgedId(interrupted);
       return { text: `Interrupted phase ${judged}, ${this.titleOf(judged)}.`, grey: kept };
@@ -892,6 +898,13 @@ export class Engine {
 
   private async stopLeftOverProcess(session: SessionRecord): Promise<void> {
     const run = session.runs.at(-1);
+    if (session.agentId === "codex" && run?.codex) {
+      if (!run.endedAt || run.codex.cleanup !== "tracked_processes_stopped" || run.codex.reconciliation === "ambiguous") {
+        try { await reconcileCodexAttempt({ executable: this.options.tools.codex!, env: this.options.env, record: session, stateDirectory: this.options.stateDirectory }); }
+        catch { /* The durable cleanup failure is shown by the checks; never resume blindly. */ }
+      }
+      return;
+    }
     if (run?.pid === undefined || !(await isProcessLive(run.pid, run.processStartTime))) return;
     const pid = run.pid;
     const gone = async (ms: number) => {
@@ -1160,10 +1173,20 @@ export class Engine {
       // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
       await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return;
-      if (this.selectionError || this.executionGate) {
+      if (this.selectionError) {
         this.current = undefined;
-        this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError ?? this.executionGate!] }]);
+        this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError] }]);
         return;
+      }
+      if (this.record.settings.agentId === "codex") {
+        mkdirSync(this.workspaceFolder, { recursive: true });
+        try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+        catch (error) {
+          if (this.stopping) return;
+          this.current = undefined;
+          this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
+          return;
+        }
       }
       if (!leaf) {
         await this.runPullRequestSession();
@@ -1251,6 +1274,14 @@ export class Engine {
     if (!session) return;
     await this.stopLiveProcess(session);
     if (this.stopping) return;
+    if (session.agentId === "codex") {
+      await this.readCodexAvailability(session);
+      if (this.codexSafetyProblems(phaseKey, false).length || this.transcriptMissing(session)) {
+        this.checking = false;
+        this.recordStop(phaseKey, this.transcriptMissing(session) ? "not_resumable" : phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", [{ name: "Codex recovery", passed: false, facts: [...this.codexSafetyProblems(phaseKey), ...(session.codex?.resumeError ? [session.codex.resumeError] : [])] }]);
+        return;
+      }
+    }
     const facts = this.record.phases[phaseKey]!;
     const account = request === undefined ? undefined : await this.readAccountBeforeResume();
     if (this.stopping) return;
@@ -1262,7 +1293,7 @@ export class Engine {
     const time = endedOnItsOwn ? (run.endedAt ?? run.startedAt) : recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
     const checks = facts.stop?.checks ?? facts.wait?.checks ?? [];
     const outsideFailed = request !== undefined && checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
-    const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt : undefined;
+    const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt ?? (session.agentId === "codex" ? `The workspace check is inconclusive. Recover the missing or unreadable evidence below; resuming does not clear this obligation:\n${checks.filter(check => check.name === STAYED_CHECK_NAME && !check.passed).flatMap(check => check.facts).join("\n")}` : undefined) : undefined;
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
     const label = facts.stop?.limit?.label ?? refusal?.label;
@@ -1297,8 +1328,7 @@ export class Engine {
         }
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
-    if (session.agentId !== "claude_code") throw new Error("Codex execution and resumption remain gated.");
-    const args = resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
+    const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
     await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
   }
 
@@ -1341,7 +1371,9 @@ export class Engine {
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
     mkdirSync(this.workspaceFolder, { recursive: true });
-    await runSessionProcess({
+    if (session.agentId === "codex") {
+      await this.runCodexProcess(current, session, prompt, cause, cwd, note);
+    } else await runSessionProcess({
       claude: this.options.tools.claude,
       args,
       cwd,
@@ -1377,6 +1409,70 @@ export class Engine {
     current.processRunning = false;
     this.updateKeepAwake();
     if (!this.stopping) await this.refreshCommits(current, true);
+  }
+
+  private codexLaunchOptions(cwd: string) {
+    const candidates = [cwd, ...this.addDirs(cwd)];
+    // Codex removes nested grants from its effective profile. Request the same minimal
+    // roots: the workspace and only assigned worktrees outside it, never their checkouts.
+    const writableRoots = candidates.filter((path, index) => !candidates.some((other, otherIndex) => index !== otherIndex && isWithin(comparable(realPathOfNearestAncestor(path)), comparable(realPathOfNearestAncestor(other)))));
+    return {
+      executable: this.options.tools.codex!, cwd, writableRoots,
+      repositories: this.setUpRepositories.map(entry => ({ path: expandHome(entry.worktreePath), branch: this.record.settings.featureBranch })),
+      env: this.sessionEnv(), signal: this.abort.signal,
+    };
+  }
+
+  private async runCodexProcess(current: CurrentPhase, session: SessionRecord, prompt: string, cause: SessionRun["cause"], cwd: string, note?: string): Promise<void> {
+    const files = sessionFiles(this.options.stateDirectory, session);
+    const previous = readJsonLines<OutputLine>(files.output);
+    const reader = new CodexOutputReader(session, previous.length, previous);
+    const save = (lines: OutputLine[]) => {
+      if (!lines.length) return;
+      for (const line of lines) appendJsonLine(files.output, line);
+      current.latestLine = lines.at(-1)!;
+      for (const listener of this.outputListeners) listener(session.sessionId, lines);
+      void this.refreshCommits(current, false);
+      this.changed();
+    };
+    save([reader.line("out", CODEX_CHILD_OUTPUT_NOTICE, this.now().toISOString())]);
+    const priorRunCount = session.runs.length;
+    try {
+      await runCodexSession({
+        ...this.codexLaunchOptions(cwd), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
+        onSpawned: control => { this.control = control; },
+        onWarning: text => { this.emit({ kind: "message", text }); save([reader.line("out", text, this.now().toISOString())]); },
+        onStderr: (text, at) => save([reader.line("stderr", text, at)]),
+        onEvent: (message, at) => {
+          if (cause === "launch" && session.kind === "phase" && message.method === "turn/started" && message.params?.threadId === session.conversation?.threadId) reader.start("Build", at);
+          const output = reader.read(message, at); save(output.lines);
+          if (output.partial) for (const listener of this.partialListeners) listener(session.sessionId, output.partial);
+        },
+        onHistory: (threadId, turns) => {
+          for (const turn of turns) for (const item of turn.items ?? []) {
+            const at = typeof turn.startedAt === "number" ? new Date(turn.startedAt * 1000).toISOString() : this.now().toISOString();
+            save(reader.read({ method: "item/completed", params: { threadId, turnId: turn.id, item } }, at, typeof turn.startedAt === "number" ? "turn" : "recovery").lines);
+          }
+        },
+        onRecordChange: () => this.changed(),
+        beforeEnd: () => this.readSleep(false),
+      });
+    } catch (error) {
+      if (session.runs.length !== priorRunCount) throw error;
+      // The runner's launch preflight creates no run. Preserve its refusal and the same
+      // conversation, rather than leaking a rejected engine loop or selecting another agent.
+      const at = this.now().toISOString();
+      const run: SessionRun = { startedAt: at, endedAt: at, cause, spawnError: { code: "CODEX_PREFLIGHT", message: (error as Error).message } };
+      session.runs.push(run); save([reader.line("stderr", (error as Error).message, at)]);
+    }
+    const run = session.runs.at(-1)!;
+    const sleep = sleepInterruption(session.sleeps, session.runs.length - 1, run.codex?.modelActivityAt ?? []);
+    if (sleep && !run.interruptedBy) { run.interruptedBy = "sleep"; run.interruptedAt = sleep.at; }
+    for (const request of run.codex?.humanRequests ?? []) save([reader.line("stderr", `Codex request ${request.method}: ${JSON.stringify(request.request)}; client decision: ${JSON.stringify(request.decision)}`, request.at)]);
+    if (run.codex?.failure) save([reader.line("stderr", run.codex.failure, run.endedAt!)]);
+    if (run.codex?.cleanupFailure) save([reader.line("stderr", `Cleanup failed: ${run.codex.cleanupFailure}`, run.endedAt!)]);
+    if (run.codex?.terminal) save([reader.line("exit", `Codex turn ${run.codex.terminal.status}${run.codex.terminal.error ? `: ${JSON.stringify(run.codex.terminal.error)}` : ""}`, run.endedAt!)]);
+    writeSessionRecord(this.options.stateDirectory, session);
   }
 
   /**
@@ -1450,7 +1546,7 @@ export class Engine {
       const session = this.latestSession(phaseKey);
       const runIndex = (session?.runs.length ?? 0) - 1;
       const run = session?.runs[runIndex];
-      const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && !runReportedInit(this.options.stateDirectory, session, runIndex);
+      const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return { kind: "stopping" };
@@ -1490,13 +1586,13 @@ export class Engine {
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return { kind: "stopping" };
-      if (!check.passed) return check.stayed.passed ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
+      if (!check.passed) return check.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
       this.complete(check.pullRequests!, false);
       return { kind: "complete" };
     }
     const outcome = await this.doneCheck(phaseKey);
     if (this.stopping) return { kind: "stopping" };
-    if (!outcome.passed) return outcome.stayed.passed ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
+    if (!outcome.passed) return outcome.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
     await this.recordDone(phaseKey, outcome, false);
     return { kind: "done", judgedId: outcome.judgedLeafId };
   }
@@ -1524,10 +1620,12 @@ export class Engine {
   private async recheckStop(phaseKey: string): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const facts = this.record.phases[phaseKey]!;
     const stop = facts.stop!;
+    const latest = this.latestSession(phaseKey);
+    if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
     if (stop.kind === "selection") {
       await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return "still_stopped";
-      const issue = this.selectionError ?? this.executionGate;
+      const issue = this.selectionError;
       if (issue) {
         this.updateStop(phaseKey, [{ name: "Agent selection and readiness", passed: false, facts: [issue] }]);
         return "still_stopped";
@@ -1579,6 +1677,56 @@ export class Engine {
     return "done";
   }
 
+  private canResumeCodex(phaseKey: string): boolean {
+    const session = this.latestSession(phaseKey);
+    return session?.agentId !== "codex" || !this.transcriptMissing(session);
+  }
+
+  private codexSafetyProblems(phaseKey: string, includeVerification = true): string[] {
+    return (this.record.phases[phaseKey]?.sessionIds ?? []).flatMap(id => {
+      const run = this.sessionRecord(phaseKey, id)?.runs.at(-1);
+      if (!run?.codex) return [];
+      return [
+        ...(includeVerification && run.codex.verificationFailure ? [run.codex.verificationFailure] : []),
+        ...(run.codex.cleanup !== "tracked_processes_stopped" ? [`Codex cleanup unresolved: ${run.codex.cleanupFailure ?? "tracked process cleanup is unknown"}`] : []),
+        ...(run.codex.reconciliation === "ambiguous" ? ["Codex dispatch is ambiguous; inspect authoritative history before resuming."] : []),
+      ];
+    });
+  }
+
+  private withCodexSafety<T extends { passed: boolean; checks: CheckResult[] }>(phaseKey: string, outcome: T): T {
+    const problems = this.codexSafetyProblems(phaseKey);
+    if (problems.length) { outcome.passed = false; outcome.checks.push({ name: "Codex process cleanup and dispatch", passed: false, facts: problems }); }
+    return outcome;
+  }
+
+  private async readCodexAvailability(session: SessionRecord, hydrate = false): Promise<void> {
+    if (!session.codex || !session.conversation?.threadId || !this.options.tools.codex) return;
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(30_000)]);
+    const rpc = new CodexHistoryRpc(this.options.tools.codex, this.workingDirectoryOf(session), { ...this.options.env, CODEX_HOME: session.conversation.codexHome }, signal);
+    try {
+      await rpc.initialize();
+      const response = await rpc.call<{ thread: { id: string; path?: string | null } }>("thread/read", { threadId: session.conversation.threadId, includeTurns: false });
+      if (response.thread.id !== session.conversation.threadId) throw new Error("Saved Codex conversation identity differs.");
+      session.codex.conversationUnavailable = false;
+      delete session.codex.resumeError;
+      if (hydrate) {
+        const files = sessionFiles(this.options.stateDirectory, session);
+        try {
+          await recoverCodexOutput({ rpc, session, path: response.thread.path, previous: readJsonLines<OutputLine>(files.output), signal, save: lines => {
+            for (const line of lines) appendJsonLine(files.output, line);
+            if (lines.length) for (const listener of this.outputListeners) listener(session.sessionId, lines);
+          } });
+          delete session.codex.historyError;
+        } catch (error) { session.codex.historyError = `Saved Codex output could not be fully refreshed: ${(error as Error).message}`; }
+      }
+    } catch (error) {
+      session.codex.conversationUnavailable = true;
+      session.codex.resumeError = `Codex conversation cannot be opened: ${(error as Error).message}`;
+    } finally { await rpc.close(); }
+    writeSessionRecord(this.options.stateDirectory, session);
+  }
+
   private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome> {
     // A done check that comes while an addition is under way waits for it to end first.
     await this.additionChain;
@@ -1598,7 +1746,7 @@ export class Engine {
         ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }),
       });
       if (outcome.plan.ok && !this.stopping) this.acceptPlan(outcome.plan.plan);
-      return outcome;
+      return this.withCodexSafety(phaseKey, outcome);
     } finally {
       this.activeCheck = undefined;
     }
@@ -1612,7 +1760,7 @@ export class Engine {
     if (phaseKey !== undefined) this.activeCheck = phaseKey;
     try {
       const repositories = await this.pullRequestRepositoriesNow();
-      return await runPullRequestChecks(
+      const outcome = await runPullRequestChecks(
         repositories.map((entry) => ({
           gh: this.options.tools.gh,
           env: this.options.env,
@@ -1625,6 +1773,7 @@ export class Engine {
         })),
         await this.readWorkspaceEvidence(PR_PHASE_KEY),
       );
+      return this.withCodexSafety(PR_PHASE_KEY, outcome);
     } finally {
       if (phaseKey !== undefined) this.activeCheck = undefined;
     }
@@ -2415,6 +2564,7 @@ export class Engine {
     const scanSignal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     for (const sessionId of facts.sessionIds) {
       const session = this.sessionRecord(phaseKey, sessionId);
+      if (session?.agentId === "codex") await this.readCodexAvailability(session, true);
       const conversation = session?.agentId === "codex" ? session.conversation : undefined;
       if (!conversation?.threadId || !conversation.codexHome || !this.options.tools.codex) {
         facts.codexAudits[sessionId] = this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
@@ -2500,6 +2650,10 @@ export class Engine {
 
   /** Whether a session ran and Claude Code holds no transcript for it, so it can't be resumed (OUT-003). */
   transcriptMissing(session: SessionRecord): boolean {
+    if (session.agentId === "codex") {
+      if (!session.conversation?.threadId) return true;
+      return session.codex?.conversationUnavailable === true;
+    }
     return session.initModel !== undefined && findTranscripts(claudeConfigFolder(this.options.env), session.sessionId).main === undefined;
   }
 

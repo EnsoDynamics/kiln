@@ -4,13 +4,13 @@
   // spinner, as the Disconnected mockup draws it.
   import Icon from "./Icon.svelte";
 
-  let { steps, live }: { steps: { name: string; state: "finished" | "current" | "unreached" }[]; live: boolean } = $props();
+  let { steps, live }: { steps: { name: string; state: "finished" | "current" | "unreached" | "observed" | "unobserved" }[]; live: boolean } = $props();
 </script>
 
 <ol class="steps">
   {#each steps as step, index (step.name)}
     {#if index > 0}<li class="rule" aria-hidden="true"></li>{/if}
-    <li class={step.state}>{#if step.state === "finished"}<Icon name="check" />{:else if step.state === "current" && live}<Icon name="spinner" spin />{/if}{step.name}</li>
+    <li class={step.state}>{#if step.state === "finished"}<Icon name="check" />{:else if step.state === "current" && live}<Icon name="spinner" spin />{/if}{step.name}{#if step.state === "unobserved"} · unobserved{:else if step.state === "observed"} · observed{/if}</li>
   {/each}
 </ol>
 

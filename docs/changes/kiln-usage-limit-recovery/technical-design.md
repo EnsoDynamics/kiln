@@ -83,6 +83,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Keep-awake
 
 ## Resume
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex saved identity, original pair, explicit repair and cleanup reconciliation; Claude behavior retained).
+
 **The command.** `resume({ note? })`, reached by `POST /api/resume`, is allowed at a Needs you whose `resumeOffered` is true and during a wait (Resume now, which takes no note), and refused with 409 at every other state. From a press of Resume or Resume now, or the start of the end-of-wait resume, until the resumed run starts or a stop or Done is recorded, Resume, Resume now and Check again are unavailable, as during Check again's own check: `POST /api/resume` and `POST /api/check-again` return 409, and `checking` stays set so the view shows work under way.
 
 ```
@@ -126,6 +128,8 @@ Two terminal lines join v1's phase event lines ([Command line](../../prds/kiln-v
 
 ### HTTP API
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (Codex manual recovery; Claude behavior retained).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API
 
 | Method and path | Change |
@@ -136,6 +140,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API; `docs/cha
 Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
+
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (Codex session facts; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot
 
@@ -184,6 +190,8 @@ SessionRecord (schema 3):
 `wait.run` is the index of the refused run. The account shown on both screens is never stored: it is the reading Kiln holds in memory, so a reading from before a restart is never shown as current. **Migration from schema 2**, on read: `resumeAfterUsageLimit: true`; nothing else, since no record before this change holds a wait or a refusal. A v1 record is migrated to 2, then to 3.
 
 ## Screens
+
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (agent-specific output and recovery information; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot ("Needs you on screen", the Disconnected rules)
 

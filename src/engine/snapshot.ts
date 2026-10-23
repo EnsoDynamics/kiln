@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
@@ -38,7 +38,39 @@ export interface LimitView {
   account?: { email?: string; plan?: string; error?: string; percent?: number; at: string; atLimitUntil?: string };
   blockingLimit?: { label: string; resetsAt?: string };
 }
-type StepView = { name: string; state: "finished" | "current" | "unreached"; startedAt?: string };
+type StepView = { name: string; state: "finished" | "current" | "unreached" | "observed" | "unobserved"; startedAt?: string };
+
+export interface SessionIdentityView {
+  agentId?: AgentId;
+  agent?: string;
+  providerSessionId?: string;
+  requested?: { model: string; effort?: string };
+  effective?: { model: string; effort?: string };
+  observed?: import("../state/records.js").CodexTurnExecution[];
+  recoveryObserved?: import("../state/records.js").CodexTurnExecution[];
+  historyError?: string;
+  originalAccount?: import("../state/records.js").CodexAccountProvenance;
+  attemptAccount?: import("../state/records.js").CodexAccountProvenance;
+  cleanupWarning?: string;
+  cleanupFailure?: string;
+  failure?: string;
+  humanRequests?: import("../state/records.js").CodexRunFacts["humanRequests"];
+  resumeError?: string;
+}
+
+export function sessionIdentity(session: SessionRecord): SessionIdentityView {
+  const run = session.runs.at(-1)?.codex;
+  return {
+    agentId: session.agentId ?? "claude_code", agent: AGENT_NAMES[session.agentId ?? "claude_code"],
+    ...optional("providerSessionId", session.conversation?.threadId),
+    ...(session.agentId === "codex" ? { requested: { model: session.model, ...optional("effort", session.effort) } } : {}),
+    ...optional("effective", run?.effective), ...optional("observed", run?.observed),
+    ...optional("recoveryObserved", session.codex?.recoveryObserved), ...optional("historyError", session.codex?.historyError),
+    ...optional("originalAccount", session.codex?.originalAccount), ...optional("attemptAccount", run?.account),
+    ...optional("cleanupWarning", run?.cleanupWarning), ...optional("cleanupFailure", run?.cleanupFailure),
+    ...optional("failure", run?.failure), ...optional("humanRequests", run?.humanRequests), ...optional("resumeError", session.codex?.resumeError),
+  };
+}
 
 export interface DocumentsFound {
   prd: { file: string; criteriaCount: number; firstLabel?: string; lastLabel?: string };
@@ -66,7 +98,7 @@ export interface PhaseView {
   finishedByPerson: boolean;
   /** A multi-repository PRD's Done: how many repositories the phase pushed to, in place of its pushed commit (AC-PRS-03). */
   pushedRepositoryCount?: number;
-  details?: {
+  details?: SessionIdentityView & {
     from: string;
     to?: string;
     model: string;
@@ -131,7 +163,6 @@ export interface Snapshot {
     selectionGeneration?: number;
     metadataPending?: boolean;
     readinessErrors?: string[];
-    executionGate?: string;
     choiceNotice?: string;
     efforts?: { value: string; label: string; description?: string }[];
     model: { value: string; displayName: string };
@@ -158,7 +189,7 @@ export interface Snapshot {
   /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
   models?: { value: string; displayName: string }[];
   phases: PhaseView[];
-  current?: {
+  current?: SessionIdentityView & {
     phaseId: string;
     sessionId?: string;
     model: string;
@@ -171,7 +202,7 @@ export interface Snapshot {
     repositories: RepositoryCommits[];
     reviewerWorking?: boolean;
   };
-  needsYou?: {
+  needsYou?: SessionIdentityView & {
     phaseId: string;
     kind: StopKind;
     stoppedAt: string;
@@ -226,7 +257,7 @@ export interface Snapshot {
    * (AC-STOP-02) and Full session output's fields; `checking` while Resume now or the end of the
    * wait holds the lock.
    */
-  waiting?: {
+  waiting?: SessionIdentityView & {
     phaseId: string;
     since: string;
     limit: LimitView;
@@ -306,7 +337,6 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       selectionGeneration: metadata.generation,
       metadataPending: metadata.pending,
       readinessErrors: metadata.blockers,
-      ...optional("executionGate", engine.executionGate),
       ...optional("choiceNotice", engine.choiceNotice),
       ...optional("efforts", entry?.efforts),
       // A saved alias the list doesn't offer, or any model before the list loads, is named as saved.
@@ -366,15 +396,16 @@ function currentView(engine: Engine): Snapshot["current"] {
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: stepStates([]), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: stepStates([], settings.agentId), repositories: [] };
   }
-  const steps = stepStates(session.steps);
+  const steps = stepStates(session.steps, session.agentId);
   const latestStep = [...session.steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).at(-1);
   let seen: { text: string; at: string } | undefined;
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
   if (session.lastSkill && (!seen || session.lastSkill.at > seen.at)) seen = { text: `${session.lastSkill.name} skill started`, at: session.lastSkill.at };
   return {
     phaseId: judgedKeyFor(plan, current.phaseKey),
+    ...sessionIdentity(session),
     sessionId: session.sessionId,
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
@@ -427,7 +458,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
   const withOutside = (prompt: string) => (outside?.note === undefined ? prompt : `${prompt}\n\n${outside.note}`);
-  const prompts = (ran: boolean) =>
+  const originalPrompts = (ran: boolean) =>
     withOutside(
       isPr
         ? pullRequestSessionPrompt({
@@ -445,11 +476,13 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
         : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran),
     );
 
-  const freshSessionCommand = claudeCommand(folder);
+  const prompts = (ran: boolean) => session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
+  const freshSessionCommand = (session?.agentId ?? record.settings.agentId) === "codex" ? codexCommand(folder) : claudeCommand(folder);
   if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
 
   const run = session.runs.at(-1);
   const sessionFacts = {
+    ...sessionIdentity(session),
     sessionId: session.sessionId,
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
@@ -480,7 +513,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
       freshSessionCommand,
       outputLineCount: lines.length,
       sessionEndedAt: endedAt,
-      steps: stepStates(session.steps),
+      steps: stepStates(session.steps, session.agentId),
     };
   }
   // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
@@ -500,12 +533,12 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...optional("spawnError", run?.spawnError),
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
-    ...(resumable ? { resumeCommand: resumeCommand(folder, session.sessionId) } : {}),
+    ...(resumable ? { resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : resumeCommand(folder, session.sessionId) } : {}),
     freshSessionPrompt: prompts(everStarted),
     freshSessionCommand,
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
-    steps: stepStates(session.steps),
+    steps: stepStates(session.steps, session.agentId),
   };
 }
 
@@ -521,6 +554,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
   const finalMessage = run?.result?.text?.trim() ? run.result.text : undefined;
   return {
     phaseId: judgedKeyFor(engine.record.plan ?? [], phaseKey),
+    ...(session ? sessionIdentity(session) : {}),
     since: wait.since,
     limit: limitView(engine, phaseKey, undefined, true),
     sessionId: wait.sessionId,
@@ -536,7 +570,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
     ...optional("effort", session?.effort),
     ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
     ...optional("sessionEndedAt", run?.endedAt),
-    ...(session ? { steps: stepStates(session.steps) } : {}),
+    ...(session ? { steps: stepStates(session.steps, session.agentId) } : {}),
     repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
   };
 }
@@ -618,6 +652,22 @@ export function claudeCommand(worktreePath: string, args?: string, platform: Nod
   return `cd ${path}\n${claude}`;
 }
 
+function shellArgument(value: string, platform: NodeJS.Platform): string {
+  if (platform === "win32") return `'${value.replaceAll("'", "''")}'`;
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function codexCommand(folder: string, args: string[] = [], platform: NodeJS.Platform = process.platform, codexHome?: string): string {
+  const prefix = claudeCommand(folder, undefined, platform).replace(/claude$/, "");
+  const home = codexHome ? platform === "win32" ? `$env:CODEX_HOME=${shellArgument(codexHome, platform)}; ` : `CODEX_HOME=${shellArgument(codexHome, platform)} ` : "";
+  return `${prefix}${home}codex${args.length ? ` ${args.map(arg => shellArgument(arg, platform)).join(" ")}` : ""}`;
+}
+
+export function codexResumeCommand(folder: string, session: SessionRecord, platform: NodeJS.Platform = process.platform): string {
+  if (!session.conversation?.threadId) throw new Error("Codex conversation identity is missing.");
+  return codexCommand(folder, ["resume", session.conversation.threadId, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])], platform, session.conversation.codexHome);
+}
+
 function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
   const { record } = engine;
   const plan = record.plan ?? [];
@@ -656,6 +706,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
       const stopped = (view.state === "needs_you" || view.state === "waiting") && read?.phaseKey === key ? read?.commits : undefined;
       const prdStopped = stopped?.find((repository) => repository.name === engine.paths.repositoryName)?.commits;
       view.details = {
+        ...sessionIdentity(session),
         from: startedAt,
         ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt),
         model: session.modelDisplayName,

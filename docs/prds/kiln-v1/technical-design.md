@@ -42,7 +42,7 @@ Plain files under Kiln's state directory: one JSON record per PRD, written atomi
 
 ### Dependencies
 
-Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Agent boundary (agent-specific metadata and execution boundary; Codex work remains gated during selection integration).
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Agent boundary (agent-specific metadata and execution boundary).
 
 All already on the person's machine (AC-INSTALL-02); Kiln has no account, credential or service of its own.
 
@@ -170,6 +170,8 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 
 ## Sessions
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (Codex protected conversations, immutable session settings and recovery; Claude behavior retained).
+
 ### Starting a phase's session
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
@@ -231,6 +233,8 @@ The Needs you resume command is `cd <worktree>` then `claude --resume <session I
 
 ### Output and progress
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Workspace Evidence, Output and Progress → Live and saved output (Codex-native output, child visibility and observed progress; Claude behavior retained).
+
 Kiln saves every event exactly as received, stamped with the time it arrived, except partial-message deltas: those only feed the live view, and the finished message that follows carries the same text, so storing them would multiply the file's size for nothing. Output lines are derived from the saved events and can be rebuilt from them. Rules:
 
 | Content block or event | Output line |
@@ -283,6 +287,8 @@ A signal Kiln sends itself is an interruption and the session is resumed ([Stopp
 
 ### Stopping a session: Ctrl+C, a closed terminal and signals
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex tracked-process cleanup and visible native limitation; Claude behavior retained).
+
 Kiln handles SIGINT (Ctrl+C), SIGHUP (the terminal closed) and SIGTERM the same way (AC-KEEP-02). On Windows, Node raises SIGINT for Ctrl+C and SIGHUP for a closed console window, which Windows follows with ending Kiln about 5 seconds later; the interrupt below finishes well within that:
 
 1. If a run is live (no `endedAt`), write the interruption on that run first (`interruptedBy` and `interruptedAt`), so the record is right even if Kiln is killed partway through what follows. A signal during a done check or the pull-request check, with no run live, abandons the check and writes nothing; the next `kiln run` runs it again, since the check only reads.
@@ -298,6 +304,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 **Never two processes on one session.** The record keeps the `claude` process's PID and start time. Before resuming, and on every `kiln run`, Kiln checks whether that process is still alive (same PID and [process start time](#ports-and-one-kiln-per-prd), so a reused PID isn't mistaken for it). If it is, Kiln stops it as in steps 3 and 4 before going on; a run with no PID never started, so there is nothing to check. Step 2's interrupt request can't reach it, since its stdin closed with the Kiln that started it, so on macOS and Linux Kiln first sends SIGINT to its group, the stop proof gate 1 showed leaves a session resumable; on Windows it waits, then ends the tree. Nothing starts after a stop until Check again or `kiln run` (AC-STOP-08).
 
 ### Interruptions, sleep and resume
+
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex same-conversation recovery; Claude behavior retained).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Stayed in the workspace (no resume after work outside the workspace)
 

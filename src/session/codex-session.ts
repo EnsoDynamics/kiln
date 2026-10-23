@@ -12,6 +12,7 @@ import { CodexHistoryRpc, type HistoryRpc } from "./codex-history-rpc.js";
 import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-processes.js";
 import { readCodexTurnExecutions } from "./codex-turn-provenance.js";
 import { CODEX_NATIVE_CLEANUP_WARNING, stopCodexBackgroundTerminals } from "./codex-background-terminals.js";
+import { codexSessionPrompt } from "./prompts.js";
 
 interface Turn { id: string; status: string; error?: unknown; items?: { type: string; phase?: string; text?: string }[] }
 const TERMINAL = new Set(["completed", "failed", "interrupted"]);
@@ -22,6 +23,9 @@ export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> 
   onSpawned?(control: SessionControl): void;
   /** Provider-native messages; the output adapter must not fabricate Claude events. */
   onEvent?(event: CodexMessage, at: string): void;
+  onStderr?(text: string, at: string): void;
+  onHistory?(threadId: string, turns: { id: string; items?: unknown[]; startedAt?: number | null }[]): void;
+  beforeEnd?(): Promise<void>;
   onRecordChange?(): void;
   /** Kiln guidance, separate from provider-native events. Wire to terminal/browser in 3b2. */
   onWarning?(text: string): void;
@@ -139,7 +143,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       if (questions.length) { facts.humanRequests.push({ at, method: message.method!, request: params, decision: { interrupted: true }, stopped: true }); save(); interrupt(); }
     }
   };
-  const rpc = new CodexWorkRpc({ executable: options.executable, args: codexServerArguments(facts.processOwner), cwd: prepared.profile.cwd, env: { ...env, KILN_CODEX_PROCESS_OWNER: facts.processOwner, ...(prepared.profile.powerShell ? { KILN_CODEX_JOB_POWERSHELL: prepared.profile.powerShell.executable } : {}) }, onMessage: receive, onStderr: text => appendFileSync(files.stderr, text, { mode: 0o600 }) });
+  const rpc = new CodexWorkRpc({ executable: options.executable, args: codexServerArguments(facts.processOwner), cwd: prepared.profile.cwd, env: { ...env, KILN_CODEX_PROCESS_OWNER: facts.processOwner, ...(prepared.profile.powerShell ? { KILN_CODEX_JOB_POWERSHELL: prepared.profile.powerShell.executable } : {}) }, onMessage: receive, onStderr: text => { appendFileSync(files.stderr, text, { mode: 0o600 }); options.onStderr?.(text, now()); } });
   const owned = new CodexOwnedProcesses(run, save, error => rpc.fail(error));
   const abort = () => interrupt();
   try {
@@ -164,13 +168,17 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     record.conversation = { ...record.conversation, threadId: parentId, sessionTreeId: result.thread.sessionId, codexHome: home };
     facts.effective = { model: result.model, ...(result.reasoningEffort ? { effort: result.reasoningEffort } : {}) };
     facts.instructionSources = result.instructionSources ?? [];
-    save(); assertCodexEffective(result, prepared);
+    save();
+    try { assertCodexEffective(result, prepared); }
+    catch (error) { facts.verificationFailure = (error as Error).message; throw error; }
     // A freshly created persistent thread is not materialized until its first user input.
     const prior = options.cause === "launch" ? [] : await turns(rpc, parentId);
+    if (prior.length) options.onHistory?.(parentId, prior);
     if (prior.some(turn => !TERMINAL.has(turn.status))) throw new Error("Codex conversation still has unsettled work. Check it before resuming.");
     if (stopping) throw new Error("Codex stopped before dispatch.");
     facts.dispatch = { at: now(), previousTurnIds: prior.map(turn => turn.id) }; save();
-    const started = await rpc.call<{ turn: Turn }>("turn/start", { threadId: parentId, model: record.model, ...(record.effort ? { effort: record.effort } : {}), input: [{ type: "text", text: options.prompt }], clientUserMessageId: createHash("sha256").update(`${record.sessionId}:${record.runs.length}:${facts.dispatch.at}`).digest("hex") });
+    const prompt = options.cause === "launch" && record.kind === "phase" ? codexSessionPrompt(options.prompt, prepared.profile.skills) : options.prompt;
+    const started = await rpc.call<{ turn: Turn }>("turn/start", { threadId: parentId, model: record.model, ...(record.effort ? { effort: record.effort } : {}), input: [{ type: "text", text: prompt }], clientUserMessageId: createHash("sha256").update(`${record.sessionId}:${record.runs.length}:${facts.dispatch.at}`).digest("hex") });
     if (!started.turn.id) throw new Error("Codex did not return a dispatched turn identity.");
     facts.turnId = started.turn.id; save();
     if (TERMINAL.has(started.turn.status)) terminals.set(`${parentId}:${started.turn.id}`, started.turn);
@@ -202,7 +210,9 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       const pending: { threadId: string; turnId: string }[] = [];
       for (const id of discovered) {
         rememberChild(id);
-        for (const turn of await turns(rpc, id)) {
+        const childTurns = await turns(rpc, id);
+        options.onHistory?.(id, childTurns);
+        for (const turn of childTurns) {
           if (!TERMINAL.has(turn.status)) pending.push({ threadId: id, turnId: turn.id });
           for (const item of turn.items ?? []) {
             const child = item as { receiverThreadIds?: string[]; agentThreadId?: string };
@@ -221,7 +231,10 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     const provenance = await readCodexTurnExecutions({ path: history.thread.path, codexHome: home, threadId: parentId, signal: AbortSignal.timeout(30_000) });
     facts.observed = provenance; save();
     const current = provenance.find(context => context.turnId === facts.turnId);
-    if (!current || current.model !== record.model || current.effort !== record.effort || current.cwd !== prepared.profile.cwd) throw new Error("Codex's observed turn model, effort or directory differs from the recorded request or is missing.");
+    if (!current || current.model !== record.model || current.effort !== record.effort || current.cwd !== prepared.profile.cwd) {
+      facts.verificationFailure = "Codex's observed turn model, effort or directory differs from the recorded request or is missing.";
+      throw new Error(facts.verificationFailure);
+    }
   } catch (error) {
     facts.failure = error instanceof Error ? error.message : String(error);
   } finally {
@@ -239,6 +252,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     facts.cleanup = cleanupError ? "unknown" : "tracked_processes_stopped";
     if (cleanupError) { facts.cleanupFailure = (cleanupError as Error).message; facts.failure ??= facts.cleanupFailure; }
     clearTimeout(stopTimer);
+    await options.beforeEnd?.();
     run.endedAt = now();
     if (rpc.child.exitCode !== null) run.exitCode = rpc.child.exitCode;
     if (rpc.child.signalCode !== null) run.signal = rpc.child.signalCode;

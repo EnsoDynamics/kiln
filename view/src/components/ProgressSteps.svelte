@@ -6,7 +6,7 @@
   import { stepTime } from "../lib/time.js";
   import Icon from "./Icon.svelte";
 
-  type Step = { name: string; state: "finished" | "current" | "unreached"; startedAt?: string };
+  type Step = { name: string; state: "finished" | "current" | "unreached" | "observed" | "unobserved"; startedAt?: string };
   let { steps, live, reviewerWorking = false, now }: { steps: Step[]; live: boolean; reviewerWorking?: boolean; now: number } = $props();
 
   const STARTED: Record<string, { line: string; seen: string }> = {
@@ -27,6 +27,8 @@
   };
 
   function lineOf(step: Step): string {
+    if (step.state === "unobserved") return "Unobserved — no reliable activity evidence";
+    if (step.state === "observed") return "Activity observed; completion unobserved";
     if (step.state === "unreached") return WAITING[step.name] ?? "";
     const line = STARTED[step.name]?.line ?? "";
     return step.name === "Deliverable review" && step.state === "current" && reviewerWorking && live ? `${line}; its reviewer subagent is working` : line;
@@ -47,7 +49,7 @@
       </li>
     {/each}
   </ol>
-  <p class="note">Kiln can see a skill start but not when it ends, so a step counts as finished once the next one starts. No skill writes status for Kiln.</p>
+  <p class="note">{steps.some(step => step.state === "observed" || step.state === "unobserved") ? "Codex activity does not prove a step finished. Unobserved steps stay unobserved when later work appears. Completion still depends on Kiln’s checks." : "Kiln can see a skill start but not when it ends, so a step counts as finished once the next one starts. No skill writes status for Kiln."}</p>
 </section>
 
 <style>

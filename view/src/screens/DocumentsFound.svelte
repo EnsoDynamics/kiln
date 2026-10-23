@@ -254,7 +254,6 @@
 
       <span class="help">Listed models do not guarantee account access.</span>
       {#if settings.choiceNotice}<p class="message">{settings.choiceNotice}</p>{/if}
-      {#if settings.executionGate}<p class="message">{settings.executionGate}</p>{/if}
       {#if settings.readinessErrors?.length}<p class="message">{settings.readinessErrors.join(" ")}</p>{/if}
       <button type="button" class="button" disabled={settings.metadataPending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
       <fieldset class="effort">

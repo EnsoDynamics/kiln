@@ -48,7 +48,7 @@
       <PhaseCircle id={current.phaseId} tone={connected ? "implementing" : "amber"} />
       <div class="words"><span class="eyebrow">{connected ? "Now implementing" : "Last seen"} · {phaseOfTotal(snapshot, current.phaseId)}</span><h2 id="now-h">{row?.title ?? ""}</h2></div>
     </div>
-    <span class="meta">Claude Code · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {elapsed(now - Date.parse(current.startedAt))}{/if}</span>
+    <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {elapsed(now - Date.parse(current.startedAt))}{/if}</span>
   </div>
   {#if !isPr}<StepsRow steps={current.steps} live={connected} />{/if}
   {#if current.seenInSession || connected}

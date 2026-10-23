@@ -46,6 +46,9 @@ export function decodeWrapper(callId, program) {
       ? `${node.object.name}.${node.property.name}` : undefined;
   }
   function callback(fn, values, scope) {
+    // Built-in presentation callbacks cannot dispatch tools. Reserved bindings cannot
+    // be shadowed; arbitrary identifier callbacks remain outside the grammar.
+    if (fn?.type === 'Identifier' && OUTPUT.has(fn.name)) return UNKNOWN;
     if (fn?.type !== 'ArrowFunctionExpression' || fn.params.length > 3) fail(fn, 'Only inline array callbacks are admitted');
     const nested = new Map(scope);
     fn.params.forEach((param, index) => bind(param, values[index], nested));

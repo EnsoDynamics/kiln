@@ -5,19 +5,28 @@
 import { STEP_NAMES, type StepName, type StepStart } from "../state/records.js";
 import { runsGitCommit, runsGitPush } from "./bash-command.js";
 
-export type OutputSource = "claude" | "tool" | "out" | "skill" | "reviewer" | "subagent" | "stderr" | "exit";
+export type OutputSource = "claude" | "codex" | "tool" | "out" | "skill" | "reviewer" | "subagent" | "stderr" | "exit";
 
 export interface OutputLine {
   line: number;
   at: string;
   source: OutputSource;
   text: string;
+  agentId?: "claude_code" | "codex";
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+  parentThreadId?: string;
+  role?: string;
+  timestampSource?: "arrival" | "turn" | "recovery";
 }
 
 /** A piece of text a session is writing, before its finished line arrives. */
 export interface PartialText {
-  source: "claude" | "reviewer" | "subagent";
+  source: "claude" | "codex" | "reviewer" | "subagent";
   text: string;
+  threadId?: string;
+  itemId?: string;
 }
 
 /** A stream-json event as Claude Code writes it; only the fields Kiln reads are typed. */
@@ -67,11 +76,12 @@ export function currentStep(steps: StepStart[]): StepName | undefined {
 }
 
 /** Every step with its state, in order: started steps below the current one are finished. */
-export function stepStates(steps: StepStart[]): { name: StepName; state: "finished" | "current" | "unreached"; startedAt?: string }[] {
+export function stepStates(steps: StepStart[], agentId?: string): { name: StepName; state: "finished" | "current" | "unreached" | "observed" | "unobserved"; startedAt?: string }[] {
   const current = currentStep(steps);
   const currentIndex = current === undefined ? -1 : STEP_NAMES.indexOf(current);
   return STEP_NAMES.map((name, index) => {
     const start = steps.find((step) => step.name === name);
+    if (agentId === "codex") return { name, state: start ? "observed" as const : "unobserved" as const, ...(start ? { startedAt: start.startedAt } : {}) };
     if (!start) return { name, state: "unreached" as const };
     return { name, state: index === currentIndex ? ("current" as const) : ("finished" as const), startedAt: start.startedAt };
   });

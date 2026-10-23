@@ -27,7 +27,7 @@
   const settings = $derived(snapshot.settings);
   const nowDate = $derived(new Date(now));
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
-  const copy = $derived(waitingCopy(waiting.phaseId, waiting.limit, nowDate));
+  const copy = $derived(waitingCopy(waiting.phaseId, waiting.limit, nowDate, waiting.agent ?? snapshot.settings.agent));
   const atLimit = $derived(atLimitLine(waiting.limit, nowDate));
   const ending = $derived(waiting.signal ?? (waiting.exitCode === undefined ? undefined : `exit ${waiting.exitCode}`));
   const outputLink = $derived(phasePath(config.base, waiting.phaseId));
@@ -62,7 +62,7 @@
         {/if}
         {#if waiting.finalMessage !== undefined}
           <div class="message-block">
-            <span class="eyebrow">Last message from Claude Code</span>
+            <span class="eyebrow">Last message from {waiting.agent ?? settings.agent}</span>
             <div class="final">{@html finalMessageHtml(waiting.finalMessage)}</div>
           </div>
         {:else if waiting.lastLines && waiting.lastLines.length > 0}
@@ -79,7 +79,7 @@
           <li>
             <span class="number">1</span>
             <div class="step">
-              <span class="step-title">Sign in to another Claude account in a terminal</span>
+              <span class="step-title">Sign in to another {(waiting.agent ?? settings.agent) === "Codex" ? "Codex" : "Claude"} account in a terminal</span>
               <p>Use an account that has usage left.</p>
               <SwitchAccountCommand agentId={snapshot.settings.agentId} />
             </div>
