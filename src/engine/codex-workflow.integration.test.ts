@@ -1,6 +1,6 @@
 // Real engine, private process pipes, saved provider-shaped history, Git and browser.
 // The deterministic peer covers failures beside the separate real Codex workflow proof.
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
@@ -8,7 +8,7 @@ import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine } from "./engine.js";
 import { buildSnapshot, codexResumeCommand } from "./snapshot.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, readSessionRecord } from "../state/records.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { EngineOptions } from "./engine.js";
@@ -235,4 +235,110 @@ it("follows a phase's own split through fresh Codex conversations and the final 
   expect(h.engine.latestStayed("pr").passed).toBe(true);
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(5);
   expect(h.claudeCalls()).toEqual([]);
+});
+
+// AC-MODEL-01/03: schema-valid provider refusal, not an actual entitlement/quota proof.
+it("shows model access refusal without substituting a model or conversation on launch and resume", async () => {
+  const error = { message: "The requested model is unavailable on this account.", codexErrorInfo: "unauthorized", additionalDetails: null };
+  await setup({ terminalError: error }); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const original = h.engine.latestSession("1")!;
+  expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
+  expect(original.runs[0]?.codex?.terminal).toEqual(expect.objectContaining({ status: "failed", error }));
+  expect(h.engine.outputLines(original).some(line => line.source === "exit" && line.text.includes(error.message))).toBe(true);
+  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  h.reopenFromDisk(); await h.engine.agents.refresh();
+  expect(await h.engine.resume({ note: "Keep the original requested model." })).toEqual({ ok: true }); await h.engine.settled();
+  const resumed = h.engine.latestSession("1")!;
+  expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
+  expect(resumed.sessionId).toBe(original.sessionId);
+  expect(resumed.conversation?.threadId).toBe(original.conversation?.threadId);
+  expect(resumed.runs[1]?.codex?.terminal).toMatchObject({ status: "failed", error });
+  expect(resumed.runs.map(run => run.codex?.requested)).toEqual([{ model: "gpt-6.1-sol", effort: "high" }, { model: "gpt-6.1-sol", effort: "high" }]);
+  expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(1);
+  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "high"]]);
+  expect(h.claudeCalls()).toEqual([]);
+  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  chrome = await launchChrome(); const page = await chrome.open(server.address);
+  try { await page.waitFor(`document.body.textContent.includes(${JSON.stringify(error.message)})`); expect(page.problems).toEqual([]); }
+  finally { await page.close(); }
+});
+
+// AC-WORK-03: a stopped request must be visible where the person recovers the work.
+it("shows the full stopped Codex question at Needs you and keeps prior edits recoverable", async () => {
+  await setup({ request: "item/tool/requestUserInput", hang: true });
+  let seededBeforeDispatch = false;
+  h.engine.onChange(() => {
+    const attempt = h.engine.latestSession("1")?.runs[0]?.codex;
+    if (!seededBeforeDispatch && attempt?.intentAt && !attempt.dispatch) {
+      writeFileSync(join(h.engine.worktreePath, "prior-work.txt"), "Keep this work.\n");
+      seededBeforeDispatch = true;
+    }
+  });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  expect(seededBeforeDispatch).toBe(true);
+  const session = h.engine.latestSession("1")!;
+  expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
+  expect(session.runs[0]?.codex?.humanRequests).toMatchObject([{ method: "item/tool/requestUserInput", stopped: true, request: { questions: [{ question: "Need a person" }] } }]);
+  expect(readSessionRecord(h.stateDirectory, "1", session.sessionId)?.runs[0]?.codex?.humanRequests).toEqual(session.runs[0]?.codex?.humanRequests);
+  expect(readFileSync(join(h.engine.worktreePath, "prior-work.txt"), "utf8")).toBe("Keep this work.\n");
+  expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  chrome = await launchChrome(); const page = await chrome.open(server.address, { width: 360 });
+  try {
+    await page.waitFor(`document.querySelector('.codex-facts pre')`);
+    const request = await page.evaluate<string>(`document.querySelector('.codex-facts pre').textContent`);
+    expect(JSON.parse(request)).toMatchObject({ questions: [{ question: "Need a person" }] });
+    expect(await page.evaluate(`document.querySelector('.codex-facts').textContent`)).toContain("needs a person");
+    expect(page.problems).toEqual([]);
+  } finally { await page.close(); }
+});
+
+// AC-COMPAT-01: mixed providers overlap in separate worktrees of the same repository.
+it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved output", async () => {
+  h = await createHarness({ extraFolders: ["second-prd"], sessions: [{ actions: [
+    { write: { path: "claude-only.txt", content: "Claude work\n" } },
+    { text: "Claude-only result" }, { waitForFile: "release-mixed-test" }, { result: "Claude-only result" },
+  ] }] });
+  f = codexWorkFixture(); Object.assign(h.tools, { codex: f.options.executable }); Object.assign(h.env, { KILN_CODEX_WORK_FIXTURE: f.file });
+  const other = await h.engineFor("second-prd");
+  try {
+    h.engine.close();
+    const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
+    h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
+    const program = "const fs=require('node:fs');fs.writeFileSync('codex-only.txt','Codex work\\n');setInterval(()=>{if(fs.existsSync('release-mixed-test'))process.exit(0)},20);setTimeout(()=>process.exit(2),20000)";
+    set({ command: `${JSON.stringify(process.execPath)} -e '${program.replaceAll("'", "'\\''")}'` });
+    await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+    const claudeChoices = structuredClone(other.record.settings.agentChoices);
+    expect(await other.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await waitFor(() => existsSync(join(other.worktreePath, "claude-only.txt")) && existsSync(join(h.engine.worktreePath, "codex-only.txt")));
+    expect(h.engine.current).toBeDefined(); expect(other.current).toBeDefined();
+    await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+    writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
+    writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");
+    await Promise.all([h.engine.settled(), other.settled()]);
+    const codexSession = h.engine.latestSession("1")!, claudeSession = other.latestSession("1")!;
+    expect(codexSession.agentId).toBe("codex"); expect(claudeSession.agentId).toBe("claude_code");
+    expect(codexSession.sessionId).not.toBe(claudeSession.sessionId);
+    expect(h.engine.worktreePath).not.toBe(other.worktreePath);
+    expect(readFileSync(join(h.engine.worktreePath, "codex-only.txt"), "utf8")).toBe("Codex work\n");
+    expect(readFileSync(join(other.worktreePath, "claude-only.txt"), "utf8")).toBe("Claude work\n");
+    expect(existsSync(join(other.worktreePath, "codex-only.txt"))).toBe(false);
+    expect(existsSync(join(h.engine.worktreePath, "claude-only.txt"))).toBe(false);
+    expect(other.record.settings.agentChoices).toEqual(claudeChoices);
+    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6.1-sol", effort: "low" });
+    expect(codexSession.effort).toBe("high"); expect(claudeSession.model).toBe("opus");
+    expect(h.engine.outputLines(codexSession).some(line => line.source === "codex" && line.text === "Fixture final turn-1")).toBe(true);
+    expect(other.outputLines(claudeSession).some(line => line.source === "claude" && line.text === "Claude-only result")).toBe(true);
+    expect(h.engine.outputLines(codexSession).some(line => line.text.includes("Claude-only result"))).toBe(false);
+    expect(other.outputLines(claudeSession).some(line => line.source === "codex")).toBe(false);
+    expect(buildSnapshot(h.engine).needsYou?.agent).toBe("Codex");
+    expect(buildSnapshot(other).needsYou?.agent).toBe("Claude Code");
+    expect(h.claudeCalls()[0]?.cwd).toBe(other.worktreePath);
+    expect(readPrdRecord(h.stateDirectory)?.settings.agentId).toBe("codex");
+  } finally {
+    if (existsSync(other.worktreePath)) writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
+    if (existsSync(h.engine.worktreePath)) writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");
+    await Promise.all([h.engine.settled(), other.settled()]); other.close();
+  }
 });

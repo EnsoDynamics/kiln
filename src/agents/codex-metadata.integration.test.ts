@@ -19,6 +19,7 @@ describe("Codex metadata over real process pipes", () => {
     expect(readings()).toBe(1);
     vi.advanceTimersByTime(299_999); expect(readings()).toBe(1);
     f.set({ percent: 32 }); vi.advanceTimersByTime(1);
+    expect(info.state.pending).toBe(true); // The scheduled read must start at the five-minute boundary.
     await waitFor(() => !info!.state.pending && readings() === 2);
     expect(readings()).toBe(2); expect(info.state.account?.limits[0]?.percent).toBe(32);
     f.set({ percent: 19 }); vi.advanceTimersByTime(300_000);

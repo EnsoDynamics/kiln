@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
-import { completeRepositoriesSnapshot, completeSnapshot, documentsFoundSnapshot, needsYouUsageLimitSnapshot, USAGE_LIMIT_NOW, waitingSnapshot } from "../test-support/sample-snapshots.js";
+import { completeRepositoriesSnapshot, completeSnapshot, documentsFoundSnapshot, runningSnapshot, pausedSnapshot, needsYouUsageLimitSnapshot, USAGE_LIMIT_NOW, waitingSnapshot } from "../test-support/sample-snapshots.js";
 
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
@@ -72,6 +72,59 @@ it("Documents found and both recovery screens explicitly label each missing Code
         }
       }
       expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  }
+});
+
+// AC-AGENT-02, AC-VIEW-01/02/04: actual built screens, including live/saved source labels.
+it("keeps Codex session facts, next choices and account guidance distinct across running, paused and disconnected screens", async () => {
+  const running = codex(runningSnapshot());
+  running.settings.model = { value: "gpt-6-luna", displayName: "GPT-6-Luna" }; running.settings.effort = "low";
+  running.account = { agentId: "codex", startedAt: "2026-10-17T15:40:00Z", updatedAt: "2026-10-17T15:40:00Z", email: "codex-screen@example.test", plan: "pro", limits: [] };
+  Object.assign(running.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high", sessionId: "codex-local-screen", providerSessionId: "codex-native-screen", requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" }, observed: [{ turnId: "screen-turn", model: "gpt-6.1-sol", effort: "high", cwd: "/assigned" }], latestLine: { line: 4, at: "2026-10-17T15:46:00Z", source: "codex", text: "Codex screen final" } });
+  const output = [
+    { line: 1, at: "2026-10-17T15:45:00Z", source: "claude" as const, text: "Historical Claude output" },
+    { line: 2, at: "2026-10-17T15:45:20Z", source: "stderr" as const, text: "Provider error detail" },
+    { line: 3, at: "2026-10-17T15:45:40Z", source: "out" as const, text: "Expected command output; exit 0" },
+    { line: 4, at: "2026-10-17T15:46:00Z", source: "codex" as const, text: "Codex screen final" },
+  ];
+  for (const width of [360, 1280]) {
+    const server = await serveViewFixture({ port: 41479, folder: "customer-returns", snapshot: running, output });
+    const page = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
+    try {
+      await page.waitFor(`document.querySelector('.now .meta')?.textContent.includes('Codex')`);
+      expect(await page.evaluate(`document.querySelector('.now .meta').textContent`)).toContain("GPT-6.1-Sol · high effort");
+      const settings = await page.evaluate<string>(`[...document.querySelectorAll('dl > div')].find(r=>r.querySelector('dt')?.textContent === 'Model and effort').textContent`);
+      expect(settings).toContain("GPT-6-Luna · low effort"); expect(settings).toContain("Codex · Agent fixed for this PRD.");
+      expect(await page.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
+      const detail = await chrome.open(server.address + "/phase/2b", { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
+      try {
+        await detail.waitFor(`document.querySelectorAll('.output .source').length === 4`);
+        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output .source'),e=>e.textContent)`)).toEqual(["claude", "stderr", "out", "Codex"]);
+        const text = await detail.evaluate<string>(`document.body.textContent`);
+        for (const expected of ["codex-local-screen", "codex-native-screen", "GPT-6.1-Sol · high effort", "Requested: gpt-6.1-sol · high effort", "Effective configuration: gpt-6.1-sol · high effort", "Observed turn screen-turn: gpt-6.1-sol · high effort", "10:58 AM", "Provider error detail", "Expected command output; exit 0"]) expect(text).toContain(expected);
+        expect(text).not.toContain("GPT-6-Luna");
+        server.send("output", { sessionId: "codex-local-screen", lines: [{ line: 5, at: "2026-10-17T15:47:00Z", source: "codex", text: "Live Codex result" }] });
+        await detail.waitFor(`document.body.textContent.includes('Live Codex result')`);
+        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output .source'),e=>e.textContent).at(-1)`)).toBe("Codex");
+        expect(detail.problems).toEqual([]);
+      } finally { await detail.close(); }
+      const paused = codex(pausedSnapshot()); paused.account = running.account; paused.settings.model = running.settings.model; paused.settings.effort = "low";
+      server.send("snapshot", paused);
+      const held = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW });
+      try {
+        await held.waitFor(`document.querySelector('.account .switch')`);
+        expect(await held.evaluate(`document.querySelector('.account .switch').textContent`)).toContain("codex login");
+        expect(await held.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
+        expect(await held.evaluate(`document.querySelector('.account').textContent`)).not.toContain("claude auth login");
+        expect(await held.evaluate(`document.body.textContent`)).toContain("Nothing is running.");
+        expect(held.problems).toEqual([]);
+        // Ending this fixture's SSE stream deliberately produces a browser network error.
+        await server.close(); await held.waitFor(`document.body.textContent.includes('Disconnected from Kiln')`);
+        expect(await held.evaluate(`document.body.textContent`)).toContain("Codex · Agent fixed for this PRD.");
+        expect(await held.evaluate(`document.querySelector('button.start').disabled`)).toBe(true);
+        expect(held.problems.filter(problem => !problem.includes("ERR_INCOMPLETE_CHUNKED_ENCODING") || !problem.includes("/api/events"))).toEqual([]);
+      } finally { await held.close(); }
     } finally { await page.close(); await server.close(); }
   }
 });

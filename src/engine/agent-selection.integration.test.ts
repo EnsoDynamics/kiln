@@ -156,6 +156,15 @@ describe("agent selection before work", () => {
     expect(await page.evaluate<boolean>(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Start' && b.disabled)`)).toBe(true);
     await page.evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Ultra'); b.click(); })()`);
     await waitFor(() => h.engine.record.settings.agentChoices.codex?.effort === "ultra");
+    expect(await page.evaluate(`document.body.textContent`)).toContain("Listed models do not guarantee account access.");
+    await page.evaluate(`(() => { const e=document.querySelector('#model'); e.value='gpt-6-luna'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+    await page.waitFor(`document.querySelector('#model').value === 'gpt-6-luna' && document.querySelector('fieldset.effort button[aria-pressed=true]')?.textContent === 'Low'`);
+    expect(await page.evaluate(`document.body.textContent`)).toContain("Effort changed to low for GPT-6-LUNA.");
+    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
+    expect(await page.evaluate(`[...document.querySelectorAll('fieldset.effort button')].map(b=>[b.textContent.trim(), b.getAttribute('aria-pressed')])`)).toEqual([["Low", "true"], ["High", "false"], ["Max", "false"]]);
+    expect(h.engine.record.startedAt).toBeUndefined();
+    expect(h.claudeCalls()).toEqual([]);
+
     fixture.set({ usageError: true }); await h.engine.agents.refresh();
     await page.waitFor(`document.body.textContent.includes('Stale reading')`);
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain("82%");

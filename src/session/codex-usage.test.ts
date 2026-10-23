@@ -63,6 +63,7 @@ describe("pinned Codex refusal and semantic release", () => {
     const fixture = JSON.parse(readFileSync(new URL("../../test/fixtures/codex-usage/usage-contracts-0.162.1.json", import.meta.url), "utf8"));
     const ajv = new Ajv({ unknownFormats: "ignore" });
     expect(ajv.validate(fixture.schemas.ErrorNotification.schema, { threadId: "thread", turnId: "turn", error, willRetry: false })).toBe(true);
+    expect(ajv.validate(fixture.schemas.ErrorNotification.schema, { threadId: "thread", turnId: "turn", error: { message: "The requested model is unavailable on this account.", codexErrorInfo: "unauthorized", additionalDetails: null }, willRetry: false })).toBe(true);
     const schema = fixture.schemas.GetAccountRateLimitsResponse.schema;
     for (const ordinaryUsageAllowed of [true, false, null]) expect(ajv.validate(schema, { rateLimits: {}, rateLimitsByLimitId: {}, accountId: "A", ordinaryUsageAllowed })).toBe(true);
   });

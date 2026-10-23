@@ -64,4 +64,8 @@ The approved Mac-only runtime scope, deferred real quota exhaustion/recovery and
 
 **Completion build:** Phase 6 closed on 2026-10-23, completing the three recorded presentation gaps without changing their original owners or the approved validation limits. Its implementation/test-audit handoff records whole-criterion evidence, review/hardening and the independently reproduced pre-existing dependency-audit failure.
 
-**Next unit:** whole-PRD `test-audit` in a fresh chat. Product commits remain local under Doug's no-push restriction; the completed disposable-proof authorization grants no product delivery authority. Phase 6 carries the source restrictions and final verification state for its successor.
+## Whole-PRD test audit — 2026-10-23
+
+[Test audit results](test-audit.md): all 25 active criteria are Adequate after fixing 11 initial test-evidence gaps. Independent re-grading and 16 distinct safe deliberate-regression checks confirm the strengthened evidence. Final lint/types, 492 unit tests, 16 protocol proofs, 459 integration tests with two existing skips at four workers, and four installed-package tests pass. The report retains the initial CLI fixture teardown failure and complete passing repeat, plus the unchanged pre-existing dependency-audit failure. No product implementation, requirements, approved validation limit or method guidance changed.
+
+**Next unit:** none for this PRD. Delivery audit, completion Phase 6 and the whole-PRD test audit are complete; no build or audit successor is owed. Product commits remain local under Doug's no-push restriction; the disposable-proof authorization grants no product delivery authority.
