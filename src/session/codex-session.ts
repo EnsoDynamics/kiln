@@ -13,6 +13,7 @@ import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-proc
 import { readCodexTurnExecutions } from "./codex-turn-provenance.js";
 import { CODEX_NATIVE_CLEANUP_WARNING, stopCodexBackgroundTerminals } from "./codex-background-terminals.js";
 import { codexSessionPrompt } from "./prompts.js";
+import { CodexUsageRecoveryUnavailable, codexUsageRefusal, codexUsageRelease, consumeCodexUsage, recordCodexUsageProgress } from "./codex-usage.js";
 
 interface Turn { id: string; status: string; error?: unknown; items?: { type: string; phase?: string; text?: string }[] }
 const TERMINAL = new Set(["completed", "failed", "interrupted"]);
@@ -26,6 +27,8 @@ export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> 
   onStderr?(text: string, at: string): void;
   onHistory?(threadId: string, turns: { id: string; items?: unknown[]; startedAt?: number | null }[]): void;
   beforeEnd?(): Promise<void>;
+  /** Engine checks current authorization immediately before durable attempt allocation. */
+  beforeStart?(): void;
   onRecordChange?(): void;
   /** Kiln guidance, separate from provider-native events. Wire to terminal/browser in 3b2. */
   onWarning?(text: string): void;
@@ -67,6 +70,12 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const env = { ...options.env, ...(record.conversation?.codexHome ? { CODEX_HOME: record.conversation.codexHome } : {}) };
   const prepared = await prepareCodexLaunch({ ...options, env, choice: { model: record.model, ...(record.effort ? { effort: record.effort } : {}) } });
   if (options.signal?.aborted) throw new Error("Kiln is stopping.");
+  const automaticRelease = options.cause === "limit_resume" ? codexUsageRelease(record, previous!.limitRefusal!, prepared.usage) : undefined;
+  if (automaticRelease && automaticRelease.state !== "allowed") {
+    writeSessionRecord(options.stateDirectory, record);
+    throw new CodexUsageRecoveryUnavailable(automaticRelease);
+  }
+  options.beforeStart?.();
   const files = sessionFiles(options.stateDirectory, record);
   ensurePrivateDirectory(files.directory);
   const save = () => { writeSessionRecord(options.stateDirectory, record); options.onRecordChange?.(); };
@@ -74,9 +83,11 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   record.codex ??= { launchIntent: prepared.profile, originalAccount: prepared.account };
   const now = () => new Date().toISOString();
   const facts: CodexRunFacts = { intentAt: now(), requested: prepared.choice, account: prepared.account, profile: prepared.profile, humanRequests: [], modelActivityAt: [], processOwner: randomUUID(), cleanupWarning: CODEX_NATIVE_CLEANUP_WARNING };
+  if (automaticRelease) facts.automaticUsageEvidence = consumeCodexUsage(record, automaticRelease);
   const run: SessionRun = { startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
   record.runs.push(run); save(); // No child exists until this durable intent succeeds.
   const terminals = new Map<string, Turn>();
+  const terminalTimes = new Map<string, string>();
   const active = new Map<string, string>();
   let parentId = record.conversation?.threadId;
   let initializedWork = false;
@@ -106,6 +117,9 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       options.onEvent?.(message, at);
     }
     const params = message.params ?? {};
+    if (message.method === "error" && typeof params.threadId === "string" && typeof params.turnId === "string" && typeof params.willRetry === "boolean") {
+      (facts.errors ??= []).push({ at, threadId: params.threadId, turnId: params.turnId, error: params.error, willRetry: params.willRetry }); save();
+    }
     if (message.method && message.id !== undefined) {
       const decision = codexRequestDecision(message.method);
       facts.humanRequests.push({ at, method: message.method, request: params, decision, stopped: decision.stop }); save();
@@ -124,6 +138,10 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       const turn = params.turn as Turn;
       if (typeof params.threadId !== "string" || !turn?.id || !TERMINAL.has(turn.status)) throw new Error("Invalid Codex terminal turn.");
       terminals.set(`${params.threadId}:${turn.id}`, turn); active.delete(params.threadId); wake();
+      terminalTimes.set(`${params.threadId}:${turn.id}`, at);
+      if (params.threadId === parentId && facts.dispatch && !facts.dispatch.previousTurnIds.includes(turn.id) && (!facts.turnId || facts.turnId === turn.id)) {
+        facts.terminal = { status: turn.status as "completed" | "failed" | "interrupted", ...(turn.error !== undefined ? { error: turn.error } : {}), at, modelActivityCount: facts.modelActivityAt.length }; save();
+      }
     }
     if (message.method === "thread/started" && record.conversation) {
       const thread = params.thread as { id?: string; parentThreadId?: string };
@@ -136,7 +154,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       if (item.agentThreadId) rememberChild(item.agentThreadId);
       const questions = [...(Array.isArray(item.questions) ? item.questions : [])];
       if (item.type === "agentMessage" && typeof item.text === "string") {
-        if (message.method === "item/completed" && item.text.trim()) facts.modelActivityAt.push(at);
+        if (message.method === "item/completed" && item.text.trim()) { facts.modelActivityAt.push(at); save(); }
         if (message.method === "item/completed" && params.threadId === parentId && item.phase === "final_answer") run.result = { subtype: "codex_final", isError: false, text: item.text };
         if (item.text.trimStart().startsWith("{")) { try { const parsed = JSON.parse(item.text) as { questions?: unknown[] }; if (Array.isArray(parsed.questions)) questions.push(...parsed.questions); } catch { /* Prose is not a structured question. */ } }
       }
@@ -181,7 +199,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     const started = await rpc.call<{ turn: Turn }>("turn/start", { threadId: parentId, model: record.model, ...(record.effort ? { effort: record.effort } : {}), input: [{ type: "text", text: prompt }], clientUserMessageId: createHash("sha256").update(`${record.sessionId}:${record.runs.length}:${facts.dispatch.at}`).digest("hex") });
     if (!started.turn.id) throw new Error("Codex did not return a dispatched turn identity.");
     facts.turnId = started.turn.id; save();
-    if (TERMINAL.has(started.turn.status)) terminals.set(`${parentId}:${started.turn.id}`, started.turn);
+    if (TERMINAL.has(started.turn.status)) { terminals.set(`${parentId}:${started.turn.id}`, started.turn); if (!terminalTimes.has(`${parentId}:${started.turn.id}`)) terminalTimes.set(`${parentId}:${started.turn.id}`, now()); }
     else if (!terminals.has(`${parentId}:${started.turn.id}`)) active.set(parentId, started.turn.id);
     if (stopping && active.has(parentId)) void rpc.call("turn/interrupt", { threadId: parentId, turnId: started.turn.id }).catch(error => rpc.fail(error as Error));
     const terminalKey = `${parentId}:${started.turn.id}`;
@@ -225,7 +243,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
       await Promise.race([new Promise(resolve => setTimeout(resolve, 250)), rpc.failed.then(error => { throw error; })]);
     }
     const terminal = terminals.get(terminalKey)!;
-    facts.terminal = { status: terminal.status as "completed" | "failed" | "interrupted", ...(terminal.error !== undefined ? { error: terminal.error } : {}) }; save();
+    facts.terminal = { status: terminal.status as "completed" | "failed" | "interrupted", ...(terminal.error !== undefined ? { error: terminal.error } : {}), ...(terminalTimes.get(terminalKey) ? { at: terminalTimes.get(terminalKey)! } : {}), ...(facts.terminal?.modelActivityCount === undefined ? {} : { modelActivityCount: facts.terminal.modelActivityCount }) }; save();
     const history = await rpc.call<{ thread: { path?: string | null } }>("thread/read", { threadId: parentId, includeTurns: false });
     if (!history.thread.path) throw new Error("Codex execution history is unavailable.");
     const provenance = await readCodexTurnExecutions({ path: history.thread.path, codexHome: home, threadId: parentId, signal: AbortSignal.timeout(30_000) });
@@ -254,6 +272,9 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     clearTimeout(stopTimer);
     await options.beforeEnd?.();
     run.endedAt = now();
+    recordCodexUsageProgress(record, run);
+    const refusal = codexUsageRefusal(run, record.model);
+    if (refusal) run.limitRefusal = refusal;
     if (rpc.child.exitCode !== null) run.exitCode = rpc.child.exitCode;
     if (rpc.child.signalCode !== null) run.signal = rpc.child.signalCode;
     save();
@@ -282,7 +303,7 @@ export async function reconcileCodexAttempt(options: { executable: string; env: 
         const history = await turns(rpc, threadId);
         const turn = history.find(turn => turn.id === facts.turnId);
         if (turn && TERMINAL.has(turn.status) && history.every(turn => TERMINAL.has(turn.status))) {
-          facts.terminal = { status: turn.status as "completed" | "failed" | "interrupted", ...(turn.error !== undefined ? { error: turn.error } : {}) };
+          facts.terminal = { status: turn.status as "completed" | "failed" | "interrupted", ...(turn.error !== undefined ? { error: turn.error } : {}), ...(facts.terminal?.at ? { at: facts.terminal.at } : {}), ...(facts.terminal?.modelActivityCount === undefined ? {} : { modelActivityCount: facts.terminal.modelActivityCount }) };
           result = "settled";
         }
       } catch (error) { facts.failure = `Codex dispatch could not be reconciled: ${(error as Error).message}`; }
@@ -290,6 +311,11 @@ export async function reconcileCodexAttempt(options: { executable: string; env: 
     }
   }
   facts.reconciliation = result; facts.cleanup = "tracked_processes_stopped"; facts.cleanupWarning = CODEX_NATIVE_CLEANUP_WARNING; run.endedAt ??= new Date().toISOString();
+  if (result === "settled") {
+    recordCodexUsageProgress(record, run);
+    const refusal = codexUsageRefusal(run, record.model);
+    if (refusal) run.limitRefusal = refusal;
+  }
   delete facts.cleanupFailure;
   writeSessionRecord(options.stateDirectory, record);
   return result;

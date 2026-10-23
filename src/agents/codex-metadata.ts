@@ -7,9 +7,9 @@ import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 export const CODEX_VERSION = "0.162.1";
 export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
-interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
+export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
 interface Window { usedPercent?: number | null; windowDurationMins?: number | null; resetsAt?: number | null }
-interface Bucket { limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null }
+interface Bucket { limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
 export interface CodexLimits { accountId?: string; ordinaryUsageAllowed?: boolean | null; rateLimitsByLimitId?: Record<string, Bucket> | null; rateLimits?: Bucket | null }
 interface Skill { name: string; path: string; enabled: boolean }
 export interface CodexMetadata { models?: ModelEntry[]; modelListError?: string; account: AgentAccount; blockers: string[]; version?: string; skills: { cwd: string; entries: Skill[] }[] }
@@ -59,6 +59,23 @@ export function codexAccount(account: AccountResult, usage: CodexLimits | undefi
   if (!result.limits.length) result.limitsError = "Codex did not report usage windows. Allowance is unknown.";
   return result;
 }
+
+/** The pinned schema supplies account-wide permission, never model scope via normalModelSlug. */
+export function codexUsagePermission(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult): NonNullable<AgentAccount["codexUsage"]> {
+  const unknown = (reason: string) => ({ state: "unknown" as const, reason });
+  if (before.account?.type !== "chatgpt" || after.account?.type !== "chatgpt") return unknown("Codex ChatGPT authentication changed or is unavailable.");
+  if (!usage?.accountId?.trim()) return unknown("Codex did not establish a stable usage account identity.");
+  for (const account of [before, after]) {
+    const routing = account.workspaceRouting?.chatgptAccountId;
+    if (routing !== undefined && routing !== usage.accountId) return unknown("Codex account identity changed during the usage reading.");
+  }
+  const buckets = usage.rateLimitsByLimitId != null ? Object.values(usage.rateLimitsByLimitId) : usage.rateLimits ? [usage.rateLimits] : [];
+  // This profile reports no authoritative model scope. Never treat a quota alias as one.
+  if (buckets.some(bucket => bucket.spendControlReached === true || bucket.rateLimitReachedType != null && bucket.rateLimitReachedType !== "rate_limit_reached")) return { state: "blocked", administrative: true, reason: "Codex reports an administrative, credit or spend-control block. Resolve it in Codex before resuming." };
+  if (usage.ordinaryUsageAllowed === false) return { state: "blocked", reason: "Codex reports that ordinary included usage is blocked." };
+  if (usage.ordinaryUsageAllowed === true) return { state: "allowed", reason: "Codex permits one original-model attempt using ordinary included usage; model access is not guaranteed." };
+  return unknown("Codex ordinary-usage permission is unavailable. This version supplies no applicable structured reset; resume manually when ready.");
+}
 export async function readCodexMetadata(options: { executable: string | undefined; cwd: string; cwds: string[]; env: NodeJS.ProcessEnv; signal?: AbortSignal }): Promise<CodexMetadata> {
   const startedAt = new Date().toISOString();
   const deadline = Date.now() + 30_000;
@@ -81,16 +98,25 @@ export async function readCodexMetadata(options: { executable: string | undefine
       } while (cursor);
       return codexModels(models);
     };
-    const [models, account, limits, requirements, skills, configuration] = await Promise.allSettled([
-      collectModels(), rpc.call<AccountResult>("account/read", { refreshToken: false }), rpc.call<CodexLimits>("account/rateLimits/read"),
+    const readAccount = async () => {
+      const before = await rpc.call<AccountResult>("account/read", { refreshToken: false });
+      let usage: CodexLimits | undefined;
+      try { usage = await rpc.call<CodexLimits>("account/rateLimits/read"); } catch { /* Display the failed read as unknown; normal work remains permitted. */ }
+      const after = await rpc.call<AccountResult>("account/read", { refreshToken: false });
+      const account = codexAccount(after, usage, startedAt);
+      account.codexUsage = codexUsagePermission(before, usage, after);
+      if (!usage) account.limitsError = "Could not refresh Codex usage. Allowance is unknown.";
+      return account;
+    };
+    const [models, account, requirements, skills, configuration] = await Promise.allSettled([
+      collectModels(), readAccount(),
       rpc.call<{ requirements: Record<string, unknown> | null }>("configRequirements/read"),
       rpc.call<{ data: { cwd: string; skills: Skill[] }[] }>("skills/list", { cwds: options.cwds, forceReload: true }),
       rpc.call<{ config: { model_provider: string | null; hooks?: unknown } }>("config/read", { includeLayers: false }),
     ]);
     if (models.status === "fulfilled") result.models = models.value; else result.modelListError = "Could not read Codex models. Refresh before starting a session.";
-    if (account.status === "fulfilled") result.account = codexAccount(account.value, limits.status === "fulfilled" ? limits.value : undefined, startedAt);
+    if (account.status === "fulfilled") result.account = account.value;
     else result.account.error = "Could not read Codex account. Check codex login in a terminal.";
-    if (limits.status === "rejected") result.account.limitsError = "Could not refresh Codex usage. Allowance is unknown.";
     if (result.account.error) result.blockers.push(result.account.error);
     if (requirements.status === "rejected") result.blockers.push("Could not read Codex managed requirements. Check Codex in a terminal.");
     else if (requirements.value.requirements !== null) {

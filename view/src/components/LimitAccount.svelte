@@ -6,6 +6,7 @@
   // one, v1's line stands in its place. The label stands alone here, as the limit's name.
   import type { LimitView } from "../../../src/engine/snapshot.js";
   import CodeText from "./CodeText.svelte";
+  import { limitTime } from "../lib/time.js";
 
   let { limit, footnote }: { limit: LimitView; footnote: string } = $props();
   const account = $derived(limit.account);
@@ -17,10 +18,14 @@
   {#if account === undefined}
     <span class="who">Reading the signed-in account…</span>
   {:else if account.error !== undefined}
+    {#if who}<span class="who">{who}</span>{/if}
     <span class="message"><CodeText text={account.error} /></span>
   {:else}
     <span class="who">{who}{#if account.percent !== undefined}<span class="percent" class:full={account.percent >= 100}>{limit.label} {account.percent}%</span>{/if}</span>
   {/if}
+  {#each limit.allowances ?? [] as allowance}
+    <span class="foot" class:warning={allowance.nearLimit}>{allowance.label}: {allowance.percent === undefined ? "usage unknown" : `${allowance.percent}% used`}{allowance.resetsAt ? ` · resets ${limitTime(allowance.resetsAt, new Date())}` : " · reset unknown"}</span>
+  {/each}
   <span class="foot">{footnote}</span>
 </div>
 
@@ -31,4 +36,5 @@
   .percent.full { color: var(--amber); }
   .message { font-size: 12.5px; color: var(--amber); line-height: 1.55; }
   .foot { font-size: 12.5px; color: var(--dim); }
+  .warning { color: var(--amber); }
 </style>

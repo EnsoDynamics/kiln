@@ -111,6 +111,8 @@ export interface AccountIdentity {
  * reading after it that was signed in.
  */
 export interface LimitRefusal {
+  agentId?: AgentId;
+  codex?: { code: "usageLimitExceeded"; accountId?: string; model: string };
   rateLimitType?: string;
   label: string;
   resetsAt?: string;
@@ -274,7 +276,9 @@ export interface CodexRunFacts {
   instructionSources?: string[];
   dispatch?: { at: string; previousTurnIds: string[] };
   turnId?: string;
-  terminal?: { status: "completed" | "interrupted" | "failed"; error?: unknown };
+  terminal?: { status: "completed" | "interrupted" | "failed"; error?: unknown; at?: string; modelActivityCount?: number };
+  errors?: { at: string; threadId: string; turnId: string; error: unknown; willRetry: boolean }[];
+  automaticUsageEvidence?: { fingerprint: string; accountId: string; at: string };
   observed?: CodexTurnExecution[];
   humanRequests: { at: string; method: string; request: unknown; decision: unknown; stopped: boolean }[];
   modelActivityAt: string[];
@@ -290,6 +294,13 @@ export interface CodexRunFacts {
   reconciliation?: "not_dispatched" | "settled" | "ambiguous";
 }
 
+export interface CodexUsageRecovery {
+  generation: number;
+  blockedAccountId?: string;
+  consumed?: { fingerprint: string; accountId: string; at: string };
+  release?: { state: "allowed" | "blocked" | "unknown"; reason: string; accountId?: string; at: string };
+}
+
 /** A progress step's start. Commit and Push start at a Bash call, the rest at a Skill call. */
 export interface StepStart {
   name: StepName;
@@ -300,7 +311,7 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
-  codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance; conversationUnavailable?: boolean; resumeError?: string; recoveryObserved?: CodexTurnExecution[]; historyError?: string };
+  codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance; conversationUnavailable?: boolean; resumeError?: string; recoveryObserved?: CodexTurnExecution[]; historyError?: string; usageRecovery?: CodexUsageRecovery };
   /** Codex's persistent identity; the local storage key stays sessionId. */
   conversation?: { threadId?: string; sessionTreeId?: string; codexHome?: string; knownThreadIds?: string[] };
   agentId?: AgentId;

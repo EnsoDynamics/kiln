@@ -31,6 +31,8 @@ The PRD's Depends On names three.
 
 ## Design Decisions
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Account Usage and Recovery (Codex refusal classification, fresh usage identity and bounded automatic attempts; Claude rules retained).
+
 | Decision | Choice | Rationale |
 |---|---|---|
 | What counts as hitting a usage limit | The latest run's last `rate_limit_event` has `status: "rejected"`, and no model response (v1's definition: a non-`<synthetic>` assistant event) arrived after it in that run | AC-STOP-04 allows only Claude Code's own report; scoping to the latest run and to "nothing after it" is the PRD's run rule, and stops a refusal the session got past from counting |
@@ -44,11 +46,15 @@ The PRD's Depends On names three.
 
 ## Recognizing a Usage Limit
 
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Account Usage and Recovery (Codex refusal classification, fresh usage identity and bounded automatic attempts; Claude rules retained).
+
 On every run's end, before the verdict, Kiln reads that run's saved events (those that arrived from its `startedAt` to its end, as [The prompts](../../prds/kiln-v1/technical-design.md#the-prompts) counts them) and, when the rule above holds, writes `limitRefusal` on the run in the same write as its end. A run cut off by an interruption is never a usage limit: `interruptedBy` wins, as it does for sleep. A session refused on its very first request is treated like any refused run.
 
 `limitRefusal.label` is written with the run's end from the type, and replaced once by the mapped row's label ("5-hour window", "Weekly", "Weekly · Opus") from the first reading after the refusal that has that row, in one write with `stop.limit.label` when the phase's stop carries one. From the type: `five_hour` "5-hour window", `seven_day` "Weekly", the scoped types "Weekly · Opus" or "Weekly · Sonnet", anything else "A usage limit" (AC-LIMIT-01's table).
 
 ## The Wait
+
+Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Account Usage and Recovery (Codex refusal classification, fresh usage identity and bounded automatic attempts; Claude rules retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (the engine loop's verdict and the reconcile), §Interruptions, sleep and resume ("Kiln never resumes one that ended on its own"), §Account and Usage ("Kiln never waits for a reset")
 

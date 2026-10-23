@@ -7,8 +7,9 @@ import { findExecutable, runHelper } from "../platform/helper-process.js";
 import type { AgentChoice, CodexAccountProvenance, CodexExecutionProfile } from "../state/records.js";
 import { POWERSHELL_VERSION } from "./codex-powershell.js";
 import { codexWindowsJob } from "../platform/codex-windows-job.js";
+import type { AgentAccount } from "../agents/metadata.js";
 
-export interface PreparedCodexLaunch { profile: CodexExecutionProfile; account: CodexAccountProvenance; choice: AgentChoice }
+export interface PreparedCodexLaunch { profile: CodexExecutionProfile; account: CodexAccountProvenance; choice: AgentChoice; usage: AgentAccount }
 export interface CodexLaunchOptions {
   executable: string; cwd: string; writableRoots: string[];
   repositories: { path: string; branch: string }[];
@@ -50,7 +51,7 @@ export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<P
     if (supervised.exitCode !== 0 || supervised.stdout.trim() !== `codex-cli ${CODEX_VERSION}`) throw new Error("Codex Windows Job Object startup failed. Resolve PowerShell/application restrictions in a terminal before work; Kiln will not bypass them.");
     profile.powerShell = { executable, version: POWERSHELL_VERSION };
   }
-  return { profile, choice: { ...options.choice }, account: { at: metadata.account.updatedAt, ...(metadata.account.accountId ? { accountId: metadata.account.accountId } : {}), ...(metadata.account.email ? { email: metadata.account.email } : {}), ...(metadata.account.plan ? { plan: metadata.account.plan } : {}) } };
+  return { profile, choice: { ...options.choice }, usage: metadata.account, account: { at: metadata.account.updatedAt, ...(metadata.account.accountId ? { accountId: metadata.account.accountId } : {}), ...(metadata.account.email ? { email: metadata.account.email } : {}), ...(metadata.account.plan ? { plan: metadata.account.plan } : {}) } };
 }
 
 export interface CodexEffectiveSettings {

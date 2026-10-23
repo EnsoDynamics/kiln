@@ -18,9 +18,9 @@ const threadPath = () => join(read().home, 'sessions', `${threadId}.jsonl`);
 const raw = (type, payload) => appendFileSync(threadPath(), JSON.stringify({ type, timestamp: new Date().toISOString(), payload }) + '\n');
 const historyFile = () => file + (read().dynamicRecord ? '.' + threadId : '') + '.history';
 const history = () => existsSync(historyFile()) ? JSON.parse(readFileSync(historyFile(), 'utf8')) : [];
-const complete = status => {
+const complete = (status, error) => {
   const turns = history(); const turn = turns.find(turn => turn.id === turnId); if (!turn) return;
-  turn.status = status; writeFileSync(historyFile(), JSON.stringify(turns)); raw('event_msg', { type: 'task_complete', turn_id: turnId });
+  turn.status = status; if (error) turn.error = error; writeFileSync(historyFile(), JSON.stringify(turns)); raw('event_msg', { type: 'task_complete', turn_id: turnId });
   send({ method: 'turn/completed', params: { threadId, turn } });
 };
 const saved = () => {
@@ -38,6 +38,7 @@ const saved = () => {
 createInterface({ input: process.stdin }).on('line', async line => {
   const message = JSON.parse(line); log(message);
   if (!message.method) return;
+  if (message.method === 'account/rateLimits/read' && read().usageDelayMs) await new Promise(resolve => setTimeout(resolve, read().usageDelayMs));
   const fixture = read(); const params = message.params ?? {};
   let result;
   const model = { model: 'gpt-6.1-sol', displayName: 'GPT-6.1-Sol', description: 'Verified contract fixture', supportedReasoningEfforts: [{ reasoningEffort: 'high' }, { reasoningEffort: 'low' }], defaultReasoningEffort: 'low' };
@@ -45,7 +46,9 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'initialize': result = { codexHome: fixture.home, platformOs: process.platform === 'win32' ? 'windows' : 'macos', platformFamily: process.platform === 'win32' ? 'windows' : 'unix', userAgent: 'codex-cli/0.162.1' }; break;
     case 'model/list': result = { data: [model], nextCursor: null }; break;
     case 'account/read': result = { account: fixture.signedOut ? null : { type: 'chatgpt', email: fixture.email ?? 'proof@example.invalid', planType: 'pro' }, workspaceRouting: { chatgptAccountId: fixture.accountId ?? 'proof-account' } }; break;
-    case 'account/rateLimits/read': result = { accountId: fixture.accountId ?? 'proof-account', rateLimitsByLimitId: {} }; break;
+    case 'account/rateLimits/read':
+      if (fixture.usageError) { send({ id: message.id, error: { code: -32603, message: 'Fixture usage unavailable' } }); return; }
+      result = fixture.usage ?? { accountId: fixture.accountId ?? 'proof-account', ordinaryUsageAllowed: fixture.ordinaryUsageAllowed ?? null, rateLimits: {}, rateLimitsByLimitId: {} }; break;
     case 'configRequirements/read': result = { requirements: fixture.requirements ?? null }; break;
     case 'config/read': result = { config: { model_provider: null, hooks: null } }; break;
     case 'skills/list': result = { data: params.cwds.map(cwd => ({ cwd, skills: ['implement-from-requirements','deliverable-review','test-hardening','refactor-pass','implementation-lifecycle','engineering-principles','pre-commit-validation','continuation-prompt','phase-split'].map(name => ({ name: 'enso-method:' + name, path: fixture.skill, enabled: true })) })) }; break;
@@ -77,6 +80,11 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'turn/start': {
       const record = saved();
       if (record.conversation?.threadId !== threadId || !record.runs.at(-1).codex.dispatch) throw new Error('Identity and dispatch intent must be saved before work');
+      const attempt = record.runs.at(-1);
+      if (attempt.cause === 'limit_resume') {
+        const consumed = record.codex?.usageRecovery?.consumed;
+        if (!consumed?.fingerprint || consumed.fingerprint !== attempt.codex.automaticUsageEvidence?.fingerprint || consumed.accountId !== attempt.codex.account.accountId) throw new Error('Automatic usage permission must be durably consumed before dispatch');
+      }
       turnId = `turn-${history().length + 1}`;
       const turn = { id: turnId, status: 'inProgress', items: [], itemsView: 'full' };
       writeFileSync(historyFile(), JSON.stringify([...history(), turn]));
@@ -86,6 +94,8 @@ createInterface({ input: process.stdin }).on('line', async line => {
       if (fixture.dropDispatch) { process.exit(1); }
       result = { turn: { ...turn } };
       const finish = () => {
+        const error = fixture.usageRefusal ? { message: 'Allowance exhausted; prose reset is not structured evidence.', codexErrorInfo: 'usageLimitExceeded', additionalDetails: 'Try again tomorrow.' } : fixture.terminalError;
+        if (error || fixture.retryError) send({ method: 'error', params: { threadId, turnId, error: error ?? fixture.retryError, willRetry: !error } });
         if (fixture.command) {
           const command = fixture.command;
           const callId = 'command-' + turnId;
@@ -99,12 +109,12 @@ createInterface({ input: process.stdin }).on('line', async line => {
           raw('event_msg', { type: 'item_completed', thread_id: threadId, turn_id: turnId, item: { type: 'CommandExecution', id: callId, command: ['/bin/sh', '-c', command], cwd: process.cwd(), status: item.status } });
           send({ method: 'item/completed', params: { threadId, turnId, item } });
         }
-        if (!(fixture.toolOnlyFirst && history().length === 1)) {
+        if ((!error || fixture.modelBeforeRefusal) && !(fixture.toolOnlyFirst && history().length === 1)) {
           if (fixture.deltas) send({ method: 'item/agentMessage/delta', params: { threadId, turnId, itemId: 'final-' + turnId, delta: 'Fixture streaming' } });
           const item = { id: 'final-' + turnId, type: 'agentMessage', phase: 'final_answer', text: 'Fixture final ' + turnId, ...(fixture.asyncQuestions ? { questions: [{ question: 'Need a person' }] } : {}) };
           send({ method: 'item/completed', params: { threadId, turnId, item, completedAtMs: Date.now() } });
         }
-        complete(fixture.terminalFailure ? 'failed' : 'completed');
+        complete(error || fixture.terminalFailure ? 'failed' : 'completed', error);
       };
       if (fixture.request) send({ id: 'human-request', method: fixture.request, params: { threadId, turnId, itemId: 'approval', questions: [{ question: 'Need a person' }] } });
       if (fixture.toolProcess) {

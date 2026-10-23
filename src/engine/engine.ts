@@ -53,6 +53,8 @@ import {
 import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
 import { judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
+import { CodexLaunchCancelled, CodexUsageRecoveryUnavailable, codexUsageRelease } from "../session/codex-usage.js";
+import type { AgentAccount } from "../agents/metadata.js";
 import {
   PR_PHASE_KEY,
   readSessionRecord,
@@ -315,6 +317,7 @@ export class Engine {
   private readonly offClaude: (() => void) | undefined;
   private observedClaude: ClaudeInfoSource | undefined;
   private offUsage: (() => void) | undefined;
+  private lastCodexReading: AgentAccount | undefined;
   /** Additions run one at a time; a request for a repository being set up waits for that setup. */
   private additionChain: Promise<unknown> = Promise.resolve();
   private readonly additionsUnderway = new Map<string, Promise<AddRepositoryResult>>();
@@ -383,6 +386,10 @@ export class Engine {
       this.save();
     }
     const reading = this.claude?.account;
+    if (metadata.agentId === "codex" && !metadata.pending && metadata.account && metadata.account !== this.lastCodexReading) {
+      this.lastCodexReading = metadata.account;
+      this.codexReadingArrived(metadata.account);
+    }
     if (this.record.settings.agentId === "claude_code" && reading !== undefined && reading !== this.lastReading) {
       this.lastReading = reading;
       this.readingArrived(reading);
@@ -1051,13 +1058,16 @@ export class Engine {
           // Never two processes on one session: one a killed Kiln left running is stopped first.
           await this.stopLiveProcess(latest.session);
           // Interrupted: the check first; only a failing check resumes it (AC-KEEP-04).
-          const verdict = await this.checkInterrupted(latest.phaseKey);
+          const verdict = latest.session.agentId === "codex" && run.limitRefusal?.codex && !run.interruptedBy
+            ? await this.judgeEndedSession(latest.phaseKey, false)
+            : await this.checkInterrupted(latest.phaseKey);
           if (verdict.kind === "complete") return { kind: "complete" };
           if (verdict.kind === "resume") {
             this.pendingResume = latest.phaseKey;
             return { kind: "resume", phaseKey: latest.phaseKey, sessionId: latest.session.sessionId };
           }
           if (verdict.kind !== "stopping") this.interruptedKey = undefined;
+          if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: latest.phaseKey, limit: this.waitLimit(latest.phaseKey) };
           // It worked outside the workspace: Needs you, never resumed (multi-repo AC-OUTSIDE-04).
           if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
           if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
@@ -1118,7 +1128,9 @@ export class Engine {
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
         this.requestedResume = undefined;
+        const runCount = this.latestSession(request.phaseKey)?.runs.length;
         await this.resumeSession(request.phaseKey, request);
+        if (this.latestSession(request.phaseKey)?.runs.length === runCount) { this.current = undefined; return; }
         if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
         continue;
       }
@@ -1283,7 +1295,7 @@ export class Engine {
       }
     }
     const facts = this.record.phases[phaseKey]!;
-    const account = request === undefined ? undefined : await this.readAccountBeforeResume();
+    const account = request === undefined || session.agentId === "codex" ? undefined : await this.readAccountBeforeResume();
     if (this.stopping) return;
     const runIndex = session.runs.length - 1;
     const run = session.runs[runIndex]!;
@@ -1362,17 +1374,17 @@ export class Engine {
     if (this.stopping) return;
     this.watchSleep();
     await this.readSleep(true);
-    if (this.stopping || started?.() === false) return;
+    if (this.stopping || session.agentId !== "codex" && started?.() === false) return;
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
     this.interruptedKey = undefined;
-    if (started) this.save();
+    if (started && session.agentId !== "codex") this.save();
     this.updateKeepAwake();
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
     mkdirSync(this.workspaceFolder, { recursive: true });
     if (session.agentId === "codex") {
-      await this.runCodexProcess(current, session, prompt, cause, cwd, note);
+      await this.runCodexProcess(current, session, prompt, cause, cwd, note, started);
     } else await runSessionProcess({
       claude: this.options.tools.claude,
       args,
@@ -1423,7 +1435,7 @@ export class Engine {
     };
   }
 
-  private async runCodexProcess(current: CurrentPhase, session: SessionRecord, prompt: string, cause: SessionRun["cause"], cwd: string, note?: string): Promise<void> {
+  private async runCodexProcess(current: CurrentPhase, session: SessionRecord, prompt: string, cause: SessionRun["cause"], cwd: string, note?: string, started?: () => boolean): Promise<void> {
     const files = sessionFiles(this.options.stateDirectory, session);
     const previous = readJsonLines<OutputLine>(files.output);
     const reader = new CodexOutputReader(session, previous.length, previous);
@@ -1440,6 +1452,10 @@ export class Engine {
     try {
       await runCodexSession({
         ...this.codexLaunchOptions(cwd), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
+        beforeStart: () => {
+          if (this.stopping || started?.() === false) throw new CodexLaunchCancelled("Codex launch authorization was withdrawn.");
+          if (started) this.save();
+        },
         onSpawned: control => { this.control = control; },
         onWarning: text => { this.emit({ kind: "message", text }); save([reader.line("out", text, this.now().toISOString())]); },
         onStderr: (text, at) => save([reader.line("stderr", text, at)]),
@@ -1459,6 +1475,16 @@ export class Engine {
       });
     } catch (error) {
       if (session.runs.length !== priorRunCount) throw error;
+      if (this.stopping || error instanceof CodexUsageRecoveryUnavailable || error instanceof CodexLaunchCancelled) {
+        this.checking = false;
+        const wait = this.record.phases[current.phaseKey]?.wait;
+        if (wait && error instanceof CodexUsageRecoveryUnavailable) {
+          if (!this.record.settings.resumeAfterUsageLimit || error.release.state === "unknown" || error.release.administrative) this.waitToStop(current.phaseKey, wait.checks, wait.checkedAt);
+          else this.askReading();
+        }
+        this.changed();
+        return;
+      }
       // The runner's launch preflight creates no run. Preserve its refusal and the same
       // conversation, rather than leaking a rejected engine loop or selecting another agent.
       const at = this.now().toISOString();
@@ -1468,6 +1494,7 @@ export class Engine {
     const run = session.runs.at(-1)!;
     const sleep = sleepInterruption(session.sleeps, session.runs.length - 1, run.codex?.modelActivityAt ?? []);
     if (sleep && !run.interruptedBy) { run.interruptedBy = "sleep"; run.interruptedAt = sleep.at; }
+    if (run.interruptedBy) delete run.limitRefusal;
     for (const request of run.codex?.humanRequests ?? []) save([reader.line("stderr", `Codex request ${request.method}: ${JSON.stringify(request.request)}; client decision: ${JSON.stringify(request.decision)}`, request.at)]);
     if (run.codex?.failure) save([reader.line("stderr", run.codex.failure, run.endedAt!)]);
     if (run.codex?.cleanupFailure) save([reader.line("stderr", `Cleanup failed: ${run.codex.cleanupFailure}`, run.endedAt!)]);
@@ -1927,6 +1954,15 @@ export class Engine {
     const run = session.runs[runIndex]!;
     const limit = stopLimit(run.limitRefusal!);
     const kind: StopKind = phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check";
+    if (session.agentId === "codex") {
+      if (this.record.settings.resumeAfterUsageLimit && stayedPassed && !this.codexSafetyProblems(phaseKey).length && !this.transcriptMissing(session)) {
+        this.recordWait(phaseKey, session, runIndex, checks);
+        return { kind: "waiting" };
+      }
+      this.recordStop(phaseKey, kind, checks, undefined, limit);
+      this.emitSessionEvent(phaseKey, "stopped");
+      return { kind: "stopped" };
+    }
     if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex)) {
       this.recordStop(phaseKey, kind, checks, undefined, { ...limit, refusedAgainAt: run.startedAt });
       this.emitSessionEvent(phaseKey, "stopped");
@@ -2017,7 +2053,7 @@ export class Engine {
     }
     const session = this.latestSession(phaseKey);
     const settingOff = mode !== "person_resume" && !this.record.settings.resumeAfterUsageLimit;
-    if (!stayedPassed || settingOff || (session !== undefined && this.transcriptMissing(session))) {
+    if (!stayedPassed || settingOff || this.codexSafetyProblems(phaseKey).length || (session !== undefined && this.transcriptMissing(session))) {
       this.waitToStop(phaseKey, checks);
       return "stopped";
     }
@@ -2063,7 +2099,10 @@ export class Engine {
     // reading from this metadata generation must reach the wait once it exists.
     const reading = this.freshReading;
     const refusal = this.refusedRun(key)?.refusal;
-    if (reading && refusal && Date.parse(reading.startedAt) >= Date.parse(refusal.at)) this.readingArrived(reading);
+    if (refusal?.agentId === "codex") {
+      const codexReading = this.agents.state.pending ? undefined : this.agents.state.account;
+      if (codexReading && Date.parse(codexReading.startedAt) >= Date.parse(refusal.at)) this.codexReadingArrived(codexReading);
+    } else if (reading && refusal && Date.parse(reading.startedAt) >= Date.parse(refusal.at)) this.readingArrived(reading);
     if (!this.checking && this.waitingPhaseKey() === key) this.askReading();
     this.changed();
   }
@@ -2097,7 +2136,23 @@ export class Engine {
 
   /** Asks for a reading; one already under way is joined. */
   private askReading(): void {
-    void this.claude?.refreshAccount();
+    if (this.record.settings.agentId === "codex") void this.agents.refresh();
+    else void this.claude?.refreshAccount();
+  }
+
+  private codexReadingArrived(reading: AgentAccount): void {
+    if (this.stopping || this.checking) return;
+    const key = this.waitingPhaseKey() ?? this.limitStopKey();
+    if (key === undefined) return;
+    const found = this.refusedRun(key);
+    if (!found || found.session.agentId !== "codex") return;
+    if (Date.parse(reading.startedAt) < Date.parse(found.refusal.at)) { this.askReading(); return; }
+    const release = codexUsageRelease(found.session, found.refusal, reading);
+    writeSessionRecord(this.options.stateDirectory, found.session);
+    const facts = this.record.phases[key]!;
+    if (!facts.wait || this.waitWatch?.phaseKey !== key) return;
+    if (release.state === "allowed") void this.resumeWait(key, "limit_resume");
+    else if (release.state === "unknown" || release.administrative) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
   }
 
   /**

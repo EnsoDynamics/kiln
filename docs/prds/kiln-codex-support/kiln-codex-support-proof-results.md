@@ -4,6 +4,27 @@
 
 **Gate 1: PASS for the corrected prerequisite candidate.** The original grammar failed; it was corrected and the unchanged recorded work was re-audited in this phase. Normal Codex execution remains unavailable. Release support still requires the remaining planned phases.
 
+## Gate 3 — Actual usage proof deferred to live use
+
+Phase 4 implements the pinned structured refusal and permission-based recovery rules, with deterministic verified-contract/process tests beside the earlier real runner/workflow proofs. Those tests do not establish an actual quota refusal, changed-account inference recovery or repeated native refusal. No usage-proof pass is claimed.
+
+On 2026-10-23, the production metadata adapter read the installed `codex-cli 0.162.1` through fresh private processes, bracketing usage with account reads. It established a stable account identity, one reported window and **ordinary usage allowed**. `scripts/proof-run/codex-usage-proof.mjs refuse` therefore stopped at its exhaustion guard without starting a model turn. No allowance was burned, credit purchased, reset redeemed, login changed or token copied. Owner-only local observations are in `/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-codex-usage-GSQ5g5/usage-proof.json`.
+
+Natural or separately approved test conditions must still supply an actually exhausted account and fresh positive permission on a different stable account. The proof driver is ready to capture a real scalar refusal and same-conversation original-pair recovery, then verify persisted suppression only if a real repeated refusal occurs. Its `inspect` mode dispatches no work; `refuse` refuses to spend down a healthy account. Read Phase 4's continuation state before running it. Doug’s explicit 2026-10-23 decision in chat `01a16a2e-3595-7d31-b4e5-25753d32f125` defers actual exhaustion/recovery to his first live occurrence; PRD AC-PROOF-03 records his wording. Automated evidence may close Phase 4’s implementation and satisfy Phase 5’s implementation dependency. This changes the initial acceptance gate, not the required recovery behavior, the facts of unrun proof, or delivery authorization.
+
+### Phase 4 implementation evidence
+
+| Required behavior | Evidence and scope |
+|---|---|
+| AC-RECOVER-03 classification and release | `codex-usage.test.ts` validates scalar terminal classification, retry/prose/rate-error exclusions, explicit permission, administrative blocks, identity and semantic fingerprints against generated 0.162.1 schemas. Actual quota behavior remains deferred above. |
+| Durable wait/retry and restart | `codex-usage.integration.test.ts` uses real private process pipes, local Git and owner-only records for blocked/unknown/admin, one positive attempt, repeat suppression after disk restart, blocked-to-allowed transitions and stable changed accounts. The child asserts consumed permission and matching attempt/account are on disk when `turn/start` arrives. |
+| AC-AGENT-02 and AC-MODEL-03 | The recovery test changes next-session effort, then asserts the resumed original thread/model/High pair; original and attempt accounts remain separate. Existing Codex workflow and durable runner tests cover fresh-session selection. |
+| AC-WORK-03/04 and AC-RECOVER-01/02 | Existing runner request/cleanup tests and workflow recovery remain passing. New tests cover fresh workspace failure, completion precedence, setting-off and permission changes during preflight, Ctrl+C before allocation, reconstructed quota terminals, original notes and no fabricated attempts. A runner regression captures persisted model/terminal frontiers before cleanup and checks idempotent crash recovery. |
+| AC-USAGE-01 to 04 | The real metadata probe and bracketed metadata process tests verify identity/order without model turns. Existing five-minute scheduling tests remain in force. Real Chrome renders Waiting and unknown Needs you at 360/1280 widths, asserting right-agent sign-in, reported allowances/unknown resets, warning at 80%, reading time, provider reason, native cleanup warning, no overflow and no browser errors. |
+| AC-COMPAT-01 | Existing Claude usage waits, controls and recovery tests run unchanged, alongside the complete unit/protocol/integration suite; any suite limitation is recorded in Phase 4’s final validation state. |
+
+Independent deliverable review fixed launch authorization/permission races, no-allocation cancellation, crash quota routing/progress and usage timestamp display. Its final verdict has no remaining material findings. Independent test hardening strengthened the existing process dispatch guard; the focused durable retry/restart case passes with that guard. No method source was changed.
+
 The final complete audit accounts for **117 policy operations across five conversations**, with no unknown coverage and exactly one outside-workspace finding: the deliberately planted terminal-recovery marker. Its `audit.passed` is correctly **false** because that outside write must fail Stayed in the workspace. Gate 1 passes because complete evidence detects this known negative control. No outside write or unknown evidence was confirmed into a clean audit. The capture reports `gate1: not-evaluated-by-capture`; this document qualifies the combined workflow evidence.
 
 ## Actual runtime and workflow
@@ -80,3 +101,9 @@ For addition, run `codex-repository-addition-proof.mjs <folder>` separately, the
 Owner-only local evidence: `/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-codex-audit-a9SUs2`, containing manifest, identities, dispatch/profile, RPC events, normalized history, full audit, negative finding and terminal observation. Raw files remain at provider-returned paths; no database was opened. Local logs may include account/task data and are not committed. Sanitized fixtures and workflow identifiers retain reviewable provenance; temporary logs are not a durable product prerequisite.
 
 Final `npm run verify` passed dependency audit, ESLint, TypeScript/Svelte checks, 471 unit tests, all 13 proof tests and 297 integration tests (two existing skips; integration 74.06 seconds). Deliverable review reports no remaining High/Medium findings; test hardening completed. The post-commit refactor verdict is reported in the session close-out.
+
+## Phase 4 final validation
+
+The initial implementation verification passes dependency audit, ESLint, TypeScript/Svelte, 487 unit tests and 14 pinned protocol proofs. Complete integration: 450 pass, two existing skips, one existing paused-CLI Start timeout. That same timeout reproduces under full-suite load in an unchanged `a88935f` source export; the full CLI file’s nine tests pass separately on both predecessor (69.04 seconds) and current code (65.20 seconds). The quota file’s twenty tests pass, and the durable retry/restart scenario passes again with the hardened child dispatch guard. This is complete test coverage with a recorded pre-existing combined-run instability, not a claim that `npm run verify` exited green.
+
+Deliverable review and independent test hardening finish without remaining material findings. Phase 4 closes under Doug’s explicit live-quota deferral; Phase 5 retains the package/platform/workflow proof and inherited combined-run limitation. No product push, merge, deployment, publication or Enso Method change was performed.

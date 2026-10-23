@@ -160,6 +160,28 @@ describe("durable protected Codex attempts", () => {
     expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
   });
+  it("persists model/terminal arrival before cleanup and idempotently releases consumed evidence after a crash", async () => {
+    const f = fixture();
+    f.set({ usageRefusal: true, modelBeforeRefusal: true });
+    let atModel: ReturnType<typeof readSessionRecord>;
+    let atTerminal: ReturnType<typeof readSessionRecord>;
+    const run = await runCodexSession({ ...f.options, onRecordChange: () => {
+      const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId);
+      if (saved?.runs[0]?.codex?.modelActivityAt.length && !saved.runs[0]?.endedAt) atModel = saved;
+      if (saved?.runs[0]?.codex?.terminal?.at && !saved.runs[0]?.endedAt) atTerminal = saved;
+    } });
+    expect(atModel!.runs[0]?.codex?.modelActivityAt).toHaveLength(1);
+    expect(atTerminal!.runs[0]?.codex?.terminal).toMatchObject({ status: "failed", at: expect.any(String) });
+    const crashed = atTerminal!;
+    crashed.codex!.usageRecovery = { generation: 7, consumed: { fingerprint: "consumed", accountId: "proof-account", at: run.startedAt } };
+    await reconcileCodexAttempt({ ...f.options, record: crashed });
+    expect(crashed.codex?.usageRecovery).toMatchObject({ generation: 8 });
+    expect(crashed.codex?.usageRecovery?.consumed).toBeUndefined();
+    expect(crashed.runs[0]?.limitRefusal?.codex?.code).toBe("usageLimitExceeded");
+    await reconcileCodexAttempt({ ...f.options, record: crashed });
+    expect(crashed.codex?.usageRecovery?.generation).toBe(8);
+    expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+  });
   it("cleans remembered children even when an exited launcher's start identity was never saved", async () => {
     const f = fixture(); const run = await runCodexSession(f.options);
     delete run.processStartTime;

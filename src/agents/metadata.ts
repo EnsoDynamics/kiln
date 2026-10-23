@@ -9,6 +9,7 @@ import { type AgentId } from "../state/records.js";
 import { METHOD_SKILLS, readCodexMetadata } from "./codex-metadata.js";
 
 export interface AgentAccount extends Omit<AccountView, "limits"> {
+  codexUsage?: { state: "allowed" | "blocked" | "unknown"; reason: string; administrative?: boolean };
   agentId?: AgentId;
   accountId?: string;
   routingAccountId?: string;

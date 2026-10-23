@@ -6,6 +6,7 @@ const path = process.env.KILN_CODEX_METADATA;
 const read = () => path ? JSON.parse(readFileSync(path, 'utf8')) : {};
 if (process.argv.includes('--version')) { console.log(`codex-cli ${read().version ?? '0.162.1'}`); process.exit(0); }
 const model = (name, efforts) => ({ model: name, displayName: name.toUpperCase(), description: 'Recorded contract fixture', hidden: false, supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: `${reasoningEffort} reasoning` })), defaultReasoningEffort: 'low' });
+let accountReads = 0;
 createInterface({ input: process.stdin }).on('line', async line => {
   const message = JSON.parse(line);
   if (path) appendFileSync(`${path}.calls`, JSON.stringify(message) + '\n');
@@ -18,10 +19,11 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'model/list':
       if (fixture.modelsError) break;
       result = message.params.cursor ? { data: [model('gpt-6-luna', ['low', 'high', 'max'])], nextCursor: null } : { data: [model('gpt-6-sol', ['low', 'high']), model('gpt-6.1-sol', ['low', 'high', 'ultra']), { ...model('hidden-sol', ['high']), hidden: true }], nextCursor: 'second' }; break;
-    case 'account/read': result = { account: fixture.signedOut ? null : { type: fixture.apiKey ? 'apiKey' : 'chatgpt', email: fixture.email ?? 'fixture@example.test', planType: 'pro' }, workspaceRouting: { chatgptAccountId: fixture.routingAccountId ?? fixture.accountId ?? 'fixture-account' } }; break;
+    case 'account/read':
+      result = fixture.accounts ? fixture.accounts[Math.min(accountReads++, fixture.accounts.length - 1)] : { account: fixture.signedOut ? null : { type: fixture.apiKey ? 'apiKey' : 'chatgpt', email: fixture.email ?? 'fixture@example.test', planType: 'pro' }, workspaceRouting: { chatgptAccountId: fixture.routingAccountId ?? fixture.accountId ?? 'fixture-account' } }; break;
     case 'account/rateLimits/read':
       if (fixture.usageError) break;
-      result = { accountId: fixture.accountId ?? 'fixture-account', ordinaryUsageAllowed: true, rateLimits: { primary: { usedPercent: 0 } }, rateLimitsByLimitId: fixture.emptyUsage ? {} : { codex: { limitId: 'codex', primary: { usedPercent: fixture.percent ?? 82, windowDurationMins: 10080, resetsAt: 1793000000 }, secondary: { windowDurationMins: 60 } }, other: { limitName: 'Another allowance', primary: { usedPercent: 4 } } } }; break;
+      result = fixture.usage ?? { accountId: fixture.accountId ?? 'fixture-account', ordinaryUsageAllowed: true, rateLimits: { primary: { usedPercent: 0 } }, rateLimitsByLimitId: fixture.emptyUsage ? {} : { codex: { limitId: 'codex', primary: { usedPercent: fixture.percent ?? 82, windowDurationMins: 10080, resetsAt: 1793000000 }, secondary: { windowDurationMins: 60 } }, other: { limitName: 'Another allowance', primary: { usedPercent: 4 } } } }; break;
     case 'config/read': result = { config: { model_provider: fixture.provider ?? null, hooks: fixture.hooks ?? null } }; break;
     case 'configRequirements/read': result = { requirements: fixture.requirements ?? null }; break;
     case 'skills/list': result = { data: message.params.cwds.map(cwd => ({ cwd, errors: [], skills: ['implement-from-requirements', 'deliverable-review', 'test-hardening', 'refactor-pass', 'implementation-lifecycle', 'engineering-principles', 'pre-commit-validation', 'continuation-prompt', 'phase-split'].map(name => ({ name: `enso-method:${name}`, path: fixture.skillPath, enabled: name !== fixture.disabledSkill })) })) }; break;

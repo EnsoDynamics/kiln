@@ -57,6 +57,7 @@
           <h2>{copy.headline}</h2>
           <p class="line">{copy.reported} {#if copy.reset}<strong>{copy.reset}</strong>{/if} {copy.resumes}</p>
         </div>
+        {#if waiting.cleanupWarning}<p class="line">{waiting.cleanupWarning}</p>{/if}
         {#if ending}
           <div class="facts mono"><span>{ending}</span><span>{limitTime(waiting.stoppedAt, nowDate)}</span>{#if waiting.lastSkill}<span>last skill seen: {waiting.lastSkill.name}, {earlier(waiting.lastSkill.at, waiting.stoppedAt)}</span>{/if}</div>
         {/if}
@@ -88,7 +89,7 @@
             <span class="number">2</span>
             <div class="step">
               <span class="step-title">Then press Resume now</span>
-              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {waiting.phaseId === PR_ID ? "GitHub" : "Git"} first, then picks up the same session. If you don’t, Kiln resumes by itself at the first reading that shows usage left.</p>
+              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {waiting.phaseId === PR_ID ? "GitHub" : "Git"} first, then picks up the same session. If you don’t, Kiln resumes by itself {waiting.agentId === "codex" ? "when fresh provider permission allows an attempt" : "at the first reading that shows usage left"}.</p>
               <LimitAccount limit={waiting.limit} footnote={copy.footnote} />
               <div class="actions">
                 <!-- The amber line never holds Resume now (AC-LIMIT-03); a resume or check under way does. -->

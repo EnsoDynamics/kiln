@@ -145,7 +145,7 @@
           <ol>
             <li>
               <span class="number">1</span>
-              <div class="step"><span class="step-title">Wait for the reset</span><p>{limitCopy.waitText}</p></div>
+              <div class="step"><span class="step-title">{stop.limit.agentId === "codex" ? "Check Codex usage" : "Wait for the reset"}</span><p>{limitCopy.waitText}</p></div>
             </li>
             <li>
               <span class="number">2</span>
@@ -199,7 +199,7 @@
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
                   <span class="step-title">Start a fresh {stop.agent ?? snapshot.settings.agent} session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
-                  {#if stop.limit}<p>Start it after the reset, or after switching accounts.</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}
+                  {#if stop.limit}<p>{stop.limit.agentId === "codex" ? "Check usage in Codex before starting, or switch accounts." : "Start it after the reset, or after switching accounts."}</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>
                     <pre class="prompt">{stop.freshSessionPrompt}</pre>

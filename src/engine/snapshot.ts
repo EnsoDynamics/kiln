@@ -32,6 +32,9 @@ export type FeatureState = "not_started" | "implementing" | "paused" | "needs_yo
  * the reset has passed, another row at 100% that still keeps the account from having usage left.
  */
 export interface LimitView {
+  agentId?: AgentId;
+  recovery?: { state: "allowed" | "blocked" | "unknown"; reason: string };
+  allowances?: AgentAccount["limits"];
   label: string;
   resetsAt?: string;
   resetPassed: boolean;
@@ -586,6 +589,17 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   const label = stop?.label ?? refusal?.label ?? "A usage limit";
   const resetsAt = refusal?.resetsAt ?? stop?.resetsAt;
   const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
+  if (found?.session.agentId === "codex") {
+    view.agentId = "codex";
+    const release = found.session.codex?.usageRecovery?.release;
+    if (release) view.recovery = { state: release.state, reason: release.reason };
+    const current = engine.agents.state.account;
+    if (current && Date.parse(current.startedAt) >= Date.parse(refusal!.at)) {
+      view.account = { ...optional("email", current.email), ...optional("plan", current.plan), ...optional("error", current.error ?? current.limitsError), at: current.updatedAt };
+      view.allowances = current.limits;
+    }
+    return view;
+  }
   const reading = engine.claude?.account;
   if (!found || !refusal || reading === undefined || Date.parse(reading.startedAt) < Date.parse(refusal.at)) return view;
   const account: NonNullable<LimitView["account"]> = { ...optional("email", reading.error === undefined ? reading.email : undefined), ...optional("plan", reading.error === undefined ? reading.plan : undefined), ...optional("error", reading.error), at: reading.updatedAt };

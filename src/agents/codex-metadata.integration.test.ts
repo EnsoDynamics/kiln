@@ -24,7 +24,7 @@ describe("Codex metadata over real process pipes", () => {
     f.set({ percent: 19 }); vi.advanceTimersByTime(300_000);
     await waitFor(() => !info!.state.pending && readings() === 3);
     expect(readings()).toBe(3); expect(info.state.account?.limits[0]?.percent).toBe(19);
-    expect(f.calls().filter(c => c.method === "account/read")).toHaveLength(3);
+    expect(f.calls().filter(c => c.method === "account/read")).toHaveLength(6);
     info.close(); vi.advanceTimersByTime(600_000); expect(readings()).toBe(3);
     expect(f.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
   });
@@ -36,6 +36,19 @@ describe("Codex metadata over real process pipes", () => {
     expect(result.skills).toHaveLength(2); expect(f.calls().some(c => c.method.startsWith("thread/") || c.method.startsWith("turn/"))).toBe(false);
     const rpc = new CodexMetadataRpc(f.executable, sandbox.root, f.env);
     try { await expect(rpc.call("turn/start")).rejects.toThrow("Work dispatch unavailable"); } finally { await rpc.close(); }
+  });
+  it("brackets usage with fresh account reads and rejects an authentication change without substituting email or window percentages", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
+    const account = { account: { type: "chatgpt", email: "same@example.invalid", planType: "pro" } };
+    f.set({ accounts: [{ ...account, workspaceRouting: { chatgptAccountId: "before" } }, { ...account, workspaceRouting: { chatgptAccountId: "fixture-account" } }] });
+    const changed = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(changed.account.codexUsage).toMatchObject({ state: "unknown", reason: expect.stringContaining("identity changed") });
+    expect(f.calls().filter(call => call.method.startsWith("account/")).map(call => call.method)).toEqual(["account/read", "account/rateLimits/read", "account/read"]);
+    f.set({ accounts: [account], usage: { accountId: "fixture-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: {} } });
+    const optionalRouting = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(optionalRouting.account.codexUsage?.state).toBe("allowed");
+    expect(optionalRouting.account.limits).toEqual([]); // Empty windows do not negate explicit account-wide permission.
+    expect(f.calls().every(call => !/^(thread|turn)\//.test(call.method))).toBe(true);
   });
   it("settles failed metadata process creation without leaving close waiting for a nonexistent exit", async () => {
     sandbox = createSandbox();
