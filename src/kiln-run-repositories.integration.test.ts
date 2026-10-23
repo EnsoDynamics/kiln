@@ -112,6 +112,13 @@ function startKiln(f: Feature) {
 }
 
 async function api(address: string, token: string, method: string, path: string, body?: unknown) {
+  // A real chooser waits for its current metadata before enabling Start or model edits.
+  if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && ("model" in body || "effort" in body))) {
+    await waitFor(async () => {
+      const current = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      return current.settings.metadataPending === false;
+    });
+  }
   const origin = new URL(address).origin;
   const response = await fetch(`${origin}${path}`, {
     method,

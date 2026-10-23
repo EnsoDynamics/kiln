@@ -7,39 +7,40 @@
   import { ago, resetsIn } from "../lib/time.js";
   import CodeText from "./CodeText.svelte";
 
-  let { account, paused, pullRequest = false, now }: { account: NonNullable<Snapshot["account"]>; paused: boolean; pullRequest?: boolean; now: number } = $props();
+  let { account, agent = account.agentId === "codex" ? "Codex" : "Claude Code", paused, notStarted = false, pullRequest = false, now }: { account: NonNullable<Snapshot["account"]>; agent?: string; paused: boolean; notStarted?: boolean; pullRequest?: boolean; now: number } = $props();
   const nowDate = $derived(new Date(now));
-  const nearNote = $derived(paused ? "Close to the limit. Switch accounts before you start the next phase." : pullRequest ? "Close to the limit." : "Close to the limit. Pause after this phase to switch accounts.");
+  const nearNote = $derived(notStarted ? "Close to the limit. Sign in to another account before starting." : paused ? "Close to the limit. Switch accounts before you start the next phase." : pullRequest ? "Close to the limit." : "Close to the limit. Pause after this phase to switch accounts.");
   const updated = $derived(`usage updated ${ago(account.updatedAt, nowDate)}`);
 </script>
 
 <section class="card account" aria-labelledby="acct-h">
   <div class="who">
-    <h2 id="acct-h" class="eyebrow">Claude account</h2>
+    <h2 id="acct-h" class="eyebrow">{agent === "Claude Code" ? "Claude" : agent} account</h2>
     {#if account.error}
       <span class="message"><CodeText text={account.error} /></span>
     {:else}
-      {#if account.email}<span class="email">{account.email}</span>{/if}
-      <span class="sub">{account.plan ? `${account.plan} · ${updated}` : updated.charAt(0).toUpperCase() + updated.slice(1)}</span>
+      <span class="email">{account.email ?? "Account identity unavailable"}</span>
+      <span class="sub">{account.plan ? `${account.plan} · ${updated}` : `Plan unavailable · ${updated}`}</span>
     {/if}
   </div>
-  {#if !account.error && (account.limits.length > 0 || account.limitsError)}
+  {#if account.limits.length > 0 || account.limitsError}
     <div class="limits">
       {#if account.limitsError}
         <span class="message">{account.limitsError}</span>
-      {:else}
-        {#each account.limits as limit (limit.label)}
+      {/if}
+        {#each account.limits as limit (limit.id ?? `${limit.kind}:${limit.label}`)}
           <div class="limit">
-            <div class="limit-head"><span class="label">{limit.label}</span><span class="percent" class:near={limit.nearLimit}>{limit.percent}%</span></div>
-            <div class="meter" role="meter" aria-label="{limit.label} used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={limit.percent}><div class="fill" class:near={limit.nearLimit} style:width="{Math.min(100, Math.max(0, limit.percent))}%"></div></div>
-            {#if limit.resetsAt}<span class="sub">{resetsIn(limit.resetsAt, nowDate)}</span>{/if}
+            <div class="limit-head"><span class="label">{limit.label}</span><span class="percent" class:near={limit.nearLimit}>{limit.percent === undefined ? "Unknown" : `${limit.percent}%`}</span></div>
+            {#if limit.percent !== undefined}<div class="meter" role="meter" aria-label="{limit.label} used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={limit.percent}><div class="fill" class:near={limit.nearLimit} style:width="{Math.min(100, Math.max(0, limit.percent))}%"></div></div>{/if}
+            {#if limit.resetsAt}<span class="sub">{resetsIn(limit.resetsAt, nowDate)}{#if account.agentId === "codex"} · {new Date(limit.resetsAt).toLocaleString()}{/if}</span>{:else if account.agentId === "codex"}<span class="sub">Reset time unknown</span>{/if}
             {#if limit.nearLimit}<span class="message">{nearNote}</span>{/if}
           </div>
         {/each}
-      {/if}
     </div>
   {/if}
-  {#if paused}<p class="switch">To switch accounts, run <span class="code-inline">claude auth login</span> in another terminal, then press Start. The next phase uses whichever account is signed in.</p>{/if}
+  {#if account.stale}<p class="message">Stale reading · last successful update {new Date(account.lastSuccessfulAt ?? account.updatedAt).toLocaleString()}</p>{/if}
+  {#if account.agentId === "codex"}<p class="sub">Account allowances are shared across PRDs. Missing information is unknown. Sign in or change accounts in a terminal with <span class="code-inline">codex login</span>.</p>{/if}
+  {#if paused}<p class="switch">To switch accounts, run <span class="code-inline">{account.agentId === "codex" ? "codex login" : "claude auth login"}</span> in another terminal, then press Start. The next phase uses whichever account is signed in.</p>{/if}
 </section>
 
 <style>

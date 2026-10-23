@@ -16,6 +16,10 @@ Five leaf phases, executed sequentially. This is a plan only: no candidate proof
 
 Each linked leaf owns its acceptance-criterion scope, exclusions and exact design pointers. No phase is closed at creation.
 
+## Implementation progress
+
+Phases 1 and 2 closed on 2026-10-23; see their leaf closure lines, [prerequisite proof results](kiln-codex-support-proof-results.md) and [agent selection results](kiln-codex-support-selection-results.md). Phase 3 is the first open planned child and its dependencies are met in the local shared checkout. Codex normal work remains gated pending that implementation; intermediate closure establishes no platform or release support. Doug has not authorized pushing these local implementation commits.
+
 ## Sizing decision
 
 The whole delivery does not fit one dependable session: it combines an unproved audit candidate, agent selection and metadata, a persistent multi-process execution/recovery lifecycle, a separate quota-recovery state machine and native-platform release evidence. The seams follow proof dependencies and independently exercisable behavior, rather than separating storage, API and UI layers.

@@ -112,7 +112,7 @@ describe("the local server", () => {
     expect(snapshot.status).toBe(200);
     expect(JSON.parse(snapshot.body).feature.name).toBe("Customer returns");
 
-    const change = JSON.stringify({ effort: "low" });
+    const change = JSON.stringify({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
     // A change with no Origin, or another site's, is refused even with the token.
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token }, "POST", change)).status).toBe(403);
     expect((await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: "https://evil.example" }, "POST", change)).status).toBe(403);
@@ -128,12 +128,12 @@ describe("the local server", () => {
     const confirm = await raw(port, "/api/outside-confirmation", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST");
     expect(confirm.status).toBe(409);
     expect(JSON.parse(confirm.body).reason).toBe("Stayed in the workspace hasn't failed, so there is nothing to confirm.");
-    expect(h.engine.record.settings.effort).toBe("high");
+    expect(h.engine.record.settings.agentChoices.claude_code!.effort).toBe("high");
     expect(h.engine.record.startedAt).toBeUndefined();
 
     const allowed = await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST", change);
     expect(allowed.status).toBe(200);
-    expect(h.engine.record.settings.effort).toBe("low");
+    expect(h.engine.record.settings.agentChoices.claude_code!.effort).toBe("low");
   });
 
   it("sends no CORS headers, and every response forbids caching, sniffing and framing", async () => {
@@ -197,7 +197,7 @@ describe("the local server", () => {
     expect(last.settings).toMatchObject({ baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", fieldErrors: {} });
 
     // A change reaches the open view without a reload.
-    await h.engine.changeSettings({ keepAwake: false });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: false });
     await readUntil(() => snapshots().at(-1).settings.keepAwake === false);
     abort.abort();
   });
@@ -232,7 +232,7 @@ describe("the local server", () => {
       const response = await fetch(`${origin}${path}`, { method, headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
       return { status: response.status, body: (await response.json()) as { reason?: string; settings: { fieldErrors: Record<string, string> } } };
     };
-    expect(await post("/api/settings", { effort: "extreme" })).toMatchObject({ status: 400 });
+    expect(await post("/api/settings", { agentId: "claude_code", selectionGeneration: 0, effort: "extreme" })).toMatchObject({ status: 422 });
     expect(await post("/api/settings", { colour: "red" })).toMatchObject({ status: 400, body: { reason: "Unknown setting: colour." } });
     expect(await post("/api/settings", { keepAwake: "yes" })).toMatchObject({ status: 400 });
     // Resume after a usage limit is accepted at any time and applied at once (usage-limit recovery AC-AUTO-04).

@@ -26,7 +26,7 @@ const model = (overrides: Partial<ModelEntry>): ModelEntry => ({
 
 /** The model list as the engine sees it, arriving when the test says (Startup order). */
 class ModelList implements ClaudeInfoSource {
-  account = undefined;
+  account = { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] };
   models: ModelEntry[] | undefined;
   modelListError: string | undefined;
   private readonly listeners = new Set<() => void>();
@@ -44,23 +44,20 @@ class ModelList implements ClaudeInfoSource {
 }
 
 describe("the model and effort before Start", () => {
-  it("moves a saved effort the model doesn't take to one it does, when the list loads and when the model changes", async () => {
+  it("keeps an invalid saved effort visible until explicitly corrected and refuses unchecked model choices", async () => {
     const list = new ModelList();
     harness = await createHarness({ sessions: [], engineOptions: { claude: list } });
     const { engine } = harness;
-    await engine.changeSettings({ effort: "max" });
-    // Until the list loads, all five levels are open and the saved model is named as saved.
-    expect(buildSnapshot(engine).settings).toMatchObject({ model: { value: "opus", displayName: "opus" }, effortLevels: null, effort: "max" });
-
-    list.arrive([model({ supportedEffortLevels: ["low", "medium", "high"] }), model({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"] })]);
-    expect(buildSnapshot(engine).settings).toMatchObject({ model: { value: "opus", displayName: "Opus 5.5" }, effortLevels: ["low", "medium", "high"], effort: "high" });
-    expect(readPrdRecord(harness.stateDirectory)?.settings.effort ?? engine.record.settings.effort).toBe("high");
-
-    await engine.changeSettings({ model: "fable" });
-    expect(buildSnapshot(engine).settings).toMatchObject({ effortLevels: ["high", "max"], effort: "high" });
-    // An effort the chosen model doesn't take is refused.
-    expect(await engine.changeSettings({ effort: "low" })).toMatchObject({ ok: false, status: 400 });
-    expect(await engine.changeSettings({ effort: "max" })).toEqual({ ok: true });
+    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" })).toMatchObject({ ok: false, status: 409 });
+    engine.record.settings.agentChoices.claude_code!.effort = "max";
+    list.arrive([model({ supportedEffortLevels: ["low", "medium", "high"] }), model({ value: "fable", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"] })]);
+    expect(buildSnapshot(engine).settings).toMatchObject({ effort: "max", fieldErrors: { model: expect.stringContaining("supported effort") } });
+    expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
+    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "high" })).toEqual({ ok: true });
+    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "fable" })).toEqual({ ok: true });
+    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" })).toMatchObject({ ok: false, status: 422 });
+    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" })).toEqual({ ok: true });
+    expect(readPrdRecord(harness.stateDirectory)?.settings.agentChoices.claude_code).toEqual({ model: "fable", effort: "max" });
   });
 
   it("passes no --effort for a model that takes none, and records the model's name from its ID", async () => {
@@ -68,7 +65,7 @@ describe("the model and effort before Start", () => {
     harness = await createHarness({ sessions: [landingSession()], engineOptions: { claude: list } });
     const { engine } = harness;
     list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [] })]);
-    await engine.changeSettings({ model: "haiku" });
+    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "haiku" });
     expect(buildSnapshot(engine).settings.effortLevels).toEqual([]);
     expect(await engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await engine.settled();
@@ -85,22 +82,22 @@ describe("the model and effort before Start", () => {
     harness = await createHarness({ sessions: [landingSession()], engineOptions: { claude: list } });
     const { engine } = harness;
     list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5", supportsAutoMode: false })]);
-    await engine.changeSettings({ model: "haiku" });
+    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "haiku" });
     const message = "Haiku 4.5 can’t run unattended on this account; it needs auto mode.";
     expect(buildSnapshot(engine).settings.fieldErrors).toEqual({ model: message });
     expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: message });
     expect(engine.record.startedAt).toBeUndefined();
-    await engine.changeSettings({ model: "opus" });
+    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "opus" });
     expect(await engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await engine.settled();
   });
 
-  it("keeps the saved model with no message, and every level open, when the list doesn't offer it", async () => {
+  it("keeps the unsupported saved model visible with a blocking explanation", async () => {
     const list = new ModelList();
     harness = await createHarness({ sessions: [], engineOptions: { claude: list } });
     list.arrive([model({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1" })]);
     const settings = buildSnapshot(harness.engine).settings;
-    expect(settings).toMatchObject({ model: { value: "opus", displayName: "opus" }, effortLevels: null, fieldErrors: {} });
+    expect(settings).toMatchObject({ model: { value: "opus", displayName: "opus" }, effortLevels: null, fieldErrors: { model: expect.stringContaining("Saved choice: opus") } });
   });
 });
 
@@ -118,7 +115,7 @@ describe("the base check when a view connects", () => {
     expect(buildSnapshot(h.engine).settings).toMatchObject({ baseBranches: ["develop", "main", "release"], baseCheck: "ok", fieldErrors: {} });
 
     // A base the person picks that holds other PRD documents fails the check, naming the branch.
-    await h.engine.changeSettings({ baseBranch: "release" });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, baseBranch: "release" });
     expect(buildSnapshot(h.engine).settings).toMatchObject({ baseCheck: "ok" });
     git(h.sandbox, h.repository, "checkout", "-q", "release");
     git(h.sandbox, h.repository, "rm", "-q", "docs/prds/customer-returns/assumptions.md");

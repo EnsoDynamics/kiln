@@ -54,7 +54,7 @@ Independent review identified and fixed counted-loop reevaluation, async callbac
 
 | Owner | Remaining obligation |
 |---|---|
-| [Phase 2](phase-2-codex-agent-selection.md) | Agent/model/account controls, metadata/catalogue transport, migration and browser proof; no work dispatch |
+| [Phase 2](phase-2-codex-agent-selection.md) — closed 2026-10-23 | Selection, metadata, migration and browser proof delivered; see [agent selection results](kiln-codex-support-selection-results.md). No work dispatch |
 | [Phase 3](phase-3-codex-session-workflow.md) | Execution integration and production evidence reader: bounded paginated memory, persisted frontiers, missing/corrupt/truncated/archived/compacted history and changing-frontier tests; durable stop/resume, process-tree cleanup and confirmation/repair behavior |
 | [Phase 4](phase-4-codex-usage-recovery.md) | Actual structured usage refusal and real recovery, account identity and repeat-refusal suppression |
 | [Phase 5](phase-5-codex-platform-proof.md) | Native macOS/Linux/Windows package/process/shell matrix, real GitHub PR delivery and assembled two-phase workflow before release claims |

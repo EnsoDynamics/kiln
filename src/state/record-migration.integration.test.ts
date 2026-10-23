@@ -20,6 +20,8 @@ function asSchemaOne(record: PrdRecord): Record<string, unknown> {
   const copy = JSON.parse(JSON.stringify(record)) as Record<string, any>;
   const entry = copy.repositories[0];
   copy.schemaVersion = 1;
+  Object.assign(copy.settings, copy.settings.agentChoices.claude_code);
+  delete copy.settings.agentChoices; delete copy.settings.agentId;
   if (entry?.baseCommit) copy.baseCommit = entry.baseCommit;
   if (entry?.createdBranch) copy.createdBranch = entry.createdBranch;
   delete copy.repositories;
@@ -58,11 +60,13 @@ describe("a schema 1 record read by this Kiln", () => {
     const before = buildSnapshot(harness.engine);
     expect(before.needsYou).toBeDefined();
     const engine = reopenAsSchemaOne(harness);
+    await engine.agents.refresh();
     // The next kiln run checks the stop again, reading its commits from Git, as v1 does.
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
     await engine.settled();
     const after = buildSnapshot(engine);
-    expect(after).toEqual({ ...before, needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt } });
+    expect(after.account).toEqual({ ...before.account, startedAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(after).toEqual({ ...before, account: after.account, needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt } });
     expect(after.feature.multiRepository).toBe(false);
   });
 
@@ -73,11 +77,12 @@ describe("a schema 1 record read by this Kiln", () => {
     const before = buildSnapshot(harness.engine);
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
-    expect(buildSnapshot(engine)).toEqual(before);
+    await engine.agents.refresh();
+    expect(buildSnapshot(engine)).toEqual({ ...before, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
-    await engine.changeSettings({ effort: "max" });
-    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(3);
+    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });
+    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(4);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {

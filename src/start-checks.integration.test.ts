@@ -112,7 +112,7 @@ describe("runStartChecks", () => {
   });
 
   it("fails when a tool is missing or gh isn't signed in", async () => {
-    expect((await check({ gh: undefined, claude: undefined })).problems).toEqual(["claude isn't on the PATH.", "gh isn't on the PATH."]);
+    expect((await check({ gh: undefined, claude: undefined })).problems).toEqual(["gh isn't on the PATH."]);
     const signedOut = writeStandIn(join(sandbox.root, "signed-out"), "gh", 1, "You are not logged into any GitHub hosts.", GH_AUTH_ARGS);
     expect((await check({ gh: signedOut })).problems).toEqual(["gh isn't signed in to github.com. Run gh auth login."]);
   });
@@ -138,7 +138,6 @@ describe("runStartChecks", () => {
     expect(report.missingDocuments.map((document) => document.name)).toEqual(["technical-design.md"]);
     expect(report.problems).toEqual([
       `The checkout ${displayPath((await locate()).checkoutRoot)} has uncommitted changes in 1 file: ${prdDirectory}/technical-design.md.`,
-      "claude isn't on the PATH.",
       "The checkout has no origin remote.",
     ]);
   });

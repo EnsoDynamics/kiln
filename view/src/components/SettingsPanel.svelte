@@ -33,7 +33,7 @@
   });
 
   async function save(change: Partial<Settings>) {
-    const answer = await changeSettings(config, change);
+    const answer = await changeSettings(config, { ...change, ...((change.model !== undefined || change.effort !== undefined) ? { agentId: settings.agentId ?? "claude_code", selectionGeneration: settings.selectionGeneration ?? 0 } : {}) });
     reason = answer.ok ? undefined : answer.reason;
   }
 </script>
@@ -42,7 +42,7 @@
   <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="note">{note}</span></div>
   <dl>
     <div class="setting">
-      <div class="words"><dt>Model and effort</dt><dd class="value">{settingsModel(settings)}</dd><dd class="help">Claude Code</dd></div>
+      <div class="words"><dt>Model and effort</dt><dd class="value">{settingsModel(settings)}</dd><dd class="help">{settings.agent} · Agent fixed for this PRD.</dd></div>
       <button type="button" class="button small" disabled={!connected} onclick={() => (editing = !editing)}>{editing && connected ? "Done" : "Change"}</button>
     </div>
     {#if editing && connected}<ModelEffortEditor {snapshot} {save} />{/if}

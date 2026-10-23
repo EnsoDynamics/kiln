@@ -1,3 +1,8 @@
+import { ensurePrivateDirectory } from "../state/state-files.js";
+import { AgentInfo } from "../agents/metadata.js";
+import { latestSol } from "../agents/codex-metadata.js";
+import { AGENT_NAMES, assertAgent } from "../state/records.js";
+import { selectedChoice } from "../state/records.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
 // "Where a Feature Stands", engine loop). The server and view reach it only through its
@@ -9,7 +14,7 @@ import { mkdirSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
-import { autoModeError, effortFor, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
+import { autoModeError, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -40,14 +45,12 @@ import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
 import { judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
 import {
-  EFFORT_LEVELS,
   PR_PHASE_KEY,
   readSessionRecord,
   SCHEMA_VERSION,
   writePrdRecord,
   writeSessionRecord,
   type CheckResult,
-  type Effort,
   type AccountIdentity,
   type InterruptCause,
   type LimitRefusal,
@@ -96,6 +99,7 @@ export interface EngineTools {
   git: string;
   gh: string;
   claude: string;
+  codex?: string;
 }
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
@@ -127,7 +131,7 @@ export type TerminalEvent =
 
 export type CommandResult =
   | { ok: true }
-  | { ok: false; status: 400 | 409; reason: string; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
+  | { ok: false; status: 400 | 409 | 422; reason: string; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
 
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 export type AddRepositoryResult =
@@ -280,6 +284,7 @@ export class Engine {
   private waitWatch: { phaseKey: string; readings: number; resetTimer?: NodeJS.Timeout } | undefined;
   /** The last account reading the engine saw, so each new one is handled once. */
   private lastReading: AccountView | undefined;
+  private freshReading: AccountView | undefined;
   /** The phase whose check is running, for the line a stop prints. */
   private activeCheck: string | undefined;
   private readonly sleepReader: SleepReader;
@@ -298,6 +303,8 @@ export class Engine {
   private fieldCheckRun = 0;
   private fieldChecksRunning = 0;
   private readonly offClaude: (() => void) | undefined;
+  private observedClaude: ClaudeInfoSource | undefined;
+  private offUsage: (() => void) | undefined;
   /** Additions run one at a time; a request for a repository being set up waits for that setup. */
   private additionChain: Promise<unknown> = Promise.resolve();
   private readonly additionsUnderway = new Map<string, Promise<AddRepositoryResult>>();
@@ -312,44 +319,68 @@ export class Engine {
     this.now = options.now ?? (() => new Date());
     this.git = { git: options.tools.git, env: options.env, signal: this.abort.signal };
     this.sleepReader = options.sleepReader ?? platformSleepReader();
-    this.offClaude = options.claude?.onChange(() => this.modelsChanged());
+    ensurePrivateDirectory(options.stateDirectory);
+    this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
+    this.offClaude = this.agents.onChange(() => this.modelsChanged());
+    this.agents.start();
   }
 
+  readonly agents: AgentInfo;
+  choiceNotice: string | undefined;
+
   get claude(): ClaudeInfoSource | undefined {
-    return this.options.claude;
+    return this.agents.claude;
   }
 
   /** The model list's entry for a model, when the list has loaded and offers it. */
   modelEntry(value: string): ModelEntry | undefined {
-    return this.options.claude?.models?.find((entry) => entry.value === value);
+    return this.agents.state.models?.find((entry) => entry.value === value);
   }
 
   /** Every field message now: the last field check's, and Model's when its model can't run in auto mode. */
   get currentFieldErrors(): FieldErrors {
-    const model = autoModeError(this.modelEntry(this.record.settings.model));
-    return model === undefined ? this.fieldErrors : { ...this.fieldErrors, model };
+    const errors = { ...this.fieldErrors };
+    const issue = this.selectionError;
+    if (issue) errors.model = issue;
+    return errors;
   }
 
-  /**
-   * When the model list loads, a saved effort the model doesn't take moves to one it does
-   * (UI-011); when a new account reading arrives, a wait or a usage-limit stop takes it in.
-   */
+  get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
+  get selectionError(): string | undefined {
+    const metadata = this.agents.state;
+    if (metadata.pending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
+    if (metadata.blockers.length) return metadata.blockers.join(" ");
+    if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
+    const choice = selectedChoice(this.record.settings);
+    const entry = this.modelEntry(choice.model);
+    if (!entry) return `Choose an available ${AGENT_NAMES[metadata.agentId]} model. Saved choice: ${choice.model || "none"}.`;
+    if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
+    return metadata.agentId === "claude_code" ? autoModeError(entry) : undefined;
+  }
+  get executionGate(): string | undefined {
+    return this.record.settings.agentId === "codex" ? "Codex model and account information is available. Codex work execution remains gated in this version." : undefined;
+  }
   private modelsChanged(): void {
-    this.matchEffortToModel();
-    const reading = this.options.claude?.account;
-    if (reading !== undefined && reading !== this.lastReading) {
+    if (this.observedClaude !== this.claude) {
+      this.offUsage?.(); this.observedClaude = this.claude;
+      this.offUsage = this.claude?.onChange(() => {
+        if (this.claude?.account !== this.lastReading) this.freshReading = this.claude?.account;
+        this.modelsChanged();
+      });
+    }
+    const metadata = this.agents.state;
+    if (metadata.agentId === "codex" && !metadata.pending && metadata.models && !this.record.settings.agentChoices.codex) {
+      const model = latestSol(metadata.models);
+      this.record.settings.agentChoices.codex = model ? { model, effort: "high" } : { model: "" };
+      this.choiceNotice = model ? undefined : "Could not establish a unique latest GPT Sol with High effort. Choose model and effort explicitly.";
+      this.save();
+    }
+    const reading = this.claude?.account;
+    if (this.record.settings.agentId === "claude_code" && reading !== undefined && reading !== this.lastReading) {
       this.lastReading = reading;
       this.readingArrived(reading);
     }
     this.changed();
-  }
-
-  private matchEffortToModel(): void {
-    const { settings } = this.record;
-    const effort = effortFor(settings.effort, this.modelEntry(settings.model));
-    if (effort === settings.effort) return;
-    settings.effort = effort;
-    this.save();
   }
 
   get paths() {
@@ -468,6 +499,8 @@ export class Engine {
   async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
     const { record } = this;
     if (record.completedAt) return refuse("The feature is complete.");
+    if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
+    if (this.selectionError || this.executionGate) return refuse(this.selectionError ?? this.executionGate!);
     if (record.pause.activeSince !== undefined) {
       record.pause = {};
       this.save();
@@ -679,24 +712,51 @@ export class Engine {
     };
     const fixedBases = [...(change.baseBranch !== undefined ? [this.paths.repositoryName] : []), ...Object.keys(change.bases ?? {})].filter(fixedBase);
     if (fixedBases.length > 0) return refuse(`The base of ${fixedBases.join(" and ")} is fixed: Kiln already made its branch.`);
-    if (change.effort !== undefined && !EFFORT_LEVELS.includes(change.effort as Effort)) {
-      return { ok: false, status: 400, reason: `Effort must be one of ${EFFORT_LEVELS.join(", ")}.` };
+    if (change.agentId !== undefined) {
+      try { assertAgent(change.agentId); } catch { return { ok: false, status: 400, reason: "Unknown agent." }; }
     }
-    if (change.model !== undefined && change.model.trim() === "") return { ok: false, status: 400, reason: "Choose a model." };
-    if (change.effort !== undefined) {
-      const levels = effortLevelsFor(this.modelEntry(change.model ?? this.record.settings.model));
-      if (levels !== null && !levels.includes(change.effort)) {
-        return { ok: false, status: 400, reason: levels.length === 0 ? "This model takes no effort setting." : `This model takes ${levels.join(", ")}.` };
+    const hasPair = change.model !== undefined || change.effort !== undefined;
+    if (hasPair && (change.agentId !== this.record.settings.agentId || change.selectionGeneration !== this.agents.state.generation)) return refuse("The selected agent changed. Use the current model editor.");
+    if (change.agentId !== undefined && change.agentId !== this.record.settings.agentId) {
+      if (this.agentFixed) return refuse("The agent is fixed after Start or repository setup.");
+      this.record.settings.agentId = change.agentId;
+      this.record.settings.selectionGeneration = this.agents.state.generation + 1;
+      this.choiceNotice = undefined;
+      this.save();
+      this.agents.select(change.agentId);
+    }
+    if (hasPair) {
+      if (this.agents.state.pending || !this.agents.state.models) return refuse("Wait for a current model catalogue before changing choices.");
+      const saved = selectedChoice(this.record.settings);
+      const choice = { ...saved };
+      if (change.model !== undefined) {
+        if (!change.model.trim()) return { ok: false, status: 400, reason: "Choose a model." };
+        choice.model = change.model;
       }
+      const entry = this.modelEntry(choice.model);
+      if (!entry) return { ok: false, status: 422, reason: "This model is not selectable.", fieldErrors: { model: "Choose a model from the current catalogue." } };
+      if (change.effort !== undefined) {
+        if (!change.effort.trim()) return { ok: false, status: 400, reason: "Effort must be nonempty." };
+        if (!entry.supportedEffortLevels.includes(change.effort)) return { ok: false, status: 422, reason: "Unsupported effort.", fieldErrors: { model: "Choose a supported effort." } };
+        choice.effort = change.effort;
+      } else if (!entry.supportsEffort) {
+        delete choice.effort;
+      } else if (change.model !== undefined && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) {
+        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) {
+          choice.effort = entry.defaultEffort;
+          this.choiceNotice = `Effort changed to ${choice.effort} for ${entry.displayName}.`;
+        } else { delete choice.effort; this.choiceNotice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
+      }
+      this.record.settings.agentChoices[this.record.settings.agentId] = choice;
     }
     // Paths are stored absolute (technical design, "Paths shown"); a leading ~ is expanded.
     if (change.worktreePath !== undefined) change = { ...change, worktreePath: expandHome(change.worktreePath) };
     if (change.workspaceFolder !== undefined) change = { ...change, workspaceFolder: expandHome(change.workspaceFolder) };
     if (change.bases !== undefined) change = { ...change, bases: { ...this.record.settings.bases, ...change.bases } };
     for (const [field, value] of Object.entries(change)) {
-      if (value !== undefined) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
+      if (value !== undefined && !["model", "effort", "agentId", "selectionGeneration"].includes(field)) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
-    if (change.model !== undefined) this.matchEffortToModel();
+
     this.save();
     if (change.keepAwake !== undefined) this.updateKeepAwake();
     // Switched off during a wait, the phase goes to Needs you; once the end of the wait's resume
@@ -843,6 +903,8 @@ export class Engine {
   close(): void {
     this.closed = true;
     this.offClaude?.();
+    this.offUsage?.();
+    this.agents.close();
     if (this.sleepTimer) clearInterval(this.sleepTimer);
     this.sleepTimer = undefined;
     this.unwatchWait();
@@ -1087,7 +1149,13 @@ export class Engine {
         return;
       }
       // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-      void this.options.claude?.refreshAccount();
+      await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      if (this.stopping) return;
+      if (this.selectionError || this.executionGate) {
+        this.current = undefined;
+        this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError ?? this.executionGate!] }]);
+        return;
+      }
       if (!leaf) {
         await this.runPullRequestSession();
         return;
@@ -1130,18 +1198,19 @@ export class Engine {
     await this.additionChain;
     let session = this.latestSession(phaseKey);
     if (!session || session.runs.length > 0) {
-      const { model } = this.record.settings;
+      const { model } = selectedChoice(this.record.settings);
       const entry = this.modelEntry(model);
       // A model that takes no effort gets no --effort, and its record says so (UI-011).
-      const effort = entry !== undefined && !entry.supportsEffort ? undefined : effortFor(this.record.settings.effort, entry);
+      const effort = entry !== undefined && !entry.supportsEffort ? undefined : selectedChoice(this.record.settings).effort;
       session = {
         schemaVersion: SCHEMA_VERSION,
+        agentId: this.record.settings.agentId,
         sessionId: randomUUID(),
         phaseId: phaseKey,
         kind,
         createdAt: this.now().toISOString(),
         model,
-        modelDisplayName: modelNameFromId(entry?.resolvedModel ?? model),
+        modelDisplayName: entry?.displayName ?? modelNameFromId(model),
         ...(effort === undefined ? {} : { effort }),
         workingDirectory: this.sessionFolder,
         runs: [],
@@ -1219,6 +1288,7 @@ export class Engine {
         }
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
+    if (session.agentId !== "claude_code") throw new Error("Codex execution and resumption remain gated.");
     const args = resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
     await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
   }
@@ -1228,7 +1298,7 @@ export class Engine {
    * awaited for 30 seconds at most: the account it found signed in, which the run records.
    */
   private async readAccountBeforeResume(): Promise<AccountIdentity | undefined> {
-    const claude = this.options.claude;
+    const claude = this.claude;
     if (!claude) return undefined;
     const returned = await raceTimeout(claude.refreshAccount(), RESUME_READING_MS);
     const reading = claude.account;
@@ -1445,6 +1515,19 @@ export class Engine {
   private async recheckStop(phaseKey: string): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const facts = this.record.phases[phaseKey]!;
     const stop = facts.stop!;
+    if (stop.kind === "selection") {
+      await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      if (this.stopping) return "still_stopped";
+      const issue = this.selectionError ?? this.executionGate;
+      if (issue) {
+        this.updateStop(phaseKey, [{ name: "Agent selection and readiness", passed: false, facts: [issue] }]);
+        return "still_stopped";
+      }
+      delete facts.stop;
+      if (facts.sessionIds.length === 0) delete this.record.phases[phaseKey];
+      this.save();
+      return "cleared";
+    }
     if (stop.kind === "plan") {
       const read = this.readPlan();
       if (!read.ok) {
@@ -1818,7 +1901,12 @@ export class Engine {
     this.watchSleep();
     this.updateKeepAwake();
     this.armResetReading();
-    this.askReading();
+    // Startup metadata can finish while the restart checks run. A fresh post-refusal
+    // reading from this metadata generation must reach the wait once it exists.
+    const reading = this.freshReading;
+    const refusal = this.refusedRun(key)?.refusal;
+    if (reading && refusal && Date.parse(reading.startedAt) >= Date.parse(refusal.at)) this.readingArrived(reading);
+    if (!this.checking && this.waitingPhaseKey() === key) this.askReading();
     this.changed();
   }
 
@@ -1851,7 +1939,7 @@ export class Engine {
 
   /** Asks for a reading; one already under way is joined. */
   private askReading(): void {
-    void this.options.claude?.refreshAccount();
+    void this.claude?.refreshAccount();
   }
 
   /**

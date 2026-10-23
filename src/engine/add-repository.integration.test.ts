@@ -135,7 +135,7 @@ describe("adding a repository after Start", () => {
     git(h.sandbox, checkout, "push", "-q", "origin", "develop");
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
     const elsewhere = join(h.sandbox.root, "elsewhere", "acme-shop");
-    expect(await h.engine.changeSettings({ worktreePath: elsewhere })).toMatchObject({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: elsewhere })).toMatchObject({ ok: true });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");

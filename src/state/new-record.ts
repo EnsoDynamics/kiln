@@ -1,6 +1,6 @@
 // A PRD's record as Kiln first writes it, before Start.
 
-import { SCHEMA_VERSION, type PrdRecord, type Settings } from "./records.js";
+import { SCHEMA_VERSION, agentSettings, type AgentSettings, type PrdRecord, type Settings } from "./records.js";
 import { newToken } from "./state-files.js";
 
 export interface NewRecordInput {
@@ -10,7 +10,7 @@ export interface NewRecordInput {
   github: string;
   prdDirectoryFromRoot: string;
   featureName: string;
-  settings: Settings;
+  settings: Settings | AgentSettings;
 }
 
 export function newPrdRecord(input: NewRecordInput): PrdRecord {
@@ -20,7 +20,7 @@ export function newPrdRecord(input: NewRecordInput): PrdRecord {
     prdDirectory: input.prdDirectoryFromRoot,
     featureName: input.featureName,
     token: newToken(),
-    settings: input.settings,
+    settings: agentSettings(input.settings),
     repositories: [],
     phases: {},
     pause: {},

@@ -230,12 +230,33 @@ const USE_VIEW_FONTS = `(async () => {
   return true;
 })()`;
 
+// Codex support AC-AGENT-01/MODEL-02 change these exact controls. Adapt the
+// earlier reference before measuring; all unaffected boxes still use the original layout.
+const WITH_AGENT_METADATA = `(() => {
+  const model = document.querySelector('#model');
+  if (model) {
+    const pair = model.parentElement.parentElement;
+    const field = pair.firstElementChild;
+    const agent = field.lastElementChild;
+    for (const node of [...agent.childNodes]) if (node.nodeType === 3) node.remove();
+    const select = model.cloneNode(false); select.id = 'agent';
+    select.innerHTML = '<option>Claude Code</option><option>Codex</option>';
+    field.insertBefore(select, agent);
+    const note = Object.assign(document.createElement('span'), {textContent: 'Listed models do not guarantee account access.', style: 'font-size: 12.5px; font-weight: 400; color: #8c8577; line-height: 1.55'});
+    const refresh = Object.assign(document.createElement('button'), {textContent: 'Refresh agent information', style: 'display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, sans-serif; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.28); box-sizing: border-box'});
+    pair.after(note, refresh);
+  }
+  for (const node of document.querySelectorAll('dd')) if (node.textContent.trim() === 'Claude Code' && node.parentElement.querySelector('dt')?.textContent === 'Model and effort') node.textContent = 'Claude Code · Agent fixed for this PRD.';
+  return true;
+})()`;
+
 /** The text layout of a mockup, drawn with the view's fonts, after any `addition` to it runs. */
 async function mockupLayout(mockup: string, clock: number, addition?: string): Promise<TextBox[]> {
   const drawn = await chrome.open(new URL(mockup, MOCKUPS).href, { clock, timeZone: TIME_ZONE });
   try {
     await drawn.waitFor(`document.readyState === "complete"`);
     if (addition) await drawn.evaluate(addition);
+    await drawn.evaluate(WITH_AGENT_METADATA);
     await drawn.evaluate(USE_VIEW_FONTS);
     return await drawn.evaluate<TextBox[]>(TEXT_LAYOUT);
   } finally {
@@ -344,7 +365,7 @@ const SCREENS: {
       "11:46:58 reviewer The credit multiplier is applied before rounding; checking that against… Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
-      "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
+      "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code · Agent fixed for this PRD. Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
       "Pause Kiln Phase 2b, Store credit, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start. Pause after this phase",
       "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
     ],
@@ -554,6 +575,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
+      await page.evaluate(FONTS_LOADED);
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       // The mockup draws phase 2a's Details open.
@@ -996,8 +1018,8 @@ describe("the controls, in a real browser", () => {
         'POST /api/settings {"worktreePath":"~/elsewhere/returns"}',
         'POST /api/settings {"featureBranch":"feature/returns-v2"}',
         'POST /api/settings {"baseBranch":"main"}',
-        'POST /api/settings {"model":"sonnet"}',
-        'POST /api/settings {"effort":"max"}',
+        'POST /api/settings {"model":"sonnet","agentId":"claude_code","selectionGeneration":0}',
+        'POST /api/settings {"effort":"max","agentId":"claude_code","selectionGeneration":0}',
         'POST /api/settings {"keepAwake":false}',
       ]);
 
@@ -1073,12 +1095,12 @@ describe("the controls, in a real browser", () => {
       await page.waitFor(`document.body.innerText.includes("Change")`);
       await click(page, "Change");
       await page.waitFor(`document.querySelector("#change-model")`);
-      expect(await words(page)).toContain(flat("Model and effort Opus 5.5 · high effort Claude Code Done Model Opus 5.5 Fable 5.1 Sonnet 5.5 Effort Low Medium High Extra high Max"));
+      expect(await words(page)).toContain(flat("Model and effort Opus 5.5 · high effort Claude Code · Agent fixed for this PRD. Done Model Opus 5.5 Fable 5.1 Sonnet 5.5 Effort Low Medium High Extra high Max"));
       await page.evaluate(`const select = document.querySelector("#change-model"); select.value = "fable"; select.dispatchEvent(new Event("change", { bubbles: true })); true`);
       await click(page, "Max");
       await page.evaluate(`document.querySelector('input[type="checkbox"]').click()`);
       await waitUntil(() => server.commands.length === 3);
-      expect(server.commands).toEqual(['POST /api/settings {"model":"fable"}', 'POST /api/settings {"effort":"max"}', 'POST /api/settings {"keepAwake":false}']);
+      expect(server.commands).toEqual(['POST /api/settings {"model":"fable","agentId":"claude_code","selectionGeneration":0}', 'POST /api/settings {"effort":"max","agentId":"claude_code","selectionGeneration":0}', 'POST /api/settings {"keepAwake":false}']);
       await click(page, "Done");
       await page.waitFor(`!document.querySelector("#change-model")`);
     } finally {
@@ -1298,7 +1320,7 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       await waitFor(() => harness.engine.record.settings.keepAwake === false);
       await page.waitFor(`document.body.innerText.includes("to sleep.\\nOff")`);
       // A change the engine makes reaches the open page.
-      await harness.engine.changeSettings({ keepAwake: true });
+      await harness.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: true });
       await page.waitFor(`document.querySelector('input[type="checkbox"]').checked === true`);
       expect(page.problems).toEqual([]);
       // Closing the browser mid-phase has no effect on Kiln: the phase still lands (AC-KEEP-01).

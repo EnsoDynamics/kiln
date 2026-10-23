@@ -4,7 +4,6 @@
 // repository (multi-repo AC-ADD-01; add-repository-command.ts).
 
 import { basename, dirname, resolve } from "node:path";
-import { ClaudeInfo } from "./account/claude-info.js";
 import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
 import { originBranches } from "./engine/git-reads.js";
 import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
@@ -62,8 +61,6 @@ class StopControl {
   engine: Engine | undefined;
   /** The local server, closed once the engine's stop is done and before the lock is released. */
   server: LocalServer | undefined;
-  /** The account and model-list calls, ended when a stop begins. */
-  claude: ClaudeInfo | undefined;
   /** What a stop prints when no engine is running yet. */
   fallback: StopReport = { text: "Kiln stopped.", grey: "Nothing was started." };
   cause: (typeof STOP_SIGNALS)[number] | undefined;
@@ -93,7 +90,7 @@ class StopControl {
       return;
     }
     this.cause = signal;
-    this.claude?.close();
+    this.engine?.agents.close();
     const stopped = this.engine ? this.engine.stop(cause) : Promise.resolve(this.fallback);
     void stopped.then(async (report) => {
       // Step 5 of the stop: keep-awake was released by the engine; the server closes next.
@@ -137,7 +134,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     const absolute = resolve(context.cwd, pathArgument);
     const featureName = featureNameFor(basename(absolute.endsWith("-prd.md") ? dirname(absolute) : absolute));
     const problems = ["git isn't on the PATH."];
-    if (!findExecutable("claude", context.env)) problems.unshift("claude isn't on the PATH.");
+
     if (!findExecutable("gh", context.env)) problems.push("gh isn't on the PATH.");
     context.stderr.write(`${formatStartFailure(featureName, "", { missingDocuments: [], problems }, errColors)}\n`);
     return EXIT_START_CHECKS_FAILED;
@@ -146,7 +143,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   const resolution = await resolvePrdPath(pathArgument, context.cwd, git, context.env);
   if ("problem" in resolution) return usageError(context, `kiln: ${resolution.problem}`);
   const { location } = resolution;
-  const tools = { git, gh: findExecutable("gh", context.env), claude: findExecutable("claude", context.env) };
+  const tools = { git, gh: findExecutable("gh", context.env), claude: findExecutable("claude", context.env), codex: findExecutable("codex", context.env) };
 
   // The first step after resolving the PRD: its instance lock, which settles its port (AC-MULTI-04).
   const root = stateRoot(context.env);
@@ -164,12 +161,8 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return EXIT_START_CHECKS_FAILED;
   }
 
-  // The account, usage and model-list calls start now and are never awaited (Startup order).
-  const claude = new ClaudeInfo({ claude: tools.claude ?? "claude", env: context.env, cwd: stateDirectory });
-  claude.start();
   const stop = new StopControl(context);
-  stop.claude = claude;
-  const run: KilnRun = { location, tools, context, stop, claude, stateDirectory, port: lock.port };
+  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port };
   try {
     let record: PrdRecord | undefined;
     try {
@@ -182,7 +175,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     const work = record?.startedAt === undefined ? notStarted(run, record) : underway(run, record);
     return await Promise.race([work, stop.done]);
   } finally {
-    claude.close();
+    stop.engine?.close();
     await stop.server?.close();
     lock.release();
     stop.finish();
@@ -191,10 +184,9 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
 
 interface KilnRun {
   location: PrdLocation;
-  tools: { git: string; gh: string | undefined; claude: string | undefined };
+  tools: { git: string; gh: string | undefined; claude: string | undefined; codex: string | undefined };
   context: CommandContext;
   stop: StopControl;
-  claude: ClaudeInfo;
   stateDirectory: string;
   port: number;
 }
@@ -218,7 +210,7 @@ function makeEngine(
       featureName: location.featureName,
     },
     // A missing gh or claude fails its call, and so the check or session that needed it, as git's errors do.
-    tools: { git: tools.git, gh: tools.gh ?? "gh", claude: tools.claude ?? "claude" },
+    tools: { git: tools.git, gh: tools.gh ?? "gh", claude: tools.claude ?? "claude", ...(tools.codex ? { codex: tools.codex } : {}) },
     env: context.env,
     stateDirectory: run.stateDirectory,
     record,
@@ -228,7 +220,6 @@ function makeEngine(
     ...kilnBinDirectory(),
     onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
     keepAwake,
-    claude: run.claude,
   });
   run.stop.engine = engine;
   return engine;

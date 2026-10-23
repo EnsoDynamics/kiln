@@ -34,6 +34,12 @@ export function createSandbox(): Sandbox {
     // Session transcripts, which the stand-in claude keeps and Stayed in the workspace reads, stay in the sandbox too.
     CLAUDE_CONFIG_DIR: join(root, "claude-config"),
   };
+  const skills = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
+  for (const name of skills) {
+    const directory = join(root, "claude-config", "skills", name);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "SKILL.md"), `---\nname: ${name}\ndescription: Kiln test fixture\n---\n# ${name}\n`);
+  }
   // On Windows a folder can't be removed while a process that just ended still holds it, and
   // taskkill returns before the tree it ends is gone. rmSync's own retries don't cover an EBUSY
   // on its first rmdir, so cleanup retries for up to 10 seconds itself, then names what may hold it.

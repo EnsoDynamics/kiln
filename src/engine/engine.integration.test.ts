@@ -1,3 +1,4 @@
+import { modelEntries } from "../account/model-list.js";
 // The engine against real Git: a local bare repository as origin, the stand-in claude doing
 // real commits and pushes in Kiln's worktree, and the stand-in gh answering pull-request
 // checks from a file (technical design, "Testing Approach": engine, done check, setup).
@@ -245,7 +246,7 @@ describe("the snapshot while a phase works", () => {
     ]);
 
     // AC-WATCH-07: a settings change shows in the settings; the working phase keeps what it started with.
-    expect(await h.engine.changeSettings({ model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
     const changed = buildSnapshot(h.engine);
     expect(changed.settings).toMatchObject({ model: { value: "sonnet" }, effort: "max" });
     expect(changed.current).toMatchObject({ model: "Opus 5.5", effort: "high" });
@@ -393,25 +394,14 @@ describe("a phase that doesn't land", () => {
     expect(h.claudeCalls()).toHaveLength(1);
   });
 
-  it("goes to Needs you with the spawn error, and no retry, when claude can't be started", async () => {
+  it("blocks Start before any session when the selected Claude executable is missing", async () => {
     harness = await createHarness({ sessions: [], claude: join("/nonexistent", "claude") });
-    const h = harness;
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    const run = h.engine.latestSession("1")!.runs[0]!;
-    expect(run.spawnError?.code).toBe("ENOENT");
-    expect(run.endedAt).toBe(run.startedAt);
-    expect(run.pid).toBeUndefined();
-    const needsYou = buildSnapshot(h.engine).needsYou!;
-    expect(needsYou).toMatchObject({ kind: "done_check", spawnError: { code: "ENOENT" } });
-    expect(needsYou.resumeCommand).toBeUndefined();
-    expect(needsYou.lastSkill).toBeUndefined();
-    expect(needsYou.lastLines!.map((line) => line.text)).toEqual([expect.stringMatching(/^Couldn't start claude in .*customer-returns[/\\]acme-shop: /)]);
-    // Nothing ran, so the fresh-session prompt is the phase prompt unchanged.
-    expect(needsYou.freshSessionPrompt).not.toContain("A previous session stopped");
-    // A session that never started passes Stayed in the workspace, which Needs you lists only when it failed (multi-repo AC-OUTSIDE-01).
-    expect(h.engine.record.phases["1"]!.stop!.checks.map((check) => check.name)).toEqual(["Phase doc closed", "Everything committed", "Pushed"]);
-    expect(needsYou.outside).toBeUndefined();
+    const result = await harness.engine.start({ refinementConfirmed: true });
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(harness.engine.record.startedAt).toBeUndefined();
+    expect(harness.engine.latestSession("1")).toBeUndefined();
+    expect(harness.claudeCalls()).toEqual([]);
+    expect(buildSnapshot(harness.engine).settings.fieldErrors.model).toBeDefined();
   });
 });
 
@@ -612,6 +602,7 @@ describe("pausing between phases", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     expect(buildSnapshot(reopened).feature.state).toBe("paused");
 
+    await h.engine.agents.refresh();
     expect(await h.engine.start()).toEqual({ ok: true });
     await waitFor(() => h.claudeCalls().length === 2);
     await h.engine.settled();
@@ -851,13 +842,13 @@ describe("Start and the settings", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, fieldErrors: { featureBranch: expect.stringMatching(/^That branch already exists\./) } });
     expect(h.engine.fieldErrors.worktreePath).toBeUndefined();
 
-    await h.engine.changeSettings({ worktreePath: join(h.repository, "inside"), featureBranch: "bad..name", baseBranch: "nope" });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.repository, "inside"), featureBranch: "bad..name", baseBranch: "nope" });
     expect(h.engine.fieldErrors).toEqual({
       worktreePath: "That folder is inside a checkout of this repository. Choose one outside it.",
       featureBranch: "That isn’t a valid branch name.",
       baseBranch: "nope isn’t on origin.",
     });
-    await h.engine.changeSettings({ worktreePath: "relative/path", featureBranch: "", baseBranch: "develop" });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: "relative/path", featureBranch: "", baseBranch: "develop" });
     expect(h.engine.fieldErrors).toEqual({ worktreePath: "Enter a full path, starting with / or ~.", featureBranch: "Enter a branch name." });
 
     // PRD documents on origin that differ from the checkout's.
@@ -865,7 +856,7 @@ describe("Start and the settings", () => {
     git(h.sandbox, h.repository, "commit", "-qam", "change phase 3");
     git(h.sandbox, h.repository, "push", "-q", "origin", "develop:develop");
     git(h.sandbox, h.repository, "reset", "-q", "--hard", "HEAD~1");
-    await h.engine.changeSettings({ worktreePath: join(h.sandbox.root, "elsewhere"), featureBranch: "feature/x" });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.sandbox.root, "elsewhere"), featureBranch: "feature/x" });
     expect(h.engine.fieldErrors).toEqual({
       baseBranch: "develop on origin has different PRD documents from this checkout. Push them to develop first; every session starts from there.",
     });
@@ -878,9 +869,9 @@ describe("Start and the settings", () => {
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, { actions: [{ result: "Stop here." }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 1);
-    expect(await h.engine.changeSettings({ featureBranch: "feature/other" })).toMatchObject({ ok: false, status: 409 });
-    expect(await h.engine.changeSettings({ effort: "turbo" as never })).toMatchObject({ ok: false, status: 400 });
-    expect(await h.engine.changeSettings({ model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, featureBranch: "feature/other" })).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "turbo" as never })).toMatchObject({ ok: false, status: 422 });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
     writeFileSync(release, "");
     await h.engine.settled();
     const second = h.claudeCalls()[1]!.args;
@@ -898,7 +889,7 @@ describe("setup that fails", () => {
     // A path whose parent is a file passes the path check, but git can't create the folder.
     const blocker = join(h.sandbox.root, "blocker");
     writeFileSync(blocker, "");
-    await h.engine.changeSettings({ worktreePath: join(blocker, "worktree") });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(blocker, "worktree") });
     expect(h.engine.fieldErrors).toEqual({});
 
     const failed = await h.engine.start({ refinementConfirmed: true });
@@ -914,7 +905,7 @@ describe("setup that fails", () => {
     expect(buildSnapshot(h.engine, undefined).feature.state).toBe("not_started");
 
     // Kiln's own branch isn't "taken"; after a new path, Start sets up on it from its recorded commit.
-    await h.engine.changeSettings({ worktreePath: join(h.sandbox.root, "good", "worktree") });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.sandbox.root, "good", "worktree") });
     expect(h.engine.fieldErrors).toEqual({});
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await h.engine.settled();
@@ -1043,6 +1034,7 @@ describe("kiln run on a feature underway", () => {
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "paused", beforePhaseKey: "pr" });
     h.setPulls([{ number: 12, title: "t", url: "u", isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 1, deletions: 0, commits: [] }]);
+    await engine.agents.refresh();
     expect(await engine.start()).toEqual({ ok: true });
     await engine.settled();
     expect(engine.record.pullRequests?.[0]?.number).toBe(12);
@@ -1082,17 +1074,17 @@ async function waitFor(condition: () => boolean, timeoutMs = 20_000): Promise<vo
 }
 
 describe("the account before each phase (AC-WATCH-09)", () => {
-  it("is read again just before each phase's session starts, the pull request's included, without waiting for it", async () => {
+  it("is refreshed before each new phase and PR conversation with a confirmed catalogue", async () => {
     const refreshedBefore: number[] = [];
     const claude: ClaudeInfoSource = {
-      account: undefined,
-      models: undefined,
+      account: { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] },
+      models: modelEntries(JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8")).models),
       modelListError: undefined,
       onChange: () => () => undefined,
-      // Never resolves: the engine starts the session without waiting for the account.
+      // Completes without inference; a new session waits for confirmed metadata.
       refreshAccount: () => {
-        refreshedBefore.push(harness!.claudeCalls().length);
-        return new Promise<void>(() => undefined);
+        refreshedBefore.push(harness?.claudeCalls().length ?? 0);
+        return Promise.resolve();
       },
     };
     harness = await createHarness({
@@ -1104,7 +1096,7 @@ describe("the account before each phase (AC-WATCH-09)", () => {
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
     // Phases 1, 2b and 3, then the pull-request session: each refresh comes before that session's launch.
-    expect(refreshedBefore).toEqual([0, 1, 2, 3]);
+    expect(refreshedBefore).toEqual([0, 0, 1, 2, 3]);
   });
 
   it("never waits for a limit to reset: a used-up limit still starts the next phase (AC-WATCH-08, UI-005)", async () => {
@@ -1115,7 +1107,7 @@ describe("the account before each phase (AC-WATCH-09)", () => {
       updatedAt: new Date().toISOString(),
       limits: [{ kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 100, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), nearLimit: true }],
     };
-    const claude: ClaudeInfoSource = { account, models: undefined, modelListError: undefined, onChange: () => () => undefined, refreshAccount: () => Promise.resolve() };
+    const claude: ClaudeInfoSource = { account, models: modelEntries(JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8")).models), modelListError: undefined, onChange: () => () => undefined, refreshAccount: () => Promise.resolve() };
     harness = await createHarness({ sessions: [landingSession("src/intake.txt"), { actions: [{ result: "Stop here." }] }], engineOptions: { claude } });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });

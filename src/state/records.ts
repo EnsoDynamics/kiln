@@ -8,9 +8,12 @@
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export type Effort = string;
+export type AgentId = "claude_code" | "codex";
+export const AGENT_NAMES: Record<AgentId, string> = { claude_code: "Claude Code", codex: "Codex" };
+export interface AgentChoice { model: string; effort?: string }
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Settings {
@@ -25,12 +28,33 @@ export interface Settings {
   bases: Record<string, string>;
   model: string;
   effort: Effort;
+  agentId?: AgentId;
+  selectionGeneration?: number;
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
 }
 
-export type StopKind = "done_check" | "pull_request_check" | "not_resumable" | "plan";
+/** Only the per-agent map owns next-session settings on disk. */
+export interface AgentSettings extends Omit<Settings, "model" | "effort" | "agentId" | "selectionGeneration"> {
+  agentId: AgentId;
+  selectionGeneration?: number;
+  agentChoices: Partial<Record<AgentId, AgentChoice>>;
+}
+export function selectedChoice(settings: AgentSettings): AgentChoice {
+  return settings.agentChoices[settings.agentId] ?? { model: "" };
+}
+export function agentSettings(settings: Settings | AgentSettings): AgentSettings {
+  if ("agentChoices" in settings) return settings;
+  const { model, effort, ...rest } = settings;
+  delete rest.agentId; delete rest.selectionGeneration;
+  return { ...rest, agentId: "claude_code", selectionGeneration: 0, agentChoices: { claude_code: { model, effort } } };
+}
+export function assertAgent(agent: unknown): asserts agent is AgentId {
+  if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
+}
+
+export type StopKind = "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection";
 
 export interface CheckResult {
   name: string;
@@ -172,7 +196,7 @@ export interface PrdRecord {
   prdDirectory: string;
   featureName: string;
   token: string;
-  settings: Settings;
+  settings: AgentSettings;
   refinementConfirmedAt?: string;
   startedAt?: string;
   setupCompletedAt?: string;
@@ -222,6 +246,7 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
+  agentId?: AgentId;
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
@@ -276,14 +301,20 @@ interface SchemaOnePhase {
 }
 
 /**
- * Reads an older record as schema 3, with no Git call. Schema 1 to 2: one `prd` repository entry
+ * Reads an older record as schema 4, with no Git call. Schema 1 to 2: one `prd` repository entry
  * when it was started or holds Kiln's branch, each phase's commits under that repository, the
  * pull request as a one-entry list and each check's fact as a one-item list. Schema 2 to 3 adds
  * nothing to the record, since no record before it holds a run the person resumed; the version
  * alone moves, so an older Kiln refuses it. A PRD already underway gets "Resume after a usage
- * limit" on, as a new one does (UI-003). Written as schema 3 at its next write.
+ * limit" on, as a new one does (UI-003). Schema 4 adds the Claude agent and moves saved choices
+ * into its map without changing conversation keys. Written as schema 4 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
+  if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
+  if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
+  assertAgent(record.settings.agentId);
+  record.settings.selectionGeneration ??= 0;
+  for (const id of Object.keys(record.settings.agentChoices)) assertAgent(id);
   // A schema 2 record written before Stayed in the workspace was built holds no confirmations.
   for (const facts of Object.values(record.phases)) facts.outsideConfirmations ??= [];
   record.settings.resumeAfterUsageLimit ??= true;
@@ -338,14 +369,23 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
 }
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {
+  if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
+  assertAgent(record.settings.agentId);
   writeJsonAtomically(prdRecordPath(stateDirectory), record);
 }
 
 export function readSessionRecord(stateDirectory: string, phaseKey: string, sessionId: string): SessionRecord | undefined {
-  return readJson<SessionRecord>(join(sessionDirectory(stateDirectory, phaseKey, sessionId), "session.json"));
+  const record = readJson<SessionRecord>(join(sessionDirectory(stateDirectory, phaseKey, sessionId), "session.json"));
+  if (!record) return undefined;
+  if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("This session needs a newer Kiln. Update Kiln.");
+  if (record.schemaVersion < 4) record.agentId = "claude_code";
+  assertAgent(record.agentId);
+  record.schemaVersion = SCHEMA_VERSION;
+  return record;
 }
 
 export function writeSessionRecord(stateDirectory: string, record: SessionRecord): void {
+  if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this session.");
   const phaseKey = record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
   writeJsonAtomically(join(sessionDirectory(stateDirectory, phaseKey, record.sessionId), "session.json"), record);
 }

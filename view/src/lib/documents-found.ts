@@ -110,6 +110,7 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
+  if (settings.metadataPending || settings.executionGate) return { enabled: false, note: settings.executionGate ?? "Reading agent information…" };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
   const held = Object.values(settings.fieldErrors).some((message) => message !== undefined) || repositories.some((row) => row.fieldErrors.baseBranch !== undefined);
   return { enabled: connected && !held };
@@ -120,6 +121,6 @@ export function accountLines(account: Snapshot["account"]): { line?: string; usa
   if (account === undefined) return {};
   if (account.error !== undefined) return { error: account.error };
   const line = [account.email, account.plan].filter((part) => part !== undefined).join(" · ") || undefined;
-  const usage = account.limits.length === 0 ? undefined : `Used: ${account.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`).join(" · ")}`;
+  const usage = account.limits.length === 0 ? undefined : `Used: ${account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}`).join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };
 }

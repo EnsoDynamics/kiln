@@ -18,7 +18,12 @@
   // or switching accounts, with the account Kiln last read (AC-LIMIT-01 to 03); after Kiln's own
   // resume was refused again it says so (AC-AUTO-05). With no Resume, the limit and the account
   // stay and step 1's fresh session waits for the reset or another account (technical design, "Screens").
+  // A selection stop precedes a new conversation: offer settings and sign-in repair instead
+  // of session recovery (Codex support technical design, "Local API and snapshot changes").
   import type { Snapshot } from "../../../src/engine/snapshot.js";
+  import type { Settings } from "../../../src/state/records.js";
+  import AccountPanel from "../components/AccountPanel.svelte";
+  import ModelEffortEditor from "../components/ModelEffortEditor.svelte";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
@@ -26,7 +31,7 @@
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
-  import { checkAgain, confirmOutside, resume } from "../lib/api.js";
+  import { changeSettings, checkAgain, confirmOutside, refreshMetadata, resume } from "../lib/api.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
@@ -79,6 +84,16 @@
     pressing = false;
     reason = answer.ok ? undefined : answer.reason;
   }
+  async function saveSelection(change: Partial<Settings>) {
+    const answer = await changeSettings(config, { ...change, agentId: snapshot.settings.agentId ?? "claude_code", selectionGeneration: snapshot.settings.selectionGeneration ?? 0 });
+    reason = answer.ok ? undefined : answer.reason;
+  }
+  async function refreshSelection() {
+    pressing = true;
+    const answer = await refreshMetadata(config);
+    pressing = false;
+    reason = answer.ok ? undefined : answer.reason;
+  }
 </script>
 
 <main class="page-main roomy">
@@ -112,6 +127,15 @@
         {/if}
       </section>
 
+      {#if stop.kind === "selection"}
+        <section class="card">
+          <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
+          <ModelEffortEditor {snapshot} save={saveSelection} />
+          <SwitchAccountCommand agentId={snapshot.settings.agentId} />
+          <button type="button" class="button small" disabled={busy || snapshot.settings.metadataPending} onclick={refreshSelection}>Refresh agent information</button>
+        </section>
+        {#if snapshot.account}<AccountPanel account={snapshot.account} paused={false} notStarted {now} />{/if}
+      {:else}
       {#if stop.resumeOffered && stop.limit && limitCopy}
         <section class="card resume">
           <span class="eyebrow">Two ways to carry on</span>
@@ -125,7 +149,7 @@
               <div class="step">
                 <span class="step-title">Or switch to another Claude account now</span>
                 <p>In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account.</p>
-                <SwitchAccountCommand />
+                <SwitchAccountCommand agentId={snapshot.settings.agentId} />
               </div>
             </li>
           </ol>
@@ -172,7 +196,7 @@
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
                   <span class="step-title">Start a fresh Claude Code session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
-                  {#if stop.limit}<p>Start it after the reset, or after switching accounts.</p><SwitchAccountCommand />{/if}
+                  {#if stop.limit}<p>Start it after the reset, or after switching accounts.</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>
                     <pre class="prompt">{stop.freshSessionPrompt}</pre>
@@ -205,6 +229,7 @@
           {#if showPrompt}<div class="block"><pre class="prompt">{stop.freshSessionPrompt}</pre><div class="actions"><CopyButton text={stop.freshSessionPrompt} label="Copy prompt" /></div></div>{/if}
         {/if}
       </section>
+      {/if}
     </div>
 
     <div class="column-side">

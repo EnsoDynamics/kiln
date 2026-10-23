@@ -132,7 +132,7 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     if (changed.length > 0) problems.push(uncommittedChangesProblem(location.checkoutRoot, changed));
   }
 
-  if (!tools.claude) problems.push("claude isn't on the PATH.");
+
   if (!tools.gh) problems.push("gh isn't on the PATH.");
   if (ghAuth && ghAuth.exitCode === null) problems.push(`Couldn't check gh's sign-in: ${ghAuth.failure}`);
   else if (ghAuth && ghAuth.exitCode !== 0) problems.push("gh isn't signed in to github.com. Run gh auth login.");

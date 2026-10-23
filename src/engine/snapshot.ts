@@ -1,9 +1,11 @@
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import type { AgentAccount } from "../agents/metadata.js";
+import { selectedChoice } from "../state/records.js";
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
 
 import { readFileSync } from "node:fs";
-import type { AccountView } from "../account/claude-account.js";
 import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
@@ -123,7 +125,15 @@ export interface Snapshot {
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
   settings: {
-    agent: "Claude Code";
+    agent: string;
+    agentId?: AgentId;
+    agentFixed?: boolean;
+    selectionGeneration?: number;
+    metadataPending?: boolean;
+    readinessErrors?: string[];
+    executionGate?: string;
+    choiceNotice?: string;
+    efforts?: { value: string; label: string; description?: string }[];
     model: { value: string; displayName: string };
     effort: Effort;
     effortLevels: Effort[] | null;
@@ -239,7 +249,7 @@ export interface Snapshot {
   };
   pause: { pending: boolean; active: boolean };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
-  account?: AccountView;
+  account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
   pullRequests?: PullRequestFacts[];
 }
@@ -272,8 +282,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
   const current = state === "implementing" ? currentView(engine) : undefined;
   const settings = record.settings;
-  const entry = engine.modelEntry(settings.model);
-  const claude = engine.claude;
+  const entry = engine.modelEntry(selectedChoice(settings).model);
+  const metadata = engine.agents.state;
 
   const snapshot: Snapshot = {
     feature: {
@@ -290,12 +300,20 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     settings: {
-      agent: "Claude Code",
+      agent: AGENT_NAMES[settings.agentId],
+      agentId: settings.agentId,
+      agentFixed: engine.agentFixed,
+      selectionGeneration: metadata.generation,
+      metadataPending: metadata.pending,
+      readinessErrors: metadata.blockers,
+      ...optional("executionGate", engine.executionGate),
+      ...optional("choiceNotice", engine.choiceNotice),
+      ...optional("efforts", entry?.efforts),
       // A saved alias the list doesn't offer, or any model before the list loads, is named as saved.
-      model: { value: settings.model, displayName: entry?.displayName ?? settings.model },
-      effort: settings.effort,
+      model: { value: selectedChoice(settings).model, displayName: entry?.displayName ?? selectedChoice(settings).model },
+      effort: selectedChoice(settings).effort ?? "",
       effortLevels: effortLevelsFor(entry),
-      ...optional("modelListError", claude?.modelListError),
+      ...optional("modelListError", metadata.modelListError),
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
@@ -312,10 +330,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       fieldErrors: engine.currentFieldErrors,
     },
     repositories: repositoryRows(engine, state),
-    ...optional("models", claude?.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
+    ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: phaseViews(engine, state),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
-    ...optional("account", claude?.account),
+    ...optional("account", metadata.account),
     ...optional("pullRequests", record.pullRequests),
     ...optional("current", current),
     ...optional("needsYou", needsYou),
@@ -348,7 +366,7 @@ function currentView(engine: Engine): Snapshot["current"] {
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: settings.model, effort: settings.effort, steps: stepStates([]), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: stepStates([]), repositories: [] };
   }
   const steps = stepStates(session.steps);
   const latestStep = [...session.steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).at(-1);
@@ -393,7 +411,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  const outside = outsideView(engine, phaseKey);
+  const outside = stop.kind === "selection" ? undefined : outsideView(engine, phaseKey);
   const base = {
     phaseId: judged,
     kind: stop.kind,
@@ -404,7 +422,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...optional("outside", outside?.view),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
   };
-  const session = stop.kind === "plan" ? undefined : sessionFor(engine, phaseKey);
+  const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
@@ -514,7 +532,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     outputLineCount: lines.length,
     ...(engine.checking ? { checking: true as const } : {}),
-    model: session?.modelDisplayName ?? engine.record.settings.model,
+    model: session?.modelDisplayName ?? selectedChoice(engine.record.settings).model,
     ...optional("effort", session?.effort),
     ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
     ...optional("sessionEndedAt", run?.endedAt),

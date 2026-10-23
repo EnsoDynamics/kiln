@@ -4,13 +4,14 @@
   // account's email as text to type, since its address is the person's to fill in.
   import CopyButton from "./CopyButton.svelte";
 
-  const COMMAND = "claude auth login";
+  let { agentId = "claude_code" }: { agentId?: "claude_code" | "codex" | undefined } = $props();
+  const COMMAND = $derived(agentId === "codex" ? "codex login" : "claude auth login");
 </script>
 
 <div class="block">
   <pre>{COMMAND}</pre>
   <div><CopyButton text={COMMAND} /></div>
-  <p class="hint">To fill in the other account’s email, add it: <span class="mono typed">claude auth login --email &lt;address&gt;</span></p>
+  {#if agentId === "claude_code"}<p class="hint">To fill in the other account’s email, add it: <span class="mono typed">claude auth login --email &lt;address&gt;</span></p>{/if}
 </div>
 
 <style>

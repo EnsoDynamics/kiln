@@ -19,6 +19,8 @@ export interface ModelEntry {
   supportsEffort: boolean;
   supportedEffortLevels: Effort[];
   supportsAutoMode: boolean;
+  defaultEffort?: string;
+  efforts?: { value: string; label: string; description?: string }[];
 }
 
 /** The model a new PRD starts on: the latest Opus (UI-004). */
@@ -45,8 +47,9 @@ export function modelEntries(models: (ModelInfo & { disabled?: boolean })[]): Mo
       displayName: modelNameFromId(resolved),
       description: model.description,
       supportsEffort: model.supportsEffort === true,
-      supportedEffortLevels: (model.supportedEffortLevels ?? []).filter((level): level is Effort => EFFORT_LEVELS.includes(level as Effort)),
+      supportedEffortLevels: (model.supportedEffortLevels ?? []).filter((level) => EFFORT_LEVELS.includes(level)),
       supportsAutoMode: model.supportsAutoMode === true,
+
     });
   }
   return entries;
@@ -58,7 +61,7 @@ export function modelEntries(models: (ModelInfo & { disabled?: boolean })[]): Mo
  */
 export function effortLevelsFor(entry: ModelEntry | undefined): Effort[] | null {
   if (entry === undefined) return null;
-  return entry.supportsEffort ? EFFORT_LEVELS.filter((level) => entry.supportedEffortLevels.includes(level)) : [];
+  return entry.supportsEffort ? entry.efforts ? entry.supportedEffortLevels : EFFORT_LEVELS.filter((level) => entry.supportedEffortLevels.includes(level)) : [];
 }
 
 /**
@@ -81,7 +84,7 @@ export function autoModeError(entry: ModelEntry | undefined): string | undefined
   return `${entry.displayName} can’t run unattended on this account; it needs auto mode.`;
 }
 
-/** The message when the list can't be read (UI-011 item 3); it doesn't hold Start. */
+/** An unavailable catalogue blocks new sessions (Codex support PRD AC-MODEL-02). */
 export const modelListErrorMessage = (error: string) => `Couldn’t load Claude Code’s models: ${error}`;
 
 export interface ModelListOptions {
@@ -101,6 +104,7 @@ export type ModelListResult = { ok: true; models: ModelEntry[] } | { ok: false; 
  * error a failure shows.
  */
 export async function readModelList(options: ModelListOptions): Promise<ModelListResult> {
+  if (options.signal?.aborted) return { ok: false, error: "Kiln is stopping" };
   let stderr = "";
   let child: ChildProcess | undefined;
   const abort = new AbortController();
@@ -115,6 +119,8 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
       env: options.env,
       abortController: abort,
       spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
+        // The SDK may defer spawning until after close/abort. Never start that late helper.
+        if (abort.signal.aborted || options.signal?.aborted || spawnOptions.signal.aborted) throw new Error("Kiln is stopping");
         child = spawnDetached(spawnOptions.command, spawnOptions.args, { cwd: spawnOptions.cwd ?? options.cwd, env: spawnOptions.env as NodeJS.ProcessEnv, stdin: "pipe" });
         child.stderr!.setEncoding("utf8").on("data", (text: string) => (stderr += text));
         // When the SDK ends the child it ends the whole tree, so a .cmd shim's claude goes with it on Windows.

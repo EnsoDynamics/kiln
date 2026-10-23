@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { modelEntries } from "../account/model-list.js";
 // A stand-in for Kiln's account and usage reader in the engine's tests (usage-limit recovery
 // technical design, "Testing Approach"): each reading Kiln asks for takes the next scripted one,
 // stamped with the test's clock, or waits for the test to deliver one when none is queued.
@@ -23,7 +25,7 @@ export function usageRow(kind: "session" | "weekly_all", percent: number, resets
  */
 export class ScriptedClaude implements ClaudeInfoSource {
   account: AccountView | undefined;
-  readonly models = undefined;
+  readonly models = modelEntries(JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8")).models);
   readonly modelListError = undefined;
   asked = 0;
   private readonly queued: ScriptedReading[] = [];

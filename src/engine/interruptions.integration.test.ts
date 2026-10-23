@@ -526,9 +526,9 @@ describe("keep-awake", () => {
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     expect(states).toEqual([true]);
-    await h.engine.changeSettings({ keepAwake: false });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: false });
     expect(states).toEqual([true, false]);
-    await h.engine.changeSettings({ keepAwake: true });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: true });
     expect(states).toEqual([true, false, true]);
     writeFileSync(gate, "");
     await h.engine.settled();

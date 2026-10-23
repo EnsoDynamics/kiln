@@ -135,8 +135,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     return { paths, record, stateDirectory, prdTree };
   };
   const feature = await newFeature(folder);
-  const engineOver = (f: Awaited<ReturnType<typeof newFeature>>, record = f.record) =>
-    new Engine({
+  const engines = new Set<Engine>();
+  const engineOver = (f: Awaited<ReturnType<typeof newFeature>>, record = f.record) => {
+    const engine = new Engine({
       paths: f.paths,
       tools,
       env,
@@ -149,6 +150,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       sleepReader: { next: () => Promise.resolve([]) },
       ...options.engineOptions,
     });
+    engines.add(engine);
+    return engine;
+  };
   const make = () => engineOver(feature, harness.engine?.record ?? feature.record);
   const stateDirectory = feature.stateDirectory;
 
@@ -166,13 +170,14 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     claudeCalls: () => readJsonLines(`${scenarioPath}.calls.jsonl`),
     ghCalls: () => readJsonLines(`${ghStatePath}.calls.jsonl`),
     setPulls: (pulls) => writeFileSync(ghStatePath, JSON.stringify(Array.isArray(pulls) ? { pulls } : pulls)),
-    reopen: () => (harness.engine = make()),
-    reopenFromDisk: () => (harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!)),
-    engineFor: async (name) => engineOver(await newFeature(name)),
+    reopen: () => { harness.engine.close(); return harness.engine = make(); },
+    reopenFromDisk: () => { harness.engine.close(); return harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!); },
+    engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.agents.refresh(); return engine; },
     kilnGitCalls: () => kilnGitCalls(gitLog),
-    cleanup: () => sandbox.cleanup(),
+    cleanup: () => { for (const engine of engines) engine.close(); harness.engine.close(); return sandbox.cleanup(); },
   };
   harness.engine = make();
+  await harness.engine.agents.refresh();
   return harness;
 }
 

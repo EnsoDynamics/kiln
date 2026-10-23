@@ -61,7 +61,7 @@ interface Setup {
 /** The account reader for a test: the reading Kiln asks for as phase 1 starts, before any refusal, answered. */
 function scriptedClaude(clock: ReturnType<typeof testClock>): ScriptedClaude {
   const claude = new ScriptedClaude(clock.now);
-  claude.queue(signedIn([usageRow("session", 40)]));
+  claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]));
   return claude;
 }
 
@@ -84,6 +84,11 @@ async function startToWait(s: Setup): Promise<void> {
 /** Lets a resume Kiln started by itself run to its verdict. */
 async function untilSettled(engine: Engine, condition: () => boolean): Promise<void> {
   await waitFor(condition);
+  // A fresh next-phase conversation now requires another metadata read. Supply that
+  // separate fixture reading after the recovery under test has completed.
+  if (engine.isPhaseDone("1") && !engine.record.completedAt && engine.claude instanceof ScriptedClaude) {
+    engine.claude.queue(signedIn(engine.claude.account?.limits ?? []));
+  }
   await engine.settled();
 }
 
@@ -187,9 +192,13 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
   it("ignores a reading that started before the refusal, and asks for another that decides the wait", async () => {
     const clock = testClock();
     // The reading asked for as phase 1 starts is left unanswered until after the refusal.
-    const claude = new ScriptedClaude(clock.now);
-    harness = await createHarness({ sessions: [refusedSession({ rateLimitType: "five_hour", resetsAt: null })], engineOptions: { claude, now: clock.now } });
+    const claude = scriptedClaude(clock);
+    const refused = refusedSession({ rateLimitType: "five_hour", resetsAt: null });
+    refused.actions.unshift({ sleepFor: 300 });
+    harness = await createHarness({ sessions: [refused], engineOptions: { claude, now: clock.now } });
     await harness.engine.start({ refinementConfirmed: true });
+    await waitFor(() => harness!.engine.latestSession("1")?.runs[0]?.pid !== undefined);
+    void claude.refreshAccount(); // Began after readiness, but before the provider refusal.
     await harness.engine.settled();
     expect(harness.engine.waitingPhaseKey()).toBe("1");
     const asked = claude.asked;
@@ -493,7 +502,7 @@ describe("Resume now and the setting (AC-AUTO-04)", () => {
     await startToWait(s);
     claude.deliver(signedIn([usageRow("session", 100)]));
     const pressed = h.engine.resume();
-    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.waitingPhaseKey()).toBe("1");
     claude.queue(signedIn([usageRow("session", 100)]));
     expect(await pressed).toEqual({ ok: true });
@@ -508,7 +517,7 @@ describe("the setting (AC-AUTO-04)", () => {
     const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
     const { h, claude } = s;
     expect(h.engine.record.settings.resumeAfterUsageLimit).toBe(true);
-    await h.engine.changeSettings({ resumeAfterUsageLimit: false });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "done_check", limit: { label: "5-hour window", resetsAt: resetIso(s.reset) } });
@@ -519,11 +528,11 @@ describe("the setting (AC-AUTO-04)", () => {
     expect(buildSnapshot(h.engine).needsYou!.limit).toMatchObject({ account: { percent: 100, atLimitUntil: resetIso(s.reset) } });
 
     // Switched on at Needs you, it changes the setting only.
-    await h.engine.changeSettings({ resumeAfterUsageLimit: true });
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: true });
     await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1);
     // Resume at Needs you after a usage limit tells the session so.
-    claude.queue(signedIn([usageRow("session", 0)]));
+    claude.queue(signedIn([usageRow("session", 0)]), signedIn([usageRow("session", 0)]));
     expect(await h.engine.resume()).toEqual({ ok: true });
     await h.engine.settled();
     const runs = h.engine.latestSession("1")!.runs;
@@ -536,7 +545,7 @@ describe("the setting (AC-AUTO-04)", () => {
     const { h } = s;
     await startToWait(s);
     const checks = h.engine.record.phases["1"]!.wait!.checks;
-    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
     expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "done_check", checks, limit: { label: "5-hour window" } });
     expect(states.at(-1)).toBe(false);
@@ -550,7 +559,7 @@ describe("the setting (AC-AUTO-04)", () => {
     claude.deliver(signedIn([usageRow("session", 3)]));
     // The check has failed; Kiln is reading the account before resuming.
     await waitFor(() => claude.waiting);
-    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.waitingPhaseKey()).toBe("1");
     // A reading during the resume's hold changes the card only, never the refused account.
     claude.deliver(signedIn([usageRow("session", 3)], { email: "sam@acme-shop.dev", orgId: "org-sam" }));
@@ -571,12 +580,14 @@ describe("the pull-request session (AC-AUTO-01, AC-LIMIT-05)", () => {
       pullRequestSession(218),
     ]);
     const { h, claude } = s;
+    // Fresh catalogue/account checks for the next two phases and the PR conversation.
+    claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]));
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.waitingPhaseKey()).toBe("pr");
     expect(buildSnapshot(h.engine).feature.state).toBe("waiting");
     expect(h.events.find((event) => event.kind === "pull_request" && event.event === "waiting")).toMatchObject({ limit: { label: "5-hour window", resetsAt: resetIso(s.reset) } });
-    // The reading asked for before the pull-request session started is still under way: it predates the refusal and is ignored.
+    // Supply the post-refusal allowance and the fresh reading before the same-session resume.
     claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 3)]), signedIn([usageRow("session", 3)]));
     await untilSettled(h.engine, () => h.engine.record.completedAt !== undefined);
     const runs = h.engine.latestSession("pr")!.runs;

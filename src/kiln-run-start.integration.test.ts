@@ -117,6 +117,13 @@ function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) 
 }
 
 async function api(address: string, token: string, method: string, path: string, body?: unknown) {
+  // A real chooser waits for its current metadata before enabling Start or model edits.
+  if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && ("model" in body || "effort" in body))) {
+    await waitFor(async () => {
+      const current = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      return current.settings.metadataPending === false;
+    });
+  }
   const origin = new URL(address).origin;
   const response = await fetch(`${origin}${path}`, {
     method,
@@ -183,7 +190,7 @@ describe("kiln run on a feature not started", () => {
     // The record is written when Documents found is served, with the default settings (AC-START-07, UI-004).
     const record = readPrdRecord(stateDirectoryOf(f))!;
     expect(record.startedAt).toBeUndefined();
-    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true });
+    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, keepAwake: true });
     expect(record.repository.github).toBe("acme/acme-shop");
 
     // AC-MULTI-02: the tab's title names the feature.
@@ -248,11 +255,11 @@ describe("kiln run on a feature not started", () => {
     expect(git(f.sandbox, f.repository, "branch", "--list", "feature/*")).toBe("");
 
     // Settings change before Start, and are saved as they are made (AC-START-06).
-    expect((await api(address, token, "POST", "/api/settings", { effort: "max", keepAwake: false })).status).toBe(200);
+    expect((await api(address, token, "POST", "/api/settings", { agentId: "claude_code", selectionGeneration: 0, effort: "max", keepAwake: false })).status).toBe(200);
     const badBranch = await api(address, token, "POST", "/api/settings", { featureBranch: "no..dots" });
     expect((badBranch.body.settings as { fieldErrors: unknown }).fieldErrors).toEqual({ featureBranch: "That isn’t a valid branch name." });
     await api(address, token, "POST", "/api/settings", { featureBranch: "feature/returns" });
-    expect(readPrdRecord(stateDirectoryOf(f))!.settings).toMatchObject({ effort: "max", keepAwake: false, featureBranch: "feature/returns" });
+    expect(readPrdRecord(stateDirectoryOf(f))!.settings).toMatchObject({ agentChoices: { claude_code: { effort: "max" } }, keepAwake: false, featureBranch: "feature/returns" });
 
     // Start stays unavailable until the person confirms refinement (AC-START-05).
     expect(await api(address, token, "POST", "/api/start", {})).toEqual({ status: 400, body: { ok: false, reason: "Confirm the documents have been through requirements refinement first." } });
@@ -439,7 +446,7 @@ describe("kiln run on a feature not started", () => {
     const first = startKiln(f);
     const address = await first.address;
     const { token } = await tokenFromPage(address);
-    await api(address, token, "POST", "/api/settings", { effort: "low" });
+    await api(address, token, "POST", "/api/settings", { agentId: "claude_code", selectionGeneration: 0, effort: "low" });
     first.signals.emit("SIGINT");
     await first.done;
 

@@ -11,6 +11,7 @@
   // AC-AUTO-04).
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
+  import AccountPanel from "../components/AccountPanel.svelte";
   import CodeText from "../components/CodeText.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
@@ -60,9 +61,10 @@
   let drafts = $state<Partial<Record<TextField, string>>>({});
   const timers: Partial<Record<TextField, ReturnType<typeof setTimeout>>> = {};
 
-  function save(change: Partial<Settings>) {
+  async function save(change: Partial<Settings>) {
     startReason = undefined;
-    void changeSettings(config, change);
+    const answer = await changeSettings(config, { ...change, ...((change.model !== undefined || change.effort !== undefined) ? { agentId: settings.agentId ?? "claude_code", selectionGeneration: settings.selectionGeneration ?? 0 } : {}) });
+    if (!answer.ok) startReason = answer.reason;
   }
 
   function typed(field: TextField, value: string) {
@@ -236,8 +238,9 @@
 
       <div class="pair">
         <div class="field">
-          <span class="label">Agent</span>
-          <span class="agent">Claude Code{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+          <label for="agent">Agent</label>
+          <select id="agent" value={settings.agentId ?? "claude_code"} disabled={fixedLocked || settings.agentFixed} onchange={(event) => save({ agentId: event.currentTarget.value as "claude_code" | "codex" })}><option value="claude_code">Claude Code</option><option value="codex">Codex</option></select>
+          <span class="agent">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
         </div>
         <div class="field">
           <label for="model">Model</label>
@@ -249,16 +252,24 @@
         </div>
       </div>
 
+      <span class="help">Listed models do not guarantee account access.</span>
+      {#if settings.choiceNotice}<p class="message">{settings.choiceNotice}</p>{/if}
+      {#if settings.executionGate}<p class="message">{settings.executionGate}</p>{/if}
+      {#if settings.readinessErrors?.length}<p class="message">{settings.readinessErrors.join(" ")}</p>{/if}
+      <button type="button" class="button" disabled={settings.metadataPending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
       <fieldset class="effort">
         <legend>Effort</legend>
         <div class="segments">
-          {#each EFFORTS as effort (effort)}
+          {#each settings.effortLevels ?? EFFORTS as effort (effort)}
             {@const pressed = settings.effortLevels?.length !== 0 && settings.effort === effort}
-            <button type="button" aria-pressed={pressed} class:pressed disabled={!connected || documents.starting === true || effortDisabled(settings, effort)} onclick={() => chooseEffort(effort)}>{EFFORT_LABELS[effort]}</button>
+            <button type="button" aria-pressed={pressed} class:pressed disabled={!connected || documents.starting === true || effortDisabled(settings, effort)} onclick={() => chooseEffort(effort)}>{settings.efforts?.find((e) => e.value === effort)?.label ?? EFFORT_LABELS[effort] ?? effort}</button>
           {/each}
         </div>
         <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
+        {#if settings.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
       </fieldset>
+      {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
+
 
       <label for="awake" class="awake">
         <input id="awake" type="checkbox" checked={settings.keepAwake} disabled={!connected} onchange={(event) => save({ keepAwake: event.currentTarget.checked })} />
@@ -379,7 +390,7 @@
   .sub { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .effort { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   legend { padding: 0; margin-bottom: 8px; }
-  .segments { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+  .segments { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 0; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
   .segments button { min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-family: var(--sans); font-size: 13.5px; font-weight: 500; cursor: pointer; }
   .segments button.pressed { background: var(--text); color: var(--bg); font-weight: 600; }
   .segments button:disabled { cursor: not-allowed; opacity: 0.4; }

@@ -8,7 +8,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { sessionDirectory, writeSessionRecord, PR_PHASE_KEY, type AccountIdentity, type SessionRecord, type SessionRun } from "../state/records.js";
+import { sessionDirectory, readSessionRecord, writeSessionRecord, PR_PHASE_KEY, type AccountIdentity, type SessionRecord, type SessionRun } from "../state/records.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
@@ -142,6 +142,7 @@ export function sessionFiles(stateDirectory: string, record: Pick<SessionRecord,
 }
 
 export function readOutputLines(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId">): OutputLine[] {
+  readSessionRecord(stateDirectory, record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId, record.sessionId);
   return readJsonLines<OutputLine>(sessionFiles(stateDirectory, record).output);
 }
 

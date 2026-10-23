@@ -29,7 +29,7 @@ export function phaseOfTotal(snapshot: Snapshot, id: string): string {
 
 /** "Opus 5.5 · high effort", or the model alone when it takes no effort (UI-011 item 2). */
 export function modelAndEffort(model: string, effort: Effort | undefined): string {
-  return effort === undefined ? model : `${model} · ${EFFORT_LABELS[effort].toLowerCase()} effort`;
+  return effort === undefined ? model : `${model} · ${(EFFORT_LABELS[effort] ?? effort).toLowerCase()} effort`;
 }
 
 /** The settings' model and effort: no effort when the chosen model takes none. */
@@ -350,6 +350,18 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     notePlaceholder: `It gets this in your words, then the instruction to carry on ${isPr ? `opening ${multiRepository ? "the pull requests" : "the pull request"}` : "with the phase"}.`,
   };
 
+  if (stop.kind === "selection") {
+    return {
+      ...copy,
+      headline: `${isPr ? "The pull-request session" : name} hasn’t started.`,
+      line: "Check the selected agent’s model, effort and sign-in below, then press Check again. No new session has started.",
+      showFacts: false,
+      firstStep: "none",
+      freshLink: false,
+      sideHeading: "Agent selection and readiness",
+      footnote: "Check again refreshes the selected agent before starting a new session.",
+    };
+  }
   if (stop.kind === "plan") {
     return {
       ...copy,

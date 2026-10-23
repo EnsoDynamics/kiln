@@ -42,6 +42,8 @@ Plain files under Kiln's state directory: one JSON record per PRD, written atomi
 
 ### Dependencies
 
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Agent boundary (agent-specific metadata and execution boundary; Codex work remains gated during selection integration).
+
 All already on the person's machine (AC-INSTALL-02); Kiln has no account, credential or service of its own.
 
 | Dependency | Used for |
@@ -56,6 +58,8 @@ All already on the person's machine (AC-INSTALL-02); Kiln has no account, creden
 Every `git`, `gh` and helper `claude` call Kiln makes (everything except a session) runs detached, in its own process group, on macOS and Linux (on Windows in Kiln's console, [Windows](#windows)), with a timeout of 2 minutes and with no terminal to prompt on: stdin closed and `GIT_TERMINAL_PROMPT=0`. A credential prompt or a hung network call becomes that call's error, shown where its result would have been, instead of a stall. Two setup calls get 30 minutes instead, the base check's objects-only fetch and `git worktree add`: a first fetch of a base, or a checkout of a large repository whose Git LFS files download at checkout, can take longer than 2 minutes, while a stalled fetch with no timeout would hang for good, since git's https and ssh transports have no stall timeout of their own. A timeout ends the call with SIGTERM; on SIGTERM, `git worktree add` removes its half-made worktree and leaves only Kiln's branch, which a retry reuses ([Worktree and Branch Setup](#worktree-and-branch-setup)). Git LFS asks for credentials through `git credential`, which with `GIT_TERMINAL_PROMPT=0` fails rather than prompting. Kiln's timeouts and waits, these and the [stop sequence's](#stopping-a-session-ctrlc-a-closed-terminal-and-signals), count on Node's monotonic clock, which on macOS includes sleep, so a wait in progress when the computer sleeps may end at wake; the done check's origin retry is the one wait that [starts again](#the-done-check).
 
 ## Design Decisions
+
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings (agent-specific next-session settings).
 
 | Decision | Choice | Rationale |
 |---|---|---|
@@ -411,6 +415,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 
 ### Command line (AC-CLI-01, AC-CLI-02, AC-START-09)
 
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Selection and readiness (common startup permits reaching the chooser without either agent).
+
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Found beside the PRD's repository, §The command (start checks for each named repository; a second command)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Command line (the wait's lines)
@@ -418,6 +424,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 `kiln run <PRD directory or PRD file>` is the only command. Kiln resolves the path from the current directory and finds the checkout the path is in with `git -C <the path's directory> rev-parse --show-toplevel`. The PRD directory is the path itself, or its parent when the path is a file, and must sit directly under `docs/prds/` or `docs/changes/` at that checkout's root. Run from inside Kiln's worktree, that root is the worktree folder, so Kiln finds the main checkout separately: the first `worktree` entry of `git -C <the path's directory> worktree list --porcelain`, then `git -C <that entry> rev-parse --show-toplevel`. In an ordinary repository the entry is the main working tree; in a submodule it is the submodule's git directory, `<superproject>/.git/modules/<name>` (found on Git 2.50.1 while building Phase 1), and the second call turns it into the submodule's working tree. The parent of `git rev-parse --git-common-dir` isn't used for the same reason. The repository name (AC-LOOK-05), the state directory's key and the PRD key come from the main checkout, whichever checkout the path is in, so the main checkout and the worktree reach the same record ([Kiln's state on disk](#kilns-state-on-disk)). A file path must be that directory's `<folder name>-prd.md`, whether or not the file exists. The PRD is always `<folder name>-prd.md`; any other `*-prd.md` there is ignored, and when it is absent the start checks list it among what is missing, as the terminal mockup draws. Any other path prints one line naming the problem, then usage, and exits non-zero: no path, a path that doesn't exist (other than a missing `<folder name>-prd.md` in an existing PRD directory), a path outside a Git repository, any other folder (including `docs/prds/` itself, the "several PRDs" case of AC-START-01) and any other file. Start-check failures print what is missing or failed and where Kiln looked, one line per problem in the terminal mockup's frame (missing documents as drawn, every other problem as UI-010 gives), and exit non-zero. Phase event lines are `<local time> <phase id> <title> <started | done · pushed <sha> | stopped | interrupted | resumed | opened #<n>>`, as in the terminal mockup; after a session splits its leaf, all but the started line name its judged leaf ([Snapshot](#snapshot)). Kiln needs `claude`, `git` and `gh` on the PATH, `gh` signed in, and `origin` on GitHub; a missing one is reported among the start checks. "`gh` signed in" means `gh auth status --hostname github.com` exits 0. "`origin` on GitHub" means `git remote get-url origin` parses as `https://[user@]github.com/<owner>/<name>[.git]`, `git@github.com:<owner>/<name>[.git]` or `ssh://git@github.com[:port]/<owner>/<name>[.git]`, host matched case-insensitively; anything else, GitHub Enterprise hosts and SSH host aliases included, fails with "origin isn't on GitHub: <url>", since the PRD covers GitHub-hosted repositories only. Kiln records `<owner>/<name>` as the record's `repository.github`, which every `gh` call passes ([Dependencies](#dependencies)). It never runs `gh repo set-default`, which writes Git config (AC-GIT-01).
 
 ### HTTP API
+
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (agent selection and stale-editor validation).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories, the outside-workspace confirmation)
 
@@ -454,6 +462,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (selected agent, catalogue, readiness and selection generation).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Snapshot, §Screens (the repositories, facts by repository, every pull request; work outside the workspace on Needs you)
 
@@ -538,6 +548,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 
 ## Account and Usage
 
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances and metadata refresh).
+
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
 
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
@@ -552,6 +564,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Persisted schema 4 (per-agent choices and legacy Claude identities).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models (schema 2, per repository; the outside-workspace confirmations and an interrupted stop)
 
@@ -651,6 +665,8 @@ A later version may let another client take every action the browser view offers
 - Reaching Kiln from off the machine is what v1 deliberately prevents (AC-VIEW-01, AC-VIEW-06). A phone path comes through a process on the same machine that calls the local API and relays to the outside service under that service's own authentication, never by binding beyond loopback or relaxing the Host, Origin and token checks. That relay needs its own design.
 
 ## Testing Approach
+
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Proof gates and tests (new Claude sessions also require catalogue validation).
 
 **Order.** Proof gates 1 and 2 (architecture proposal) come first, before the engine is built: both run by hand with no Kiln code, gate 1 includes the untried behaviors this design relies on, and their recorded stream-json output becomes the test fixtures below. Gate 3 runs once Needs you exists; gate 4 is AC-PROOF-01. A behavior that doesn't hold comes back as a product decision (PRD, "Depends On").
 

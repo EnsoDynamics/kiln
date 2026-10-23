@@ -1,7 +1,7 @@
 // The model list through the real Agent SDK, against the stand-in claude, which answers the
 // SDK's initialize request the way Claude Code does (recorded in proof gate 1).
 
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSandbox, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
@@ -19,6 +19,19 @@ function setUp() {
 }
 
 describe("reading Claude Code's model list", () => {
+  it("never spawns a deferred SDK helper after an immediate or preceding abort", async () => {
+    const options = setUp();
+    for (const before of [true, false]) {
+      const abort = new AbortController();
+      if (before) abort.abort();
+      const reading = readModelList({ ...options, signal: abort.signal });
+      abort.abort();
+      expect(await reading).toEqual({ ok: false, error: "Kiln is stopping" });
+    }
+    // Allow the SDK's queued initialization to attempt its spawn; the guard must reject it.
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(existsSync(`${options.env.KILN_STANDIN_SCENARIO}.helpers.jsonl`)).toBe(false);
+  });
   it("returns the family-alias entries from the person's own claude, with no prompt sent", async () => {
     const { claude, env, cwd } = setUp();
     const result = await readModelList({ claude, env, cwd });

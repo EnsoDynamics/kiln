@@ -81,7 +81,7 @@ describe("kiln run on a feature underway", () => {
     });
     const h = harness;
     // Settings chosen before Start are kept for the PRD: a later kiln run starts its sessions with them (AC-START-06).
-    expect(await h.engine.changeSettings({ model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop).toBeDefined();

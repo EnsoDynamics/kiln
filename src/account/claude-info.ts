@@ -13,6 +13,7 @@ export interface ClaudeInfoSource {
   readonly modelListError: string | undefined;
   /** Reads the account and its usage again, not awaited by the engine (AC-WATCH-09). */
   refreshAccount(): Promise<void>;
+  refreshModels?(): Promise<void>;
   onChange(listener: () => void): () => void;
 }
 
@@ -47,12 +48,15 @@ export class ClaudeInfo implements ClaudeInfoSource {
     void this.refreshAccount();
     this.refreshTimer = setInterval(() => void this.refreshAccount(), refreshMs);
     this.refreshTimer.unref();
-    void readModelList({ ...this.options, signal: this.abort.signal }).then((result) => {
-      if (this.abort.signal.aborted) return;
-      if (result.ok) this.models = result.models;
-      else this.modelListError = modelListErrorMessage(result.error);
-      this.changed();
-    });
+    void this.refreshModels();
+  }
+
+  async refreshModels(): Promise<void> {
+    const result = await readModelList({ ...this.options, signal: this.abort.signal });
+    if (this.abort.signal.aborted) return;
+    if (result.ok) { this.models = result.models; this.modelListError = undefined; }
+    else { this.models = undefined; this.modelListError = modelListErrorMessage(result.error); }
+    this.changed();
   }
 
   /**

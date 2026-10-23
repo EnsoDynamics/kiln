@@ -15,7 +15,7 @@ import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { CommandResult, Engine } from "../engine/engine.js";
 import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
-import type { Effort, Settings } from "../state/records.js";
+import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
 
 export interface LocalServerOptions {
   engine: Engine;
@@ -79,6 +79,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   const snapshot = (): Snapshot => buildSnapshot(engine, options.documents);
 
   const app = new Hono();
+  app.onError((error, c) => c.json({ ok: false, reason: error instanceof NewerSchemaError ? error.message : "Kiln could not read the requested state." }, error instanceof NewerSchemaError ? 409 : 500));
 
   app.use("*", async (c, next) => {
     // A Host other than Kiln's own address defeats DNS rebinding (AC-VIEW-06).
@@ -150,6 +151,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const result = await engine.changeSettings(change);
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
+
+  app.post("/api/metadata/refresh", async (c) => { await engine.agents.refresh(); return c.json({ settings: snapshot().settings }); });
 
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
@@ -266,8 +269,16 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     if (typeof value !== "string") return `${field} must be text.`;
     change[field] = value;
   }
+  if (body.agentId !== undefined) {
+    if (body.agentId !== "claude_code" && body.agentId !== "codex") return "Unknown agent.";
+    change.agentId = body.agentId;
+  }
+  if (body.selectionGeneration !== undefined) {
+    if (!Number.isSafeInteger(body.selectionGeneration) || (body.selectionGeneration as number) < 0) return "selectionGeneration must be a nonnegative integer.";
+    change.selectionGeneration = body.selectionGeneration as number;
+  }
   if (body.effort !== undefined) {
-    if (typeof body.effort !== "string") return "effort must be text.";
+    if (typeof body.effort !== "string" || body.effort.trim() === "") return "effort must be nonempty text.";
     change.effort = body.effort as Effort;
   }
   for (const field of ["keepAwake", "resumeAfterUsageLimit"] as const) {
@@ -284,7 +295,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     }
     change.bases = bases as Record<string, string>;
   }
-  const unknown = Object.keys(body).filter((key) => !["model", "effort", "keepAwake", "resumeAfterUsageLimit", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  const unknown = Object.keys(body).filter((key) => !["agentId", "selectionGeneration", "model", "effort", "keepAwake", "resumeAfterUsageLimit", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

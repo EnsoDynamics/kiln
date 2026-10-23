@@ -81,7 +81,7 @@
             <div class="step">
               <span class="step-title">Sign in to another Claude account in a terminal</span>
               <p>Use an account that has usage left.</p>
-              <SwitchAccountCommand />
+              <SwitchAccountCommand agentId={snapshot.settings.agentId} />
             </div>
           </li>
           <li>

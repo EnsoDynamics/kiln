@@ -48,7 +48,7 @@ describe("Documents found", () => {
     expect(page).toMatch(/<option value="develop"[^>]*>develop<\/option><option value="main"[^>]*>main<\/option>/);
     expect(page).toMatch(/<option value="opus"[^>]*>Opus 5\.5<\/option><option value="fable"[^>]*>Fable 5\.1<\/option><option value="sonnet"[^>]*>Sonnet 5\.5<\/option>/);
     const words = text(page);
-    expect(words).toContain("Agent Claude Code alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
+    expect(words).toContain("Agent Claude Code Codex alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(words).toContain("Effort Low Medium High Extra high Max");
     expect(page).toMatch(/aria-pressed="true"[^>]*>High</);
     expect(words).toContain("Keep this computer awake while a session works or Kiln waits Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.");
@@ -96,16 +96,17 @@ describe("Documents found", () => {
     }
   });
 
-  it("disables every effort level for a model that takes none, pressing none", () => {
+  it("shows no effort controls for a model that takes none", () => {
     const page = html(documentsFoundSnapshot({ settings: { model: { value: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" }, effortLevels: [] } }));
     expect(page.match(/aria-pressed="true"/g)).toBeNull();
-    expect(page.match(/<button type="button" aria-pressed="false"[^>]* disabled/g)).toHaveLength(5);
+    expect(page.match(/<button type="button" aria-pressed=/g)).toBeNull();
+    expect(text(page)).toContain("This model takes no effort setting.");
   });
 
   it("shows the not-signed-in line in place of the account and usage", () => {
     const page = html(documentsFoundSnapshot({ account: { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
     const words = text(page);
-    expect(words).toContain("Agent Claude Code Not signed in to Claude Code. Run claude auth login . Model");
+    expect(words).toContain("Agent Claude Code Codex Not signed in to Claude Code. Run claude auth login . Model");
     // The command is drawn as code, not with its backticks (UI-010 item 7).
     expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
   });

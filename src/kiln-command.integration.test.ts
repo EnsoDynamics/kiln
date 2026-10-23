@@ -29,11 +29,11 @@ function kiln(args: string[], cwd = repository, path = pathWithStandIns) {
 }
 
 /** `kiln run` in this process until it serves Documents found, then Ctrl+C. */
-async function kilnUntilServing(args: string[], cwd = repository) {
+async function kilnUntilServing(args: string[], cwd = repository, path = pathWithStandIns) {
   let stdout = "";
   let stderr = "";
   const signals = new EventEmitter();
-  const done = runKilnCommand(args, { cwd, env: envWithPath(pathWithStandIns), stdout: { write: (text: string) => (stdout += text) }, stderr: { write: (text: string) => (stderr += text) }, signals });
+  const done = runKilnCommand(args, { cwd, env: envWithPath(path), stdout: { write: (text: string) => (stdout += text) }, stderr: { write: (text: string) => (stderr += text) }, signals });
   await waitFor(() => stdout.includes("Kiln works in this terminal"));
   signals.emit("SIGINT");
   return { exitCode: await done, stdout, stderr };
@@ -84,13 +84,14 @@ describe("kiln run", () => {
   });
 
   // A PATH holding git but not claude needs git linked into its own folder, which Windows' Git can't be.
-  it.skipIf(process.platform === "win32")("names a missing tool as a start check", () => {
+  it.skipIf(process.platform === "win32")("reaches the chooser without either agent installed", async () => {
     const onlyGitAndGh = join(sandbox.root, "only-git-and-gh");
     writeStandIn(onlyGitAndGh, "gh", 0);
     symlinkSync(findExecutable("git", sandbox.env)!, join(onlyGitAndGh, "git"));
-    const result = kiln(["run", `docs/prds/${FOLDER}`], repository, onlyGitAndGh);
-    expect(result.stderr).toBe("✗ Can’t start Customer returns.\n    claude isn't on the PATH.\n  Nothing was started.\n");
-    expect(result.exitCode).toBe(1);
+    const result = await kilnUntilServing(["run", `docs/prds/${FOLDER}`], repository, onlyGitAndGh);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("all checks passed");
+    expect(result.exitCode).toBe(130);
   });
 
   it("names git missing from the PATH as a start check", () => {

@@ -55,7 +55,7 @@ Metadata calls have a 30-second deadline including initialization; pagination ha
 
 `kiln run` performs the common document/Git/GitHub checks before opening Documents found. It discovers agent executables without requiring either one, so a Codex-only installation reaches the chooser. A new PRD initially selects Claude Code; a missing initial Claude installation is a selection-specific readiness message with Start disabled, not a terminal startup failure.
 
-Agent change before Start loads that agent's catalogue, account and readiness together. Each asynchronous result carries agent ID and a selection generation; a result for an older selection cannot update the current snapshot. Clear the former agent's current account panel immediately. A refresh failure leaves an explicitly stale reading only for the same agent/account context.
+Agent change before Start loads that agent's catalogue, account and readiness together. The selection generation is persisted and increases on agent changes, so restarting Kiln cannot make an older editor current again. Each asynchronous result carries agent ID and a selection generation; a result for an older selection cannot update the current snapshot. Clear the former agent's current account panel immediately. A refresh failure leaves an explicitly stale reading only for the same agent/account context.
 
 Before Start and before every new conversation, validate the selected agent, current catalogue/choice, authentication, effective unattended permissions and enabled method skills. Inspect skills for the actual launch directory and repository contexts, including multi-repository workspaces; resolve plugin-qualified names to enabled entries and paths, not string aliases alone. Required engineering skills are `implement-from-requirements`, `deliverable-review`, `test-hardening`, `refactor-pass` and their installed method dependencies. A missing/disabled skill or a known incompatible hook/trust/organization requirement starts no implementation turn. After setup, repeat directory-dependent readiness against the assigned worktrees before the first turn; a failure preserves setup and selection at Needs you.
 
@@ -218,13 +218,14 @@ All endpoints retain current loopback, Host, Origin and token checks. Existing c
 | Interface | Contract change |
 |---|---|
 | `POST /api/settings` | Adds `agentId?: claude_code \| codex`. A model/effort change names its `agentId` and `selectionGeneration` so a stale editor cannot change a newer selection. Unknown agent/empty effort/malformed body → 400. Agent fixed or stale selection → 409 with reason. Invalid catalogue choice → 422 with field errors. Response includes authoritative choices and any effort adjustment explanation |
+| `POST /api/metadata/refresh` | Refresh the selected agent metadata without starting a conversation; preserves selection generation and exposes failures/stale readings |
 | `POST /api/start` | Existing request; 409 while catalogue/readiness pending or invalid, preserving selection and field errors. Recheck directory-dependent readiness after setup, before work |
 | `POST /api/resume` | Existing note contract. Completion check first; recorded adapter/pair only; refusal/missing history becomes Needs you, never a fresh conversation by substitution |
 | `GET /api/snapshot` and SSE snapshot | Settings carry selected agent, `agentFixed`, choices, catalogue/readiness state and selection generation; current/history carry recorded agent, provider ID, requested/observed settings and account provenance |
 | SSE output/partial and saved output pages | Add agent/thread/parent/role fields and child-visibility notice; existing output line numbers and old source labels remain valid |
 | Usage/Needs you/waiting | Dynamic allowance rows, unknown/stale fields, explicit recovery evidence/reason and right-agent commands; preserve existing screen purposes |
 
-No new login endpoint or provider credential fields are exposed. Readiness/model errors stay beside existing controls. A next-session validation failure between phases goes to Needs you without creating a session; its action is to correct settings/sign-in/readiness, not resume an imaginary conversation. Historical session detail uses its recorded agent even if Documents found later changes selection.
+No new login endpoint or provider credential fields are exposed. Readiness/model errors stay beside existing controls. A next-session validation failure between phases goes to Needs you without creating a session; its distinct `selection` stop offers model/effort editing, terminal sign-in guidance, metadata refresh and Check again to revalidate readiness. It offers no session Resume or phase-plan repair instructions. Historical session detail uses its recorded agent even if Documents found later changes selection.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API, §Snapshot, §Screens (agent-specific fields only).
 
@@ -234,7 +235,7 @@ Continue atomic owner-only JSON records and append-only output outside repositor
 
 | Record | Added/changed fields |
 |---|---|
-| PRD settings | `agentId`, `agentChoices: { agentId: { model, effort? } }`; this map owns next-session settings, replacing duplicated top-level model/effort after migration |
+| PRD settings | `agentId`, monotonic `selectionGeneration`, `agentChoices: { agentId: { model, effort? } }`; this map owns next-session settings, replacing duplicated top-level model/effort after migration |
 | Session | Local `sessionId` remains the storage/phase-list key; add `agentId`, requested pair, effective pair, provider-specific version/configuration, original account, `conversation: { threadId?, sessionTreeId?, codexHome? }` for Codex; existing Claude fields remain Claude-specific |
 | Attempt/run | Launch intent, process identity, dispatch/turn ID, requested/effective/observed pair, account identity, provider terminal state/error, human-request stop, interruption and existing note/cause fields |
 | Codex usage refusal/wait | Agent tag; structured error code; usage account identity and available routing corroboration; original model; account-wide permission and applicable block evidence; `release: allowed \| blocked \| unknown`; consumed automatic-attempt semantic fingerprint and attempted time |
