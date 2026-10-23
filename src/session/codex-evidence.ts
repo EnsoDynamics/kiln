@@ -37,6 +37,7 @@ interface Context { turn_id: string; cwd: string; model?: string; effort?: strin
 interface NativeCommand { id: string; threadId: string; turnId: string; argv: string[]; cwd: string; status: string }
 interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
+  reason?: string;
   type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string;
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
@@ -182,6 +183,12 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; first = false; }
         if (record.type === "turn_context") index.unique(`context:${id}`, requireText(payload.turn_id, "context turn"), payload);
         if (record.type === "event_msg" && ["task_started", "task_complete"].includes(payload.type ?? "")) index.unique(`${payload.type}:${id}`, requireText(payload.turn_id, "raw frontier turn"), digest(payload));
+        // Verified in real 0.162.1 interrupted production attempts: this terminal is distinct
+        // from task_complete and only settles a matching normalized interrupted turn.
+        if (record.type === "event_msg" && payload.type === "turn_aborted") {
+          if (payload.reason !== "interrupted") problem(`${id}: unqualified raw abort reason.`);
+          else index.unique(`turn_aborted:${id}`, requireText(payload.turn_id, "raw aborted turn"), digest(payload));
+        }
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, requireText(payload.call_id, "raw call ID"), digest(payload));
         if (record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
         if (record.type === "event_msg" && payload.type === "item_completed") {
@@ -233,7 +240,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     for (const frontier of report.frontiers) {
       const id = frontier.threadId;
       for await (const turn of index.values<{ id: string; status: string }>(`turn:${id}`)) {
-        if (!index.get(`task_started:${id}`, turn.id) || !index.get(`task_complete:${id}`, turn.id)) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
+        const aborted = index.get(`turn_aborted:${id}`, turn.id);
+        const completed = index.get(`task_complete:${id}`, turn.id);
+        if (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted")) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
+        if (aborted && (turn.status !== "interrupted" || completed)) problem(`${id}: conflicting raw interrupted frontier for ${turn.id}.`);
       }
       for await (const command of index.values<{ id: string; turnId: string; threadId: string; sha256: string }>(`foreignCommand:${id}`)) {
         const origin = owner(id, command.turnId);

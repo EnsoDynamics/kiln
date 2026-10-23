@@ -1,0 +1,1 @@
+Continue the same disposable runner proof in {{WORKSPACE}}/proof-a. Create {{INTERRUPT_FILE}} containing PRESERVE_THIS_EDIT, then run a 90-second sleep command. Kiln will interrupt it during execution to test process cleanup. Leave edits intact. Do not commit or push this turn.

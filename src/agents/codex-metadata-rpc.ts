@@ -12,9 +12,9 @@ export class CodexMetadataRpc {
   private readonly deadline;
   private readonly timer;
   private readonly abort;
-  constructor(executable: string, cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal, timeoutMs = 30_000) {
+  constructor(executable: string, cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal, timeoutMs = 30_000, args = ["app-server", "--listen", "stdio://"]) {
     this.deadline = Date.now() + timeoutMs;
-    this.child = spawnDetached(executable, ["app-server", "--listen", "stdio://"], { cwd, env, stdin: "pipe" });
+    this.child = spawnDetached(executable, args, { cwd, env, stdin: "pipe" });
     this.timer = setTimeout(() => this.fail(new Error("Codex metadata timed out after 30 seconds.")), timeoutMs);
     this.abort = () => this.fail(new Error("Kiln is stopping."));
     signal?.addEventListener("abort", this.abort, { once: true });

@@ -217,6 +217,8 @@ export interface PrdRecord {
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
 
 export interface SessionRun {
+  /** Codex semantic turn/dispatch facts, independent of the private server's exit. */
+  codex?: CodexRunFacts;
   pid?: number;
   processStartTime?: string;
   startedAt: string;
@@ -240,6 +242,53 @@ export interface SessionRun {
   result?: { subtype: string; isError: boolean; text?: string };
 }
 
+export interface CodexAccountProvenance {
+  at: string;
+  accountId?: string;
+  email?: string;
+  plan?: string;
+}
+
+export interface CodexExecutionProfile {
+  version: "0.162.1";
+  cwd: string;
+  writableRoots: string[];
+  repositories: { path: string; branch: string }[];
+  skills: { name: string; path: string }[];
+  powerShell?: { executable: string; version: string };
+}
+
+export interface CodexTurnExecution extends AgentChoice {
+  threadId: string;
+  turnId: string;
+  at: string;
+  cwd: string;
+}
+
+export interface CodexRunFacts {
+  intentAt: string;
+  requested: AgentChoice;
+  account: CodexAccountProvenance;
+  profile: CodexExecutionProfile;
+  effective?: AgentChoice;
+  instructionSources?: string[];
+  dispatch?: { at: string; previousTurnIds: string[] };
+  turnId?: string;
+  terminal?: { status: "completed" | "interrupted" | "failed"; error?: unknown };
+  observed?: CodexTurnExecution[];
+  humanRequests: { at: string; method: string; request: unknown; decision: unknown; stopped: boolean }[];
+  modelActivityAt: string[];
+  failure?: string;
+  /** Describes the known process set, never universal containment of detached daemons. */
+  cleanup?: "tracked_processes_stopped" | "unknown";
+  cleanupWarning?: string;
+  cleanupFailure?: string;
+  backgroundTerminals?: { threadId: string; processId: string; osPid?: number }[];
+  ownedProcesses?: { pid: number; startTime: string }[];
+  processOwner?: string;
+  reconciliation?: "not_dispatched" | "settled" | "ambiguous";
+}
+
 /** A progress step's start. Commit and Push start at a Bash call, the rest at a Skill call. */
 export interface StepStart {
   name: StepName;
@@ -250,6 +299,7 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
+  codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance };
   /** Codex's persistent identity; the local storage key stays sessionId. */
   conversation?: { threadId?: string; sessionTreeId?: string; codexHome?: string; knownThreadIds?: string[] };
   agentId?: AgentId;

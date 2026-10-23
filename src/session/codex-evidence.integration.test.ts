@@ -1,5 +1,6 @@
 import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { auditCodexConversation, codexStayedOutcome } from "./codex-evidence.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
@@ -9,6 +10,20 @@ const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; 
 afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 
 describe("authoritative Codex conversation audit", () => {
+  it.each(["qualified", "wrong-turn", "wrong-status", "wrong-reason", "conflicting"])("checks the recorded interrupted terminal contract: %s", async mode => {
+    const f = fixture();
+    const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/interrupted-frontier-0.162.1.json", import.meta.url)), "utf8")) as { raw: { type: string; payload: Record<string, unknown> } };
+    const thread = f.state.threads.parent!;
+    const id = thread.turns[0]!.id;
+    thread.turns[0]!.status = mode === "wrong-status" ? "completed" : "interrupted";
+    const abort = f.record(recorded.raw.type, { ...recorded.raw.payload, turn_id: mode === "wrong-turn" ? "other-turn" : id, root_turn_id: id, reason: mode === "wrong-reason" ? "unknown" : "interrupted" });
+    const raw = readFileSync(thread.metadata.path, "utf8");
+    writeFileSync(thread.metadata.path, mode === "conflicting" ? raw + abort : raw.split("\n").filter(line => !line.includes('"type":"task_complete"')).join("\n") + abort);
+    f.save();
+    const result = await auditCodexConversation(f.options);
+    expect(result.coverage).toBe(mode === "qualified" ? "complete" : "inconclusive");
+    if (mode === "qualified") { expect(result.problems).toEqual([]); expect(result.operationsChecked).toBe(1); }
+  });
   it("exhausts full 100-turn pages through real pipes and binds confirmation to stable source content", async () => {
     const f = fixture(); f.addThread("parent", { count: 205 });
     const result = await auditCodexConversation(f.options);

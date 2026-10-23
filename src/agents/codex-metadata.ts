@@ -96,6 +96,7 @@ export async function readCodexMetadata(options: { executable: string | undefine
     else if (requirements.value.requirements !== null) {
       const req = requirements.value.requirements;
       const expected: Record<string, string> = { allowedApprovalPolicies: "on-request", allowedApprovalsReviewers: "auto_review", allowedSandboxModes: "workspace-write" };
+      if (process.platform === "win32") expected.allowedWindowsSandboxImplementations = "mxc";
       for (const [key, value] of Object.entries(req)) {
         if (value === null || value === undefined) continue;
         if (key in expected && Array.isArray(value) && value.includes(expected[key])) continue;

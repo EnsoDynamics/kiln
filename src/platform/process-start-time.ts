@@ -12,7 +12,8 @@ import { runHelper } from "./helper-process.js";
  *
  *   await processStartTime(process.pid)  // "1234567" on Linux, "Sat Oct 17 18:48:00 2026" on macOS
  */
-export async function processStartTime(pid: number): Promise<string | undefined> {
+export async function processStartTime(pid: number, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<string | undefined> {
+  options.signal?.throwIfAborted();
   if (process.platform === "linux") return linuxStartTime(pid);
   if (process.platform === "win32") {
     // By its full path, which doesn't depend on the PATH Kiln was started with.
@@ -20,8 +21,10 @@ export async function processStartTime(pid: number): Promise<string | undefined>
     const result = await runHelper(
       powershell,
       ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`],
-      { cwd: process.cwd() },
+      { cwd: process.cwd(), ...options },
     );
+    options.signal?.throwIfAborted();
+    if (result.failure && options.timeoutMs !== undefined) throw new Error(`Process identity lookup failed: ${result.failure}`);
     const ticks = result.stdout.trim();
     return result.exitCode === 0 && /^\d+$/.test(ticks) ? ticks : undefined;
   }
@@ -30,7 +33,10 @@ export async function processStartTime(pid: number): Promise<string | undefined>
   const result = await runHelper("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
     cwd: process.cwd(),
     env: { ...process.env, TZ: "UTC", LC_ALL: "C" },
+    ...options,
   });
+  options.signal?.throwIfAborted();
+  if (result.failure && options.timeoutMs !== undefined) throw new Error(`Process identity lookup failed: ${result.failure}`);
   const started = result.stdout.trim();
   return result.exitCode === 0 && started !== "" ? started : undefined;
 }

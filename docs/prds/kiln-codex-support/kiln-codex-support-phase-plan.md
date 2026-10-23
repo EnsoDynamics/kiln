@@ -4,7 +4,7 @@
 
 ## Execution order
 
-Six leaf phases, executed sequentially, with Phase 3 split into 3a and 3b. This is a plan only: no candidate proof, implementation or release proof ran during phase planning. The PRD remains one delivery; intermediate phases do not establish Codex release support.
+Seven leaf phases, executed sequentially, with Phase 3 split into 3a and 3b, and 3b into 3b1 and 3b2. This is a plan only: no candidate proof, implementation or release proof ran during phase planning. The PRD remains one delivery; intermediate phases do not establish Codex release support.
 
 | Phase | What it does | Depends on |
 |---|---|---|
@@ -18,7 +18,7 @@ Each linked leaf owns its acceptance-criterion scope, exclusions and exact desig
 
 ## Implementation progress
 
-Phases 1 and 2 closed on 2026-10-23; see their leaf closure lines, [prerequisite proof results](kiln-codex-support-proof-results.md) and [agent selection results](kiln-codex-support-selection-results.md). Phase 3a closed on 2026-10-23 with the [production workspace evidence results](kiln-codex-support-workspace-evidence-results.md); Phase 3b is the first open planned leaf and its dependencies are met in the local shared checkout. Codex normal work remains gated pending that implementation; intermediate closure establishes no platform or release support. Doug has not authorized pushing these local implementation commits.
+Phases 1 and 2 closed on 2026-10-23; see their leaf closure lines, [prerequisite proof results](kiln-codex-support-proof-results.md) and [agent selection results](kiln-codex-support-selection-results.md). Phase 3a closed on 2026-10-23 with the [production workspace evidence results](kiln-codex-support-workspace-evidence-results.md). Phase 3b1 closed on 2026-10-23 with the protected durable runner and qualified native cleanup; see [conversation runner results](kiln-codex-support-conversation-results.md). Its original full-containment failure remains explicit; Doug approved the bounded native contract and warning under RECOVER-001. Phase 3b2 is the first open planned leaf and its dependencies are met in the same local shared checkout. Codex normal work remains gated until that workflow integration; intermediate closure establishes no platform or release support. Doug has not authorized pushing these local implementation commits.
 
 ## Sizing decision
 
@@ -28,7 +28,7 @@ The whole delivery does not fit one dependable session: it combines an unproved 
 |---|---|
 | 1 | One bounded candidate proof with only the transport, decoder and evidence components needed by the harness. Its actual result determines whether normal execution may be integrated, so it must precede that work. |
 | 2 | One read/control workflow from document discovery through saved selection and live metadata, carrying the necessary adapter/schema changes inside the slice. It can be exercised through the real API/browser and metadata calls without work turns. |
-| 3 | One execution lifecycle, from Start through checks, output, stop and recovery to final PRs, using the proved candidate and existing engine. Re-sized at implementation: 3a independently checks real saved trees while execution stays gated; 3b enables only the complete protected, recoverable runner. No intermediate runner is enabled. |
+| 3 | One execution lifecycle, from Start through checks, output, stop and recovery to final PRs, using the proved candidate and existing engine. Re-sized at implementation: 3a independently checks real saved trees while execution stays gated; 3b1 proves the protected durable runner directly; 3b2 connects only that proved runner to normal execution, output and recovery. No intermediate runner is enabled. |
 | 4 | One distinct recovery rule set and its actual refusal/release exercise. Identity, consumed retry evidence and repeated-refusal suppression fit together and can be tested without waiting for the final package proof. |
 | 5 | One acceptance/proof pass over the delivered package and workflow, with platform prerequisites named explicitly. It changes only compatibility prerequisites/documentation or defects required by these proofs; it is not another feature build. |
 
