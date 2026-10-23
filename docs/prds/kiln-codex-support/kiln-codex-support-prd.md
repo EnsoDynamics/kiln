@@ -2,7 +2,7 @@
 
 **Source:** Doug's request of October 22, 2026: support Codex much as Kiln supports Claude Code, including model, effort and usage limits. Choosing one agent for the whole PRD is acceptable; switching agents between phases is optional only if it is a natural, small extension.
 
-**Changes:** [Kiln v1](../kiln-v1/kiln-v1-prd.md), [multi-repository delivery](../../changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), and [usage-limit recovery](../../changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md). [Research](kiln-codex-support-research.md) records the code and Codex capabilities checked. Two product choices are declared in [business assumptions](kiln-codex-support-assumptions.md).
+**Changes:** [Kiln v1](../kiln-v1/kiln-v1-prd.md), [multi-repository delivery](../../changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), and [usage-limit recovery](../../changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md). [Research](kiln-codex-support-research.md) records the code and Codex capabilities checked. Authentication and initial model settings were settled by Doug's feedback of October 22, 2026, recorded in [validated business assumptions](kiln-codex-support-assumptions.md).
 
 ## Summary
 
@@ -27,7 +27,7 @@ The existing Documents found screen is where the person chooses how Kiln will ca
 - [ ] **AC-AGENT-01 — Claude Code and Codex are choices for this PRD.** Documents found offers both agents alongside model and effort. Claude Code remains the initial choice for new PRDs. Choosing an agent updates the model choices, effort choices, account information and sign-in guidance together. The choice is saved for that PRD and is independent of other PRDs.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the agent is no longer always Claude Code).
 - [ ] **AC-AGENT-02 — The agent stays fixed after Start.** Every phase and the final pull-request session use the chosen agent, including after restarting Kiln. Settings name the agent and explain that it is fixed for the PRD. Resuming a conversation never transfers it to the other agent.
-- [ ] **AC-AGENT-03 — Readiness follows the selection.** A person with only the selected agent installed can reach Documents found and start. Before starting work, Kiln reports missing or unsupported agent software, missing sign-in, unavailable required Enso Method skills, and any known incompatibility with unattended operation, with the action needed to proceed. Such a failure starts no implementation session and leaves the person's selection intact. Codex uses an existing ChatGPT sign-in; API-key-only Codex accounts are outside this delivery (AUTH-001).
+- [ ] **AC-AGENT-03 — Readiness follows the selection.** A person with only the selected agent installed can reach Documents found and start. Before starting work, Kiln reports missing or unsupported agent software, missing sign-in, unavailable required Enso Method skills, and any known incompatibility with unattended operation, with the action needed to proceed. Such a failure starts no implementation session and leaves the person's selection intact. For Codex, the person authenticates through ChatGPT in Codex before launching Kiln; Kiln uses that existing authentication. API-key-only Codex accounts are outside this delivery.
   - Replaces in part: AC-INSTALL-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the local agent may be Codex instead of Claude Code).
 
 ### Choose the Model and How Much It Reasons
@@ -36,7 +36,7 @@ The model selector and effort control reflect what the selected agent offers. A 
 
 - [ ] **AC-MODEL-01 — Choices come from the selected agent.** Kiln offers the agent's current selectable models by their reported names and only the reasoning efforts supported by the chosen model. This includes efforts beyond Claude Code's current list when Codex offers them. A model being listed is not presented as a guarantee that the account can run it; an access refusal is shown without substituting another model.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (model and effort choices are agent-specific).
-- [ ] **AC-MODEL-02 — Defaults and changed choices are visible.** On first selecting Codex, Kiln selects its recommended default model and that model's default effort (UI-001). Switching back to an agent before Start restores that agent's last valid choices for this PRD. An unsupported saved choice or an unavailable model list is explained and blocks starting a new session until a valid choice can be confirmed; Kiln does not silently replace it. When a model change requires a different effort, the replacement effort is shown before the new session starts.
+- [ ] **AC-MODEL-02 — Defaults and changed choices are visible.** On first selecting Codex for a PRD, Kiln selects the latest available GPT Sol version offered by Codex, with High effort: GPT-6.1-Sol as of October 22, 2026. Switching back to an agent before Start restores that agent's last valid choices for this PRD. An unsupported saved choice or an unavailable model list is explained and blocks starting a new session until a valid choice can be confirmed; Kiln does not silently replace it. When a model change requires a different effort, the replacement effort is shown before the new session starts.
 - [ ] **AC-MODEL-03 — Changes apply to new sessions.** The person can change model and effort while working or paused. Each new session uses the latest saved choices; an active or resumed session keeps its own recorded model and effort. Kiln shows these separately from the choices for the next session. If a resumed session's choices are no longer usable, Needs you explains the refusal rather than starting another conversation.
   - Replaces in part: AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the model and effort control also supports Codex).
 
@@ -106,7 +106,7 @@ Adding Codex must preserve existing Claude work. Acceptance requires real Codex 
 - Switching agents after a PRD starts, assigning different agents to individual phases, transferring conversations between agents, or automatic failover to another model or account.
 - Codex desktop handoff, native computer-use routing, and reproducing every Codex application feature inside Kiln.
 - New end-of-PRD audits, roadmap orchestration or parallel phase execution; these are separate Kiln roadmap items.
-- API-key-only Codex operation, alternative model providers, billing management, credit purchases and usage-reset redemption (AUTH-001).
+- API-key-only Codex operation, alternative model providers, billing management, credit purchases and usage-reset redemption.
 
 ## Evidence and Dependencies
 
