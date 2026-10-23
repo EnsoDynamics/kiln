@@ -55,16 +55,23 @@ export class ClaudeInfo implements ClaudeInfoSource {
     });
   }
 
-  /** Reads the account and its usage again; a refresh asked for while one runs joins it. */
+  /**
+   * Reads the account and its usage again; a refresh asked for while one runs joins it. The
+   * reading is over before its listeners hear of it, so one that asks again starts a fresh one.
+   */
   refreshAccount(): Promise<void> {
-    this.accountReading ??= readAccount({ ...this.options, signal: this.abort.signal })
+    if (this.accountReading) return this.accountReading;
+    const reading: Promise<void> = readAccount({ ...this.options, signal: this.abort.signal })
+      .finally(() => {
+        if (this.accountReading === reading) this.accountReading = undefined;
+      })
       .then((account) => {
         if (this.abort.signal.aborted) return;
         this.account = account;
         this.changed();
-      })
-      .finally(() => (this.accountReading = undefined));
-    return this.accountReading;
+      });
+    this.accountReading = reading;
+    return reading;
   }
 
   onChange(listener: () => void): () => void {

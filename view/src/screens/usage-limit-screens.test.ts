@@ -134,6 +134,17 @@ describe("the account card on both screens (AC-LIMIT-03)", () => {
     expect(buttonNamed(waitingPage(waitingSnapshot()), "Resume now")).not.toContain("disabled");
   });
 
+  it("drops the amber line once the view's clock reaches the reset, before the next reading", () => {
+    const before = Date.parse("2026-10-17T19:39:00Z");
+    const after = Date.parse("2026-10-17T19:40:00Z");
+    expect(text(waitingPage(waitingSnapshot(), before))).toContain("This account’s 5-hour usage limit is at 100% until 3:40 PM.");
+    expect(text(needsYouPage(needsYouUsageLimitSnapshot(), before))).toContain("This account’s 5-hour usage limit is at 100% until 3:40 PM.");
+    expect(text(waitingPage(waitingSnapshot(), after))).not.toContain("is at 100% until");
+    expect(text(needsYouPage(needsYouUsageLimitSnapshot(), after))).not.toContain("is at 100% until");
+    // The percent the reading took stays as read, until the next one.
+    expect(text(needsYouPage(needsYouUsageLimitSnapshot(), after))).toContain("5-hour window 100%");
+  });
+
   it("holds Resume now while a resume or check is under way (AC-RESUME-02)", () => {
     const snapshot = waitingSnapshot();
     snapshot.waiting!.checking = true;

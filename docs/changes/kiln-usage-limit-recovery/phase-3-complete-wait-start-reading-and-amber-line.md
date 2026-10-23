@@ -1,5 +1,7 @@
 # Phase 3: Complete the reading at a wait's start, and the amber line's end
 
+**Closed:** 2026-10-22
+
 **Added by delivery audit:** 2026-10-22, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md
 **Technical design:** docs/changes/kiln-usage-limit-recovery/technical-design.md — relevant sections: "The Wait" (While it lasts), "Interfaces" (Snapshot: `atLimitUntil`), "Screens"

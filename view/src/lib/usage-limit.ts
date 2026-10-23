@@ -36,10 +36,14 @@ function owned(label: string, owner: "the account" | "this account"): string {
   return sentence.startsWith("the ") ? `${owner}’s ${sentence.slice("the ".length)}` : `${sentence} on ${owner}`;
 }
 
-/** "This account’s 5-hour usage limit is at 100% until 3:40 PM.", while the reading shows it at 100% (AC-LIMIT-03). */
+/**
+ * "This account’s 5-hour usage limit is at 100% until 3:40 PM.", while the reading shows it at 100%
+ * and the view's clock hasn't reached that time, so the line goes when the reset passes (AC-LIMIT-03).
+ */
 export function atLimitLine(limit: LimitView, now: Date): string | undefined {
   const until = limit.account?.atLimitUntil;
-  return until === undefined ? undefined : `${capitalized(owned(limit.label, "this account"))} is at 100% until ${limitTime(until, now)}.`;
+  if (until === undefined || now.getTime() >= Date.parse(until)) return undefined;
+  return `${capitalized(owned(limit.label, "this account"))} is at 100% until ${limitTime(until, now)}.`;
 }
 
 /** "Phase 2b", or "The pull-request session". */

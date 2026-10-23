@@ -168,7 +168,7 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
     expect(h.engine.latestSession("1")!.runs[1]!.account).toBeUndefined();
   });
 
-  it("ignores a reading that started before the refusal, and asks for another", async () => {
+  it("ignores a reading that started before the refusal, and asks for another that decides the wait", async () => {
     const clock = testClock();
     // The reading asked for as phase 1 starts is left unanswered until after the refusal.
     const claude = new ScriptedClaude(clock.now);
@@ -182,6 +182,12 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
     expect(harness.engine.waitingPhaseKey()).toBe("1");
     expect(claude.asked).toBe(asked + 1);
     expect(claude.waiting).toBe(true);
+    // The fresh reading is the wait's first: it can't decide either, and with no reset time that is Needs you,
+    // whose stop asks for one reading of its own and no more.
+    claude.deliver({ error: NOT_SIGNED_IN, limits: [] });
+    expect(harness.engine.waitingPhaseKey()).toBeUndefined();
+    expect(harness.engine.record.phases["1"]!.stop).toMatchObject({ limit: { rateLimitType: "five_hour" } });
+    expect(claude.asked).toBe(asked + 2);
   });
 
   it("takes a reading a minute after the limit's reset time", async () => {

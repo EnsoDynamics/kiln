@@ -69,7 +69,7 @@ on resetsAt + 60 s (wall clock): take a reading
 on a detected sleep:         take a reading; re-arm the reset reading
 ```
 
-Resuming at the end of a wait is the [resume](#resume) command with `cause: limit_resume`, run by the engine; the wait is cleared when the resumed run starts. Readings are v1's account and usage refresh, so a reading asked for while one runs joins it and the panel and the wait see the same reading; when the one joined started before the refusal, Kiln asks again once it returns. While [resume](#resume)'s lock is held, readings update the account card only; the rules above apply again only if the resume ends by the wait starting again. The reset reading is armed from the wall clock and re-armed on every detected sleep, since a Node timer doesn't count time asleep on macOS or Linux, and re-armed until the reset when that is beyond one timer's 24 days (a monthly `overage` window); the 5-minute readings bound any error.
+Resuming at the end of a wait is the [resume](#resume) command with `cause: limit_resume`, run by the engine; the wait is cleared when the resumed run starts. Readings are v1's account and usage refresh, so a reading asked for while one runs joins it and the panel and the wait see the same reading; when the one joined started before the refusal, Kiln asks again once it returns, and since `ClaudeInfo` ends a reading before its listeners hear of it, that ask starts a fresh call. While [resume](#resume)'s lock is held, readings update the account card only; the rules above apply again only if the resume ends by the wait starting again. The reset reading is armed from the wall clock and re-armed on every detected sleep, since a Node timer doesn't count time asleep on macOS or Linux, and re-armed until the reset when that is beyond one timer's 24 days (a monthly `overage` window); the 5-minute readings bound any error.
 
 **When the resume is refused again (AC-AUTO-05, UI-004).** When a run with `cause: limit_resume` ends with `limitRefusal`, no model response arrived in that run at all, and its `account` and `limitRefusal.rateLimitType` match the previous run's `limitRefusal` (`account`, `rateLimitType`; a type missing on both counts as equal, an unknown account as the same), the phase goes to Needs you with `stop.limit.refusedAgainAt` set to the run's start; the screen's line reads "Kiln resumed by itself at <time> and the limit refused it again." Any other refused run, a resume the person pressed included, starts a new wait.
 
@@ -153,7 +153,8 @@ Snapshot (changed and added fields only):
                            of the account, with no percent and no amber line; percent: the stopping limit's row, absent
                            when the reading has none or its limits failed (limitsError), leaving the account alone;
                            atLimitUntil: that row's resetsAt when percent is 100 and it hasn't passed, which shows the
-                           amber line, AC-LIMIT-03; blockingLimit: on the waiting screen once resetPassed, another row
+                           amber line until the view's clock reaches it, AC-LIMIT-03; blockingLimit: on the waiting
+                           screen once resetPassed, another row
                            of that reading at 100% that still keeps the account from having usage left, AC-LIMIT-01; of several, the one
                            whose reset is latest, a row with no reset counting as latest, ties in the server's order)
   waiting?: { phaseId, since, limit, sessionId, stoppedAt, finalMessage?, exitCode?, signal?, lastSkill?,
