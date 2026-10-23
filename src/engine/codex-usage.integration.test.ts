@@ -44,6 +44,10 @@ it("waits on explicit blocked permission, resumes once with the original pair, p
   await waitFor(() => h.engine.latestSession("1")?.runs.length === 2 && h.engine.latestSession("1")?.runs[1]?.endedAt !== undefined);
   await h.engine.agents.refresh(); await h.engine.settled();
   expect(h.engine.latestSession("1")?.runs[1]).toMatchObject({ cause: "limit_resume", codex: { automaticUsageEvidence: { accountId: "proof-account" }, requested: { effort: "high" }, modelActivityAt: [] } });
+  const automaticPrompt = JSON.stringify(dispatches()[1]?.params?.input);
+  expect(automaticPrompt).toContain("because Codex's usage limit refused its request. Kiln has resumed it on the Codex account signed in now.");
+  expect(automaticPrompt).toContain("Carry on with `docs/prds/customer-returns/phase-1-return-intake.md`");
+  expect(automaticPrompt).not.toContain("Claude");
   expect(buildSnapshot(h.engine).waiting?.limit.recovery?.reason).toContain("Unchanged permission");
   const consumed = h.engine.latestSession("1")?.codex?.usageRecovery?.consumed;
   h.reopenFromDisk(); await h.engine.agents.refresh(); expect((await h.engine.decide()).kind).toBe("waiting"); await h.engine.continue();
@@ -150,6 +154,11 @@ it("retains manual Resume now and setting-off behavior and rejects usage recover
   set({ ordinaryUsageAllowed: false }); await h.engine.resume({ note: "Keep the original settings." }); await h.engine.settled();
   await h.engine.agents.refresh();
   expect(dispatches()).toHaveLength(2);
+  const manualPrompt = JSON.stringify(dispatches()[1]?.params?.input);
+  expect(manualPrompt).toContain("because Codex's usage limit refused its request. Kiln has resumed it on the Codex account signed in now.");
+  expect(manualPrompt).toContain("Keep the original settings.");
+  expect(manualPrompt.indexOf("Keep the original settings.")).toBeLessThan(manualPrompt.indexOf("This session stopped"));
+  expect(manualPrompt).not.toContain("Claude");
   const session = h.engine.latestSession("1")!;
   appendFileSync(join(f.home, "sessions", session.conversation!.threadId + ".jsonl"), "{broken}\n");
   await refresh({ ordinaryUsageAllowed: true });

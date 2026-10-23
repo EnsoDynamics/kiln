@@ -62,4 +62,6 @@ The retained prerequisite artifacts confirm complete coverage of 117 operations 
 
 The approved Mac-only runtime scope, deferred real quota exhaustion/recovery and bounded native cleanup contract remain unchanged. Existing Claude catalogue naming and the existing saved-output/phase-route design are preserved rather than treated as new product gaps. The [Phase 5 final handoff](phase-5-codex-platform-proof.md#final-validation-and-audit-handoff--2026-10-23) and [shared proof results](kiln-codex-support-proof-results.md) retain validation details and explicit limits.
 
-**Next unit:** implement Phase 6 in a fresh chat, then run the whole-PRD test audit. Product commits remain local under Doug's no-push restriction; the completed disposable-proof authorization grants no product delivery authority. Phase 6 carries the source restrictions for its successor.
+**Completion build:** Phase 6 closed on 2026-10-23, completing the three recorded presentation gaps without changing their original owners or the approved validation limits. Its implementation/test-audit handoff records whole-criterion evidence, review/hardening and the independently reproduced pre-existing dependency-audit failure.
+
+**Next unit:** whole-PRD `test-audit` in a fresh chat. Product commits remain local under Doug's no-push restriction; the completed disposable-proof authorization grants no product delivery authority. Phase 6 carries the source restrictions and final verification state for its successor.

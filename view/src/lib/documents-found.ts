@@ -120,7 +120,9 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
 export function accountLines(account: Snapshot["account"]): { line?: string; usage?: string; error?: string; usageError?: string } {
   if (account === undefined) return {};
   if (account.error !== undefined) return { error: account.error };
-  const line = [account.email, account.plan].filter((part) => part !== undefined).join(" · ") || undefined;
+  const line = account.agentId === "codex"
+    ? `${account.email ?? "Account identity unavailable"} · ${account.plan ?? "Plan unavailable"}`
+    : [account.email, account.plan].filter((part) => part !== undefined).join(" · ") || undefined;
   const usage = account.limits.length === 0 ? undefined : `Used: ${account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}`).join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };
 }

@@ -10,7 +10,9 @@
 
   let { limit, footnote }: { limit: LimitView; footnote: string } = $props();
   const account = $derived(limit.account);
-  const who = $derived(account ? [account.email, account.plan].filter((part) => part !== undefined).join(" · ") : "");
+  const who = $derived(account === undefined ? "" : limit.agentId === "codex"
+    ? `${account.email ?? "Account identity unavailable"} · ${account.plan ?? "Plan unavailable"}`
+    : [account.email, account.plan].filter((part) => part !== undefined).join(" · "));
 </script>
 
 <div class="account">

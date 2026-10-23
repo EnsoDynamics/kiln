@@ -1,1 +1,1 @@
-This session stopped at `{{time}}` because Claude Code's usage limit{{limit}} refused its request. Kiln has resumed it on the Claude account signed in now.
+This session stopped at `{{time}}` because {{agent}}'s usage limit{{limit}} refused its request. Kiln has resumed it on the {{account}} account signed in now.

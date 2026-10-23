@@ -124,6 +124,18 @@ describe("the prompts", () => {
 describe("the resumed session's prompt", () => {
   const phaseDoc = "docs/prds/customer-returns/phase-2b-store-credit.md";
 
+  it.each(["codex", "claude_code", undefined] as const)("names the recorded %s agent after a usage refusal without changing prompt order", agentId => {
+    const agent = agentId === "codex" ? "Codex" : "Claude Code";
+    const account = agentId === "codex" ? "Codex" : "Claude";
+    for (const usageLimit of ["", "the weekly usage limit"]) {
+      const prompt = resumePrompt({ ...(agentId ? { agentId } : {}), usageLimit, time: "2026-10-23T18:00:00Z", phaseDoc, note: "Keep my edits.", outside: "Repair the workspace first." });
+      expect(prompt).toBe(`The person running Kiln says:\n\nKeep my edits.\n\nRepair the workspace first.\n\nThis session stopped at \`2026-10-23T18:00:00Z\` because ${agent}'s usage limit${usageLimit ? ` (${usageLimit})` : ""} refused its request. Kiln has resumed it on the ${account} account signed in now. Carry on with \`${phaseDoc}\` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies.`);
+    }
+    const pr = resumePrompt({ ...(agentId ? { agentId } : {}), usageLimit: "", time: "t", multiRepository: true });
+    expect(pr).toContain(`because ${agent}'s usage limit refused`);
+    expect(pr).toContain("Carry on opening the pull requests from where you stopped; check GitHub first");
+  });
+
   it("names when and why Kiln was interrupted, and sends the session back to its phase", () => {
     expect(resumePrompt({ cause: "sigint", time: "2026-10-17T15:02:11Z", phaseDoc })).toBe(
       "Kiln was interrupted at `2026-10-17T15:02:11Z` (Ctrl+C) while this session was working, and has resumed it. " +

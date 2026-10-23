@@ -68,7 +68,7 @@
       <section class="card" aria-labelledby="set-h">
         <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="sub">Set before the first phase.</span></div>
         <dl>
-          <div><dt>Agent</dt><dd class="value">Claude Code</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
+          <div><dt>Agent</dt><dd class="value">{snapshot.settings.agent}</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
           {#if multi}
             <div>
               <dt>Workspace folder</dt>

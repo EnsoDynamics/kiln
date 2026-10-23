@@ -2,6 +2,7 @@
 // design, "The prompts"). Everything in them is something a person could type (AC-RUN-06).
 
 import { readFileSync } from "node:fs";
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
 
 // src/session/ and dist/session/ both sit two levels under the package root, beside prompts/.
 const PROMPTS = new URL("../../prompts/", import.meta.url);
@@ -107,6 +108,8 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
 export interface ResumePromptValues {
+  /** The saved session's agent; absent for legacy Claude callers. */
+  agentId?: AgentId;
   /** The interrupted run's cause; absent when Kiln was killed outright and recorded none. */
   cause?: keyof typeof INTERRUPT_CAUSES;
   /**
@@ -148,7 +151,7 @@ export interface ResumePromptValues {
  */
 export function resumePrompt(values: ResumePromptValues): string {
   const opening = values.usageLimit !== undefined
-    ? fill(template("resume-opening-usage-limit.txt"), { time: values.time, limit: values.usageLimit === "" ? "" : ` (${values.usageLimit})` })
+    ? fill(template("resume-opening-usage-limit.txt"), { time: values.time, agent: AGENT_NAMES[values.agentId ?? "claude_code"], account: values.agentId === "codex" ? "Codex" : "Claude", limit: values.usageLimit === "" ? "" : ` (${values.usageLimit})` })
     : values.endedOnItsOwn
     ? fill(template("resume-opening-stopped.txt"), { time: values.time })
     : values.cause === undefined
