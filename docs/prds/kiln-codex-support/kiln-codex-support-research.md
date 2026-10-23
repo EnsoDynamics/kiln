@@ -46,7 +46,7 @@ The installed `TurnError`/`CodexErrorInfo` definitions represent the recognized 
 
 ## Recorded Frontier Evidence
 
-The disposable history's raw `task_started`/`task_complete` events carry `turn_id`; normalized statuses distinguish completed/interrupted/failed/in-progress turns. These support checking a stable recorded frontier without a global session lease, with runtime thread status only supplementary. A syntax inventory of disposable wrappers fitted the proposed literal grammar, but was not a semantic decoder test or an unchanged published-method parent/child/manual workflow. Ordinary-method wrapper viability remains a pre-integration proof gap.
+The disposable history's raw `task_started`/`task_complete` events carry `turn_id`; normalized statuses distinguish completed/interrupted/failed/in-progress turns. These support checking a stable recorded frontier without a global session lease, with runtime thread status only supplementary. A syntax inventory of disposable wrappers fitted the proposed literal grammar, but was not a semantic decoder test or an unchanged published-method parent/child/manual workflow. Confidence in ordinary-method decoder viability remains **85%**: the verified normalized-history omission requires raw evidence, and literal raw inputs support feasibility, but no unchanged published-method parent/child/manual workflow has proved semantic coverage. The design selects this candidate with a mandatory pre-integration proof; normal execution integration, automatic phase passage and support claims wait for it. This is a technical design decision under an explicit proof gate, not a claim that the profile is supported.
 
 ## Native Windows Profile Evidence
 
