@@ -1,0 +1,13 @@
+# Disposable Codex audit proof
+
+Engineering standards: commercesong-engineering-standards
+
+Read this repository's AGENTS.md and CLAUDE.md before changing it.
+Use the installed Enso Method skills unchanged. This repository is disposable and
+uses Node's built-in test runner. Do not edit any installed skill or source repo.
+The assigned branch is kiln-audit-proof. Commit this proof's changes on that branch;
+push only to this repository's local filesystem bare origin. No network pushes,
+merges or deployments are authorized. Do not create further worktrees or branches.
+Other source checkouts, including Kiln and the Enso Method repo, are read-only.
+If a Git command is blocked by protected linked metadata, request normal reviewed
+escalation for the authorized disposable operation. Respect an automatic denial.

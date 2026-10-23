@@ -31,7 +31,8 @@
     "test:integration": "npm run build && vitest run --config vitest.integration.config.mts",
     "test:package": "vitest run --config vitest.package.config.mts",
     "audit": "node scripts/audit-dependencies.mjs",
-    "verify": "npm run audit && npm run lint && npm run typecheck && npm test && npm run test:integration"
+    "verify": "npm run audit && npm run lint && npm run typecheck && npm test && npm run test:codex-proof && npm run test:integration",
+    "test:codex-proof": "npm run build && node --test scripts/proof-run/codex-proof.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9",
@@ -41,6 +42,8 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22",
+    "acorn": "8.19.0",
+    "ajv": "6.15.0",
     "eslint": "^9",
     "markdown-it": "^15.0.3",
     "svelte": "^5.57.2",

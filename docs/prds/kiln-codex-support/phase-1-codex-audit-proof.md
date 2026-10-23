@@ -1,5 +1,7 @@
 # Phase 1: Prove Codex can be audited before integration
 
+**Closed:** 2026-10-23
+
 **Parent PRD:** [Codex support for Kiln](kiln-codex-support-prd.md)
 **Technical design:** [Codex support for Kiln](kiln-codex-support-technical-design.md) — relevant sections: Integration and Verification → Proof gates and tests, gate 1; Unattended execution profile; Authoritative evidence; Open Questions → Audit candidate runtime proof.
 
@@ -18,6 +20,14 @@ Normal Kiln Codex execution and automatic phase passage (Phase 3); the chooser a
 ## Phase dependencies
 
 None.
+
+## Implementation state
+
+**Complete — corrected gate-1 candidate qualifies.** [Runtime proof results](kiln-codex-support-proof-results.md) record unchanged published-method parent/child delivery, guarded local Git delivery in all three assigned worktrees, native same-conversation terminal recovery, real CLI/Engine repository addition and a read/write child in that added root. Verified rare-request schemas were exercised through real process pipes; the live provider emitted no client requests.
+
+The full tree audit has complete coverage of 117 policy operations across five conversations and detects exactly the deliberately planted outside-checkout marker. That negative control correctly fails Stayed in the workspace; it does not mean the prerequisite proof failed. Initial wrapper/history-ownership defects and review findings were corrected in this phase, with no unknown coverage accepted and no method edits.
+
+Final `npm run verify` passed audit, lint, TypeScript/Svelte checks, 471 unit tests, all 13 proof tests and 297 integration tests (two existing skips). Deliverable review and test hardening completed without remaining High/Medium findings. Normal execution remains unavailable; Phase 2 is the next planned leaf.
 
 ## Phase-specific notes
 

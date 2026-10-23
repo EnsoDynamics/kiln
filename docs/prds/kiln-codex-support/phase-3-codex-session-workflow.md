@@ -23,4 +23,6 @@ Automatic Codex usage-limit release (Phase 4); final native-platform, installed-
 
 ## Phase-specific notes
 
+Phase 1's [proof results](kiln-codex-support-proof-results.md) qualify the revised static-dataflow candidate and record the original failure. Build the production reader from that contract, including bounded paginated memory, persisted frontiers and adversarial missing/corrupt/truncated/archived/compacted history and changing-tree tests. The diagnostic capture is not a production reader; parser dependency placement, durable stop/resume, process-tree cleanup and confirmation/repair remain this phase's original scope. Any newly unsupported ordinary operation stays inconclusive and reopens candidate qualification.
+
 The gate-1 result must pass before normal execution is connected. Integrate complete evidence and confirmations before enabling automatic phase passage; incomplete evidence must still permit the specified explicit repair resume. Include the native PowerShell reader and Windows readiness/profile plumbing here so Phase 5 exercises the delivered implementation. Prove the lifecycle and real Git/browser boundaries in this phase; the separate all-platform runtime/support obligation remains open until Phase 5.

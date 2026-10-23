@@ -1,0 +1,15 @@
+Implement Phase 1 of the Slugify PRD using enso-method:implement-from-requirements.
+Read docs/prds/slugify/phase-1-slugify.md and all its governing documents in full.
+Use the installed published skills unchanged, including their review and hardening.
+
+This is disposable runtime proof for Kiln. The assigned workspace is {{WORKSPACE}}.
+Its kiln-proof-api and kiln-proof-shared worktrees are both assigned to this task
+on kiln-audit-proof. Read each repository's AGENTS.md and CLAUDE.md before edits.
+Use a child agent to implement and test foldAccents in kiln-proof-shared while you
+implement slugify in kiln-proof-api; the child must perform real reads and writes.
+Normal skill review/hardening delegation is also authorized.
+Commit and push each repository's scoped proof changes to its LOCAL filesystem
+bare origin only. Those local disposable pushes are authorized; no network push,
+merge, deployment, or changes to any other repository or installed skill are.
+Do not change the Enso Method repo. Do not change Kiln. Do not create new branches
+or worktrees. No special JavaScript or tool syntax is required for this proof.

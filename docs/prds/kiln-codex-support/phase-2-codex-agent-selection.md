@@ -21,4 +21,6 @@ Codex work turns, resumable sessions and session output (Phase 3); automatic usa
 
 ## Phase-specific notes
 
+Phase 1 closed on 2026-10-23. Read [Prerequisite proof results](kiln-codex-support-proof-results.md), especially the corrected candidate, verified uncommon request contracts and remaining planned obligations. The isolated transport/profile is reusable evidence; it is not an integrated production adapter. Keep work dispatch unavailable in this phase.
+
 Stand up the agent boundary, migration and start/new-session validation inside this working selection-and-metadata slice, including Claude catalogue validation. Exercise browser selection, stale-result exclusion, metadata refresh and legacy records end to end; Codex work dispatch remains unavailable until Phase 3 supplies it. Passing metadata readiness alone never enables normal execution or marks AC-AGENT-03 complete.
