@@ -8,11 +8,11 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { commitsAcross, commitsByRepository, commitsLine, modelAndEffort, phaseOfTotal, PR_ID, type DetailRow } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
-  import { ago, clockTime, elapsed, outputTime, timingText } from "../lib/time.js";
+  import { ago, clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
   import Icon from "./Icon.svelte";
-  import { SOURCE_TONE } from "./OutputRow.svelte";
+  import TerminalOutputRow from "./TerminalOutputRow.svelte";
   import PhaseCircle from "./PhaseCircle.svelte";
   import StepsRow from "./StepsRow.svelte";
 
@@ -58,7 +58,7 @@
     </div>
   {/if}
   {#if current.deliveryActivity}<p class="seen-text">{current.deliveryActivity.label}{#if current.deliveryActivity.repository} · {current.deliveryActivity.repository} · {current.deliveryActivity.environment}{/if}</p>{/if}
-  {#if current.latestLine}<div class="latest mono"><span class="time">{outputTime(current.latestLine.at, nowDate)}</span>&nbsp;&nbsp;<span class={SOURCE_TONE[current.latestLine.source] ?? "dim"}>{current.latestLine.source}</span>&nbsp;&nbsp;{current.latestLine.text}</div>{/if}
+  {#if current.latestLine}<div class="latest mono"><TerminalOutputRow line={current.latestLine} now={nowDate} previewOnly /></div>{/if}
   <DetailsList rows={details} />
 </section>
 
@@ -74,10 +74,5 @@
   .seen-text { font-size: 14px; color: var(--muted); }
   strong { color: var(--text); font-weight: 600; }
   .watch { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--red); text-decoration: none; }
-  .latest { font-size: 12.5px; line-height: 1.6; height: calc(4.8em + 13px); box-sizing: border-box; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
-  .time, .dim { color: var(--dim); }
-  .red { color: var(--red); }
-  .green { color: var(--green); }
-  .bright { color: var(--text); }
-  .amber { color: var(--amber); }
+  .latest { font-size: 12.5px; line-height: 1.65; height: calc(4.95em + 13px); box-sizing: border-box; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; overflow: hidden; }
 </style>

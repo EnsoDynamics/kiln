@@ -364,7 +364,7 @@ const SCREENS: {
       "2b Now implementing · phase 2b of 5 Store credit Claude Code · Opus 5.5 · high effort Started 10:58 AM · 49 min",
       "Build Deliverable review Test hardening Commit Refactor pass Push",
       "Seen in the session: deliverable-review skill started · 2 min ago Watch live",
-      "11:46:58 reviewer The credit multiplier is applied before rounding; checking that against… Details",
+      "● The credit multiplier is applied before rounding; checking that against… · reviewer Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
       "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code · Agent fixed for this PRD. Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
@@ -867,6 +867,50 @@ describe("the bounded terminal viewer", () => {
       expect(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h2')).fontSize)`)).toBeGreaterThan(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h1')).fontSize)`));
       await page.evaluate(`document.querySelector('.back').click()`);
       await page.waitFor(`location.pathname === '/customer-returns'`);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it.each([1280, 390])("formats the main preview like the detail viewer at %ipx", async (width) => {
+    const snapshot = runningSnapshot();
+    snapshot.current!.latestLine = { line: 1284, at: "2026-10-17T15:46:58Z", source: "tool", text: "Bash npm run build" };
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot });
+    const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.querySelector('.latest .tool-name')`);
+      const previewText = () => page.evaluate<string>(`document.querySelector('.latest').innerText`);
+      expect(await previewText()).toContain("Bash(npm run build)");
+      expect(await page.evaluate<string>(`getComputedStyle(document.querySelector('.latest .tool-name')).fontWeight`)).toBe("600");
+      expect(await page.evaluate<boolean>(`!!document.querySelector('.latest time, .latest .time, .latest .source, .latest .expand')`)).toBe(false);
+      const height = await page.evaluate<number>(`document.querySelector('.latest').getBoundingClientRect().height`);
+      const update = async (line: Partial<OutputLine>, selector: string) => {
+        const latest = { ...snapshot.current!.latestLine! };
+        delete latest.threadId;
+        delete latest.timestampSource;
+        snapshot.current!.latestLine = { ...latest, ...line };
+        server.send("snapshot", snapshot);
+        await page.waitFor(selector);
+        expect(await page.evaluate<number>(`document.querySelector('.latest').getBoundingClientRect().height`)).toBe(height);
+      };
+      await update({ source: "out", text: "Build completed." }, `document.querySelector('.latest .result')`);
+      expect(await previewText()).toContain("⎿");
+      expect(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('.latest .result')).paddingLeft)`)).toBeGreaterThan(0);
+      for (const source of ["claude", "codex"] as const) {
+        await update({ source, text: "Bash is the shell used here." }, `document.querySelector('.latest [data-source="${source}"]')`);
+        expect(await previewText()).toContain("●");
+        expect(await page.evaluate<boolean>(`!!document.querySelector('.latest .tool-name')`)).toBe(false);
+      }
+      await update({ source: "stderr", text: "Build failed." }, `document.querySelector('.latest .warning')`);
+      expect(await page.evaluate<string>(`getComputedStyle(document.querySelector('.latest .warning .text')).color`)).toBe(AMBER);
+      await update({ source: "subagent", threadId: "550e8400-e29b-41d4-a716-446655440000", timestampSource: "recovery", text: "Child report. ".repeat(100) }, `document.querySelector('.latest [data-source="subagent"]')`);
+      expect(await previewText()).toContain("subagent [550e8400-e29b-41d4-a716-446655440000]");
+      expect(await previewText()).toContain("recovered now; item time unavailable");
+      expect(await page.evaluate<boolean>(`(() => { const origin = [...document.querySelectorAll('.latest .origin')].at(-1).getBoundingClientRect(); const pane = document.querySelector('.latest').getBoundingClientRect(); return origin.bottom <= pane.bottom + 1; })()`)).toBe(true);
+      expect(await page.evaluate<boolean>(`document.documentElement.scrollWidth <= innerWidth`)).toBe(true);
+      snapshot.current!.latestLine = { line: 1284, at: "2026-10-17T15:46:58Z", source: "tool", text: "Read docs/prds/customer-returns/technical-design.md" };
+      server.send("snapshot", snapshot);
+      await page.waitFor(`document.querySelector('.latest .tool-name')?.textContent === 'Read'`);
+      if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, `main-output-${width}.png`), await page.screenshot());
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });
