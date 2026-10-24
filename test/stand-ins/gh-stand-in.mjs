@@ -33,6 +33,22 @@ if (args[0] === "pr" && args[1] === "list") {
   process.stdout.write(`${JSON.stringify(pulls)}\n`);
   process.exit(0);
 }
+// Paginated commit associations; payload shape is recorded from the real GitHub endpoint.
+const endpoint = args.find(arg => arg.startsWith("repos/"));
+if (args[0] === "api" && /\/commits\/[0-9a-f]+\/pulls/.test(endpoint ?? "")) {
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const historyEvents = process.env.KILN_STANDIN_HISTORY_EVENTS;
+  if (historyEvents) appendFileSync(historyEvents, `${JSON.stringify({ event: "start", endpoint })}\n`);
+  if (state.historyDelayMs) await new Promise(resolve => setTimeout(resolve, state.historyDelayMs));
+  if (historyEvents) appendFileSync(historyEvents, `${JSON.stringify({ event: "end", endpoint })}\n`);
+  if (state.historyError) { process.stderr.write(state.historyError); process.exit(1); }
+  if (state.rawHistory !== undefined) { process.stdout.write(state.rawHistory); process.exit(0); }
+  const sha = endpoint.split("/commits/")[1].split("/")[0];
+  const pages = state.commitPullPages?.[sha] ?? [state.commitPulls?.[sha] ?? []];
+  process.stdout.write(JSON.stringify(args.includes("--slurp") ? pages : pages[0]));
+  process.exit(0);
+}
+
 // GitHub compare's recorded contract, computed against the real local bare origin.
 // Failure/invalid-response overrides exercise conditions that cannot be requested from GitHub.
 if (args[0] === "api" && /^repos\/[^/]+\/[^/]+\/compare\//.test(args[1] ?? "")) {

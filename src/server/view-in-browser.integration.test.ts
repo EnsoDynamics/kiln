@@ -23,6 +23,7 @@ import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import {
   completeRepositoriesSnapshot,
   completeSnapshot,
+  completeDeliveryHistorySnapshot,
   documentsFoundRepositoriesSnapshot,
   documentsFoundSnapshot,
   needsYouCrashedSnapshot,
@@ -509,9 +510,7 @@ const SCREENS: {
 
 describe("each screen in a real browser, from its mockup's sample data", () => {
   it("renders already-merged completion at desktop and narrow widths without a fictitious PR", async () => {
-    const snapshot = completeSnapshot();
-    snapshot.pullRequests = [];
-    snapshot.mergedBranches = [{ repository: "pricing", head: "feature/customer-returns", base: "develop", featureCommit: "a".repeat(40), baseCommit: "b".repeat(40), url: "https://github.com/acme/pricing/commit/" + "a".repeat(40) }];
+    const snapshot = completeDeliveryHistorySnapshot();
     const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot });
     try {
       for (const width of [1280, 390]) {
@@ -522,7 +521,14 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
           expect(content).toContain("already merged into develop");
           expect(content).not.toContain("pr ready for review");
           expect(content).not.toContain("human review is next");
-          expect(await page.evaluate(`document.querySelector('a[href="${snapshot.mergedBranches[0]!.url}"]') !== null`)).toBe(true);
+          expect(content).toContain("pr #3: release customer returns");
+          expect(content).toContain("also contains other commits");
+          expect(content).toContain("in develop history");
+          expect(await page.evaluate(`document.querySelector('a[href="https://github.com/acme/acme-shop/pull/3"]') !== null`)).toBe(true);
+          await page.evaluate(`document.querySelector('a[href="#delivery-history"]').click()`);
+          expect(await page.evaluate(`location.hash`)).toBe("#delivery-history");
+          expect(await page.evaluate(`document.querySelector('#delivery-history details').open`)).toBe(false);
+          expect(await page.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(true);
           expect(page.problems).toEqual([]);
           if (process.env.KILN_SCREENSHOTS) { mkdirSync(process.env.KILN_SCREENSHOTS, { recursive: true }); writeFileSync(join(process.env.KILN_SCREENSHOTS, `already-merged-${width}.png`), await page.screenshot()); }
         } finally { await page.close(); }

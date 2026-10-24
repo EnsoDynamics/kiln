@@ -13,6 +13,7 @@ import { endProcessTree } from "./platform/helper-process.js";
 import { isProcessLive } from "./platform/process-start-time.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "./test-support/engine-harness.js";
 import { git } from "./test-support/git-repositories.js";
+import { readPrdRecord } from "./state/records.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 let harness: Harness | undefined;
@@ -204,19 +205,30 @@ describe("kiln run on a feature underway", () => {
     expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
   });
 
-  it("shows a completed feature from its record alone", async () => {
+  it("shows a completed feature and automatically backfills delivery history without starting a session", async () => {
     harness = await createHarness({ sessions: [landingSession("a"), landingSession("b"), landingSession("c"), pullRequestSession(218)] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     const ghCalls = h.ghCalls().length;
-    const result = await kilnRunUntil(h, (stdout) => stdout.includes("ready for review"));
+    const modelCalls = h.claudeCalls().length;
+    const completedAt = h.engine.record.completedAt;
+    const pullRequests = structuredClone(h.engine.record.pullRequests);
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("ready for review"), async () => {
+      await waitFor(() => readPrdRecord(h.stateDirectory)?.deliveryHistory !== undefined, 10_000);
+      const record = readPrdRecord(h.stateDirectory)!;
+      expect(record.completedAt).toBe(completedAt);
+      expect(record.pullRequests).toEqual(pullRequests);
+      expect(record.deliveryHistory?.repositories[0]?.workCommitCount).toBe(3);
+    });
     const lines = result.stdout.trimEnd().split("\n");
     expect(lines[0]).toBe("Customer returns  ·  4 of 4 phases done  ·  complete");
     expect(lines[1]).toMatch(new RegExp(`^● Pull request #218 is ready for review\\.${opened}$`));
     expect(lines[2]).toBe("Kiln stopped. Customer returns is complete.");
     expect(result.exitCode).toBe(130);
-    expect(h.ghCalls()).toHaveLength(ghCalls);
+    expect(h.claudeCalls()).toHaveLength(modelCalls);
+    expect(h.ghCalls().slice(ghCalls)).toHaveLength(3);
+    expect(h.ghCalls().slice(ghCalls).every(args => args[0] === "api" && args.some(arg => arg.includes("/commits/") && arg.endsWith("/pulls?per_page=100")))).toBe(true);
   });
 });
 

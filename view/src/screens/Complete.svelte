@@ -71,12 +71,49 @@
           <li>
             <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
             <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head} · {branch.featureCommit.slice(0, 7)}</span></div>
-            <a class="button small open-one" href={branch.url} target="_blank" rel="noopener noreferrer">View commit on GitHub</a>
+            <a class="button small open-one" href="#delivery-history">View delivery history</a>
           </li>
         {/each}
       </ul>
       <p class="note">Kiln confirmed that the feature commits are already in their intended base branches. No additional pull request is needed for these repositories.</p>
     </section>
+  {/if}
+  {#if mergedBranches.length || snapshot.deliveryHistory || snapshot.deliveryHistoryPending || snapshot.deliveryHistoryError}
+  <section class="pr" id="delivery-history" aria-label="PRD delivery history">
+    <h2>PRs and merges that delivered this work</h2>
+    <p class="note">Only events that introduced recorded PRD commits are shown. A release may also include other work.</p>
+    {#if snapshot.deliveryHistoryPending}<p class="note">Reading delivery history…</p>{/if}
+    {#if snapshot.deliveryHistoryError}<p class="history-gap">{snapshot.deliveryHistoryError}</p>{/if}
+    {#if snapshot.deliveryHistory}
+      {#each snapshot.deliveryHistory.repositories as history (history.repository)}
+        <div class="history-repo">
+          <h3 class="mono repo-name">{history.repository}</h3>
+          <ul class="prs">
+            {#each history.events as event (`${event.kind}:${event.number ?? event.commit}`)}
+              <li>
+                <div class="what">
+                  <a class="pr-title" href={event.url} target="_blank" rel="noopener noreferrer">{event.kind === "pull_request" ? `PR #${event.number}: ` : "Merge: "}{event.title}</a>
+                  <span class="pr-line">{event.kind === "pull_request" ? `Into ${event.target}` : `In ${event.target} history`} · {event.workCommits.length} recorded {event.workCommits.length === 1 ? "commit" : "commits"}{event.broader ? " · Also contains other commits" : ""}</span>
+                </div>
+              </li>
+            {/each}
+          </ul>
+          {#if history.events.length === 0}<p class="note">No delivery PR or merge could be reliably attributed from the available history.</p>{/if}
+          {#if history.unattributedCommitCount}<p class="history-gap">{history.unattributedCommitCount} recorded {history.unattributedCommitCount === 1 ? "commit has" : "commits have"} no verified PR or merge link.</p>{/if}
+          {#each history.problems as problem}<p class="history-gap">{problem}</p>{/each}
+        </div>
+      {/each}
+    {:else if !snapshot.deliveryHistoryPending && !snapshot.deliveryHistoryError}
+      <p class="note">Delivery history is not available yet.</p>
+    {/if}
+    {#if mergedBranches.length}
+      <details><summary>Completion verification</summary><ul class="prs">
+        {#each mergedBranches as branch (branch.repository)}
+          <li><span class="mono">{branch.repository} · {branch.featureCommit.slice(0, 7)}</span><a href={branch.url} target="_blank" rel="noopener noreferrer">View verified final commit</a></li>
+        {/each}
+      </ul></details>
+    {/if}
+  </section>
   {/if}
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
@@ -103,6 +140,11 @@
 </main>
 
 <style>
+  .history-repo .pr-title { overflow-wrap: anywhere; }
+  .history-repo h3 { margin: 0 0 8px; }
+  .history-gap { font-size: 13.5px; color: var(--amber); margin: 6px 0; }
+  details { font-size: 13px; color: var(--dim); }
+  summary { cursor: pointer; }
   .pr { background: var(--panel); border: 1px solid rgba(156, 196, 154, 0.45); border-radius: 18px; padding: clamp(22px, 3.4vw, 36px); display: flex; flex-direction: column; gap: 18px; }
   .which { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; color: var(--green); }
   .number { font-size: 14px; }

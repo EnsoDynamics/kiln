@@ -12,6 +12,7 @@ import { stepStates } from "../../../src/session/session-output.js";
 import {
   completeRepositoriesSnapshot,
   completeSnapshot,
+  completeDeliveryHistorySnapshot,
   documentsFoundSnapshot,
   needsYouCrashedSnapshot,
   needsYouMessageSnapshot,
@@ -398,5 +399,40 @@ describe("truthful completion after prior integration", () => {
     expect(page).toContain(snapshot.mergedBranches[0]!.url);
     if (mixed) { expect(words).toContain("some work already merged"); expect(words).toContain("Human review is next"); }
     else { expect(words).not.toContain("Human review is next"); expect(words).not.toContain("PR ready for review"); expect(words).not.toContain("Pull request #"); }
+  });
+});
+
+
+describe("verified delivery history", () => {
+  it("keeps the completed outcome visible while history is being read", () => {
+    const snapshot = completeDeliveryHistorySnapshot();
+    delete snapshot.deliveryHistory;
+    snapshot.deliveryHistoryPending = true;
+    const page = text(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    expect(page).toContain("Already merged");
+    expect(page).toContain("Reading delivery history…");
+  });
+  it("shows actual PR/merge links, labels broader releases, and keeps the tip under verification", () => {
+    const snapshot = completeDeliveryHistorySnapshot();
+    const page = strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    const words = text(page);
+    expect(words).toContain("PR #3: Release Customer returns");
+    expect(words).toContain("Into main · 2 recorded commits · Also contains other commits");
+    expect(words).toContain("Merge: Close customer returns");
+    expect(words).toContain("Completion verification");
+    expect(page).toContain('href="https://github.com/acme/acme-shop/pull/3"');
+    expect(page).toContain('href="#delivery-history"');
+    expect(page).not.toContain("View commit on GitHub");
+  });
+  it("makes incomplete and unavailable history explicit while retaining Complete", () => {
+    const snapshot = completeDeliveryHistorySnapshot();
+    snapshot.deliveryHistory!.repositories[0]!.events = [];
+    snapshot.deliveryHistory!.repositories[0]!.unattributedCommitCount = 3;
+    snapshot.deliveryHistory!.repositories[0]!.problems = ["PR lookup incomplete: GitHub unavailable"];
+    const page = text(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    expect(page).toContain("Already merged");
+    expect(page).toContain("No delivery PR or merge could be reliably attributed");
+    expect(page).toContain("3 recorded commits have no verified PR or merge link");
+    expect(page).toContain("GitHub unavailable");
   });
 });

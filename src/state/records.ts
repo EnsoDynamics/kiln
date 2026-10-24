@@ -159,6 +159,23 @@ export interface PullRequestFacts {
   deletions: number;
 }
 
+/** Verified historical introduction of recorded PRD work, independent of completion. */
+export interface DeliveryEvent {
+  kind: "pull_request" | "merge";
+  repository: string;
+  commit: string;
+  number?: number;
+  title: string;
+  target: string;
+  url: string;
+  workCommits: string[];
+  broader: boolean;
+}
+export interface DeliveryHistory {
+  checkedAt: string;
+  repositories: { repository: string; workCommitCount: number; unattributedCommitCount: number; events: DeliveryEvent[]; problems: string[] }[];
+}
+
 /** Exact feature commit already contained in the live intended base; no PR is fabricated. */
 export interface MergedBranchFacts {
   repository: string;
@@ -224,6 +241,7 @@ export interface PrdRecord {
   pause: { requestedAt?: string; activeSince?: string };
   pullRequests?: PullRequestFacts[];
   mergedBranches?: MergedBranchFacts[];
+  deliveryHistory?: DeliveryHistory;
   plan?: RecordedPlanPhase[];
 }
 

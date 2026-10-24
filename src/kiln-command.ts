@@ -222,6 +222,15 @@ function makeEngine(
     keepAwake,
   });
   run.stop.engine = engine;
+  let historyRequested = false;
+  const readHistoryOnce = () => {
+    if (!historyRequested && engine.record.completedAt && !run.stop.stopping) {
+      historyRequested = true;
+      void engine.refreshDeliveryHistory();
+    }
+  };
+  engine.onChange(readHistoryOnce);
+  queueMicrotask(readHistoryOnce);
   return engine;
 }
 

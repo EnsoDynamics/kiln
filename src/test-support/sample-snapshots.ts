@@ -606,3 +606,15 @@ export function needsYouUsageLimitSnapshot(): Snapshot {
     },
   });
 }
+
+/** Complete with independently verified, broader delivery PR and direct merge evidence. */
+export function completeDeliveryHistorySnapshot(): Snapshot {
+  const snapshot = completeSnapshot();
+  snapshot.pullRequests = [];
+  snapshot.mergedBranches = [{ repository: "acme-shop", head: "feature/customer-returns", base: "develop", featureCommit: "c".repeat(40), baseCommit: "d".repeat(40), url: "https://github.com/acme/acme-shop/commit/" + "c".repeat(40) }];
+  snapshot.deliveryHistory = { checkedAt: "2026-10-17T18:55:00Z", repositories: [{ repository: "acme-shop", workCommitCount: 3, unattributedCommitCount: 0, problems: [], events: [
+    { kind: "pull_request", repository: "acme-shop", number: 3, commit: "e".repeat(40), title: "Release Customer returns", target: "main", url: "https://github.com/acme/acme-shop/pull/3", workCommits: ["a".repeat(40), "b".repeat(40)], broader: true },
+    { kind: "merge", repository: "acme-shop", commit: "f".repeat(40), title: "Close customer returns", target: "develop", url: "https://github.com/acme/acme-shop/commit/" + "f".repeat(40), workCommits: ["c".repeat(40)], broader: false },
+  ] }] };
+  return snapshot;
+}

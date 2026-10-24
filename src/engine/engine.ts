@@ -1,3 +1,4 @@
+import { readDeliveryHistory } from "./delivery-history.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { runCodexSession, reconcileCodexAttempt } from "../session/codex-session.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
@@ -286,6 +287,9 @@ export class Engine {
   private quiet = false;
   /** `kiln run` already ran the check before the pull-request session and it failed. */
   private pullRequestPrecheckDone = false;
+  deliveryHistoryPending = false;
+  deliveryHistoryError: string | undefined;
+  private deliveryReading: Promise<void> | undefined;
   /** Aborted when a stop begins: every git and gh call still running ends, and new ones fail at once. */
   private readonly abort = new AbortController();
   /** The live session process's controls, while one runs. */
@@ -1840,6 +1844,42 @@ export class Engine {
       pushedSha: prdSha,
       ...(this.setUpRepositories.length > 1 ? { pushes: ordered } : {}),
     });
+  }
+
+  /** Auxiliary evidence never changes completion or launches a session. */
+  refreshDeliveryHistory(): Promise<void> {
+    if (!this.record.completedAt || this.stopping || this.closed) return Promise.resolve();
+    if (this.deliveryReading) return this.deliveryReading;
+    this.deliveryHistoryPending = true;
+    this.deliveryHistoryError = undefined;
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(45_000)]);
+    const reading = Promise.resolve().then(async () => {
+      const repositories: NonNullable<PrdRecord["deliveryHistory"]>["repositories"] = [];
+      for (const entry of this.setUpRepositories) {
+        const merged = this.record.mergedBranches?.find(branch => branch.repository === entry.name);
+        const missingRanges: string[] = [];
+        const history = await readDeliveryHistory({
+          repository: entry.name, github: entry.github, cwd: entry.mainCheckoutPath,
+          git: { ...this.git, signal }, gh: this.options.tools.gh,
+          ranges: Object.entries(this.record.phases).filter(([key, facts]) => key !== PR_PHASE_KEY && facts.doneAt).flatMap(([key, facts]) => {
+            const receipt = facts.repositories[entry.name];
+            if (receipt && (!receipt.startCommit || !receipt.pushedSha)) missingRanges.push(`Phase ${key} has an incomplete recorded commit range.`);
+            return receipt?.startCommit && receipt.pushedSha ? [{ start: receipt.startCommit, end: receipt.pushedSha }] : [];
+          }),
+          ...(entry.baseCommit && merged ? { baseHistory: { start: entry.baseCommit, end: merged.baseCommit, branch: entry.baseBranch } } : {}),
+        });
+        history.problems.push(...missingRanges);
+        repositories.push(history);
+      }
+      if (this.closed || this.stopping) return;
+      this.record.deliveryHistory = { checkedAt: this.now().toISOString(), repositories };
+      this.save();
+    }).catch(error => { if (!this.closed && !this.stopping) this.deliveryHistoryError = `Delivery history unavailable: ${(error as Error).message}`; }).finally(() => {
+      this.deliveryReading = undefined; this.deliveryHistoryPending = false; this.changed();
+    });
+    this.deliveryReading = reading;
+    this.changed();
+    return reading;
   }
 
   private complete(pullRequests: PullRequestFacts[], byPerson: boolean, mergedBranches: MergedBranchFacts[] = []): void {
