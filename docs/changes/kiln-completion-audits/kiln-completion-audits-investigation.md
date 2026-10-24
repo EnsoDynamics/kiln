@@ -1,6 +1,6 @@
 # Kiln completion audits — current behavior and method findings
 
-Checked 2026-10-24. Kiln baseline: `886f31f60165b9fc8f799db42832150af5feddbd`. Enso Method baseline: `1d79b09f5aacd5af483fa223e32eea1ca64623a1` in the sibling `enso-method` repository. This was a source and requirements review; no live Kiln execution or application tests were run.
+Checked 2026-10-24. Kiln baseline: `886f31f60165b9fc8f799db42832150af5feddbd`. Enso Method baseline: `1d79b09f5aacd5af483fa223e32eea1ca64623a1` in the sibling `enso-method` repository. This was a source and requirements review; implementation code, technical design and phase sizing were outside that review. No live Kiln execution or application tests were run.
 
 ## What Kiln currently does
 

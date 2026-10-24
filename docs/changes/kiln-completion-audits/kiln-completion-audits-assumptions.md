@@ -1,7 +1,7 @@
-# Kiln automatic completion audits — business assumption
-
 <!-- Before editing, load assumptions-document-writing; when folding stakeholder answers,
      also load assumptions-document-feedback. IDs are permanent; do not renumber. -->
+
+# Kiln automatic completion audits — business assumption
 
 **Last updated:** 2026-10-24
 **Status:** Validated — no pending business assumptions.

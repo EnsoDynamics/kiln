@@ -15,7 +15,7 @@ Extend Kiln's foreground execution loop with delivery-audit and test-audit activ
 - Reuse Claude Code and Codex launch, identity, transcript, workspace and usage-recovery protections.
 - Extend external prompt templates, snapshot-driven progress rows, detail screens and terminal events.
 - Preserve development grants, retained checkpoint obligations, synchronization and mixed delivered/review outcomes.
-- Preserve current-authority recovery prompts, including manually reopened conversations and first-grant activation.
+- Preserve current-authority recovery prompts, including manually reopened conversations and first-grant activation, as required by the recovery contract at `ed773ea`.
 - Preserve original phase IDs, closure history, provider conversations and historical completion facts.
 - Keep method skills unchanged; Kiln supplies its explicit execution contract around them.
 
@@ -189,7 +189,7 @@ This document specifies implementation evidence; no runtime tests were run for t
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does, §Sessions, §Snapshot and §Kiln's State on Disk (audit activity types, scheduling, recovery and persisted records).
 
-Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Pull Requests and §Screens (audit gate before final checks, ordered audit rows).
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Pull Requests and §Screens (AC-SHOW-01) (audit gate before final checks, ordered audit rows).
 
 Replaces in part: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §One evaluator at every transition, §Record contract and §Display Contract (audit gate and audit-owned obligations, next schema and progress activities; permission and delivery evidence rules retained).
 
@@ -197,7 +197,7 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 
 Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (audit result check and task-specific continuation).
 
-Reverse pointers belong in the implementation commit, at each then-current owner, with earlier wording preserved. Newer development recovery at local `ed773ea` must be retained when implementing; its current-authority/manual-recovery contract is included above. This design does not merge unpublished histories.
+Reverse pointers belong in the implementation commit, at each then-current owner, with earlier wording preserved.
 
 ## Open Questions
 

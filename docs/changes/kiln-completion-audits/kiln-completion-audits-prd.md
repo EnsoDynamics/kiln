@@ -27,6 +27,7 @@ Completing a phase plan starts the independent checks. A ready pull request, or 
 - [ ] **AC-AUDIT-04 — Existing delivery evidence cannot skip the audits.** Startup, continuation, Check again and Resume all require successful current audits before final completion, even when review pull requests are already open or the current work is already in its intended base. Existing final repository and development-verification checks still apply after the audits.
   - Replaces in part: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (startup, Check again and Resume completing immediately when repository delivery checks pass).
   - Replaces in part: AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (all phases and final repository evidence being sufficient for completion).
+  - Replaces in part: AC-RECOVERY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the final-session Resume completion precheck also requires successful current audits).
 
 ### Build what the audits find missing
 
@@ -52,6 +53,9 @@ The existing progress list continues naturally from implementation into audits a
 
 - [ ] **AC-RUN-01 — Audits appear alongside phases in the familiar progress list.** Delivery-audit and test-audit activities appear as successive rows in the existing progress list, using the same visual treatment, status presentation and session-detail interactions as implementation rows. They are labeled “Delivery audit” and “Test audit,” never labeled or numbered as implementation phases. Repeat audits and added completion phases appear in execution order, with rounds distinguishable. The terminal follows the same naming and order. Session output and findings remain inspectable; finished implementation rows do not imply the execution is complete.
   - Replaces in part: AC-PR-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the finished plan followed immediately by final delivery, without audit activity).
+  - Replaces in part: AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the final-session row is added after the required audits, rather than as soon as every implementation leaf is closed).
+  - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (exact mockup matching only where audit presentation requires added rows and labels; unaffected layout and visual style remain).
+  - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (exact mockup matching only for the added audit rows and labels; unaffected layout and visual style remain).
 - [ ] **AC-RUN-07 — Each next activity starts without a manual handoff.** Once the current activity passes its required checks, Kiln immediately proceeds to the next eligible audit, completion phase, test-remediation continuation or final-delivery activity. No confirmation, additional Start action, copied prompt, scheduled delay or default pause is introduced between these activities. Only an explicitly requested pause, an existing interruption or usage-limit wait, or a genuine blocker under AC-LOOP-04 may hold continuation.
 - [ ] **AC-RUN-02 — Recovery resumes the right work.** Pauses, interruptions, usage-limit waits, application restarts, Resume and Check again retain the current audit round, continuation, added phases and their results. Pause after the current activity works at audit-session boundaries as well as implementation-phase boundaries. Recovery checks whether an interrupted activity already completed before resuming it and never starts competing sessions, duplicates completion phases or opens duplicate final pull requests.
 - [ ] **AC-RUN-03 — Later changes invalidate affected conclusions.** Changes to requirements, implementation or tests after an audit cause the affected audit conclusions to be reassessed before completion. An implementation change requires another delivery audit and reassessment of affected test evidence; changed test evidence requires test reassessment. Recording audit outcomes, updating phase status or editing final-delivery descriptions alone does not create an endless audit cycle. Kiln cannot declare completion using results for earlier, materially different work.
@@ -66,6 +70,5 @@ The existing progress list continues naturally from implementation into audits a
 - Adding new product requirements to the PRD being audited, or auditing unrelated work.
 - Adding support for executing PRDs without a phase plan.
 - Production release authority, automatic merging merely to finish, or bypassing existing checks and protections.
-- Implementation code, technical design and phase sizing in this requirements-writing task.
 
 The replacement lines above take effect when implemented. Matching reverse links belong in the implementation commit; earlier PRDs remain historical requirements until then.
