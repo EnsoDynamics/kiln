@@ -1,4 +1,4 @@
-# Phase 3: Remembered targets and execution grants
+# Phase 2: Remembered targets and execution grants
 
 **Parent PRD:** [Kiln development deployments](kiln-development-deployments-prd.md)
 **Technical design:** [Kiln development deployments](kiln-development-deployments-technical-design.md) — Authorization and Persistence; Session Contract and Delivery Interface; Evidence and Completion → One evaluator at every transition; Display Contract; Verification and Criteria Coverage; Supersession Boundary.
@@ -11,13 +11,13 @@ Let a person explicitly reuse saved development targets for a new PRD or approve
 ## Acceptance criteria covered
 AC-PERMIT-03, AC-PERMIT-05.
 
-AC-PERMIT-01, AC-PERMIT-02, AC-PERMIT-04, AC-DEV-01, AC-DEV-02, AC-DEV-03, AC-DEV-04, AC-RECOVERY-01, AC-RECOVERY-02, AC-RECOVERY-03, AC-DISPLAY-01, AC-DISPLAY-02 (each also applies to this phase's work; owned by Phase 1). AC-DELIVER-03, AC-DELIVER-04, AC-DISPLAY-03 (each also applies to this phase's work; owned by Phase 2).
+AC-PERMIT-01, AC-PERMIT-02, AC-PERMIT-04, AC-DEV-01, AC-DEV-02, AC-DEV-03, AC-DEV-04, AC-DELIVER-01, AC-DELIVER-02, AC-DELIVER-03, AC-DELIVER-04, AC-RECOVERY-01, AC-RECOVERY-02, AC-RECOVERY-03, AC-DISPLAY-01, AC-DISPLAY-02, AC-DISPLAY-03 (each also applies to this phase's work; owned by Phase 1).
 
 ## Out of scope for this phase
 No remaining planned PRD scope is deferred. Production authority, automatic permission inferred from PRD storage and changes to published engineering skills remain outside the PRD.
 
 ## Phase dependencies
-1 (execution authorization, checkpoint interface and recovery); 2 (current completion evaluator and repository delivery results).
+1 (execution authorization, checkpoint interface/recovery, current completion evaluator and repository delivery results).
 
 ## Phase-specific notes
-Use the phase plan's Phase 3 proof rows. First-grant activation must exercise earlier completed leaves and the stopped leaf through real provider recovery, beyond merely saving a target. AUTH-001 proceeds at its recorded confidence without treating the requirements repository as project identity; do not reopen validated AUTH-002.
+Use the phase plan's Phase 2 proof rows. First-grant activation must exercise earlier completed leaves and the stopped leaf through real provider recovery, beyond merely saving a target. AUTH-001 proceeds at its recorded confidence without treating the requirements repository as project identity; do not reopen validated AUTH-002.
