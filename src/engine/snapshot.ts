@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
@@ -238,6 +238,8 @@ export interface Snapshot {
     /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
     resumeOffered: boolean;
     resumeCommand?: string;
+    /** Send in the reopened conversation before working, so older instructions receive current authority. */
+    resumePrompt?: string;
     freshSessionPrompt: string;
     /** `cd <worktree>` then `claude`: how a fresh session starts when there is nothing to resume (UI-007). */
     freshSessionCommand: string;
@@ -566,7 +568,18 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...optional("spawnError", run?.spawnError),
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
-    ...(resumable ? { resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : resumeCommand(folder, session.sessionId) } : {}),
+    ...(resumable ? {
+      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : resumeCommand(folder, session.sessionId),
+      ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
+        deliveryAuthority: engine.deliveryAuthority(),
+        agentId: session.agentId ?? "claude_code",
+        endedOnItsOwn: interrupted === undefined,
+        time: interrupted?.at ?? endedAt,
+        ...(isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
+        multiRepository: isPr ? engine.pullRequestRepositories().length > 1 : folder !== engine.worktreePath,
+        ...(outside?.view?.prompt === undefined ? {} : { outside: outside.view.prompt }),
+      }) } : {}),
+    } : {}),
     freshSessionPrompt: prompts(everStarted),
     freshSessionCommand,
     outputLineCount: lines.length,

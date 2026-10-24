@@ -163,7 +163,9 @@ export function resumePrompt(values: ResumePromptValues): string {
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
     values.phaseDoc === undefined
-      ? fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
+      ? values.deliveryAuthority
+        ? template("resume-carry-on-development-finalization.txt")
+        : fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
   return [...before, ...(values.deliveryAuthority ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");

@@ -324,3 +324,22 @@ describe("reply policy keeps unattended continuation as the default", () => {
     expect(resumePrompt({ agentId, time: "t", usageLimit: "weekly" })).not.toContain("reply-handling");
   });
 });
+
+
+describe("development finalization recovery task", () => {
+  it("uses outstanding delivery work for both providers and every resume cause, with reply/repair precedence", () => {
+    for (const agentId of ["claude_code", "codex"] as const) {
+      for (const cause of [{}, { cause: "sleep" as const }, { cause: "sigint" as const }, { usageLimit: "usage limit" }, { endedOnItsOwn: true }]) {
+        const prompt = resumePrompt({ ...cause, agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: JSON.stringify({ grants: [{ repository: "github.com/acme/api", baseBranch: "develop", environment: "api-dev" }], confirmedMerges: [{ url: "https://github.com/acme/api/pull/1" }] }), note: "Answer my question first.", outside: "Repair assigned workspace evidence first." });
+        expect(prompt.indexOf("Answer my question first.")).toBeLessThan(prompt.indexOf("Repair assigned workspace evidence first."));
+        expect(prompt.indexOf("Repair assigned workspace evidence first.")).toBeLessThan(prompt.indexOf("saved development-delivery authority"));
+        expect(prompt).toContain("outstanding evidence, assigned-branch synchronization, remaining review PRs and description links");
+        expect(prompt).toContain("create no empty or duplicate final PR");
+        expect(prompt).toContain("does not authorize merging remaining review work");
+        expect(prompt).not.toContain("Carry on opening");
+        expect(prompt).toContain("https://github.com/acme/api/pull/1");
+      }
+    }
+    expect(resumePrompt({ time: "2026-10-24T12:00:00Z" })).toContain("Carry on opening the pull request");
+  });
+});

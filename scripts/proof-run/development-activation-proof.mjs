@@ -1,5 +1,6 @@
 // Real Claude/Codex restricted-conversation -> explicit HTTP grant -> recovery proof.
-// Usage: node scripts/proof-run/development-activation-proof.mjs <Phase-1-proof-root>
+// Usage: node --experimental-strip-types scripts/proof-run/development-activation-proof.mjs <Phase-1-proof-root> [--terminal-recovery]
+// Terminal mode sends the browser-displayed handoff to the original provider conversation.
 // Reads the inherited disposable GitHub delivery; creates only private local test workspaces/state.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -16,8 +17,11 @@ import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord } fro
 import { stateRoot, prdStateDirectory } from '../../dist/state/state-files.js';
 import { takeInstanceLock } from '../../dist/state/instance-lock.js';
 import { startLocalServer } from '../../dist/server/local-server.js';
-import { launchArguments, runSessionProcess } from '../../dist/session/claude-session.js';
+import { buildSnapshot } from '../../dist/engine/snapshot.js';
+import { launchChrome } from '../../src/test-support/headless-chrome.ts';
+import { launchArguments, resumeArguments, runSessionProcess } from '../../dist/session/claude-session.js';
 import { runCodexSession } from '../../dist/session/codex-session.js';
+const terminalRecovery = process.argv.includes('--terminal-recovery');
 const inherited = realpathSync(process.argv[2]);
 const manifest = JSON.parse(readFileSync(join(inherited, 'proof.json'), 'utf8'));
 assert.equal(manifest.purpose, 'Kiln development delivery proof');
@@ -80,7 +84,34 @@ try {
   assert.deepEqual(record.developmentAuthorization.activationRecovery.phaseIds, ['1', '2']);
   const historicalMerge = globalThis.structuredClone(checkpoint.merge);
   const note = readFileSync(new URL('./development-activation-provider-prompt.txt', import.meta.url), 'utf8').replaceAll('{{MERGE}}', checkpoint.merge.resultSha).replaceAll('{{ENVIRONMENT}}', checkpoint.target.environment);
-  const resumed = await engine.resume({ note }); assert.ok(resumed.ok, JSON.stringify(resumed)); await engine.settled();
+  if (terminalRecovery) {
+    const chrome = await launchChrome();
+    let handoff;
+    try {
+      const page = await chrome.open(server.address);
+      await page.waitFor(`document.body.innerText.includes('Copy recovery prompt')`);
+      handoff = await page.evaluate(`document.querySelector('.pick pre.prompt').textContent`);
+      assert.equal(handoff, buildSnapshot(engine).needsYou.resumePrompt);
+      const command = await page.evaluate(`document.querySelector('.pick pre').textContent`);
+      assert.equal(command, buildSnapshot(engine).needsYou.resumeCommand);
+      assert.ok(command.includes(agent === 'codex' ? session.conversation.threadId : session.sessionId));
+      assert.ok(handoff.includes(checkpoint.target.environment));
+      writeFileSync(join(root, 'terminal-recovery.png'), await page.screenshot());
+      writeFileSync(join(root, 'terminal-recovery-prompt.txt'), handoff);
+      assert.deepEqual(page.problems, []);
+    } finally { await chrome.close(); }
+    // The person's instructions precede the copied authority/task handoff. The same native
+    // conversation is continued with print/structured output so the proof can read its result.
+    const prompt = `${note}\n\n${handoff}`;
+    engine.current = { phaseKey: '2', session, commits: [], processRunning: true };
+    try {
+      if (agent === 'codex') await runCodexSession({ executable: 'codex', cwd: worktree, writableRoots: [workspace], repositories: [{ path: worktree, branch: manifest.branch }], env, record: session, stateDirectory, prompt, cause: 'person_resume' });
+      else await runSessionProcess({ claude: 'claude', args: resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort), cwd: worktree, env, prompt, cause: 'person_resume', stateDirectory, record: session });
+      writeSessionRecord(stateDirectory, session);
+    } finally { engine.current = undefined; }
+  } else {
+    const resumed = await engine.resume({ note }); assert.ok(resumed.ok, JSON.stringify(resumed)); await engine.settled();
+  }
   const context = { record, stateDirectory, prdWorktree: worktree, prdDirectory: manifest.prdDirectory, git: { git: 'git', env }, gh: 'gh', env, phaseId: '2', now: () => new Date().toISOString(), commands: id => engine.deliveryCommands(id) };
   await reconcileDelivery(context);
   if (phaseDeliveryCheck(context, '1').passed && !phaseDeliveryCheck(context, '2').passed) {
@@ -90,7 +121,7 @@ try {
     assert.ok(remaining.ok, JSON.stringify(remaining)); await engine.settled(); await reconcileDelivery(context);
   }
   const checks = ['1', '2'].map(id => phaseDeliveryCheck(context, id));
-  const result = { provider: agent, sessionId: session.sessionId, conversation: engine.latestSession('2').conversation, runs: engine.latestSession('2').runs.map(run => ({ cause: run.cause, pid: run.pid, endedAt: run.endedAt, codex: run.codex })), checks, ledger: record.developmentDelivery, authorization: record.developmentAuthorization, history: record.phases['1'], expectedHistory: history, futureRefusal: JSON.parse(readFileSync(join(folder, 'activation-driver-state.json'), 'utf8')).futureRefusal };
+  const result = { terminalRecovery, provider: agent, sessionId: session.sessionId, conversation: engine.latestSession('2').conversation, runs: engine.latestSession('2').runs.map(run => ({ cause: run.cause, pid: run.pid, endedAt: run.endedAt, codex: run.codex })), checks, ledger: record.developmentDelivery, authorization: record.developmentAuthorization, history: record.phases['1'], expectedHistory: history, futureRefusal: JSON.parse(readFileSync(join(folder, 'activation-driver-state.json'), 'utf8')).futureRefusal };
   writeFileSync(join(root, 'activation-result.json'), JSON.stringify(result, null, 2));
   assert.ok(checks.every(one => one.passed), JSON.stringify(checks)); assert.deepEqual(record.phases['1'], history); assert.deepEqual(checkpoint.merge, historicalMerge);
   assert.equal(record.developmentDelivery.checkpoints[0].operations.filter(one => one.kind === 'merge').length, 1); assert.ok(!checkpoint.operations.some(one => one.kind === 'deploy'));
@@ -101,5 +132,5 @@ try {
   assert.deepEqual(engine.record.phases['1'], history); assert.deepEqual(engine.record.developmentAuthorization, result.authorization);
   assert.equal(engine.authorizeDevelopmentTarget(payload).ok, true);
   assert.deepEqual(engine.record.developmentAuthorization, result.authorization);
-  console.log('RESULT', JSON.stringify({ root, provider: agent, sessionId: session.sessionId, checks, historyPreserved: true, confirmedMergeReused: true, futureRefused: true, restartIdempotent: true }));
+  console.log('RESULT', JSON.stringify({ terminalRecovery, root, provider: agent, sessionId: session.sessionId, checks, historyPreserved: true, confirmedMergeReused: true, futureRefused: true, restartIdempotent: true }));
 } finally { await server.close(); lock.release(); engine.close(); }

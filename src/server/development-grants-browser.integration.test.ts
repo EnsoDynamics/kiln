@@ -69,6 +69,11 @@ describe("remembered targets and grant browser controls", () => {
     await waitFor(() => engine!.record.developmentAuthorization!.grants.length === 3);
     expect(h.claudeCalls()).toHaveLength(calls); expect(engine.record.phases["1"]?.stop).toBeDefined();
     expect(engine.savedDevelopmentTargets).toBeUndefined();
+    await page.waitFor(`document.body.innerText.includes('Copy recovery prompt') && document.querySelector('.pick pre.prompt')?.textContent.includes('api-second-dev')`);
+    const handoff = await page.evaluate<string>(`document.querySelector('.pick pre.prompt').textContent`);
+    expect(handoff).toContain("replaces earlier blanket restrictions");
+    expect(handoff).toContain("phase-1-deliver.md");
+    expect(handoff).toContain("Never bypass protections");
     expect(page.problems).toEqual([]);
   });
 });

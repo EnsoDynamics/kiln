@@ -337,7 +337,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   const isPr = stop.phaseId === PR_ID;
   const name = capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
-    headline: isPr ? "The pull-request session ended before it was done." : `${name} ended before it was done.`,
+    headline: isPr ? developmentDelivery ? "The delivery finalization session ended before it was done." : "The pull-request session ended before it was done." : `${name} ended before it was done.`,
     line: "",
     showFacts: true,
     firstStep: "resume",
@@ -352,10 +352,12 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
       ? "Kiln checks GitHub and the worktrees. When every changed repository has a ready pull request or verified prior integration, the feature is complete."
       : "Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.",
     sideHeading: isPr ? "Kiln finishes when" : "Kiln continues when",
-    footnote: isPr ? "This is the check Kiln runs after the pull-request session." : "This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+    footnote: isPr ? developmentDelivery ? "These are the current delivery finalization checks." : "This is the check Kiln runs after the pull-request session." : "This is the same check Kiln runs after every phase. Later phases wait until it passes.",
     // The pull-request session carries on opening the pull request in place of the phase (usage-limit recovery technical design, "Screens").
     resumeText: isPr
-      ? `Kiln checks delivery first, including whether the work is already merged. If delivery is incomplete, it picks up the same session, with its full history, and sends your reply before continuing to open ${multiRepository ? "the remaining pull requests" : "the pull request"}.`
+      ? developmentDelivery
+        ? "Kiln checks current delivery evidence first. If work remains, it picks up the same session with its full history and sends your reply before resolving the outstanding evidence, branch synchronization, review work or description links. Confirmed deliveries stay recorded; a review PR is needed only where work remains. Finalization does not authorize merging remaining review work."
+        : `Kiln checks delivery first, including whether the work is already merged. If delivery is incomplete, it picks up the same session, with its full history, and sends your reply before continuing to open ${multiRepository ? "the remaining pull requests" : "the pull request"}.`
       : `Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with ${name}. Then the plan continues as usual.`,
     notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
@@ -363,7 +365,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   if (stop.kind === "selection") {
     return {
       ...copy,
-      headline: `${isPr ? "The pull-request session" : name} hasn’t started.`,
+      headline: `${isPr ? developmentDelivery ? "The delivery finalization session" : "The pull-request session" : name} hasn’t started.`,
       line: "Check the selected agent’s model, effort and sign-in below, then press Check again. No new session has started.",
       showFacts: false,
       firstStep: "none",
@@ -389,7 +391,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   }
   if (stop.outside) {
     // What Check again then does, as the mockup's step 3 says it.
-    const afterCheck = isPr
+    const afterCheck = developmentDelivery ? copy.checkAgainText : isPr
       ? `When every changed repository has a ready pull request or verified prior integration, the feature is complete.`
       : "If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.";
     copy.outside = outsideSteps(stop, afterCheck);

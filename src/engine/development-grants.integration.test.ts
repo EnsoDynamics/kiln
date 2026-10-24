@@ -139,3 +139,46 @@ describe("Needs you execution grants", () => {
     writePrdRecord(h.stateDirectory, h.engine.record);
   });
 });
+
+
+it("updates the terminal handoff after a first grant without changing restricted recovery or history", async () => {
+  const h = await stopped();
+  const restricted = buildSnapshot(h.engine).needsYou!;
+  expect(restricted.resumeCommand).toContain("--resume");
+  expect(restricted.resumePrompt).toBeUndefined();
+  const session = h.engine.latestSession("1")!;
+  const runs = structuredClone(session.runs);
+  expect(grant(h)).toEqual({ ok: true });
+  const enabled = buildSnapshot(h.engine).needsYou!;
+  expect(enabled.resumeCommand).toBe(restricted.resumeCommand);
+  expect(enabled.resumePrompt).toContain("replaces earlier blanket restrictions");
+  expect(enabled.resumePrompt).toContain(target.environment);
+  expect(enabled.resumePrompt).toContain("phase-1-return-intake.md");
+  expect(enabled.resumePrompt).toContain("activationRecovery");
+  expect(enabled.resumePrompt).toContain("Never bypass protections");
+  expect(session.runs).toEqual(runs);
+  const again = h.reopenFromDisk(); await again.agents.refresh();
+  expect(buildSnapshot(again).needsYou?.resumePrompt).toBe(enabled.resumePrompt);
+});
+
+
+it("replaces a restricted finalization conversation's PR-opening task after its first grant", async () => {
+  h = await createHarness({ sessions: [landingSession("one.txt"), landingSession("two.txt"), landingSession("three.txt"), { actions: [] }, { actions: [] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  expect(h.engine.stoppedPhaseKey()).toBe("pr");
+  const session = h.engine.latestSession("pr")!;
+  expect(grant(h)).toEqual({ ok: true });
+  const recovery = buildSnapshot(h.engine).needsYou!;
+  expect(recovery.resumePrompt).toContain("Carry on finalizing delivery");
+  expect(recovery.resumePrompt).not.toContain("Carry on opening");
+  expect(await h.engine.resume({ note: "Explain missing evidence first." })).toEqual({ ok: true });
+  await h.engine.settled();
+  const resumed = h.claudeCalls().at(-1)!;
+  expect(resumed.args).toContain(session.sessionId);
+  expect(resumed.prompt).toContain("Carry on finalizing delivery");
+  expect(resumed.prompt).toContain("description links");
+  expect(resumed.prompt).toContain("does not authorize merging remaining review work");
+  expect(resumed.prompt).not.toContain("Carry on opening");
+  expect(resumed.prompt.indexOf("Explain missing evidence first.")).toBeLessThan(resumed.prompt.indexOf("saved development-delivery authority"));
+  expect(h.engine.record.completedAt).toBeUndefined();
+});

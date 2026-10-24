@@ -278,3 +278,16 @@ describe("development delivery completion", () => {
     expect(needsYouCopy(stop, snapshot.settings, now, false, true).finishText).toContain("artifact verification evidence");
   });
 });
+
+
+it("explains enabled finalization and outside repair without requiring duplicate PRs", () => {
+  const snapshot = needsYouOutsideWorkspaceSnapshot();
+  const stop = { ...snapshot.needsYou!, phaseId: "pr" };
+  const copy = needsYouCopy(stop, snapshot.settings, new Date(RUNNING_NOW), true, true);
+  expect(copy.headline).toContain("delivery finalization");
+  expect(copy.resumeText).toContain("outstanding evidence, branch synchronization, review work or description links");
+  expect(copy.resumeText).toContain("review PR is needed only where work remains");
+  expect(copy.resumeText).not.toContain("continuing to open");
+  expect(copy.outside?.againText).toContain("required artifact evidence");
+  expect(copy.outside?.againText).not.toContain("every changed repository has a ready pull request");
+});
