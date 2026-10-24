@@ -11,15 +11,18 @@ One proposed decision remains open. Work may proceed on it unless corrected.
 <a id="upgrade-001"></a>
 ## UPGRADE-001 — Which existing executions receive the new audits?
 
-**Assumption:** Apply the audits to **new and unfinished executions**, after any running session finishes. **Preserve completed executions** as historical results, without reopening them or claiming audits ran retroactively.
+**Assumption:** Apply the audits to **new and unfinished executions**, after any running session finishes. **Do not reopen completed executions solely for missing historical audits**, or claim audits ran retroactively. Existing recovery checks still apply; an execution they return to unfinished work must pass the new audits before completing again.
 
-**Example:** A saved execution paused after its last implementation phase runs the audits when continued. An execution already marked Complete before the upgrade stays complete under its original workflow.
+**Example:** A saved execution paused after its last implementation phase runs the audits when continued. An execution already marked Complete is not reopened just to add audits. If existing development-delivery recovery finds newer work that is not delivered, the reopened execution runs the audits before completing again.
 
-**Evidence:** Doug requested audits before final completion. Existing Kiln recovery can finish a saved execution immediately when its final repository checks pass, so leaving unfinished executions on that path would preserve the gap. The request did not specify retroactively reopening completed work; those pull requests may already have been reviewed or delivered.
+**Evidence:** Doug requested audits before final completion. Existing Kiln recovery can finish a saved execution immediately when its final repository checks pass, so leaving unfinished executions on that path would preserve the gap.
+
+The request did not specify retroactively reopening completed work. Development-deployments AC-RECOVERY-03 already requires reconciliation when reopening saved work; this proposal preserves it.
 
 **Confidence:** 90%. **Impact if wrong:** Medium — users could get unexpected additional work after upgrading, or completed work they expected to recheck would stay historical.
 
 **Confirm or correct:**
+
 - [ ] Correct as stated.
 - [ ] Wrong — apply only to executions started after the upgrade.
 - [ ] Wrong — different behavior: _______________
