@@ -15,6 +15,19 @@ Checked 2026-10-24. Kiln baseline: `886f31f60165b9fc8f799db42832150af5feddbd`. E
 
 The shared checkout had a pre-existing staged README edit, and another session was completing development-deployment work in its own worktree. Neither was changed by this investigation. The technical design must reconcile any newer delivery behavior before implementation.
 
+## Reconciliation with current development code
+
+The design worktree was updated on 2026-10-24 after fetching `origin/develop` at `390f99451a0c2865fca4c365d4812f3b0f2008a2`. Its source, prompts, view, tests and other files outside this change directory now match that development commit exactly. The eleven unpublished requirements commits were replayed without patch changes; `git range-diff` confirms every old/new pair is equivalent, including the empty workflow-record commits. Original history remains reachable through the read-only predecessor worktrees and local tag `completiona-design-before-code-sync-20261024` at `3d549b2`.
+
+| Newer commit | Effect on this design |
+|---|---|
+| `362c92b` — development-deployment delivery audit | Adds the planned recovery-guidance completion phase; its behavior is covered by this design's recovery and development-delivery contracts. |
+| `ed773ea` — current authority in recovered sessions | Adds the copyable manual recovery prompt and delivery-finalization continuation. The design already preserves these in Existing Code, Provider Sessions and Development Delivery, and Recovery and Upgrade. |
+| `e85cb57` — development-delivery test coverage | Adds test evidence for grants, current artifact/PR checks, completed-execution recovery and display. It changes no runtime behavior or requirements; retain this coverage during implementation. |
+| `390f994` — development-delivery publication record | Records authorization and audit closure for that separate delivery work. It changes no runtime behavior and grants no publication authority for completion audits. |
+
+The current-code check found no additional design change necessary. The PRD, technical design, confirmed assumption and stakeholder HTML remained byte-identical through the update. Verification was Git/content comparison and source review; no application tests were rerun because this update changed no code relative to the fetched development baseline. The shared checkout's staged README and both predecessor worktrees remain untouched.
+
 ## What the Enso Method currently requires
 
 The following paths are relative to the Enso Method repository, not Kiln.
