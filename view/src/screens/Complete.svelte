@@ -6,13 +6,14 @@
   // multi-repository PRD (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-complete-repositories.html) lists every pull request with its repository, and
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
-  import type { PullRequestFacts } from "../../../src/state/records.js";
+  import type { DeliveryEvent, PullRequestFacts } from "../../../src/state/records.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import Icon from "../components/Icon.svelte";
   import KilnPanel from "../components/KilnPanel.svelte";
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
+  import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
   import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
 
   let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
@@ -20,6 +21,8 @@
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
   const mergedBranches = $derived(snapshot.mergedBranches ?? []);
+  const histories = $derived(snapshot.deliveryHistory?.repositories.map(history => ({ ...history, ...deliveryGroups(history.events) })) ?? []);
+  let expanded = $state<Record<string, boolean>>({});
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
@@ -29,6 +32,17 @@
     return added === undefined ? undefined : addedLabel(added);
   };
 </script>
+
+{#snippet historyRow(event: DeliveryEvent)}
+  {@const time = deliveryTime(event.occurredAt, now)}
+  <li>
+    <div class="what">
+      <a class="pr-title" href={event.url} target="_blank" rel="noopener noreferrer">{event.kind === "pull_request" ? `PR #${event.number}: ` : ""}{event.title}</a>
+      <span class="pr-line">{event.kind === "pull_request" ? `Into ${event.target}` : `In ${event.target} history`} · {event.workCommits.length} recorded {event.workCommits.length === 1 ? "commit" : "commits"}{event.broader ? " · Also contains other commits" : ""}</span>
+      {#if time}<time datetime={event.occurredAt} class="event-time">{event.kind === "pull_request" ? "Merged " : "Commit time: "}{time.relative}<span class="exact-time"> · {time.exact}</span></time>{:else}<span class="event-time">Date unavailable</span>{/if}
+    </div>
+  </li>
+{/snippet}
 
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
@@ -70,8 +84,7 @@
         {#each mergedBranches as branch (branch.repository)}
           <li>
             <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
-            <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head} · {branch.featureCommit.slice(0, 7)}</span></div>
-            <a class="button small open-one" href="#delivery-history">View delivery history</a>
+            <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head}</span></div>
           </li>
         {/each}
       </ul>
@@ -80,24 +93,29 @@
   {/if}
   {#if mergedBranches.length || snapshot.deliveryHistory || snapshot.deliveryHistoryPending || snapshot.deliveryHistoryError}
   <section class="pr" id="delivery-history" aria-label="PRD delivery history">
-    <h2>PRs and merges that delivered this work</h2>
-    <p class="note">Only events that introduced recorded PRD commits are shown. A release may also include other work.</p>
+    <h2>Delivery history</h2>
+    <p class="note">Verified PRs, with merge links where no PR represents the work. Some releases also include other work.</p>
     {#if snapshot.deliveryHistoryPending}<p class="note">Reading delivery history…</p>{/if}
     {#if snapshot.deliveryHistoryError}<p class="history-gap">{snapshot.deliveryHistoryError}</p>{/if}
     {#if snapshot.deliveryHistory}
-      {#each snapshot.deliveryHistory.repositories as history (history.repository)}
+      {#each histories as history (history.repository)}
         <div class="history-repo">
-          <h3 class="mono repo-name">{history.repository}</h3>
-          <ul class="prs">
-            {#each history.events as event (`${event.kind}:${event.number ?? event.commit}`)}
-              <li>
-                <div class="what">
-                  <a class="pr-title" href={event.url} target="_blank" rel="noopener noreferrer">{event.kind === "pull_request" ? `PR #${event.number}: ` : "Merge: "}{event.title}</a>
-                  <span class="pr-line">{event.kind === "pull_request" ? `Into ${event.target}` : `In ${event.target} history`} · {event.workCommits.length} recorded {event.workCommits.length === 1 ? "commit" : "commits"}{event.broader ? " · Also contains other commits" : ""}</span>
-                </div>
-              </li>
+          <div class="history-heading"><h3 class="mono repo-name">{history.repository}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
+          <ul class="prs primary-deliveries" id={`deliveries-${history.repository}`}>
+            {#each history.primary.slice(0, expanded[history.repository] ? undefined : 3) as event (`${event.kind}:${event.number ?? event.commit}`)}
+              {@render historyRow(event)}
             {/each}
           </ul>
+          {#if history.primary.length > 3}
+            <button class="history-toggle" type="button" aria-expanded={expanded[history.repository] === true} aria-controls={`deliveries-${history.repository}`} onclick={() => expanded[history.repository] = !expanded[history.repository]}>{expanded[history.repository] ? "Show fewer deliveries" : `Show all ${history.primary.length} deliveries`}</button>
+          {/if}
+          {#if history.other.length}
+            <details class="other-merges">
+              <summary><span class="merge-chevron"><Icon name="chevron" size={12} /></span>Other verified merges ({history.other.length})</summary>
+              <p class="note">These merges carried work already represented by the PRs in this history.</p>
+              <ul class="prs">{#each history.other as event (event.commit)}{@render historyRow(event)}{/each}</ul>
+            </details>
+          {/if}
           {#if history.events.length === 0}<p class="note">No delivery PR or merge could be reliably attributed from the available history.</p>{/if}
           {#if history.unattributedCommitCount}<p class="history-gap">{history.unattributedCommitCount} recorded {history.unattributedCommitCount === 1 ? "commit has" : "commits have"} no verified PR or merge link.</p>{/if}
           {#each history.problems as problem}<p class="history-gap">{problem}</p>{/each}
@@ -105,13 +123,6 @@
       {/each}
     {:else if !snapshot.deliveryHistoryPending && !snapshot.deliveryHistoryError}
       <p class="note">Delivery history is not available yet.</p>
-    {/if}
-    {#if mergedBranches.length}
-      <details><summary>Completion verification</summary><ul class="prs">
-        {#each mergedBranches as branch (branch.repository)}
-          <li><span class="mono">{branch.repository} · {branch.featureCommit.slice(0, 7)}</span><a href={branch.url} target="_blank" rel="noopener noreferrer">View verified final commit</a></li>
-        {/each}
-      </ul></details>
     {/if}
   </section>
   {/if}
@@ -141,7 +152,16 @@
 
 <style>
   .history-repo .pr-title { overflow-wrap: anywhere; }
-  .history-repo h3 { margin: 0 0 8px; }
+  .history-repo h3 { margin: 0; }
+  .history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }
+  .event-time { font-size: 12.5px; color: var(--dim); }
+  .exact-time { white-space: normal; }
+  .history-toggle { background: transparent; border: 1px solid var(--line); border-radius: 20px; padding: 8px 14px; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; margin-top: 8px; }
+  .other-merges { margin-top: 16px; }
+  .other-merges summary { display: flex; align-items: center; gap: 7px; color: var(--muted); padding: 4px 0; }
+  .merge-chevron { display: inline-flex; }
+  .other-merges[open] .merge-chevron { transform: rotate(90deg); }
+  .other-merges[open] { display: flex; flex-direction: column; gap: 12px; }
   .history-gap { font-size: 13.5px; color: var(--amber); margin: 6px 0; }
   details { font-size: 13px; color: var(--dim); }
   summary { cursor: pointer; }

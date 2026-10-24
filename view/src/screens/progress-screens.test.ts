@@ -395,8 +395,8 @@ describe("truthful completion after prior integration", () => {
     const page = strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
     const words = text(page);
     expect(words).toContain("Already merged into develop");
-    expect(words).toContain("pricing"); expect(words).toContain("aaaaaaa");
-    expect(page).toContain(snapshot.mergedBranches[0]!.url);
+    expect(words).toContain("pricing"); expect(words).toContain("feature/customer-returns");
+    expect(page).not.toContain(snapshot.mergedBranches[0]!.url);
     if (mixed) { expect(words).toContain("some work already merged"); expect(words).toContain("Human review is next"); }
     else { expect(words).not.toContain("Human review is next"); expect(words).not.toContain("PR ready for review"); expect(words).not.toContain("Pull request #"); }
   });
@@ -412,17 +412,33 @@ describe("verified delivery history", () => {
     expect(page).toContain("Already merged");
     expect(page).toContain("Reading delivery history…");
   });
-  it("shows actual PR/merge links, labels broader releases, and keeps the tip under verification", () => {
+  it("shows the latest deliveries with dates, expansion and no redundant verification controls", () => {
     const snapshot = completeDeliveryHistorySnapshot();
     const page = strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
     const words = text(page);
-    expect(words).toContain("PR #3: Release Customer returns");
-    expect(words).toContain("Into main · 2 recorded commits · Also contains other commits");
-    expect(words).toContain("Merge: Close customer returns");
-    expect(words).toContain("Completion verification");
-    expect(page).toContain('href="https://github.com/acme/acme-shop/pull/3"');
-    expect(page).toContain('href="#delivery-history"');
+    expect(words).toContain("PR #6: Release returns acceptance");
+    expect(words).toContain("Into main · 1 recorded commit · Also contains other commits");
+    expect(words).toContain("Close customer returns");
+    expect(words).toContain("Show all 5 deliveries");
+    expect(words).toContain("Other verified merges (1)");
+    expect(words).toContain("Merged ");
+    expect(words).toContain("Commit time: ");
+    expect(words).toContain("Oct 17, 2026, 11:00 AM EDT");
+    expect(page).toContain('href="https://github.com/acme/acme-shop/pull/6"');
+    expect(page).not.toContain('href="https://github.com/acme/acme-shop/pull/3"');
+    expect(page).toContain('aria-expanded="false"');
+    expect(words).not.toContain("View delivery history");
+    expect(words).not.toContain("Completion verification");
+    expect(words).not.toContain("View verified final commit");
     expect(page).not.toContain("View commit on GitHub");
+  });
+  it("shows missing dates explicitly for existing stored events", () => {
+    const snapshot = completeDeliveryHistorySnapshot();
+    for (const event of snapshot.deliveryHistory!.repositories[0]!.events) delete event.occurredAt;
+    const page = text(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    expect(page).toContain("Date unavailable");
+    expect(page).toContain("Already merged");
+    expect(page).not.toContain("Invalid Date");
   });
   it("makes incomplete and unavailable history explicit while retaining Complete", () => {
     const snapshot = completeDeliveryHistorySnapshot();

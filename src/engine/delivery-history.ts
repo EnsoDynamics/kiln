@@ -89,11 +89,13 @@ export async function readDeliveryHistory(input: HistoryInput): Promise<Delivery
     if (introduced.length > INTRODUCTION_LIMIT) throw new Error("Merge introduction exceeds the delivery-history lookup limit");
     const matched = introduced.filter(commit => work.has(commit));
     if (!matched.length) return;
+    const occurredAt = pull ? pull.merged_at! : await readGit(["show", "--no-patch", "--format=%cI", sha]);
+    if (!Number.isFinite(Date.parse(occurredAt))) throw new Error("Merge timestamp is unreadable");
     const event: DeliveryEvent = {
       kind: pull ? "pull_request" : "merge", repository: input.repository, commit: sha,
       ...(pull ? { number: pull.number } : {}), title, target,
       url: pull ? `https://github.com/${input.github}/pull/${pull.number}` : `https://github.com/${input.github}/commit/${sha}`,
-      workCommits: matched.sort(), broader: introduced.length > matched.length,
+      workCommits: matched.sort(), broader: introduced.length > matched.length, occurredAt: new Date(occurredAt).toISOString(),
     };
     if (pull) { events.delete(`merge:${sha}`); events.set(`pr:${pull.number}`, event); }
     else if (![...events.values()].some(event => event.kind === "pull_request" && event.commit === sha)) events.set(`merge:${sha}`, event);

@@ -29,7 +29,8 @@ function setup(name = "pricing") {
   writeFileSync(join(repo, "upstream.txt"), "unrelated work"); run("add", "upstream.txt"); run("commit", "-q", "-m", "unrelated upstream");
   run("switch", "-q", "feature/ours"); run("merge", "-q", "--no-ff", "--no-edit", "upstream");
   const tip = head();
-  run("switch", "-q", "develop"); run("merge", "-q", "--no-ff", "--no-edit", "feature/ours");
+  run("switch", "-q", "develop");
+  execFileSync("git", ["merge", "-q", "--no-ff", "--no-edit", "feature/ours"], { cwd: repo, env: { ...sandbox.env, GIT_AUTHOR_DATE: "2026-10-22T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-23T18:45:00Z" } });
   const merge = head();
   run("switch", "-q", "-c", "later");
   writeFileSync(join(repo, "later.txt"), "later unrelated work"); run("add", "later.txt"); run("commit", "-q", "-m", "later unrelated");
@@ -51,7 +52,7 @@ describe("reliable whole-PRD delivery history", () => {
     expect(result.problems).toEqual([]);
     expect(result.workCommitCount).toBe(1); // Sync merge and unrelated upstream commit are not attributed.
     expect(result.unattributedCommitCount).toBe(0);
-    expect(result.events).toEqual([{ kind: "pull_request", repository: "pricing", commit: f.merge, number: 3, title: "Release 3", target: "develop", url: "https://github.com/acme/pricing/pull/3", workCommits: [f.work], broader: true }]);
+    expect(result.events).toEqual([{ kind: "pull_request", repository: "pricing", commit: f.merge, number: 3, title: "Release 3", target: "develop", url: "https://github.com/acme/pricing/pull/3", workCommits: [f.work], broader: true, occurredAt: "2026-10-24T15:00:00.000Z" }]);
     expect(readJsonLines<string[]>(`${f.state}.calls.jsonl`)).toEqual([["api", "--paginate", "--slurp", `repos/acme/pricing/commits/${f.work}/pulls?per_page=100`]]);
   });
 
@@ -61,6 +62,10 @@ describe("reliable whole-PRD delivery history", () => {
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toMatchObject({ kind: "merge", commit: f.merge, target: "develop", workCommits: [f.work], broader: true, url: `https://github.com/acme/pricing/commit/${f.merge}` });
     expect(result.events[0]!.number).toBeUndefined();
+    const committedAt = git(sandbox!, f.input.cwd, "show", "--no-patch", "--format=%cI", f.merge).trim();
+    const authoredAt = git(sandbox!, f.input.cwd, "show", "--no-patch", "--format=%aI", f.merge).trim();
+    expect(authoredAt).not.toBe(committedAt);
+    expect(result.events[0]!.occurredAt).toBe("2026-10-23T18:45:00.000Z");
   });
 
   it("keeps independently verified events scoped to their repositories", async () => {

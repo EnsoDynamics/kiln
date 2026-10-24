@@ -170,6 +170,8 @@ export interface DeliveryEvent {
   url: string;
   workCommits: string[];
   broader: boolean;
+  /** GitHub merge time for PRs; Git committer time for bare merges. Older records may lack it. */
+  occurredAt?: string;
 }
 export interface DeliveryHistory {
   checkedAt: string;

@@ -612,9 +612,13 @@ export function completeDeliveryHistorySnapshot(): Snapshot {
   const snapshot = completeSnapshot();
   snapshot.pullRequests = [];
   snapshot.mergedBranches = [{ repository: "acme-shop", head: "feature/customer-returns", base: "develop", featureCommit: "c".repeat(40), baseCommit: "d".repeat(40), url: "https://github.com/acme/acme-shop/commit/" + "c".repeat(40) }];
-  snapshot.deliveryHistory = { checkedAt: "2026-10-17T18:55:00Z", repositories: [{ repository: "acme-shop", workCommitCount: 3, unattributedCommitCount: 0, problems: [], events: [
-    { kind: "pull_request", repository: "acme-shop", number: 3, commit: "e".repeat(40), title: "Release Customer returns", target: "main", url: "https://github.com/acme/acme-shop/pull/3", workCommits: ["a".repeat(40), "b".repeat(40)], broader: true },
-    { kind: "merge", repository: "acme-shop", commit: "f".repeat(40), title: "Close customer returns", target: "develop", url: "https://github.com/acme/acme-shop/commit/" + "f".repeat(40), workCommits: ["c".repeat(40)], broader: false },
+  snapshot.deliveryHistory = { checkedAt: "2026-10-17T18:55:00Z", repositories: [{ repository: "acme-shop", workCommitCount: 6, unattributedCommitCount: 0, problems: [], events: [
+    { kind: "pull_request", repository: "acme-shop", number: 3, commit: "e".repeat(40), title: "Release Customer returns", target: "main", url: "https://github.com/acme/acme-shop/pull/3", workCommits: ["a".repeat(40), "b".repeat(40)], broader: true, occurredAt: "2026-10-15T13:00:00Z" },
+    { kind: "merge", repository: "acme-shop", commit: "f".repeat(40), title: "Close customer returns", target: "develop", url: "https://github.com/acme/acme-shop/commit/" + "f".repeat(40), workCommits: ["c".repeat(40)], broader: false, occurredAt: "2026-10-17T14:30:00Z" },
+    { kind: "pull_request", repository: "acme-shop", number: 4, commit: "1".repeat(40), title: "Release intake fixes", target: "main", url: "https://github.com/acme/acme-shop/pull/4", workCommits: ["d".repeat(40)], broader: false, occurredAt: "2026-10-16T15:00:00Z" },
+    { kind: "pull_request", repository: "acme-shop", number: 5, commit: "2".repeat(40), title: "Release store credit", target: "main", url: "https://github.com/acme/acme-shop/pull/5", workCommits: ["e".repeat(40)], broader: false, occurredAt: "2026-10-17T14:00:00Z" },
+    { kind: "pull_request", repository: "acme-shop", number: 6, commit: "3".repeat(40), title: "Release returns acceptance", target: "main", url: "https://github.com/acme/acme-shop/pull/6", workCommits: ["f".repeat(40)], broader: true, occurredAt: "2026-10-17T15:00:00Z" },
+    { kind: "merge", repository: "acme-shop", commit: "4".repeat(40), title: "Merge returns into another branch", target: "develop", url: "https://github.com/acme/acme-shop/commit/" + "4".repeat(40), workCommits: ["a".repeat(40), "b".repeat(40)], broader: false, occurredAt: "2026-10-17T15:30:00Z" },
   ] }] };
   return snapshot;
 }
