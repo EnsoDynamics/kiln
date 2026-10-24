@@ -103,7 +103,7 @@ describe("the Needs you screen's copy", () => {
 
   it("reads as drawn for a session that ended with a message, or crashed with none (AC-STOP-02)", () => {
     expect(needsYouCopy(base, settings, now)).toMatchObject({ headline: "Phase 2b ended before it was done.", line: "Kiln doesn’t try to interpret why. This is how the session ended.", firstStep: "resume", freshLink: true, sideHeading: "Kiln continues when" });
-    expect(needsYouCopy({ ...base, phaseId: "pr" }, settings, now, true).finishText).toContain("into each repository’s base branch, in every repository that changed");
+    expect(needsYouCopy({ ...base, phaseId: "pr" }, settings, now, true).finishText).toBe("Each changed repository needs a ready pull request from feature/customer-returns into its intended base, or proof that its current feature commit is already merged into that base.");
     expect(needsYouCopy(needsYouCrashedSnapshot().needsYou!, settings, now).line).toBe("The session exited with an error and no final message. These are the last lines it wrote.");
     expect(endingFact(base)).toBe("exit 0");
   });
@@ -120,8 +120,8 @@ describe("the Needs you screen's copy", () => {
     expect(copyOf({ phaseId: "pr", kind: "pull_request_check" })).toMatchObject({
       headline: "The pull-request session ended before it was done.",
       finishTitle: "Open the pull request with Claude, the way you normally would",
-      finishText: "Open it however you like. Kiln only looks for an open pull request from feature/customer-returns into develop that isn’t a draft, so it doesn’t matter who opens it.",
-      checkAgainText: "Kiln re-checks GitHub. If the pull request is open and ready for review, the feature is complete.",
+      finishText: "Kiln accepts a ready pull request from feature/customer-returns into develop, or proof that its current feature commit is already merged into that base.",
+      checkAgainText: "Kiln checks GitHub and the worktrees. When every changed repository has a ready pull request or verified prior integration, the feature is complete.",
       sideHeading: "Kiln finishes when",
       footnote: "This is the check Kiln runs after the pull-request session.",
     });
@@ -213,7 +213,7 @@ describe("Needs you after work outside the workspace (multi-repo AC-OUTSIDE-02 t
     expect(two.againText).toMatch(/^Once what’s left in design-system’s and storefront’s own checkouts is put back/);
     const pr = needsYouCopy({ ...stop, phaseId: "pr" }, settings, now, true).outside!;
     expect(pr.title).toBe("Ask it what still needs putting back in design-system");
-    expect(pr.againText).toMatch(/If every pull request is open and ready for review, the feature is complete\.$/);
+    expect(pr.againText).toMatch(/When every changed repository has a ready pull request or verified prior integration, the feature is complete\.$/);
   });
 
   it("offers the fresh session in place of the resume command when Kiln found no transcript, with no link to it (OUT-003)", () => {
@@ -254,3 +254,14 @@ describe("Needs you after work outside the workspace (multi-repo AC-OUTSIDE-02 t
   });
 });
 
+
+
+it("labels all-merged and mixed completion without claiming every repository needs review", () => {
+  const snapshot = completeSnapshot();
+  snapshot.mergedBranches = [{ repository: "pricing", head: "feature/x", base: "develop", featureCommit: "a".repeat(40), baseCommit: "b".repeat(40), url: "https://github.com/acme/pricing/commit/" + "a".repeat(40) }];
+  expect(headerState(snapshot, true, new Date(RUNNING_NOW)).label).toBe("Ready for review · some work already merged");
+  expect(openedLabel(snapshot)).toBe("1 PR ready · 1 already merged");
+  snapshot.pullRequests = [];
+  expect(headerState(snapshot, true, new Date(RUNNING_NOW)).label).toBe("Already merged");
+  expect(openedLabel(snapshot)).toBe("Already merged");
+});

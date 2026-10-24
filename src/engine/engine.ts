@@ -67,6 +67,7 @@ import {
   type LimitRefusal,
   type PrdRecord,
   type PullRequestFacts,
+  type MergedBranchFacts,
   type RepositoryEntry,
   type SessionRecord,
   type SessionRun,
@@ -133,7 +134,8 @@ export type TerminalEvent =
   | {
       kind: "pull_request";
       at: Date;
-      event: "started" | "stopped" | "opened" | "interrupted" | "resumed" | "waiting";
+      event: "started" | "stopped" | "opened" | "completed" | "interrupted" | "resumed" | "waiting";
+      summary?: string;
       number?: number;
       limit?: { label: string; resetsAt?: string };
       /** A multi-repository PRD's pull requests, in list order. */
@@ -1092,7 +1094,7 @@ export class Engine {
     if (!leaf) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (check.passed && !this.stopping) {
-        this.complete(check.pullRequests!, false);
+        this.complete(check.pullRequests!, false, check.mergedBranches);
         return withDone({ kind: "complete" as const });
       }
     }
@@ -1173,7 +1175,7 @@ export class Engine {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return;
         if (check.passed) {
-          this.complete(check.pullRequests!, false);
+          this.complete(check.pullRequests!, false, check.mergedBranches);
           return;
         }
       }
@@ -1579,7 +1581,7 @@ export class Engine {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return { kind: "stopping" };
         if (check.passed) {
-          this.complete(check.pullRequests!, byPerson);
+          this.complete(check.pullRequests!, byPerson, check.mergedBranches);
           return { kind: "complete" };
         }
         if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks, check.stayed.passed);
@@ -1615,7 +1617,7 @@ export class Engine {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return { kind: "stopping" };
       if (!check.passed) return check.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
-      this.complete(check.pullRequests!, false);
+      this.complete(check.pullRequests!, false, check.mergedBranches);
       return { kind: "complete" };
     }
     const outcome = await this.doneCheck(phaseKey);
@@ -1688,7 +1690,7 @@ export class Engine {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "still_stopped";
       if (check.passed) {
-        this.complete(check.pullRequests!, true);
+        this.complete(check.pullRequests!, true, check.mergedBranches);
         return "complete";
       }
       this.updateStop(phaseKey, check.checks);
@@ -1797,6 +1799,9 @@ export class Engine {
           branch: this.record.settings.featureBranch,
           baseBranch: entry.baseBranch,
           repository: entry.name,
+          git: this.git,
+          worktreePath: expandHome(entry.worktreePath),
+          completedCommits: Object.entries(this.record.phases).filter(([key, facts]) => key !== PR_PHASE_KEY && facts.doneAt).flatMap(([, facts]) => facts.repositories[entry.name]?.pushedSha ? [facts.repositories[entry.name]!.pushedSha!] : []),
           signal: this.abort.signal,
         })),
         await this.readWorkspaceEvidence(PR_PHASE_KEY),
@@ -1837,7 +1842,7 @@ export class Engine {
     });
   }
 
-  private complete(pullRequests: PullRequestFacts[], byPerson: boolean): void {
+  private complete(pullRequests: PullRequestFacts[], byPerson: boolean, mergedBranches: MergedBranchFacts[] = []): void {
     const { record } = this;
     const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
     const at = this.now().toISOString();
@@ -1845,6 +1850,8 @@ export class Engine {
     facts.doneAt = at;
     facts.finishedByPerson = byPerson;
     record.pullRequests = pullRequests;
+    if (mergedBranches.length) record.mergedBranches = mergedBranches;
+    else delete record.mergedBranches;
     record.completedAt = at;
     // A pending pause is dropped, since nothing would start (UI-008).
     record.pause = {};
@@ -1853,8 +1860,9 @@ export class Engine {
     this.emit({
       kind: "pull_request",
       at: this.now(),
-      event: "opened",
-      number: pullRequests[0]!.number,
+      event: mergedBranches.length ? "completed" : "opened",
+      ...(pullRequests[0] ? { number: pullRequests[0].number } : {}),
+      ...(mergedBranches.length ? { summary: [...pullRequests.map(pull => `${pull.repository} #${pull.number} ready`), ...mergedBranches.map(branch => `${branch.repository} already merged into ${branch.base}`)].join(" · ") } : {}),
       ...(this.setUpRepositories.length > 1 ? { opened: pullRequests.map((pull) => ({ repository: pull.repository, number: pull.number })) } : {}),
     });
   }
@@ -2033,7 +2041,7 @@ export class Engine {
       if (check.passed) {
         delete facts.wait;
         this.unwatchWait();
-        this.complete(check.pullRequests!, true);
+        this.complete(check.pullRequests!, true, check.mergedBranches);
         this.updateKeepAwake();
         return "complete";
       }
@@ -2580,7 +2588,10 @@ export class Engine {
   /** The repositories that get a pull request, read from Git now: every one whose local branch tip differs from its base commit (AC-PRS-05). */
   private async pullRequestRepositoriesNow(): Promise<RepositoryEntry[]> {
     const tips = await Promise.all(this.setUpRepositories.map((entry) => localBranchCommit(this.git, entry.mainCheckoutPath, this.record.settings.featureBranch)));
-    this.lastPullRequestRepositories = this.setUpRepositories.filter((entry, index) => entry.kind === "prd" || (tips[index] !== undefined && tips[index] !== entry.baseCommit));
+    this.lastPullRequestRepositories = this.setUpRepositories.filter((entry, index) => entry.kind === "prd" || (tips[index] !== undefined && tips[index] !== entry.baseCommit) || Object.values(this.record.phases).some(facts => {
+      const pushed = facts.repositories[entry.name]?.pushedSha;
+      return pushed !== undefined && pushed !== entry.baseCommit;
+    }));
     return this.lastPullRequestRepositories;
   }
 
@@ -2648,7 +2659,9 @@ export class Engine {
       const results = (facts?.sessionIds ?? []).map(id => codexStayedOutcome(id,
         facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
         (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : [])));
-      if (!results.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
+      // Before the final session exists there are no final-session operations to audit.
+      // Any recorded session, including one with a missing file, is still checked above.
+      if (!results.length && phaseKey !== PR_PHASE_KEY) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
       const changes = results.flatMap(result => result.changes);
       const transcripts = results.flatMap(result => result.transcripts);
       const passed = results.every(result => result.passed);

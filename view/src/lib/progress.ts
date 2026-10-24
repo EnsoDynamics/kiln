@@ -68,7 +68,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       const facts = [done];
       if (feature.startedAt && feature.completedAt) facts.push(feature.timing ? timingText(feature.timing, now.getTime()) : shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));
       if (feature.completedAt) facts.push(`Finished ${clockTime(feature.completedAt, now, { afterWord: true })}`);
-      return { kind: "complete", label: "PR ready for review", facts };
+      return { kind: "complete", label: snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
@@ -92,6 +92,8 @@ export function rowState(row: PhaseView, connected: boolean): RowState {
  */
 export function openedLabel(snapshot: Snapshot): string | undefined {
   const pullRequests = snapshot.pullRequests ?? [];
+  const merged = snapshot.mergedBranches?.length ?? 0;
+  if (merged) return pullRequests.length ? `${plural(pullRequests.length, "PR", "PRs")} ready · ${merged} already merged` : "Already merged";
   if (pullRequests.length === 0) return undefined;
   if (!snapshot.feature.multiRepository) return `Opened #${pullRequests[0]!.number}`;
   return `Opened ${plural(pullRequests.length, "pull request", "pull requests")}`;
@@ -343,17 +345,17 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     finishTitle: isPr ? `Open the pull request with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would` : `Finish the phase with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would`,
     finishText: isPr
       ? multiRepository
-        ? `Open them however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into each repository’s base branch, in every repository that changed, that isn’t a draft, so it doesn’t matter who opens them.`
-        : `Open it however you like. Kiln only looks for an open pull request from ${settings.featureBranch} into ${settings.baseBranch} that isn’t a draft, so it doesn’t matter who opens it.`
+        ? `Each changed repository needs a ready pull request from ${settings.featureBranch} into its intended base, or proof that its current feature commit is already merged into that base.`
+        : `Kiln accepts a ready pull request from ${settings.featureBranch} into ${settings.baseBranch}, or proof that its current feature commit is already merged into that base.`
       : `Finish it however you like. Kiln only looks at the ${stop.checks.length === 4 ? "four" : "three"} checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.`,
     checkAgainText: isPr
-      ? "Kiln re-checks GitHub. If the pull request is open and ready for review, the feature is complete."
+      ? "Kiln checks GitHub and the worktrees. When every changed repository has a ready pull request or verified prior integration, the feature is complete."
       : "Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.",
     sideHeading: isPr ? "Kiln finishes when" : "Kiln continues when",
     footnote: isPr ? "This is the check Kiln runs after the pull-request session." : "This is the same check Kiln runs after every phase. Later phases wait until it passes.",
     // The pull-request session carries on opening the pull request in place of the phase (usage-limit recovery technical design, "Screens").
     resumeText: isPr
-      ? `Kiln checks GitHub first. If ${multiRepository ? "the pull requests aren’t all open" : "the pull request isn’t open"}, it picks up the same session, with its full history, and sends your reply before continuing to open ${multiRepository ? "the pull requests" : "the pull request"}.`
+      ? `Kiln checks delivery first, including whether the work is already merged. If delivery is incomplete, it picks up the same session, with its full history, and sends your reply before continuing to open ${multiRepository ? "the remaining pull requests" : "the pull request"}.`
       : `Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with ${name}. Then the plan continues as usual.`,
     notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
@@ -388,7 +390,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   if (stop.outside) {
     // What Check again then does, as the mockup's step 3 says it.
     const afterCheck = isPr
-      ? `If ${multiRepository ? "every pull request" : "the pull request"} is open and ready for review, the feature is complete.`
+      ? `When every changed repository has a ready pull request or verified prior integration, the feature is complete.`
       : "If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.";
     copy.outside = outsideSteps(stop, afterCheck);
   }

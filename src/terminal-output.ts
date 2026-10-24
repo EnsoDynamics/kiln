@@ -92,6 +92,7 @@ export type PhaseLineEvent =
   | { kind: "waiting"; label: string; resetsAt?: string }
   | { kind: "done"; pushedSha: string; pushes?: { name: string; sha: string }[] }
   | { kind: "opened"; number: number; opened?: { repository: string; number: number }[] }
+  | { kind: "completed"; summary: string }
   | { kind: "added"; name: string };
 
 /**
@@ -113,6 +114,8 @@ export function formatPhaseLine(at: Date, id: string, title: string, event: Phas
           : event.kind === "done"
           ? colors.green("done") +
             colors.grey(event.pushes ? ` · pushed ${event.pushes.map((push) => `${push.name} ${push.sha.slice(0, 7)}`).join(" · ")}` : ` · pushed ${event.pushedSha.slice(0, 7)}`)
+          : event.kind === "completed"
+            ? colors.green("complete") + colors.grey(` · ${event.summary}`)
           : event.kind === "added"
             ? `added ${event.name}`
             : colors.green("opened") + colors.grey(event.opened ? ` ${event.opened.map((pull) => `${pull.repository} #${pull.number}`).join(" · ")}` : ` #${event.number}`);

@@ -19,6 +19,7 @@
   const multi = $derived(snapshot.feature.multiRepository);
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
+  const mergedBranches = $derived(snapshot.mergedBranches ?? []);
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
@@ -35,7 +36,7 @@
   {#if multi && pullRequests.length > 0}
     <section class="pr">
       <div class="which"><Icon name="pull-request" size={20} strokeWidth={1.6} /><span class="mono number">{pullRequests.length} {pullRequests.length === 1 ? "pull request" : "pull requests"}</span><span class="dot" aria-hidden="true">·</span><span class="mono branches">{snapshot.settings.featureBranch}</span></div>
-      <h2>One in each repository that changed</h2>
+      <h2>{mergedBranches.length ? "Pull requests still ready for review" : "One in each repository that changed"}</h2>
       <ul class="prs">
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
@@ -62,6 +63,21 @@
       </div>
     </section>
   {/if}
+  {#if mergedBranches.length}
+    <section class="pr" aria-label="Already merged repositories">
+      <h2>{pullRequests.length ? "Some work is already merged" : "The work is already merged"}</h2>
+      <ul class="prs">
+        {#each mergedBranches as branch (branch.repository)}
+          <li>
+            <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
+            <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head} · {branch.featureCommit.slice(0, 7)}</span></div>
+            <a class="button small open-one" href={branch.url} target="_blank" rel="noopener noreferrer">View commit on GitHub</a>
+          </li>
+        {/each}
+      </ul>
+      <p class="note">Kiln confirmed that the feature commits are already in their intended base branches. No additional pull request is needed for these repositories.</p>
+    </section>
+  {/if}
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
@@ -81,7 +97,7 @@
           {/if}
         </dl>
       </section>
-      <KilnPanel {connected} text={multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
+      <KilnPanel {connected} text={mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
     </div>
   </div>
 </main>

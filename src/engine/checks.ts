@@ -4,7 +4,7 @@
 
 import { runHelper } from "../platform/helper-process.js";
 import type { StayedOutcome } from "../session/outside-workspace.js";
-import type { CheckResult, PullRequestFacts } from "../state/records.js";
+import type { CheckResult, MergedBranchFacts, PullRequestFacts } from "../state/records.js";
 import { gitError, isAncestor, localBranchCommit, runGit, shortSha, type GitContext } from "./git-reads.js";
 import { judgedLeaf, readPlanAt, type PlanRead } from "./plan-reading.js";
 import { joinNames } from "./worktree-setup.js";
@@ -198,6 +198,11 @@ export interface PullRequestCheckInput {
   baseBranch: string;
   /** The repository's name, recorded with its pull request. */
   repository: string;
+  /** Local proof is required for recognizing prior integration; absent for list-only callers. */
+  git?: GitContext;
+  worktreePath?: string;
+  /** Previously completed phase receipts must still belong to the candidate feature tip. */
+  completedCommits?: string[];
   signal?: AbortSignal;
 }
 
@@ -207,6 +212,7 @@ export interface PullRequestCheckOutcome {
   /** gh failed, rather than answering. */
   ghError: boolean;
   pullRequest?: PullRequestFacts;
+  mergedBranch?: MergedBranchFacts;
 }
 
 export interface PullRequestsCheckOutcome {
@@ -215,13 +221,14 @@ export interface PullRequestsCheckOutcome {
   /** The pull-request check, then Stayed in the workspace when it failed: what a stop records. */
   checks: CheckResult[];
   stayed: StayedOutcome;
-  /** In list order, when every one is open. */
+  /** Actual review PRs, in list order, when every repository qualifies. */
   pullRequests?: PullRequestFacts[];
+  mergedBranches?: MergedBranchFacts[];
 }
 
 /**
  * The pull-request check across the repositories whose feature branch has commits of its own
- * (multi-repo AC-PRS-05): every one has an open, ready pull request into its base, and the
+ * (multi-repo AC-PRS-05): every one has a ready PR or verified prior integration, and the
  * pull-request session stayed in the workspace (AC-PRS-06). With one repository the facts are
  * v1's; with several, each names its repository.
  */
@@ -238,7 +245,10 @@ export async function runPullRequestChecks(inputs: PullRequestCheckInput[], stay
     check,
     checks: [check, ...(stayed.passed ? [] : [stayed.check])],
     stayed,
-    ...(passed ? { pullRequests: outcomes.map((outcome) => outcome.pullRequest!) } : {}),
+    ...(passed ? {
+      pullRequests: outcomes.flatMap(outcome => outcome.pullRequest ? [outcome.pullRequest] : []),
+      ...(outcomes.some(outcome => outcome.mergedBranch) ? { mergedBranches: outcomes.flatMap(outcome => outcome.mergedBranch ? [outcome.mergedBranch] : []) } : {}),
+    } : {}),
   };
 }
 
@@ -281,7 +291,10 @@ export async function runPullRequestCheck(input: PullRequestCheckInput): Promise
     { cwd: input.mainCheckoutPath, env: input.env, ...(input.signal ? { signal: input.signal } : {}) },
   );
   if (result.exitCode !== 0) return { passed: false, ghError: true, check: { name, passed: false, facts: [gitError(result)] } };
-  return readPullRequestList(result.stdout, input.branch, input.baseBranch, input.repository);
+  const listed = readPullRequestList(result.stdout, input.branch, input.baseBranch, input.repository);
+  if (listed.passed || listed.ghError || !input.git || !input.worktreePath) return listed;
+  return checkAlreadyMerged(input, listed);
+
 }
 
 /** Judges `gh pr list --json …` output, already narrowed by gh to the branch and base. */
@@ -317,4 +330,50 @@ export function readPullRequestList(stdout: string, branch: string, baseBranch: 
   const draft = own.find((pull) => pull.isDraft);
   if (draft) return { passed: false, ghError: false, check: { name, passed: false, facts: [`#${draft.number} is a draft`] } };
   return { passed: false, ghError: false, check: { name, passed: false, facts: [`No open pull request from ${branch} into ${baseBranch}`] } };
+}
+
+/** A clean, still-current exact feature tip is the only candidate for ancestry proof. */
+async function integrationTip(input: PullRequestCheckInput): Promise<{ tip: string } | { error: string }> {
+  const git = input.git!;
+  const cwd = input.worktreePath!;
+  const [branch, status, head, origin] = await Promise.all([
+    runGit(git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+    runGit(git, cwd, ["status", "--porcelain", "--untracked-files=all"]),
+    runGit(git, cwd, ["rev-parse", "HEAD"]),
+    runGit(git, cwd, ["ls-remote", "origin", `refs/heads/${input.branch}`]),
+  ]);
+  const failed = [branch, status, head, origin].find(result => result.exitCode !== 0);
+  if (failed) return { error: gitError(failed) };
+  if (branch.stdout.trim() !== input.branch) return { error: `The worktree is not on ${input.branch}` };
+  if (status.stdout.trim()) return { error: "The worktree has uncommitted changes" };
+  const tip = head.stdout.trim();
+  if (!/^[0-9a-f]{40,64}$/.test(tip)) return { error: "Could not read the feature commit" };
+  for (const completed of new Set(input.completedCommits ?? [])) {
+    const contains = await runGit(git, cwd, ["merge-base", "--is-ancestor", completed, tip]);
+    if (contains.exitCode !== 0) return { error: `Previously completed commit ${shortSha(completed)} is not proven contained in the current feature branch` };
+  }
+  const remote = origin.stdout.split(/\r?\n/).find(line => line.endsWith(`\trefs/heads/${input.branch}`))?.split("\t")[0];
+  if (remote && remote !== tip) return { error: "The local feature commit does not match origin" };
+  return { tip };
+}
+
+async function checkAlreadyMerged(input: PullRequestCheckInput, listed: PullRequestCheckOutcome): Promise<PullRequestCheckOutcome> {
+  const fail = (detail: string, ghError = false): PullRequestCheckOutcome => ({ passed: false, ghError, check: { name: CHECK_NAMES.pullRequest, passed: false, facts: [...listed.check.facts, `Could not confirm prior integration: ${detail}`] } });
+  const before = await integrationTip(input);
+  if ("error" in before) return fail(before.error);
+  const endpoint = `repos/${input.github}/compare/${encodeURIComponent(input.baseBranch)}...${before.tip}`;
+  const compared = await runHelper(input.gh, ["api", endpoint], { cwd: input.mainCheckoutPath, env: input.env, ...(input.signal ? { signal: input.signal } : {}) });
+  if (compared.exitCode !== 0) return fail(gitError(compared), true);
+  let proof: { status?: string; ahead_by?: number; merge_base_commit?: { sha?: string }; base_commit?: { sha?: string } };
+  try { proof = JSON.parse(compared.stdout); } catch { return fail("GitHub returned an unreadable comparison", true); }
+  if (!proof || typeof proof !== "object" || !/^[0-9a-f]{40,64}$/.test(proof.base_commit?.sha ?? "") || !/^[0-9a-f]{40,64}$/.test(proof.merge_base_commit?.sha ?? "") || !Number.isInteger(proof.ahead_by)) return fail("GitHub returned an incomplete comparison", true);
+  if (!(proof.status === "behind" || proof.status === "identical") || proof.ahead_by !== 0 || proof.merge_base_commit!.sha !== before.tip) return listed;
+  const after = await integrationTip(input);
+  if ("error" in after) return fail(after.error);
+  if (after.tip !== before.tip) return fail("The feature commit changed during the check");
+  return {
+    passed: true, ghError: false,
+    check: { name: CHECK_NAMES.pullRequest, passed: true, facts: [`Already merged into ${input.baseBranch} at ${shortSha(before.tip)}`] },
+    mergedBranch: { repository: input.repository, head: input.branch, base: input.baseBranch, featureCommit: before.tip, baseCommit: proof.base_commit!.sha!, url: `https://github.com/${input.github}/commit/${before.tip}` },
+  };
 }

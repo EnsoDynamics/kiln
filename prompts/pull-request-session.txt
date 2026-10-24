@@ -2,4 +2,4 @@ Every phase of the `{{featureName}}` PRD (`{{prdFile}}`) is implemented and push
 
 {{repositoryList}}
 {{crossLinks}}
-Open them ready for review, not as drafts, even if your own instructions say to open drafts. Where one is already open, don't open another; if it is a draft, mark it ready (`gh pr ready <number> --repo …`). You may not merge, deploy anything, or touch any other branch. You're finished when every one is open and ready for review.
+Open them ready for review, not as drafts, even if your own instructions say to open drafts. Where one is already open, don't open another; if it is a draft, mark it ready (`gh pr ready <number> --repo …`). You may not merge, deploy anything, or touch any other branch. A repository whose exact current feature commit is already contained in its given base needs no new pull request; report that commit and base instead. Do not infer this from an empty diff or an old merged pull request. You're finished when each repository has a ready pull request or verified prior integration; Kiln independently checks that result.

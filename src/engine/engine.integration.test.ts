@@ -102,9 +102,14 @@ describe("the engine from Start to the pull request", () => {
     expect(originTip(h, "develop")).toBe(developBefore);
     expect(git(h.sandbox, h.repository, "status", "--porcelain", "--untracked-files=all")).toBe("");
     expect(git(h.sandbox, worktree, "log", "--format=%s", `${developBefore}..HEAD`).trim().split("\n")).toEqual(["feat: the phase", "feat: the phase", "feat: the phase"]);
-    // Every gh call is the one read AC-PR-02 makes: this repository, this branch into the base, open, ready-for-review facts.
+    // Every delivery read names this repository and intended base: ready-PR facts or exact-tip containment.
     expect(h.ghCalls().length).toBeGreaterThan(0);
     for (const call of h.ghCalls()) {
+      if (call[0] === "api") {
+        const tip = git(h.sandbox, h.engine.worktreePath, "rev-parse", h.engine.record.settings.featureBranch).trim();
+        expect(call).toEqual(["api", `repos/acme/acme-shop/compare/develop...${tip}`]);
+        continue;
+      }
       expect(call).toEqual([
         "pr", "list", "--repo", "github.com/acme/acme-shop", "--head", "feature/customer-returns", "--base", "develop", "--state", "open",
         "--json", "number,title,url,isDraft,isCrossRepository,headRefName,baseRefName,additions,deletions,commits",

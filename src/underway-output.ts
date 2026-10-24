@@ -77,7 +77,9 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     }
     case "complete":
-      text = pullRequestsReady(engine.record.pullRequests ?? []);
+      text = engine.record.mergedBranches?.length
+        ? `${engine.record.pullRequests?.length ? pullRequestsReady(engine.record.pullRequests) + " " : ""}Already merged: ${engine.record.mergedBranches.map(branch => `${branch.repository} into ${branch.base}`).join(" · ")}.`
+        : pullRequestsReady(engine.record.pullRequests ?? []);
       break;
     case "resume":
       text =

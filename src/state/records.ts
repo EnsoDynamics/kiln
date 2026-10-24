@@ -159,6 +159,16 @@ export interface PullRequestFacts {
   deletions: number;
 }
 
+/** Exact feature commit already contained in the live intended base; no PR is fabricated. */
+export interface MergedBranchFacts {
+  repository: string;
+  head: string;
+  base: string;
+  featureCommit: string;
+  baseCommit: string;
+  url: string;
+}
+
 export interface RecordedPlanPhase {
   id: string;
   title: string;
@@ -213,6 +223,7 @@ export interface PrdRecord {
   phases: Record<string, PhaseFacts>;
   pause: { requestedAt?: string; activeSince?: string };
   pullRequests?: PullRequestFacts[];
+  mergedBranches?: MergedBranchFacts[];
   plan?: RecordedPlanPhase[];
 }
 

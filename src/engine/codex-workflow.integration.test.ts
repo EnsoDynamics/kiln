@@ -3,6 +3,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { git } from "../test-support/git-repositories.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdTreeAtHead } from "./worktree-setup.js";
@@ -341,4 +342,29 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     if (existsSync(h.engine.worktreePath)) writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");
     await Promise.all([h.engine.settled(), other.settled()]); other.close();
   }
+});
+
+
+it("finishes already-merged Codex work before a final conversation, but never excuses missing recorded history", async () => {
+  await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const count = f.calls().filter(call => call.method === "turn/start").length;
+  const dir = join(h.engine.worktreePath, h.engine.paths.prdDirectoryFromRoot);
+  const files = ["phase-1-return-intake.md", "phase-2b-store-credit.md", "phase-3-returns-dashboard.md"];
+  for (const file of files) {
+    const path = join(dir, file);
+    writeFileSync(path, readFileSync(path, "utf8").replace(/^(#.*)\n/, "$1\n**Closed:** 2026-10-24\n"));
+  }
+  git(h.sandbox, h.engine.worktreePath, "add", ...files.map(file => join(dir, file)));
+  git(h.sandbox, h.engine.worktreePath, "commit", "-q", "-m", "feat(proof): finish merged work");
+  git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", h.engine.record.settings.featureBranch);
+  git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "--no-edit", h.engine.record.settings.featureBranch);
+  git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  expect(h.engine.latestSession("pr")).toBeUndefined();
+  await h.engine.checkAgain(); await h.engine.settled();
+  expect(buildSnapshot(h.engine).feature.state).toBe("complete");
+  expect(h.engine.record.mergedBranches?.[0]?.repository).toBe("acme-shop");
+  expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(count);
+  h.engine.record.phases.pr!.sessionIds.push("missing-recorded-final-session");
+  expect((await h.engine.readWorkspaceEvidence("pr")).passed).toBe(false);
+  expect(h.engine.stayedInWorkspace("never-recorded-phase").passed).toBe(false);
 });

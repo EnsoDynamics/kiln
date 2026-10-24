@@ -3,7 +3,8 @@
 // ({ "pulls": [ … ] }, or { "fail": "message" } to fail), and logs every call's arguments to
 // <state>.calls.jsonl so a test can check each carries --repo.
 
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const statePath = process.env.KILN_STANDIN_GH_STATE;
@@ -31,6 +32,25 @@ if (args[0] === "pr" && args[1] === "list") {
     .map((pull) => (fields ? Object.fromEntries(fields.filter((field) => field in pull).map((field) => [field, pull[field]])) : pull));
   process.stdout.write(`${JSON.stringify(pulls)}\n`);
   process.exit(0);
+}
+// GitHub compare's recorded contract, computed against the real local bare origin.
+// Failure/invalid-response overrides exercise conditions that cannot be requested from GitHub.
+if (args[0] === "api" && /^repos\/[^/]+\/[^/]+\/compare\//.test(args[1] ?? "")) {
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  if (state.compareWriteFile) writeFileSync(state.compareWriteFile.path, state.compareWriteFile.content);
+  if (state.compareError) { process.stderr.write(state.compareError); process.exit(1); }
+  if (state.comparison !== undefined) { process.stdout.write(typeof state.comparison === "string" ? state.comparison : JSON.stringify(state.comparison)); process.exit(0); }
+  try {
+    const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const origin = git("remote", "get-url", "origin");
+    const [base, tip] = args[1].split("/compare/")[1].split("...").map(decodeURIComponent);
+    const remoteGit = (...args) => git("--git-dir", origin, ...args);
+    const baseCommit = remoteGit("rev-parse", `refs/heads/${base}`);
+    const mergeBase = remoteGit("merge-base", baseCommit, tip);
+    const [behind, ahead] = remoteGit("rev-list", "--left-right", "--count", `${baseCommit}...${tip}`).split(/\s+/).map(Number);
+    process.stdout.write(JSON.stringify({ status: ahead ? (behind ? "diverged" : "ahead") : (behind ? "behind" : "identical"), ahead_by: ahead, behind_by: behind, base_commit: { sha: baseCommit }, merge_base_commit: { sha: mergeBase } }));
+    process.exit(0);
+  } catch { process.stderr.write("Comparison unavailable"); process.exit(1); }
 }
 process.stderr.write(`gh stand-in: unsupported ${args.join(" ")}\n`);
 process.exit(2);

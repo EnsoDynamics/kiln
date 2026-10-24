@@ -16,7 +16,7 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
+import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
@@ -290,6 +290,7 @@ export interface Snapshot {
   account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
   pullRequests?: PullRequestFacts[];
+  mergedBranches?: MergedBranchFacts[];
 }
 
 /**
@@ -373,6 +374,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
     ...optional("pullRequests", record.pullRequests),
+    ...optional("mergedBranches", record.mergedBranches),
     ...optional("current", current),
     ...optional("needsYou", needsYou),
     ...optional("waiting", waiting),

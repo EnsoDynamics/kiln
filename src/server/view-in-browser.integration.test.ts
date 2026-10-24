@@ -508,6 +508,28 @@ const SCREENS: {
 ];
 
 describe("each screen in a real browser, from its mockup's sample data", () => {
+  it("renders already-merged completion at desktop and narrow widths without a fictitious PR", async () => {
+    const snapshot = completeSnapshot();
+    snapshot.pullRequests = [];
+    snapshot.mergedBranches = [{ repository: "pricing", head: "feature/customer-returns", base: "develop", featureCommit: "a".repeat(40), baseCommit: "b".repeat(40), url: "https://github.com/acme/pricing/commit/" + "a".repeat(40) }];
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot });
+    try {
+      for (const width of [1280, 390]) {
+        const page = await chrome.open(server.address, { width, clock: RUNNING_NOW, timeZone: TIME_ZONE });
+        try {
+          await page.waitFor(`document.body.innerText.includes("The work is already merged")`);
+          const content = await words(page);
+          expect(content).toContain("already merged into develop");
+          expect(content).not.toContain("pr ready for review");
+          expect(content).not.toContain("human review is next");
+          expect(await page.evaluate(`document.querySelector('a[href="${snapshot.mergedBranches[0]!.url}"]') !== null`)).toBe(true);
+          expect(page.problems).toEqual([]);
+          if (process.env.KILN_SCREENSHOTS) { mkdirSync(process.env.KILN_SCREENSHOTS, { recursive: true }); writeFileSync(join(process.env.KILN_SCREENSHOTS, `already-merged-${width}.png`), await page.screenshot()); }
+        } finally { await page.close(); }
+      }
+    } finally { await server.close(); }
+  });
+
   for (const screen of SCREENS) {
     it(`renders ${screen.name} as drawn, under Kiln's Content Security Policy (AC-LOOK-01)`, async () => {
       const clock = screen.clock ?? RUNNING_NOW;

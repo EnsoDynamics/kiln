@@ -202,8 +202,8 @@ describe("kiln run on a feature not started", () => {
     const view = await connectView(address, token);
     await waitFor(() => view.snapshots.length > 0);
     await waitFor(async () => {
-      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as { account?: unknown; models?: unknown; settings: { baseCheck?: string } };
-      return snapshot.account !== undefined && snapshot.models !== undefined && snapshot.settings.baseCheck === "ok";
+      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as { account?: unknown; models?: unknown; settings: { baseCheck?: string; metadataPending?: boolean } };
+      return snapshot.account !== undefined && snapshot.models !== undefined && snapshot.settings.baseCheck === "ok" && snapshot.settings.metadataPending === false;
     });
     const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
     expect(snapshot.feature).toMatchObject({ name: "Customer returns", repositoryName: "acme-shop", prdFolder: "docs/prds/customer-returns/", state: "not_started" });
@@ -247,8 +247,8 @@ describe("kiln run on a feature not started", () => {
 
     // The account, usage and model-list calls run in the PRD's state directory, so no project's settings load.
     const helpers = readJsonLines<{ kind: string; cwd: string }>(`${f.scenarioPath}.helpers.jsonl`);
-    expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "models", "usage"]);
-    for (const call of helpers) expect(call.cwd).toBe(stateDirectoryOf(f));
+    expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "models", "skills", "usage"]);
+    for (const call of helpers) expect(call.cwd).toBe(call.kind === "skills" ? f.repository : stateDirectoryOf(f));
 
     // Nothing has started (AC-START-03): no session, no branch, no worktree.
     expect(existsSync(`${f.scenarioPath}.calls.jsonl`)).toBe(false);

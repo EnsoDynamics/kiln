@@ -357,7 +357,9 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
         event.at,
         "PR",
         PR_TITLE,
-        event.event === "opened"
+        event.event === "completed"
+          ? { kind: "completed", summary: event.summary ?? "Work already merged" }
+        : event.event === "opened"
           ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) }
           : event.event === "waiting"
             ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }

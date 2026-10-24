@@ -6,7 +6,7 @@
 
 Let the person starting Kiln authorize development deployments needed to complete a PRD, before leaving it unattended. With that option enabled, the work may reach an explicitly approved development branch and environment before the whole PRD is finished. Kiln continues through later phases and reports which work was already merged and which still needs review.
 
-The option is off by default. Without it, Kiln keeps its existing delivery contract: work stays on its feature branch and ends with an open pull request in each changed repository. The option grants no production or destructive-operation permission.
+The option is off by default. Without it, Kiln keeps its existing delivery contract: Kiln itself keeps work on its feature branch and ends with a ready pull request or read-only proof that the current feature commit is already in the intended base, per AC-PRS-05 of [multi-repository delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md). Recognizing a separate merge grants no merge or deployment permission. The option grants no production or destructive-operation permission.
 
 ## Business Context
 

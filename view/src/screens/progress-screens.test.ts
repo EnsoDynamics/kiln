@@ -154,11 +154,11 @@ describe("Resume on Needs you (usage-limit recovery AC-RESUME-01 to 03)", () => 
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "needs_you", finishedByPerson: false });
     const page = needsYou(snapshot);
     expect(text(page)).toContain(
-      "Reply and continue in Kiln Kiln checks GitHub first. If the pull request isn’t open, it picks up the same session, with its full history, and sends your reply before continuing to open the pull request. Your reply to Claude",
+      "Reply and continue in Kiln Kiln checks delivery first, including whether the work is already merged. If delivery is incomplete, it picks up the same session, with its full history, and sends your reply before continuing to open the pull request. Your reply to Claude",
     );
     expect(page).toContain('placeholder="Give instructions, answer its question, or ask what you need to know before it continues."');
     snapshot.feature.multiRepository = true;
-    expect(text(needsYou(snapshot))).toContain("If the pull requests aren’t all open, it picks up the same session, with its full history, and sends your reply before continuing to open the pull requests.");
+    expect(text(needsYou(snapshot))).toContain("If delivery is incomplete, it picks up the same session, with its full history, and sends your reply before continuing to open the remaining pull requests.");
   });
 });
 
@@ -382,5 +382,21 @@ describe("resumed progress and time", () => {
     const disconnectedDetail = strip(render(PhaseDetail, { props: { snapshot, phaseId: "2b", connected: false, now: RUNNING_NOW + 30 * 60_000, lastSeenAt: RUNNING_NOW } }).body);
     expect(text(disconnectedDetail)).toContain("1h 51m running · 8h 52m waiting");
     expect(text(disconnectedDetail)).not.toContain("2h 21m running");
+  });
+});
+
+
+describe("truthful completion after prior integration", () => {
+  it.each([false, true])("shows merged evidence without inventing a PR, mixed=%s", mixed => {
+    const snapshot = mixed ? completeRepositoriesSnapshot() : completeSnapshot();
+    snapshot.pullRequests = mixed ? snapshot.pullRequests!.slice(0, 1) : [];
+    snapshot.mergedBranches = [{ repository: "pricing", head: "feature/customer-returns", base: "develop", featureCommit: "a".repeat(40), baseCommit: "b".repeat(40), url: "https://github.com/acme/pricing/commit/" + "a".repeat(40) }];
+    const page = strip(render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+    const words = text(page);
+    expect(words).toContain("Already merged into develop");
+    expect(words).toContain("pricing"); expect(words).toContain("aaaaaaa");
+    expect(page).toContain(snapshot.mergedBranches[0]!.url);
+    if (mixed) { expect(words).toContain("some work already merged"); expect(words).toContain("Human review is next"); }
+    else { expect(words).not.toContain("Human review is next"); expect(words).not.toContain("PR ready for review"); expect(words).not.toContain("Pull request #"); }
   });
 });

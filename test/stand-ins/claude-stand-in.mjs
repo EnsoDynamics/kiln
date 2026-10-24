@@ -85,7 +85,7 @@ if (!isSession && args[0] === "-p" && args[1] === "/usage") {
   await new Promise(() => {});
 }
 if (!isSession && args.includes("--input-format")) {
-  logHelper("models");
+  logHelper(args.includes("--setting-sources=user,project,local") ? "skills" : "models");
   const modelsPath = process.env.KILN_STANDIN_MODELS;
   const answer = modelsPath ? JSON.parse(readFileSync(modelsPath, "utf8")) : { models: JSON.parse(readFileSync(join(fixtures, "supported-models.json"), "utf8")).models };
   if (answer.fail) {

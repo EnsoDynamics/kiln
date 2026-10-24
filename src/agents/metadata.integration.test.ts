@@ -37,7 +37,7 @@ describe("Claude Code enabled-skill readiness", () => {
     expect(info!.state.pending).toBe(false);
     expect(info!.state.models?.length).toBeGreaterThan(0);
     expect(existsSync(`${scenario}.calls.jsonl`)).toBe(false);
-    expect(readFileSync(`${scenario}.helpers.jsonl`, "utf8")).toContain('"kind":"models"');
+    expect(readFileSync(`${scenario}.helpers.jsonl`, "utf8")).toContain('"kind":"skills"');
   });
 
   it("continues to accept ordinary personal skills", async () => {
