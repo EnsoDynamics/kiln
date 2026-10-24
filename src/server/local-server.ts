@@ -1,3 +1,4 @@
+import { normalizeTarget, type DevelopmentSettings } from "../state/development-delivery.js";
 // The local server: the compiled browser view and a small HTTP API with server-sent events,
 // on loopback only (PRD AC-VIEW-01, AC-VIEW-06, AC-MULTI-02; technical design, "The Local
 // Server", "HTTP API"). It reaches the engine only through the engine's commands and its
@@ -93,6 +94,19 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
     await next();
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value);
+  });
+
+  app.get("/api/delivery/evidence/:digest", c => {
+    const digest = c.req.param("digest");
+    if (!/^[0-9a-f]{64}$/.test(digest) || !engine.record.developmentDelivery?.checkpoints.some(one => [...one.evidence, ...(one.evidenceHistory ?? [])].some(fact => fact.rawDigest === digest) || one.operations.some(op => op.failureEvidencePath?.endsWith(`${digest}.json`)))) return refuse(c, 404, "No retained evidence with this digest belongs to the execution.");
+    const path = join(engine.stateDirectory, "delivery-evidence", `${digest}.json`);
+    return c.json(JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>);
+  });
+  app.get("/api/delivery", async c => c.json(await engine.deliveryReadStatus()));
+  for (const action of ["assessment", "prepare", "evidence"] as const) app.post(`/api/delivery/${action}`, async c => {
+    const body = await jsonBody(c); if (!body) return refuse(c, 400, "The body must be a JSON object.");
+    const result = await engine.deliveryCommand(action, body);
+    return result.ok ? c.json(result.delivery) : commandRefused(c, result);
   });
 
   app.get("/api/snapshot", (c) => c.json(snapshot()));
@@ -263,6 +277,16 @@ async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined
 /** `POST /api/settings`'s body, checked field by field; a string is why it was refused. */
 function settingsChange(body: Record<string, unknown>): Partial<Settings> | string {
   const change: Partial<Settings> = {};
+  if (body.developmentDeployments !== undefined) {
+    const raw = body.developmentDeployments as DevelopmentSettings;
+    if (!raw || typeof raw !== "object" || typeof raw.enabled !== "boolean" || !Array.isArray(raw.targets)) return "Development deployments need enabled and target rows.";
+    try {
+      change.developmentDeployments = { enabled: raw.enabled, targets: raw.targets.map(candidate => {
+        if (!candidate || typeof candidate.confirmedNonProduction !== "boolean") throw new Error("Confirm each concrete target as non-production.");
+        return { target: normalizeTarget(candidate.target), confirmedNonProduction: candidate.confirmedNonProduction, ...(candidate.confirmedTarget ? { confirmedTarget: normalizeTarget(candidate.confirmedTarget) } : {}) };
+      }) };
+    } catch (error) { return (error as Error).message; }
+  }
   for (const field of ["model", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
     const value = body[field];
     if (value === undefined) continue;
@@ -295,7 +319,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     }
     change.bases = bases as Record<string, string>;
   }
-  const unknown = Object.keys(body).filter((key) => !["agentId", "selectionGeneration", "model", "effort", "keepAwake", "resumeAfterUsageLimit", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "agentId", "selectionGeneration", "model", "effort", "keepAwake", "resumeAfterUsageLimit", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

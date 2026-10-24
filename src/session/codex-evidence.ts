@@ -1,3 +1,4 @@
+import type { CommandEvidence } from "../state/development-delivery.js";
 // Production, read-only Codex evidence. A successful model/process is never an audit verdict.
 import { createHash } from "node:crypto";
 import { createReadStream, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
@@ -17,6 +18,7 @@ import type { TranscriptToolCall } from "./transcripts.js";
 interface SourceIdentity { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
 export interface CodexFrontier { threadId: string; path: string; source: SourceIdentity; sha256: string; turns: string; parentThreadId?: string }
 export interface CodexAudit {
+  commands?: CommandEvidence[];
   profile: "codex-0.162.1-static-v1"; coverage: "complete" | "inconclusive"; at: string;
   fingerprint: string; frontiers: CodexFrontier[]; findings: OutsideChange[]; problems: string[]; operationsChecked: number;
 }
@@ -28,15 +30,17 @@ export interface CodexEvidenceOptions {
   /** Evidence-only transport injection for verified protocol/real-file tests. */
   rpc?: HistoryRpc;
   timeoutMs?: number;
+  commandProjection?: boolean;
   powerShellExecutable?: string;
 }
 interface Metadata { id: string; path: string; status?: { type: string }; source?: { subagent?: { thread_spawn?: { parent_thread_id?: string } } } }
-interface Item { id: string; type: string; status?: string; command?: string; cwd?: string; receiverThreadIds?: string[]; agentThreadId?: string; kind?: string; changes?: { path: string; kind: { type: string; move_path?: string } }[] }
+interface Item { exitCode?: number; aggregatedOutput?: string; id: string; type: string; status?: string; command?: string; cwd?: string; receiverThreadIds?: string[]; agentThreadId?: string; kind?: string; changes?: { path: string; kind: { type: string; move_path?: string } }[] }
 interface Turn { id: string; status: string; itemsView: string; items: Item[] }
 interface Context { turn_id: string; cwd: string; model?: string; effort?: string }
-interface NativeCommand { id: string; threadId: string; turnId: string; argv: string[]; cwd: string; status: string }
+interface NativeCommand { startedAtMs?: number; resultAt?: string; id: string; threadId: string; turnId: string; argv: string[]; cwd: string; status: string }
 interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
+  started_at_ms?: number; completed_at_ms?: number;
   reason?: string;
   type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string;
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
@@ -123,7 +127,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     const metadata = async (id: string): Promise<Metadata> => {
       const thread = (await call<{ thread: Metadata }>("thread/read", { threadId: id, includeTurns: false })).thread;
       if (thread?.id !== id) throw new Error(`Codex thread identity mismatch: ${id}.`);
-      if (thread.status?.type === "active") problem(`${id}: active runtime thread.`);
+      if (!options.commandProjection && thread.status?.type === "active") problem(`${id}: active runtime thread.`);
       return thread;
     };
     const sourcePath = async (thread: Metadata): Promise<string> => {
@@ -141,13 +145,13 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         requireText(turn.id, "turn ID");
         if (turn.itemsView !== "full" || !Array.isArray(turn.items)) throw new Error(`${id}: incomplete normalized history.`);
         hash.update(JSON.stringify(turn)); count++;
-        if (!TERMINAL.has(turn.status)) problem(`${id}: unsettled normalized turn ${turn.id}.`);
+        if (!options.commandProjection && !TERMINAL.has(turn.status)) problem(`${id}: unsettled normalized turn ${turn.id}.`);
         if (!save) continue;
         if (index.get(`turn:${id}`, turn.id)) throw new Error(`${id}: duplicate normalized turn.`);
         index.put(`turn:${id}`, turn.id, { id: turn.id, status: turn.status });
         for (const item of turn.items) {
           if (item.type === "commandExecution") {
-            if (!SETTLED_ITEM.has(item.status ?? "")) problem(`${id}: unfinished command ${item.id}.`);
+            if (!SETTLED_ITEM.has(item.status ?? "")) { if (options.commandProjection) continue; problem(`${id}: unfinished command ${item.id}.`); }
             index.put(`expectedCommand:${id}`, item.id, { ...item, turnId: turn.id });
           } else if (item.type === "fileChange") {
             if (!SETTLED_ITEM.has(item.status ?? "") || !Array.isArray(item.changes)) throw new Error(`${id}: incomplete native write.`);
@@ -165,6 +169,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     for (const id of queue) {
       const thread = await metadata(id); const path = await sourcePath(thread); const initial = identity(path);
       const turns = await turnDigest(id, true);
+      let rawTurn: string | undefined;
       let first = true; let rawParent: string | undefined;
       for await (const { value } of rawLines(path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
@@ -181,6 +186,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (["event_msg", "response_item"].includes(record.type) && (typeof payload.type !== "string" || !payload.type)) throw new Error(`${id}: missing raw event/item type.`);
         if (record.type === "response_item" && ["compaction", "compacted"].includes(payload.type ?? "")) problem(`${id}: compacted raw response history.`);
         if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; first = false; }
+        if (record.type === "turn_context") rawTurn = payload.turn_id;
+        if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocationValue:${id}`, requireText(payload.call_id, "raw call ID"), { payload, at: record.timestamp, turnId: payload.internal_chat_message_metadata_passthrough?.turn_id ?? rawTurn });
         if (record.type === "turn_context") index.unique(`context:${id}`, requireText(payload.turn_id, "context turn"), payload);
         if (record.type === "event_msg" && ["task_started", "task_complete"].includes(payload.type ?? "")) index.unique(`${payload.type}:${id}`, requireText(payload.turn_id, "raw frontier turn"), digest(payload));
         // Verified in real 0.162.1 interrupted production attempts: this terminal is distinct
@@ -198,7 +205,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             // Every raw command needs an owned normalized turn, independently of later coverage enumeration.
             // Copied ancestor commands are checked against their owning source below.
             if (payload.thread_id === id && !index.get(`turn:${id}`, turnId)) problem(`${id}: raw command has no owned normalized turn.`);
-            if (payload.thread_id === id) index.unique(`nativeCommand:${id}:${turnId}`, item.id, { id: item.id, threadId: id, turnId, argv: item.command, cwd: item.cwd, status: item.status });
+            if (payload.thread_id === id) index.unique(`nativeCommand:${id}:${turnId}`, item.id, { id: item.id, threadId: id, turnId, argv: item.command, cwd: item.cwd, status: item.status, resultAt: record.timestamp, ...(typeof payload.started_at_ms === "number" ? { startedAtMs: payload.started_at_ms } : {}) });
             else index.unique(`foreignCommand:${id}`, item.id, { id: item.id, turnId, threadId: payload.thread_id, sha256: digest(payload) });
             index.unique(`commandEvent:${id}`, item.id, digest(payload));
           }
@@ -242,7 +249,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       for await (const turn of index.values<{ id: string; status: string }>(`turn:${id}`)) {
         const aborted = index.get(`turn_aborted:${id}`, turn.id);
         const completed = index.get(`task_complete:${id}`, turn.id);
-        if (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted")) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
+        if (!options.commandProjection && (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted"))) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
         if (aborted && (turn.status !== "interrupted" || completed)) problem(`${id}: conflicting raw interrupted frontier for ${turn.id}.`);
       }
       for await (const command of index.values<{ id: string; turnId: string; threadId: string; sha256: string }>(`foreignCommand:${id}`)) {
@@ -290,6 +297,22 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
               const powerShell = argv.length === 6 && /(?:^|[/\\])(?:pwsh|powershell)(?:\.exe)?$/i.test(argv[0]!) && argv.slice(1, 5).map(arg => arg.toLowerCase()).join(" ") === "-nologo -noprofile -noninteractive -command" && argv[5] === command;
               if (!posix && !powerShell) continue;
               matched = true; index.put(`coveredCommand:${id}`, native.id, true);
+              if (options.commandProjection) {
+                const candidates: { callId: string; at: string }[] = [];
+                for await (const candidate of index.values<{ payload: RawPayload; at: string; turnId: string }>(`invocationValue:${id}`)) {
+                  if (candidate.turnId !== turnId || native.startedAtMs !== undefined && Date.parse(candidate.at) > native.startedAtMs) continue;
+                  const decodedCandidate = decodeRawCall(candidate.payload);
+                  if (decodedCandidate.coverage !== "complete") continue;
+                  if ((decodedCandidate.operations as { name: string; input: Record<string, unknown> }[]).some(one => one.name === "exec_command" && one.input.cmd === command && physical(resolve(context.cwd, typeof one.input.workdir === "string" ? one.input.workdir : ".")) === cwd)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
+                }
+                const latest = candidates.map(one => one.at).sort().at(-1);
+                const owners = native.startedAtMs === undefined ? candidates : candidates.filter(one => one.at === latest);
+                if (owners.length !== 1 || owners[0]!.callId !== payload.call_id) continue;
+                const result = index.get<Item>(`expectedCommand:${id}`, native.id);
+                if (result?.status === native.status && typeof result.exitCode === "number" && typeof result.aggregatedOutput === "string" && native.resultAt) {
+                  (report.commands ??= []).push({ source: `${id}/${turnId}`, callId: native.id, command, cwd, calledAt: at, resultAt: native.resultAt, outcome: native.status === "completed" && result.exitCode === 0 ? "success" : "error", exitCode: result.exitCode, output: result.aggregatedOutput });
+                }
+              }
               if (powerShell) {
                 handledPowerShell = true;
                 const parser = options.powerShellExecutable ?? findExecutable("pwsh", options.env);

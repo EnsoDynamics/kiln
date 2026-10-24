@@ -20,6 +20,7 @@
   // stay and step 1's fresh session waits for the reset or another account (technical design, "Screens").
   // A selection stop precedes a new conversation: offer settings and sign-in repair instead
   // of session recovery (Codex support technical design, "Local API and snapshot changes").
+  import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
@@ -44,7 +45,7 @@
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
-  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository));
+  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled));
   const ending = $derived(endingFact(stop));
   const accountAgent = $derived((stop.agent ?? snapshot.settings.agent) === "Codex" ? "Codex" : "Claude");
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
@@ -269,6 +270,7 @@
       </aside>
     </div>
   </div>
+  <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
 </main>
 
 <style>

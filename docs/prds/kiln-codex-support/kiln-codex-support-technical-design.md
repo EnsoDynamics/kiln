@@ -83,6 +83,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage (
 
 ### Unattended execution profile
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved development authority on the unchanged protected provider). Restricted execution behavior remains in force.
+
 The proposed Codex profile is `approvalPolicy: on-request`, `approvalsReviewer: auto_review`, workspace-write sandbox, and network access for authorized dependency/test/Git operations. The filesystem grant includes the workspace folder plus a one-repository worktree located outside that folder. A folder added inside the existing workspace root does not require expanding authority to sibling main checkouts.
 
 Native Windows uses **explicit MXC**, with process-local `windows.sandbox=mxc`, without fallback or persistent configuration changes. Before work, require `windowsSandbox/readiness` with null params to return `ready`, compatible managed requirements and the expected effective workspace-write/on-request/auto-review settings. From the assigned launch directory, run the documented no-model-turn startup check `codex -c windows.sandbox=mxc sandbox --include-managed-config --permission-profile :workspace -- cmd.exe /d /c echo MXC_OK`, bounded by the 30-second metadata deadline; require `MXC_OK` and exit code zero. `notConfigured`, `updateRequired`, unsupported MXC, or a failed startup check blocks the selected agent with the required terminal/device action. This command checks sandbox startup, not enforcement of every assigned root; native Windows execution and root enforcement remain untested, outside this delivery’s acceptance gate. Kiln never invokes sandbox provisioning, changes execution policy, relaxes managed constraints, or substitutes legacy sandbox modes.
@@ -108,6 +110,8 @@ Kiln sends no `acceptForSession`, policy amendment, purchase/reset-credit reques
 
 ### Identity before work
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (execution authority supplied before delivery work). Restricted execution behavior remains in force.
+
 Allocate a local Kiln session ID and persist its launch intent with agent, requested model/effort, working directory, assigned repositories and account reading before spawning. Start the app-server and record PID/start time immediately. `thread/start` creates a persistent conversation; save returned `thread.id` and effective settings atomically **before `turn/start`**. Codex's `thread.id` is the resume ID; its `sessionId` is the wider tree's identity and is stored separately.
 
 The prompt and any skill input reference the discovered installed skill path without modifying its content. Launch and resume use the existing phase/PR templates with agent-specific nouns and invocation syntax; resume note remains first, outside-workspace instructions next, carry-on instruction last. Never replace `baseInstructions` merely to invoke a skill.
@@ -117,6 +121,8 @@ Persist a launch-attempt intent before sending `turn/start`, then returned turn 
 A normal session ends at its parent turn's terminal state, after tracked child turns have settled. Before closing the private server, page `thread/loaded/list` and intersect it with the parent and known descendant identities; never resume cold historical children for cleanup. Page their `thread/backgroundTerminals/list`, persist reported process handles and live OS PID/start identities, call `thread/backgroundTerminals/clean`, then verify no registered terminals remain. Bound the whole provider cleanup to 10 seconds. Whether it succeeds or fails, close the server and perform identity-checked OS termination of the tracked processes. Record semantic turn outcome separately from process exit. A long-lived server exiting zero is not a completed phase. Final text is the current attempt's `agentMessage` with final phase; failures and raw stderr remain accessible when no final text exists.
 
 ### Resume and stopping
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved authority in every continuation). Restricted execution behavior remains in force.
 
 Before every resume, stop any still-owned process using PID plus start-time verification, run the existing completion/workspace checks, and refresh account metadata. A passing completion check finishes the work without resuming. Automatic interruption/usage recovery requires a passing workspace check; failed or incomplete evidence goes to Needs you. Explicit manual Resume remains available when Codex can resume the saved conversation, including while outside work is unconfirmed or the workspace audit is inconclusive. It sends the person's note and the identified outside-work repair instructions before the carry-on instruction. An inconclusive audit also names the evidence that must be recovered or made readable; resuming, confirming repairs or starting another session does not erase that obligation or make it pass.
 
@@ -177,6 +183,8 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 
 ### Live and saved output
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (observed development activity beside existing progress). Restricted execution behavior remains in force.
+
 Normalize provider events into `{ line, at, agentId, source, text, threadId?, turnId?, itemId?, parentThreadId?, role?, timestampSource }`. Sources add `codex` while retaining all existing Claude sources. Save completed messages/tool events, approval decisions, errors and terminal outcomes in Kiln's owner-only JSON Lines storage; deltas feed live output and are replaced by completed items. Stable item IDs deduplicate replayed subscriptions. Times are UTC on disk and local in the view. For recovered messages with only a turn-level timestamp, label the timestamp source; do not invent an exact tool time.
 
 Observe discovered child threads without starting model turns. Child text is marked as subagent output; reviewer requires explicit role metadata or a proven delegated reviewer invocation, never position in a sequence. Where child live output is unavailable, show that limitation and hydrate available stored output later. Display limitations do not excuse missing audit evidence. Raw provider logs may contain sensitive task content and stay local; redact authentication material from diagnostics and never ship account payloads into general logs.
@@ -215,6 +223,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage; 
 
 ### Local API and snapshot changes
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.
+
 All endpoints retain current loopback, Host, Origin and token checks. Existing controls keep their state locking and no-double-submit behavior.
 
 | Interface | Contract change |
@@ -232,6 +242,8 @@ No new login endpoint or provider credential fields are exposed. Readiness/model
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API, §Snapshot, §Screens (agent-specific fields only).
 
 ### Persisted schema 4
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Authorization and Persistence (schema 5 execution authority and delivery ledger; existing provider data remains). Restricted execution behavior remains in force.
 
 Continue atomic owner-only JSON records and append-only output outside repositories. UTC ISO timestamps, explicit unknowns and provider-discriminated details preserve provenance.
 

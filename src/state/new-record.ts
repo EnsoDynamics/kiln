@@ -1,3 +1,4 @@
+import { emptyDevelopmentLedger, restrictedAuthorization } from "./development-delivery.js";
 // A PRD's record as Kiln first writes it, before Start.
 
 import { SCHEMA_VERSION, agentSettings, type AgentSettings, type PrdRecord, type Settings } from "./records.js";
@@ -16,11 +17,13 @@ export interface NewRecordInput {
 export function newPrdRecord(input: NewRecordInput): PrdRecord {
   return {
     schemaVersion: SCHEMA_VERSION,
+    developmentAuthorization: restrictedAuthorization(),
+    developmentDelivery: emptyDevelopmentLedger(),
     repository: { mainCheckoutPath: input.mainCheckoutPath, name: input.repositoryName, github: input.github },
     prdDirectory: input.prdDirectoryFromRoot,
     featureName: input.featureName,
     token: newToken(),
-    settings: agentSettings(input.settings),
+    settings: { ...agentSettings(input.settings), developmentDeployments: input.settings.developmentDeployments ?? { enabled: false, targets: [] } },
     repositories: [],
     phases: {},
     pause: {},

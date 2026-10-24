@@ -21,7 +21,7 @@ describe("agent record compatibility", () => {
     expect(record.settings).toMatchObject({ agentId: "claude_code", agentChoices: { claude_code: { model: "saved-retired-alias", effort: "max" } }, worktreePath: settings.worktreePath, resumeAfterUsageLimit: false });
     expect(record.settings).not.toHaveProperty("model"); expect(record.phases["1"]!.wait).toEqual(phase.wait);
     const session = readSessionRecord(sandbox.root, "1", "original-conversation")!;
-    expect(session).toMatchObject({ schemaVersion: 4, agentId: "claude_code", sessionId: "original-conversation", model: "saved-model", effort: "high", runs: [{ account: { email: "original@example.test" } }] });
+    expect(session).toMatchObject({ schemaVersion: 5, agentId: "claude_code", sessionId: "original-conversation", model: "saved-model", effort: "high", runs: [{ account: { email: "original@example.test" } }] });
     expect(session).not.toHaveProperty("originalAccount");
     expect(readFileSync(file, "utf8")).toBe(before); // Reading migration does not rewrite history.
   });

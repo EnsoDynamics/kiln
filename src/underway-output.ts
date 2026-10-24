@@ -1,3 +1,4 @@
+import { developmentDeliverySummary } from "./state/development-delivery.js";
 // What `kiln run` prints for a feature already underway (PRD AC-START-09; assumptions UI-010
 // item 5): the summary line, saying where Kiln left the feature, and the ● line, saying what
 // it does next. Every part comes from Kiln's own record and checks, never a guessed cause.
@@ -17,7 +18,8 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
  */
 export function whereItStands(engine: Engine): string {
   const { record } = engine;
-  if (record.completedAt) return "complete";
+  if (engine.currentlyComplete) return "complete";
+  if (record.completedAt && record.developmentAuthorization?.enabled) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
   if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting))} is waiting for usage`;
   const stopped = engine.stoppedPhaseKey();
@@ -37,7 +39,7 @@ export function whereItStands(engine: Engine): string {
 /** `Customer returns  ·  2 of 5 phases done  ·  phase 2b was interrupted` */
 export function formatSummaryLine(engine: Engine, colors: TerminalColors): string {
   const leaves = recordedLeaves(engine.record.plan ?? []);
-  const done = leaves.filter((leaf) => leaf.closed).length;
+  const done = leaves.filter(leaf => leaf.closed && (!engine.record.developmentAuthorization?.enabled || !engine.record.phases[leaf.id]?.stop && !engine.record.phases[leaf.id]?.wait && engine.current?.phaseKey !== leaf.id)).length;
   return engine.paths.featureName + colors.grey(`  ·  ${done} of ${leaves.length} phases done  ·  ${whereItStands(engine)}`);
 }
 
@@ -77,7 +79,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     }
     case "complete":
-      text = engine.record.mergedBranches?.length
+      text = engine.record.developmentAuthorization?.enabled ? developmentDeliverySummary(engine.record) : engine.record.mergedBranches?.length
         ? `${engine.record.pullRequests?.length ? pullRequestsReady(engine.record.pullRequests) + " " : ""}Already merged: ${engine.record.mergedBranches.map(branch => `${branch.repository} into ${branch.base}`).join(" · ")}.`
         : pullRequestsReady(engine.record.pullRequests ?? []);
       break;

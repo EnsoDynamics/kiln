@@ -1,3 +1,5 @@
+import { runDelivery } from "./delivery-command.js";
+import { deliveryEnabled } from "./engine/development-delivery.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
@@ -121,8 +123,9 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return 0;
   }
   if (command === undefined) return usageError(context);
+  if (command === "delivery") return runDelivery(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
-  if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run and kiln add-repository.`);
+  if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
   if (rest.length === 0) return usageError(context);
   if (rest.length > 1) return usageError(context, "kiln: kiln run takes one path.");
 
@@ -224,7 +227,7 @@ function makeEngine(
   run.stop.engine = engine;
   let historyRequested = false;
   const readHistoryOnce = () => {
-    if (!historyRequested && engine.record.completedAt && !run.stop.stopping) {
+    if (!historyRequested && engine.currentlyComplete && !run.stop.stopping) {
       historyRequested = true;
       void engine.refreshDeliveryHistory();
     }
@@ -320,7 +323,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   const colors = terminalColors(context.stdout, context.env);
   const write = terminalWriter(run);
   const engine = makeEngine(run, record, write);
-  if (record.completedAt === undefined) {
+  if (record.completedAt === undefined || deliveryEnabled(record)) {
     const prepared = await engine.prepare();
     if (stop.stopping) return await stop.done;
     if (!prepared.ok) {
@@ -344,6 +347,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
+    case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":
       return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);
     case "phase":
@@ -365,7 +369,7 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
       return formatPhaseLine(
         event.at,
         "PR",
-        PR_TITLE,
+        record.developmentAuthorization?.enabled ? "Finalize delivery" : PR_TITLE,
         event.event === "completed"
           ? { kind: "completed", summary: event.summary ?? "Work already merged" }
         : event.event === "opened"

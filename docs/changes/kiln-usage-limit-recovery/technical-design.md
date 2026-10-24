@@ -89,6 +89,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Keep-awake
 
 ## Resume
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved authority and current enabled completion prechecks). Restricted execution behavior remains in force.
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex saved identity, original pair, explicit repair and cleanup reconciliation; Claude behavior retained).
 
 **The command.** `resume({ note? })`, reached by `POST /api/resume`, is allowed at a Needs you whose `resumeOffered` is true and during a wait (Resume now, which takes no note), and refused with 409 at every other state. From a press of Resume or Resume now, or the start of the end-of-wait resume, until the resumed run starts or a stop or Done is recorded, Resume, Resume now and Check again are unavailable, as during Check again's own check: `POST /api/resume` and `POST /api/check-again` return 409, and `checking` stays set so the view shows work under way.

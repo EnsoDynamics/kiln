@@ -1,0 +1,19 @@
+This is a disposable integration proof of Kiln's delivery interface, not application implementation. Work only in {{WORKTREE}} on {{BRANCH}}. The repository {{REPOSITORY}}, its main branch, and the environment kiln-disposable-development are explicitly approved NON-PRODUCTION proof resources. Normal required checks, protections and approval review apply. No administrator override, force-push, production action, other checkout, branch/worktree creation, skill edits or extra agents. Do not invoke the implementation method for this test command sequence.
+
+Use separate direct terminal calls, with cwd {{WORKTREE}}, for these documented proof operations:
+1. node development-driver.mjs assess
+2. node development-driver.mjs prepare-merge
+3. Only if the authoritative disposition is proceed, execute gh pr merge {{PULL}} --repo github.com/{{REPOSITORY}} --squash --match-head-commit {{HEAD}}
+4. node development-driver.mjs record-merge
+5. Wait for the actual main-branch Development delivery proof run for the merge result to finish successfully. Find its run ID from gh run list --repo {{REPOSITORY}} --workflow development-proof.yml; use gh run watch <ID> --repo {{REPOSITORY}} --exit-status. A completed deployment and artifact verification are required. Do not submit another deployment or repeat the merge.
+6. node development-driver.mjs prepare-deploy
+7. node development-driver.mjs record-deploy
+8. node development-driver.mjs prepare-verify
+9. Read the exact merge result SHA from step 4 and run the direct command node development-probe.mjs <MERGE_RESULT_SHA> kiln-disposable-development. This command downloads and verifies the actual deployed artifact; do not replace it with printed JSON or another wrapper. Give this terminal call enough output to retain its small JSON result.
+10. node development-driver.mjs record-verify
+11. node development-driver.mjs prepare-synchronize
+12. If proceed, git fetch origin main; then git merge --no-edit origin/main; then git push -u origin {{BRANCH}}. Perform each as a separate direct terminal call.
+13. node development-driver.mjs record-synchronize
+14. node development-driver.mjs status
+
+Stop and report any refusal or unresolved result; never retry an uncertain side effect. Finish with the merged PR URL and verified artifact revision. Do not make extra code changes or open a final PR.

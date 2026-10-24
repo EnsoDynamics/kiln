@@ -181,3 +181,16 @@ function unlinkQuietly(path: string): void {
 export function viewAddress(port: number, folderName: string): string {
   return `http://127.0.0.1:${port}/${folderName}`;
 }
+
+/**
+ * A client's loopback discovery hint, not a liveness or authorization claim. The server's
+ * execution token and executionId establish identity; protected provider shells need no ps.
+ */
+export function recordedInstancePort(stateDirectory: string): number | undefined {
+  const path = join(stateDirectory, "instance.lock");
+  let value: unknown;
+  try { value = readJson<unknown>(path); } catch (error) { throw new Error(`Cannot read instance address ${path}: ${(error as Error).message}`); }
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || !Number.isInteger((value as { port?: number }).port) || (value as { port: number }).port < 1 || (value as { port: number }).port > 65535) throw new Error(`Invalid instance address in ${path}.`);
+  return (value as { port: number }).port;
+}

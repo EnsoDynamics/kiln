@@ -116,7 +116,7 @@ describe("kiln run", () => {
     for (const command of ["status", "logs", "pause", "resume", "start", "phase"]) {
       const result = kiln([command, "docs/prds/customer-returns"]);
       expect(result.exitCode, command).toBe(2);
-      expect(result.stderr.split("\n")[0], command).toBe(`kiln: unknown command "${command}". The commands are kiln run and kiln add-repository.`);
+      expect(result.stderr.split("\n")[0], command).toBe(`kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
     }
     expect(kiln(["--help"])).toMatchObject({ exitCode: 0, stderr: "" });
   });

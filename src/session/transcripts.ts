@@ -50,6 +50,7 @@ function listFolder(folder: string): string[] {
 
 /** One tool call a transcript records, with its outcome when the transcript has one. */
 export interface TranscriptToolCall {
+  id?: string;
   name: string;
   input: Record<string, unknown>;
   /** The record's timestamp. */
@@ -57,7 +58,7 @@ export interface TranscriptToolCall {
   /** The record's working directory: the Bash shell's, as the call began. */
   cwd: string;
   /** Absent when the session was cut off mid-call. */
-  result?: { isError: boolean; text: string };
+  result?: { isError: boolean; text: string; at?: string };
 }
 
 export interface TranscriptRead {
@@ -115,12 +116,12 @@ export function readTranscript(path: string): TranscriptRead {
     if (!Array.isArray(content)) return;
     for (const block of content as ContentBlock[]) {
       if (record.type === "assistant" && block.type === "tool_use" && typeof block.name === "string") {
-        const call: TranscriptToolCall = { name: block.name, input: block.input ?? {}, at: record.timestamp ?? "", cwd: record.cwd ?? "" };
+        const call: TranscriptToolCall = { ...(block.id ? { id: block.id } : {}), name: block.name, input: block.input ?? {}, at: record.timestamp ?? "", cwd: record.cwd ?? "" };
         calls.push(call);
         if (typeof block.id === "string") byId.set(block.id, call);
       } else if (record.type === "user" && block.type === "tool_result" && typeof block.tool_use_id === "string") {
         const call = byId.get(block.tool_use_id);
-        if (call) call.result = { isError: block.is_error === true, text: resultText(block.content) };
+        if (call) call.result = { isError: block.is_error === true, text: resultText(block.content), ...(record.timestamp ? { at: record.timestamp } : {}) };
       }
     }
   });

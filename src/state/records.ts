@@ -1,3 +1,4 @@
+import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger } from "./development-delivery.js";
 // The PRD record and session records Kiln keeps on disk (technical design, "Kiln's State on
 // Disk"). Git and the phase documents stay the record of what is done; these remember
 // settings, sessions, stops and the facts shown for finished work. Schema 2 keeps every
@@ -9,7 +10,7 @@ import type { CodexAudit } from "../session/codex-evidence.js";
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -18,6 +19,7 @@ export interface AgentChoice { model: string; effort?: string }
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Settings {
+  developmentDeployments?: DevelopmentSettings;
   /** The folder every worktree of a multi-repository PRD is made in, `<workspace folder>/<name>`. */
   workspaceFolder: string;
   /** The PRD's repository's worktree for a one-repository PRD (v1's field). */
@@ -226,6 +228,9 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  executionId?: string;
+  developmentAuthorization?: DevelopmentAuthorization;
+  developmentDelivery?: DevelopmentLedger;
   schemaVersion: number;
   repository: { mainCheckoutPath: string; name: string; github: string };
   prdDirectory: string;
@@ -381,11 +386,13 @@ export function sessionDirectory(stateDirectory: string, phaseKey: string, sessi
 }
 
 export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
-  const record = readJson<PrdRecord>(prdRecordPath(stateDirectory));
+  const path = prdRecordPath(stateDirectory);
+  let record: PrdRecord | undefined;
+  try { record = readJson<PrdRecord>(path); } catch (error) { throw new Error(`Cannot read ${path}: ${(error as Error).message}`); }
   if (record && record.schemaVersion > SCHEMA_VERSION) {
     throw new NewerSchemaError(`Kiln's record for this PRD was written by a newer Kiln (schema ${record.schemaVersion}). Update Kiln and run kiln run again.`);
   }
-  return record === undefined ? undefined : migrateRecord(record);
+  try { return record === undefined ? undefined : migrateRecord(record); } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`); }
 }
 
 /** The default workspace folder: `.worktrees/<PRD folder name>` beside the PRD's repository (AC-SPACE-01). */
@@ -410,6 +417,9 @@ interface SchemaOnePhase {
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
+  if (![1, 2, 3, 4, 5].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (record.schemaVersion === 5) assertDevelopmentState(record);
+  if (record.schemaVersion < 5) { record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
   if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
   assertAgent(record.settings.agentId);
   record.settings.selectionGeneration ??= 0;

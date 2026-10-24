@@ -79,7 +79,7 @@
     {:else if snapshot.feature.state === "paused"}
       <Paused {snapshot} {connected} {now} {lastSeenAt} />
     {:else if snapshot.feature.state === "complete"}
-      <Complete {snapshot} {connected} {now} {lastSeenAt} />
+      <Complete {snapshot} {connected} {now} {lastSeenAt} {config} />
     {:else}
       <Running {snapshot} {connected} {now} {lastSeenAt} />
     {/if}

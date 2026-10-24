@@ -1,0 +1,97 @@
+{
+  "source": {
+    "repository": "EnsoDynamics/kiln-proof-development-delivery-20261024",
+    "pull": 1,
+    "run": 40114023462,
+    "deployment": "7301655546",
+    "capturedAt": "2026-10-24T17:22:25.095495Z"
+  },
+  "pull": {
+    "number": 1,
+    "state": "closed",
+    "draft": false,
+    "merged_at": "2026-10-24T16:58:53Z",
+    "merge_commit_sha": "4419f87f2fef5181165784cdff001a0164ad7bc6",
+    "html_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/pull/1",
+    "body": "Disposable non-production Kiln integration proof.\n\nPRD: docs/prds/development-claude-proof/development-claude-proof-prd.md\n",
+    "title": "Kiln claude development-delivery proof",
+    "commits": 1,
+    "additions": 3,
+    "deletions": 0,
+    "head": {
+      "ref": "proof/development-claude-1792861099308",
+      "sha": "acb1aedb2af055d875a4b4bcbd2485c593c4a341",
+      "repo": {
+        "full_name": "EnsoDynamics/kiln-proof-development-delivery-20261024"
+      }
+    },
+    "base": {
+      "ref": "main",
+      "repo": {
+        "full_name": "EnsoDynamics/kiln-proof-development-delivery-20261024"
+      }
+    }
+  },
+  "deployment": {
+    "id": 7301655546,
+    "sha": "4419f87f2fef5181165784cdff001a0164ad7bc6",
+    "environment": "kiln-disposable-development",
+    "created_at": "2026-10-24T16:59:05Z"
+  },
+  "statuses": [
+    {
+      "id": 20496854001,
+      "state": "success",
+      "environment": "kiln-disposable-development",
+      "log_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/actions/runs/40114023462/job/120931517760",
+      "created_at": "2026-10-24T16:59:14Z"
+    },
+    {
+      "id": 20496850313,
+      "state": "in_progress",
+      "environment": "kiln-disposable-development",
+      "log_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/actions/runs/40114023462/job/120931517760",
+      "created_at": "2026-10-24T16:59:09Z"
+    }
+  ],
+  "run": {
+    "id": 40114023462,
+    "head_sha": "4419f87f2fef5181165784cdff001a0164ad7bc6",
+    "path": ".github/workflows/development-proof.yml",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-10-24T16:58:56Z"
+  },
+  "jobs": {
+    "jobs": [
+      {
+        "id": 120931478739,
+        "name": "required-check",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/actions/runs/40114023462/job/120931478739",
+        "started_at": "2026-10-24T16:58:59Z",
+        "completed_at": "2026-10-24T16:59:05Z"
+      },
+      {
+        "id": 120931517760,
+        "name": "deploy",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/actions/runs/40114023462/job/120931517760",
+        "started_at": "2026-10-24T16:59:08Z",
+        "completed_at": "2026-10-24T16:59:14Z"
+      },
+      {
+        "id": 120931553008,
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/EnsoDynamics/kiln-proof-development-delivery-20261024/actions/runs/40114023462/job/120931553008",
+        "started_at": "2026-10-24T16:59:16Z",
+        "completed_at": "2026-10-24T16:59:23Z"
+      }
+    ]
+  }
+}

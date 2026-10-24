@@ -218,6 +218,8 @@ In the engine loop, after the plan is re-read and the next leaf chosen, Kiln col
 
 ## Sessions
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (conditional checkpoint PRs and saved target authority). Restricted execution behavior remains in force.
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (agent-specific execution and assigned workspace protection; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Starting a phase's session, §The prompts (the workspace in place of the one worktree)
@@ -246,6 +248,8 @@ and the authorization and finished lines name every repository: "commit to `<bra
 **Fresh-session prompt and resume command (AC-SPACE-04).** The fresh-session prompt is the phase prompt plus v1's sentence, so it names the workspace and the repositories. It takes the workspace form whenever the PRD is multi-repository when Needs you is shown, so a one-repository PRD's session that added a repository and then stopped gets the workspace paragraph and every worktree, with its paths from the folder that session started in, the PRD's worktree. The resume command and the fresh-session command change to the folder the session started in, read from the session record (`workingDirectory`, new), not recomputed; when the stop has no session, a `plan` stop's (AC-ADD-04's included), the fresh-session command changes to the folder the phase's next session would start in. Both quote the folder as v1's [Paths shown](../../prds/kiln-v1/technical-design.md#snapshot) gives. Like v1's, both are the bare command a person would type: they carry none of the launch flags, so no `--add-dir` and no `--disallowedTools PowerShell`, as v1's carry no `--model` or `--permission-mode`. A session reopened by hand runs in the person's own permission mode, where Claude Code asks before a write outside the folder it started in, and a `PowerShell` call in such a turn fails [Stayed in the workspace](#stayed-in-the-workspace-ac-outside-01-to-04).
 
 ## The Done Check
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled delivery assessment and retained checkpoint obligations). Restricted execution behavior remains in force.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check)
 
@@ -309,6 +313,8 @@ Wherever v1 resumes an interrupted session after its check fails (Ctrl+C, a clos
 
 ## The Pull Requests
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled final repository results; restricted delivery history remains). Restricted execution behavior remains in force.
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request check, §The prompts (pull-request session), §Where a Feature Stands (engine loop's check before the session)
 
 **Which repositories.** Every repository whose feature branch tip, read locally, differs from its `baseCommit`, or whose recorded phase receipts show a pushed commit different from that base. A later branch reset or deletion cannot remove an already changed repository from the completion check. The PRD's repository always qualifies once a phase has closed (PR-001).
@@ -344,6 +350,8 @@ For a one-repository PRD the list has one entry and the cross-link paragraph is 
 
 ### Command line
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (delivery command and enabled completion summaries). Restricted execution behavior remains in force.
+
 - `kiln run <path>`: unchanged, plus the start checks above.
 - `kiln add-repository <name>`: [above](#the-command-ac-add-01-cli-001). The usage text lists both commands.
 - Terminal lines, as the terminal mockup draws them, the rest as v1:
@@ -372,6 +380,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (target scope, checkpoint activity and mixed results). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (recorded Codex identity, output and provenance; Claude behavior retained).
 
@@ -445,6 +455,8 @@ SessionRecord (schema 2): adds workingDirectory, the folder the session was laun
 `baseCommit`, `createdBranch` and the phase's `startCommit`, `pushedSha` and `commitCount` move from the PRD and phase to each repository. **Migration from schema 1**, on read, with no Git call: `settings.baseBranch` and `settings.worktreePath` stay, and `bases` is `{}`. A record with `startedAt` or `createdBranch` gets one `repositories` entry of `kind: prd` from `repository`, `settings.baseBranch`, `settings.worktreePath`, `baseCommit`, `createdBranch` and `setupCompletedAt`; a record with neither gets no entry, and its Start builds the list. Also: each phase's three facts under that repository's name; `pullRequest` as a one-entry `pullRequests`; each check's `fact` as a one-item `facts`; `workspaceFolder` the default; each session's `workingDirectory` the worktree path. The record is written as schema 2 at its next write.
 
 ## Screens (AC-SHOW-01)
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (enabled permission, recovery and completion presentation). Restricted execution behavior remains in force.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot ("Needs you on screen", Disconnected rules, Settings and each phase's model)
 

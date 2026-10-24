@@ -1,3 +1,6 @@
+import { simpleCommands } from "../session/bash-command.js";
+import { deliveryEnabled } from "./development-delivery.js";
+import type { DevelopmentSettings } from "../state/development-delivery.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { selectedChoice } from "../state/records.js";
@@ -12,6 +15,7 @@ import { countAssumptions, countDesignCitations, countPrdCriteria } from "../pla
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
 import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { blockingRow, limitRow } from "../session/usage-limit.js";
@@ -130,6 +134,7 @@ export interface RepositoryDetails {
 
 /** One of the PRD's repositories, as Documents found and the settings list them (multi-repo AC-REPO-03, AC-PRS-04). */
 export interface RepositoryRow {
+  github?: string;
   name: string;
   kind: RepositoryKind;
   /** The judged leaf it was added in, for an added repository. */
@@ -146,6 +151,7 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
     name: string;
     repositoryName: string;
@@ -163,6 +169,7 @@ export interface Snapshot {
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
   settings: {
+    developmentDeployments?: DevelopmentSettings;
     agent: string;
     agentId?: AgentId;
     agentFixed?: boolean;
@@ -196,6 +203,7 @@ export interface Snapshot {
   models?: { value: string; displayName: string }[];
   phases: PhaseView[];
   current?: SessionIdentityView & {
+    deliveryActivity?: { label: string; repository?: string; environment?: string };
     phaseId: string;
     sessionId?: string;
     model: string;
@@ -310,7 +318,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
   const waitingKey = engine.waitingPhaseKey();
   const state: FeatureState = !engine.isUnderway
     ? "not_started"
-    : record.completedAt
+    : engine.currentlyComplete
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -327,6 +335,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
   const entry = engine.modelEntry(selectedChoice(settings).model);
   const metadata = engine.agents.state;
 
+  const views = phaseViews(engine, state);
   const snapshot: Snapshot = {
     feature: {
       name: engine.paths.featureName,
@@ -334,7 +343,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
-      phasesDone: leaves.filter((leaf) => leaf.closed).length,
+      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => leaf.closed).length,
       phasesTotal: leaves.length,
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
@@ -342,7 +351,9 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
+    ...(deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
+      ...optional("developmentDeployments", settings.developmentDeployments),
       agent: AGENT_NAMES[settings.agentId],
       agentId: settings.agentId,
       agentFixed: engine.agentFixed,
@@ -373,7 +384,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     },
     repositories: repositoryRows(engine, state),
     ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
-    phases: phaseViews(engine, state),
+    phases: views,
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
     ...optional("pullRequests", record.pullRequests),
@@ -421,6 +432,7 @@ function currentView(engine: Engine): Snapshot["current"] {
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
   if (session.lastSkill && (!seen || session.lastSkill.at > seen.at)) seen = { text: `${session.lastSkill.name} skill started`, at: session.lastSkill.at };
   return {
+    ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session) } : {}),
     phaseId: judgedKeyFor(plan, current.phaseKey),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
@@ -480,6 +492,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     withOutside(
       isPr
         ? pullRequestSessionPrompt({
+            deliveryAuthority: engine.deliveryAuthority(),
             featureName: engine.paths.featureName,
             prdFile: engine.pathFrom(folder, engine.prdFile()),
             branch: record.settings.featureBranch,
@@ -733,7 +746,10 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const session = key === undefined ? undefined : sessionFor(engine, key);
     const view: PhaseView = { ...base, state: "planned" };
     const prdFacts = facts?.repositories[engine.paths.repositoryName];
-    if (facts?.doneAt) {
+    if (deliveryEnabled(record) && facts?.stop) view.state = "needs_you";
+    else if (deliveryEnabled(record) && facts?.wait) view.state = "waiting";
+    else if (deliveryEnabled(record) && state === "implementing" && currentRow === phase.id) view.state = "implementing";
+    else if (facts?.doneAt) {
       Object.assign(view, { state: "done", doneAt: facts.doneAt, finishedByPerson: facts.finishedByPerson }, optional("pushedSha", prdFacts?.pushedSha));
       if (multi) view.pushedRepositoryCount = Object.values(facts.repositories).filter((repository) => repository.pushedSha !== undefined && repository.pushedSha !== repository.startCommit).length;
     }
@@ -768,12 +784,12 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     return view;
   });
 
-  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed)) {
+  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed) && (!deliveryEnabled(record) || record.phases[PR_PHASE_KEY]?.sessionIds.length)) {
     const facts = record.phases[PR_PHASE_KEY];
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
-    const row: PhaseView = { id: PR_PHASE_KEY, title: PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
-    if (record.completedAt) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
+    const row: PhaseView = { id: PR_PHASE_KEY, title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
+    if (engine.currentlyComplete) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
@@ -858,6 +874,7 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
     const worktreePath = entry?.setupCompletedAt !== undefined ? expandHome(entry.worktreePath) : isPrd && !multi ? engine.worktreePath : `${expandHome(settings.workspaceFolder)}/${repository.name}`;
     return {
       name: repository.name,
+      github: `github.com/${repository.github}`.toLowerCase(),
       kind: repository.kind,
       ...(entry?.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {}),
       baseBranch: baseFor(repository, settings, engine.workspaceFixed),
@@ -867,4 +884,21 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
       fieldErrors: message === undefined ? {} : { baseBranch: message },
     };
   });
+}
+
+/** Labels actual tool invocations or observed remote activity, never a prepared intent. */
+function observedDeliveryActivity(engine: Engine, session: SessionRecord): NonNullable<NonNullable<Snapshot["current"]>["deliveryActivity"]> {
+  const tool = readOutputLines(engine.stateDirectory, session).filter(line => line.source === "tool").at(-1);
+  if (!tool) return { label: "Implementing" };
+  let command = tool.text.replace(/^Bash /, "");
+  let commands = simpleCommands(command);
+  if (commands.length === 1 && ["/bin/zsh", "/bin/bash", "/bin/sh"].includes(commands[0]?.[0] ?? "") && ["-c", "-lc"].includes(commands[0]?.[1] ?? "") && commands[0]?.length === 3) { command = commands[0][2]!; commands = simpleCommands(command); }
+  for (const checkpoint of engine.record.developmentDelivery?.checkpoints ?? []) {
+    const where = { repository: checkpoint.target.repository, environment: checkpoint.target.environment };
+    const polling = commands.some(words => words[0] === "gh" && words[1] === "run" && ["watch", "view", "list"].includes(words[2] ?? ""));
+    if (checkpoint.observedActivity && (polling || Date.parse(checkpoint.observedActivity.at) > Date.parse(tool.at))) return { label: checkpoint.observedActivity.kind, ...where };
+    if (commands.some(words => words[0] === "gh" && words[1] === "pr" && words[2] === "merge" && words.some(word => word.replace(/^github.com\//, "").toLowerCase() === checkpoint.target.repository.replace(/^github.com\//, "")) && words.includes(checkpoint.headSha))) return { label: "Merging", ...where };
+    for (const requirement of checkpoint.requirements) if (requirement.match.kind === "command" && command === requirement.match.invocation.replaceAll("{{mergeRevision}}", checkpoint.merge?.resultSha ?? "{{mergeRevision}}").replaceAll("{{environment}}", checkpoint.target.environment)) return { label: requirement.purpose === "deployment" ? "Deploying" : requirement.purpose === "verification" ? "Verifying" : "Implementing", ...where };
+  }
+  return { label: "Implementing" };
 }

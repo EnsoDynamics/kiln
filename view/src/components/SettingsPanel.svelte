@@ -8,6 +8,7 @@
   // their help text (multi-repo AC-PRS-04, AC-SHOW-01). Under keep-awake, which covers a wait for
   // usage too, "Resume after a usage limit" applies at once, as the waiting screen draws it
   // (usage-limit recovery AC-AUTO-03, AC-AUTO-04).
+  import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import { changeSettings } from "../lib/api.js";
@@ -37,6 +38,8 @@
     reason = answer.ok ? undefined : answer.reason;
   }
 </script>
+
+<DevelopmentDelivery {snapshot} {config} {connected} />
 
 <section class="card" aria-labelledby="set-h">
   <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="note">{note}</span></div>
@@ -83,16 +86,16 @@
       </div>
       <div class="more">
         <dt>The same for every phase</dt>
-        <dd>Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase. Each phase builds on the one before, so they can’t change.</dd>
+        <dd>Workspace folder, feature branch, and {snapshot.developmentDelivery?.authorization.enabled ? "approved delivery targets and remaining review work" : "one PR in each repository into its base"}, set before the first phase. Each phase builds on the one before, so they can’t change.</dd>
       </div>
       <div class="more">
         <dt>In each repository</dt>
-        <dd>Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It never merges, deploys, or touches other branches.</dd>
+        <dd>{snapshot.developmentDelivery?.authorization.enabled ? "Required development work may merge and deploy to approved targets. Remaining work stays open for review." : "Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It never merges, deploys, or touches other branches."}</dd>
       </div>
     {:else}
       <div class="fixed">
         <dt>The same for every phase</dt>
-        <dd>Worktree, feature branch, and one PR into <span class="code-inline">{settings.baseBranch}</span>, set before the first phase. Each phase builds on the one before, so they can’t change.</dd>
+        <dd>{#if snapshot.developmentDelivery?.authorization.enabled}Worktree and feature branch are fixed; approved development deliveries and any remaining review PRs target <span class="code-inline">{settings.baseBranch}</span>.{:else}Worktree, feature branch, and one PR into <span class="code-inline">{settings.baseBranch}</span>, set before the first phase.{/if} Each phase builds on the one before, so they can’t change.</dd>
       </div>
     {/if}
   </dl>

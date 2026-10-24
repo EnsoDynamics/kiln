@@ -216,6 +216,7 @@ export interface PullRequestCheckOutcome {
 }
 
 export interface PullRequestsCheckOutcome {
+  ghError?: boolean;
   passed: boolean;
   check: CheckResult;
   /** The pull-request check, then Stayed in the workspace when it failed: what a stop records. */

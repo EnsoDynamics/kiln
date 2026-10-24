@@ -67,8 +67,8 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 stopped", "1 resumed", "1 done", "2b started", "2b stopped"]);
     expect(calls[2]!.prompt).toContain("implement `docs/prds/customer-returns/phase-2b-store-credit.md`");
-    // Kept on disk as schema 3.
-    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(4);
+    // Kept on disk with the current execution/delivery schema.
+    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(5);
   });
 
   it("counts a phase the person finished by hand as Done when Resume's check passes, resuming nothing and dropping the note", async () => {

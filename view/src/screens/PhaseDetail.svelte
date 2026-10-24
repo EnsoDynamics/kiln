@@ -8,6 +8,7 @@
   // label (multi-repo AC-SHOW-01). A phase waiting for usage is served as a stopped one is, its
   // back link to the waiting screen and its pill styled as Paused is (usage-limit recovery,
   // technical design "Screens").
+  import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
@@ -111,6 +112,7 @@
       {/if}
     </div>
   </div>
+  <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
 
 {#snippet list(commits: { sha: string; subject: string }[])}

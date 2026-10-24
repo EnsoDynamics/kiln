@@ -57,6 +57,7 @@
       {#if connected}<a class="watch" href={link} onclick={(event) => routedClick(event, router, link)}>Watch live<Icon name="arrow" strokeWidth={1.9} /></a>{/if}
     </div>
   {/if}
+  {#if current.deliveryActivity}<p class="seen-text">{current.deliveryActivity.label}{#if current.deliveryActivity.repository} · {current.deliveryActivity.repository} · {current.deliveryActivity.environment}{/if}</p>{/if}
   {#if current.latestLine}<div class="latest mono"><span class="time">{outputTime(current.latestLine.at, nowDate)}</span>&nbsp;&nbsp;<span class={SOURCE_TONE[current.latestLine.source] ?? "dim"}>{current.latestLine.source}</span>&nbsp;&nbsp;{current.latestLine.text}</div>{/if}
   <DetailsList rows={details} />
 </section>

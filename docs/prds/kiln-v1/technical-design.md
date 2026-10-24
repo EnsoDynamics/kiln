@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled execution rechecks current work despite historical completion). Restricted execution behavior remains in force.
+
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Setup at Start (setup is done when every repository's is), §Named after Start (names are added before a phase starts), §The Pull Requests (the engine loop's check before the session, per repository)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (a refused session's failed check records a wait; the reconcile at `kiln run` waits again)
@@ -195,6 +197,8 @@ Before spawning, Kiln writes the session record (ID, phase, model, the effort it
 
 ### The prompts
 
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved development authority replaces blanket restrictions only for approved targets). Restricted execution behavior remains in force.
+
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions, §The Pull Requests (the workspace in place of the one worktree; one pull request per repository)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the resume prompt after the person's Resume, with its note)
@@ -232,6 +236,8 @@ For the pull-request session, "Carry on with `<phase doc>`" reads "Carry on open
 The Needs you resume command is `cd <worktree>` then `claude --resume <session ID>` (AC-STOP-05), its path shown and quoted as [Snapshot](#snapshot) gives under Paths shown; `<worktree path>` in the session prompts stays absolute.
 
 ### Output and progress
+
+Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (observed delivery activity; existing six steps and Follow-up retained). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Workspace Evidence, Output and Progress → Live and saved output (Codex-native output, child visibility and observed progress; Claude behavior retained).
 

@@ -11,7 +11,7 @@
 | [1 Authorized development delivery](phase-1-authorized-development-delivery.md) | Let an execution approve concrete targets, deliver and verify required work, recover interruptions, continue building and finish with accurate results for every repository. | None |
 | [2 Remembered targets and execution grants](phase-2-remembered-targets-grants.md) | Let people explicitly reuse saved targets and authorize missing targets while stopped, including recovery of earlier work. | 1 (execution authorization, delivery interface, current phase/final evaluator and repository results) |
 
-Each row is one implementation phase; none is closed. Execute in this order. After both close, run whole-PRD delivery audit, then test audit, under the Enso Method lifecycle.
+Each row is one implementation phase. Phase 1 is implemented and closed; Phase 2 remains open. [Phase 1 proof results](kiln-development-delivery-proof-results.md) record its delivery interface, evidence and verification. Execute in this order. After both close, run whole-PRD delivery audit, then test audit, under the Enso Method lifecycle.
 
 ## Sizing and implementation baseline
 

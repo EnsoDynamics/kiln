@@ -6,6 +6,7 @@
   // multi-repository PRD (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-complete-repositories.html) lists every pull request with its repository, and
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
+  import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { DeliveryEvent, PullRequestFacts } from "../../../src/state/records.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
@@ -16,7 +17,7 @@
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
   import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
 
-  let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
+  let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
   const multi = $derived(snapshot.feature.multiRepository);
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
@@ -46,11 +47,12 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
+  <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
   {#if multi && pullRequests.length > 0}
     <section class="pr">
       <div class="which"><Icon name="pull-request" size={20} strokeWidth={1.6} /><span class="mono number">{pullRequests.length} {pullRequests.length === 1 ? "pull request" : "pull requests"}</span><span class="dot" aria-hidden="true">·</span><span class="mono branches">{snapshot.settings.featureBranch}</span></div>
-      <h2>{mergedBranches.length ? "Pull requests still ready for review" : "One in each repository that changed"}</h2>
+      <h2>{snapshot.developmentDelivery?.authorization.enabled ? "Remaining work ready for review" : mergedBranches.length ? "Pull requests still ready for review" : "One in each repository that changed"}</h2>
       <ul class="prs">
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
@@ -73,7 +75,7 @@
       <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span></div>
       <div class="open">
         <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
-        <span class="note">Human review is next. Kiln stops at “PR ready” and doesn’t merge.</span>
+        <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
       </div>
     </section>
   {/if}
@@ -145,7 +147,7 @@
           {/if}
         </dl>
       </section>
-      <KilnPanel {connected} text={mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
+      <KilnPanel {connected} text={snapshot.developmentDelivery?.authorization.enabled || mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
     </div>
   </div>
 </main>

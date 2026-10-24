@@ -38,6 +38,7 @@ export interface PromptRepository {
 }
 
 export interface PhasePromptValues {
+  deliveryAuthority?: string | undefined;
   /** The phase document's path from the folder the session starts in: `docs/prds/customer-returns/phase-2b-store-credit.md`. */
   phaseDoc: string;
   featureName: string;
@@ -53,6 +54,7 @@ export interface PhasePromptValues {
 }
 
 export interface PullRequestPromptValues {
+  deliveryAuthority?: string | undefined;
   featureName: string;
   prdFile: string;
   branch: string;
@@ -68,12 +70,12 @@ export interface PullRequestPromptValues {
 export function phaseSessionPrompt(values: PhasePromptValues): string {
   const { workspace } = values;
   const common = { phaseDoc: values.phaseDoc, featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, parentFolder: values.parentFolder };
-  if (!workspace) return fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath });
+  if (!workspace) return authorizedPhase(fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath }), values.deliveryAuthority);
   const list = workspace.repositories
     .map((repository) => `- \`${repository.name}\`: \`${repository.worktreePath}\`, base \`${repository.baseBranch}\`${repository.isPrd ? " (the PRD's repository)" : ""}`)
     .join("\n");
   const example = workspace.repositories.find((repository) => !repository.isPrd)?.name ?? workspace.repositories[0]!.name;
-  return fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list });
+  return authorizedPhase(fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list }), values.deliveryAuthority);
 }
 
 /** The pull-request session's prompt (AC-PR-01; multi-repo AC-PRS-02, AC-PRS-05): one pull request per repository listed. */
@@ -82,6 +84,7 @@ export function pullRequestSessionPrompt(values: PullRequestPromptValues): strin
     .map((repository) => `- \`${repository.name}\` (\`${repository.github}\`), worktree \`${repository.worktreePath}\`, into \`${repository.baseBranch}\``)
     .join("\n");
   const crossLinks = values.repositories.length > 1 ? template("pull-request-cross-links.txt") : "";
+  if (values.deliveryAuthority) return fill(template("development-finalization.txt"), { featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, repositoryList: list, deliveryAuthority: authorityBlock(values.deliveryAuthority) });
   return fill(template("pull-request-session.txt"), {
     featureName: values.featureName,
     prdFile: values.prdFile,
@@ -108,6 +111,7 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
 export interface ResumePromptValues {
+  deliveryAuthority?: string | undefined;
   /** The saved session's agent; absent for legacy Claude callers. */
   agentId?: AgentId;
   /** The interrupted run's cause; absent when Kiln was killed outright and recorded none. */
@@ -162,7 +166,7 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
-  return [...before, `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
+  return [...before, ...(values.deliveryAuthority ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */
@@ -228,4 +232,12 @@ export function freshSessionOutsideNote(facts: string[], checkoutCount: number, 
 
 function joinWithAnd(items: string[]): string {
   return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+function authorityBlock(authority: string): string { return fill(template("development-authority.txt"), { authority, sourceRevision: "{{sourceRevision}}", mergeRevision: "{{mergeRevision}}", environment: "{{environment}}" }); }
+function authorizedPhase(prompt: string, authority?: string): string {
+  if (!authority) return prompt;
+  return prompt.replace("You are not authorized to open a pull request, merge, deploy, or touch any other branch.", "Development delivery is governed by the saved authority below.")
+    .replace("or land work on any other branch", "or change another checkout")
+    .replace(/(You're finished when[^\n]+)(\n|$)/, "$1 Required development-delivery assessment, merge, deployment, verification and source synchronization must also pass Kiln’s current evidence checks.$2") + "\n\n" + authorityBlock(authority);
 }

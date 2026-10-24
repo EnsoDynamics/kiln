@@ -6,6 +6,7 @@
   // "Resume after a usage limit" settings (AC-AUTO-03, AC-AUTO-04). Nothing is needed from the
   // person, so it is styled as Paused is. It is the screen alone, as Needs you is: no plan or
   // Claude account panel, no Check again, terminal hand-back or pause (AC-LIMIT-04).
+  import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import Icon from "../components/Icon.svelte";
@@ -22,7 +23,7 @@
   import { viewContext } from "../lib/view-context.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
-  const { config, router } = viewContext();
+  const { config, router, connection } = viewContext();
   const waiting = $derived(snapshot.waiting!);
   const settings = $derived(snapshot.settings);
   const nowDate = $derived(new Date(now));
@@ -121,6 +122,7 @@
       </aside>
     </div>
   </div>
+  <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
 </main>
 
 <style>

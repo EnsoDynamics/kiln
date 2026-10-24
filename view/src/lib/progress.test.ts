@@ -265,3 +265,16 @@ it("labels all-merged and mixed completion without claiming every repository nee
   expect(headerState(snapshot, true, new Date(RUNNING_NOW)).label).toBe("Already merged");
   expect(openedLabel(snapshot)).toBe("Already merged");
 });
+
+
+describe("development delivery completion", () => {
+  it.each(["delivered", "review", "mixed"] as const)("names the actual %s result while preserving timing/history", state => {
+    const snapshot = completeSnapshot();
+    snapshot.developmentDelivery = { executionId: "test-execution", phaseId: undefined, revision: 0, authorization: { revision: 1, enabled: true, grants: [] }, assessments: [], checkpoints: [], splits: [], repositoryResults: [{ repository: "app", state, deliveredCheckpointIds: [], reasons: [] }] };
+    const result = headerState(snapshot, true, now);
+    expect(result.label).toBe(state === "delivered" ? "Development delivered" : state === "review" ? "Ready for review" : "Development delivered; review remaining");
+    expect(result.facts).toEqual(["5 of 5 phases done", "5h 38m", "Finished 2:55 PM"]);
+    const stop = needsYouMessageSnapshot().needsYou!;
+    expect(needsYouCopy(stop, snapshot.settings, now, false, true).finishText).toContain("artifact verification evidence");
+  });
+});

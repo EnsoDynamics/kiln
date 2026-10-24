@@ -9,6 +9,7 @@
   // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03). Under
   // keep-awake, "Resume after a usage limit", in the waiting screen's words (usage-limit recovery
   // AC-AUTO-04).
+  import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
   import AccountPanel from "../components/AccountPanel.svelte";
@@ -285,8 +286,9 @@
 
       <dl class="fixed">
         <dt>Pushes</dt><dd>After every phase</dd>
-        <dt>Ends at</dt><dd>{multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
+        <dt>Ends at</dt><dd>{settings.developmentDeployments?.enabled ? "Confirmed development deliveries and any remaining review PRs" : multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
+      <DevelopmentDelivery {snapshot} {config} {connected} editable />
     </section>
   </div>
 
@@ -306,12 +308,12 @@
       <ul class="allowed">
         {#if multi}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
-          <li>{@render check(14, true)}<span>In each repository, open one pull request into its base branch once every phase closes</span></li>
+          <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Required checkpoint delivery may happen on approved targets; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
           <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
-          <li>{@render check(14, true)}<span>Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes</span></li>
+          <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Required checkpoint delivery may happen on approved targets; remaining work stays open for review{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
-        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>Never merge, deploy, or touch other branches</span></li>
+        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Required development delivery only on the exact approved targets; no production or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
       </ul>
     </div>
 

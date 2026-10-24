@@ -68,7 +68,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       const facts = [done];
       if (feature.startedAt && feature.completedAt) facts.push(feature.timing ? timingText(feature.timing, now.getTime()) : shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));
       if (feature.completedAt) facts.push(`Finished ${clockTime(feature.completedAt, now, { afterWord: true })}`);
-      return { kind: "complete", label: snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
+      return { kind: "complete", label: snapshot.developmentDelivery?.authorization.enabled ? (snapshot.developmentDelivery.repositoryResults.some(one => one.state === "mixed") || snapshot.developmentDelivery.repositoryResults.some(one => one.state === "delivered") && snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Development delivered; review remaining" : snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Ready for review" : "Development delivered") : snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
@@ -333,7 +333,7 @@ function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside
  * and with UI-007's lines for the pull request, a session that can't be resumed, a broken plan,
  * and a session Kiln couldn't start or restart.
  */
-export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false): NeedsYouCopy {
+export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
   const name = capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
@@ -342,13 +342,13 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     showFacts: true,
     firstStep: "resume",
     freshLink: true,
-    finishTitle: isPr ? `Open the pull request with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would` : `Finish the phase with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would`,
-    finishText: isPr
+    finishTitle: isPr && developmentDelivery ? "Finish the remaining delivery and review work" : isPr ? `Open the pull request with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would` : `Finish the phase with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would`,
+    finishText: developmentDelivery ? "Use the saved target authority and current checks on the right. Confirm required merge, deployment and artifact verification evidence; finalization accounts for every repository’s delivered and remaining review work." : isPr
       ? multiRepository
         ? `Each changed repository needs a ready pull request from ${settings.featureBranch} into its intended base, or proof that its current feature commit is already merged into that base.`
         : `Kiln accepts a ready pull request from ${settings.featureBranch} into ${settings.baseBranch}, or proof that its current feature commit is already merged into that base.`
       : `Finish it however you like. Kiln only looks at the ${stop.checks.length === 4 ? "four" : "three"} checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.`,
-    checkAgainText: isPr
+    checkAgainText: developmentDelivery ? "Kiln rechecks current Git, GitHub and required artifact evidence before advancing or completing. Unresolved evidence keeps this execution stopped." : isPr
       ? "Kiln checks GitHub and the worktrees. When every changed repository has a ready pull request or verified prior integration, the feature is complete."
       : "Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase.",
     sideHeading: isPr ? "Kiln finishes when" : "Kiln continues when",

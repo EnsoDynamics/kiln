@@ -239,7 +239,7 @@ describe("kiln run on a feature not started", () => {
       fieldErrors: {},
     });
     expect(snapshot.repositories).toEqual([
-      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
+      { name: "acme-shop", github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
     ]);
     expect(snapshot.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
     expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });

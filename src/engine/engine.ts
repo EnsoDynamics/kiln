@@ -1,3 +1,7 @@
+import { fileURLToPath } from "node:url";
+import { DeliveryRefusal, deliveryEnabled, documentsDigest, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
+import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { runCodexSession, reconcileCodexAttempt } from "../session/codex-session.js";
@@ -142,6 +146,7 @@ export type TerminalEvent =
       /** A multi-repository PRD's pull requests, in list order. */
       opened?: { repository: string; number: number }[];
     }
+  | { kind: "delivery"; at: Date; repository: string; environment: string; stage: string; outcome: string }
   | { kind: "message"; text: string };
 
 export type CommandResult =
@@ -255,6 +260,9 @@ export class Engine {
   settingUp = false;
   /** True while Check again's check runs. */
   checking = false;
+  private announcedDelivery = new Set<string>();
+  private deliveryBusy = false;
+  private deliveryPending: Promise<void> | undefined;
   /** Field messages from the last field check, before Start. */
   fieldErrors: FieldErrors = {};
   /** Each repository's base message other than the PRD's repository's, from the last field check. */
@@ -518,7 +526,7 @@ export class Engine {
    */
   async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
     const { record } = this;
-    if (record.completedAt) return refuse("The feature is complete.");
+    if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
     if (this.selectionError) return refuse(this.selectionError);
     if (record.pause.activeSince !== undefined) {
@@ -545,6 +553,7 @@ export class Engine {
         return { ok: false, status: 409, reason: "The settings don't pass their checks.", fieldErrors: fields.errors, baseErrors: fields.baseErrors };
       }
       // One save records Start and the whole list, each entry with the commit its branch starts from.
+      const beforeStart = structuredClone(record);
       const multi = repositories.length > 1;
       const branchFixed = this.workspaceFixed;
       const list: RepositoryEntry[] = [];
@@ -565,11 +574,19 @@ export class Engine {
       record.repositories = [...list, ...leftOut];
       repositoryCount = list.length;
       const at = this.now().toISOString();
+      try { validateStartTargets(record, list); } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
+      record.executionId ??= randomUUID();
+      record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
+      record.developmentDelivery ??= emptyDevelopmentLedger();
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       // The plan as Documents found showed it, until the worktree's own copy is read.
       if (this.options.startPlan) record.plan = recordedPlan(this.options.startPlan);
-      this.save();
+      try { this.save(); } catch (error) {
+        for (const key of Object.keys(record)) Reflect.deleteProperty(record, key);
+        Object.assign(record, beforeStart);
+        return refuse(`Start could not be saved: ${(error as Error).message}`);
+      }
       const setup = await this.finishSetup();
       if (this.stopping) return refuse("Kiln is stopping.");
       if (!setup.ok) return { ok: false, status: 409, reason: this.startError ?? setup.error };
@@ -585,7 +602,7 @@ export class Engine {
   /** Pause after this phase (AC-VIEW-03); not offered during the pull-request session (AC-PR-05). */
   pause(): CommandResult {
     const { record } = this;
-    if (!this.isUnderway || record.completedAt) return refuse("Nothing is running to pause after.");
+    if (!this.isUnderway || this.currentlyComplete) return refuse("Nothing is running to pause after.");
     if (this.stoppedPhaseKey() !== undefined) return refuse("Kiln is stopped at Needs you, which offers no pause.");
     if (this.waitingPhaseKey() !== undefined) return refuse("Kiln is waiting for usage, which offers no pause.");
     if (record.pause.activeSince !== undefined) return refuse("Kiln is already paused.");
@@ -610,7 +627,7 @@ export class Engine {
   async checkAgain(): Promise<CommandResult> {
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
-    if (this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     this.checking = true;
     this.changed();
     try {
@@ -640,13 +657,13 @@ export class Engine {
     if (waiting !== undefined) {
       // An empty note counts as none.
       if (body.note !== undefined && !(typeof body.note === "string" && body.note.trim() === "")) return refuse("Resume now takes no note.");
-      if (this.checking || this.driving) return refuse("Kiln is already checking.");
+      if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
       await this.resumeWait(waiting, "person_resume");
       return { ok: true };
     }
     const key = this.stoppedPhaseKey();
     if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
-    if (this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     if (body.note !== undefined && typeof body.note !== "string") return { ok: false, status: 400, reason: "The note must be text." };
     const note = (body.note ?? "").trim();
     if (note.length > NOTE_LIMIT) return { ok: false, status: 400, reason: `The note can be at most ${NOTE_LIMIT.toLocaleString("en-US")} characters.` };
@@ -695,7 +712,7 @@ export class Engine {
       return refuse("Stayed in the workspace hasn't failed, so there is nothing to confirm.");
     }
     // A tick during a check would land after it and show unticked, so the box waits for the check to end.
-    if (this.checking || this.driving) return refuse("Kiln is checking. Tick it once the check ends.");
+    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is checking. Tick it once the check ends.");
     if (this.record.settings.agentId === "codex") {
       const audits = facts.codexAudits ?? {};
       const complete = Object.values(audits).filter(audit => audit.coverage === "complete" && audit.findings.length);
@@ -717,6 +734,7 @@ export class Engine {
    * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
    */
   async changeSettings(change: Partial<Settings>): Promise<CommandResult> {
+    if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
     const fixedFields = (["workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"] as const).filter((field) => change[field] !== undefined);
     if (fixedFields.length > 0 && (this.record.startedAt !== undefined || this.settingUp)) {
       return refuse(
@@ -800,6 +818,105 @@ export class Engine {
     return { ok: true };
   }
 
+  get currentlyComplete(): boolean { return this.record.completedAt !== undefined && (!deliveryEnabled(this.record) || this.record.developmentDelivery?.currentComplete === true); }
+
+  private deliveryContext(phaseId?: string): DeliveryContext {
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    return { record: this.record, stateDirectory: this.stateDirectory, prdWorktree: this.worktreePath, prdDirectory: this.paths.prdDirectoryFromRoot, git: { ...this.git, signal }, gh: this.options.tools.gh, env: this.options.env, ...(phaseId ? { phaseId } : {}), signal, now: () => this.now().toISOString(), commands: (id, deadline) => this.deliveryCommands(id, deadline) };
+  }
+
+  deliveryStatus() {
+    const state = ledger(this.record);
+    const phaseId = this.current?.phaseKey ?? this.stoppedPhaseKey();
+    let digest: string | undefined;
+    if (phaseId && phaseId !== PR_PHASE_KEY) { try { digest = documentsDigest(this.deliveryContext(phaseId), this.judgedId(phaseId)); } catch { /* The plan check names unreadable documents. */ } }
+    return { executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(digest ? { documentsDigest: digest } : {}), phaseId };
+  }
+
+  async deliveryReadStatus() {
+    const status = this.deliveryStatus();
+    const ids = Object.values(this.record.phases).flatMap(one => one.sessionIds);
+    const availableCommandEvidence: { sessionId: string; id: string; command: string; cwd: string; calledAt: string; resultAt?: string }[] = [];
+    if (deliveryEnabled(this.record)) for (const id of ids) {
+      try { for (const command of await this.deliveryCommands(id)) availableCommandEvidence.push({ sessionId: id, id: command.callId, command: command.command, cwd: command.cwd, calledAt: command.calledAt, ...(command.resultAt ? { resultAt: command.resultAt } : {}) }); }
+      catch (error) { return { ...status, availableCommandEvidence, commandEvidenceError: (error as Error).message }; }
+    }
+    return { ...status, availableCommandEvidence };
+  }
+
+  async deliveryCommand(action: "assessment" | "prepare" | "evidence", body: Record<string, unknown>): Promise<CommandResult & { delivery?: unknown }> {
+    if (this.deliveryBusy || this.checking || this.activeCheck || this.stopping || this.settingUp) return refuse("Kiln is checking or changing execution state.");
+    if (!this.record.executionId || body.executionId !== this.record.executionId || body.revision !== ledger(this.record).revision) return refuse("Wrong execution or stale delivery revision; read kiln delivery status again.");
+    const phaseId = this.current?.phaseKey ?? this.stoppedPhaseKey();
+    if (!phaseId || !deliveryEnabled(this.record)) return refuse("No authorized development-delivery session is active or stopped.");
+    this.deliveryBusy = true;
+    let release!: () => void; this.deliveryPending = new Promise<void>(resolve => { release = resolve; });
+    const before = structuredClone(this.record.developmentDelivery);
+    try {
+      const context = this.deliveryContext(phaseId);
+      let result: unknown;
+      if (action === "assessment") await recordAssessment(context, body);
+      else if (action === "prepare") result = await prepareOperation(context, body);
+      else await submitEvidence(context, body);
+      ledger(this.record).revision++; ledger(this.record).currentComplete = false;
+      assertDevelopmentState(this.record); this.save(); this.announceDelivery();
+      return { ok: true, delivery: { ...this.deliveryStatus(), ...(result ? { result } : {}) } };
+    } catch (error) {
+      if (before) this.record.developmentDelivery = before; else delete this.record.developmentDelivery;
+      return { ok: false, status: error instanceof DeliveryRefusal ? error.status : 409, reason: (error as Error).message };
+    } finally { this.deliveryBusy = false; release(); this.deliveryPending = undefined; }
+  }
+
+  private async deliveryCommands(id: string, deadline?: AbortSignal): Promise<CommandEvidence[]> {
+    const signal = deadline ? AbortSignal.any([this.abort.signal, deadline]) : this.abort.signal; signal.throwIfAborted();
+    const phaseKey = Object.entries(this.record.phases).find(([, facts]) => facts.sessionIds.includes(id))?.[0];
+    const session = phaseKey ? this.sessionRecord(phaseKey, id) : undefined;
+    if (!session) throw new DeliveryRefusal("The command session does not belong to this execution.");
+    if (session.agentId === "codex") {
+      if (!session.conversation?.threadId || !session.conversation.codexHome || !this.options.tools.codex) throw new DeliveryRefusal("Codex command history is unavailable.");
+      const audit = await auditCodexConversation({ threadId: session.conversation.threadId, codexHome: session.conversation.codexHome, worktrees: this.setUpRepositories.map(one => one.worktreePath), cwd: this.workingDirectoryOf(session), executable: this.options.tools.codex, env: this.options.env, signal, commandProjection: true });
+      if (audit.coverage !== "complete") throw new DeliveryRefusal(`Codex command evidence is incomplete: ${audit.problems.join(" ")}`);
+      return audit.commands ?? [];
+    }
+    const files = findTranscripts(claudeConfigFolder(this.options.env), id);
+    if (!files.main) throw new DeliveryRefusal("Claude command transcript is unavailable.");
+    const calls: CommandEvidence[] = [];
+    for (const file of [files.main, ...files.subagents]) {
+      signal.throwIfAborted(); const transcript = readTranscript(file); signal.throwIfAborted(); if (transcript.problem) throw new DeliveryRefusal(`Unreadable Claude command history: ${file}: ${transcript.problem}`);
+      for (const call of transcript.calls) if (call.name === "Bash" && call.id && typeof call.input.command === "string" && call.at && call.cwd) calls.push({ source: file, callId: call.id, command: call.input.command, cwd: call.cwd, calledAt: call.at, ...(call.result?.at ? { resultAt: call.result.at, outcome: call.result.isError ? "error" : "success", output: call.result.text } : {}) });
+    }
+    return calls;
+  }
+
+  private announceDelivery(): void {
+    for (const checkpoint of ledger(this.record).checkpoints) {
+      const outcomes = [
+        { stage: "Merge", outcome: checkpoint.merge ? `confirmed ${checkpoint.merge.url} (${checkpoint.merge.resultSha})` : "unresolved" },
+        ...["deployment", "verification"].map(purpose => ({ stage: purpose === "deployment" ? "Deployment" : "Verification", outcome: checkpoint.requirements.filter(one => one.purpose === purpose).every(one => !checkpoint.unresolvedRequirements?.[one.id] && !checkpoint.unresolvedRequirements?.["*"] && checkpoint.evidence.some(fact => fact.requirementId === one.id && fact.status === "success")) ? "confirmed" : "unresolved" })),
+      ];
+      for (const one of outcomes) {
+        const key = JSON.stringify([checkpoint.id, one, checkpoint.unresolvedReason]); if (this.announcedDelivery.has(key)) continue;
+        this.announcedDelivery.add(key); this.emit({ kind: "delivery", at: this.now(), repository: checkpoint.target.repository, environment: checkpoint.target.environment, stage: one.stage, outcome: `${one.outcome}${checkpoint.unresolvedReason ? `: ${checkpoint.unresolvedReason}` : ""}` });
+      }
+    }
+  }
+
+  deliveryAuthority(): string | undefined {
+    if (!deliveryEnabled(this.record)) return undefined;
+    return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
+  }
+
+  private async unresolvedDeliveryLeaf(): Promise<string | undefined> {
+    if (!deliveryEnabled(this.record)) return undefined;
+    await reconcileDelivery(this.deliveryContext());
+    for (const leaf of recordedLeaves(this.record.plan ?? [])) {
+      if (!leaf.closed) break;
+      const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
+      if (!check.passed) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
+    }
+    this.save(); return undefined;
+  }
+
   // ---- Stopping: Ctrl+C, a closed terminal and signals -----------------------------------
 
   /**
@@ -877,7 +994,7 @@ export class Engine {
       return { text: `Kiln stopped before ${name(this.nextKeyFromRecordedPlan())} started.`, grey: "kiln run picks it back up." };
     }
     if (record.startedAt === undefined) return { text: "Kiln stopped.", grey: "Nothing was started." };
-    if (record.completedAt) return { text: "Kiln stopped.", grey: `${this.paths.featureName} is complete.` };
+    if (this.currentlyComplete) return { text: "Kiln stopped.", grey: `${this.paths.featureName} is complete.` };
     const waiting = this.waitingPhaseKey();
     if (waiting !== undefined) {
       const subject = waiting === PR_PHASE_KEY ? "the pull-request session" : `phase ${this.judgedId(waiting)}`;
@@ -1035,7 +1152,16 @@ export class Engine {
 
   private async decideQuietly(): Promise<UnderwayDecision> {
     const { record } = this;
-    if (record.completedAt) return { kind: "complete" };
+    if (deliveryEnabled(record) && record.completedAt) {
+      this.readPlan();
+      const earlier = await this.unresolvedDeliveryLeaf();
+      if (earlier) return { kind: "needs_you", phaseKey: earlier, again: true };
+      const result = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (result.passed) return { kind: "complete" };
+      this.recordStop(PR_PHASE_KEY, "pull_request_check", result.checks);
+      return { kind: "needs_you", phaseKey: PR_PHASE_KEY, again: true };
+    }
+    if (this.currentlyComplete) return { kind: "complete" };
 
     let doneFirst: DoneFirst | undefined;
     const waiting = this.waitingPhaseKey();
@@ -1094,9 +1220,12 @@ export class Engine {
     // What the engine loop does next, in its order.
     const read = this.readPlan();
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
+    const unresolved = await this.unresolvedDeliveryLeaf();
+    if (unresolved) return withDone({ kind: "needs_you" as const, phaseKey: unresolved, again: true });
     const leaf = nextLeaf(read.plan);
     if (!leaf) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
+      if (deliveryEnabled(record) && check.ghError) { this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true }); }
       if (check.passed && !this.stopping) {
         this.complete(check.pullRequests!, false, check.mergedBranches);
         return withDone({ kind: "complete" as const });
@@ -1130,7 +1259,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (this.stopping || !this.isUnderway || record.completedAt) return;
+      if (this.stopping || !this.isUnderway || this.currentlyComplete) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
         this.requestedResume = undefined;
@@ -1160,6 +1289,7 @@ export class Engine {
         this.recordPlanStop(read.problem);
         return;
       }
+      if (await this.unresolvedDeliveryLeaf()) return;
       const leaf = nextLeaf(read.plan);
       this.current = { phaseKey: leaf?.id ?? PR_PHASE_KEY, commits: [], processRunning: false };
       this.changed();
@@ -1177,6 +1307,7 @@ export class Engine {
       if (!leaf && !this.pullRequestPrecheckDone) {
         // A gh error here starts the pull-request session without showing it; that session's own check decides.
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
+        if (deliveryEnabled(record) && check.ghError) { this.current = undefined; this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return; }
         if (this.stopping) return;
         if (check.passed) {
           this.complete(check.pullRequests!, false, check.mergedBranches);
@@ -1316,6 +1447,7 @@ export class Engine {
     const multi = cwd !== this.worktreePath;
     const label = facts.stop?.limit?.label ?? refusal?.label;
     const prompt = resumePrompt({
+      deliveryAuthority: this.deliveryAuthority(),
       agentId: session.agentId ?? "claude_code",
       ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
@@ -1763,8 +1895,9 @@ export class Engine {
 
   private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome> {
     // A done check that comes while an addition is under way waits for it to end first.
-    await this.additionChain;
     this.activeCheck = phaseKey;
+    await this.deliveryPending;
+    await this.additionChain;
     // A wake during the check restarts its origin retry, so the sleep watch runs through it.
     this.watchSleep();
     try {
@@ -1779,6 +1912,11 @@ export class Engine {
         lastWakeAt: () => this.lastWakeAt,
         ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }),
       });
+      if (deliveryEnabled(this.record)) {
+        await reconcileDelivery(this.deliveryContext(phaseKey));
+        const delivery = phaseDeliveryCheck(this.deliveryContext(phaseKey), outcome.judgedLeafId);
+        outcome.checks.push(delivery); outcome.passed = outcome.passed && delivery.passed; this.save(); this.announceDelivery();
+      }
       if (outcome.plan.ok && !this.stopping) this.acceptPlan(outcome.plan.plan);
       return this.withCodexSafety(phaseKey, outcome);
     } finally {
@@ -1792,7 +1930,18 @@ export class Engine {
    */
   private async pullRequestCheck(phaseKey?: string) {
     if (phaseKey !== undefined) this.activeCheck = phaseKey;
+    await this.deliveryPending;
     try {
+      if (deliveryEnabled(this.record)) {
+        const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
+        const histories = await Promise.all(Object.keys(this.record.phases).map(key => this.readWorkspaceEvidence(key)));
+        const finalStayed = await this.readWorkspaceEvidence(PR_PHASE_KEY);
+        const failed = histories.filter(one => !one.passed);
+        const stayed = failed.length ? { ...finalStayed, passed: false, check: { name: STAYED_CHECK_NAME, passed: false, facts: failed.flatMap(one => one.check.facts) }, changes: failed.flatMap(one => one.changes), transcripts: failed.flatMap(one => one.transcripts) } : finalStayed;
+        const check = result.checks[0]!;
+        const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed && stayed.passed, check, checks: [...result.checks, ...(stayed.passed ? [] : [stayed.check])], stayed, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
+        ledger(this.record).currentComplete = outcome.passed; this.save(); return outcome;
+      }
       const repositories = await this.pullRequestRepositoriesNow();
       const outcome = await runPullRequestChecks(
         repositories.map((entry) => ({
@@ -1819,7 +1968,7 @@ export class Engine {
   private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const shas = outcome.pushedShas!;
-    facts.doneAt = this.now().toISOString();
+    facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;
     const pushes: { name: string; sha: string }[] = [];
     for (const entry of this.setUpRepositories) {
@@ -1887,12 +2036,12 @@ export class Engine {
     const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
     const at = this.now().toISOString();
     delete facts.stop;
-    facts.doneAt = at;
+    facts.doneAt ??= at;
     facts.finishedByPerson = byPerson;
     record.pullRequests = pullRequests;
     if (mergedBranches.length) record.mergedBranches = mergedBranches;
     else delete record.mergedBranches;
-    record.completedAt = at;
+    record.completedAt ??= at;
     // A pending pause is dropped, since nothing would start (UI-008).
     record.pause = {};
     this.current = undefined;
@@ -1900,8 +2049,9 @@ export class Engine {
     this.emit({
       kind: "pull_request",
       at: this.now(),
-      event: mergedBranches.length ? "completed" : "opened",
+      event: deliveryEnabled(record) || mergedBranches.length ? "completed" : "opened",
       ...(pullRequests[0] ? { number: pullRequests[0].number } : {}),
+      ...(deliveryEnabled(record) ? { summary: developmentDeliverySummary(record) } : {}),
       ...(mergedBranches.length ? { summary: [...pullRequests.map(pull => `${pull.repository} #${pull.number} ready`), ...mergedBranches.map(branch => `${branch.repository} already merged into ${branch.base}`)].join(" · ") } : {}),
       ...(this.setUpRepositories.length > 1 ? { opened: pullRequests.map((pull) => ({ repository: pull.repository, number: pull.number })) } : {}),
     });
@@ -1914,6 +2064,7 @@ export class Engine {
   }
 
   private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
+    if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
     facts.stop = { kind, at, checks, checkedAt: checkedAt ?? at, ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
@@ -2380,7 +2531,7 @@ export class Engine {
   addRepository(name: string): Promise<AddRepositoryResult> {
     const phaseKey = this.current?.session !== undefined ? this.current.phaseKey : this.stoppedPhaseKey();
     const refused = { ok: false as const, status: 409 as const, reason: "Kiln adds a repository only while a phase is running or stopped at Needs you." };
-    if (!this.isUnderway || this.record.completedAt || phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.stopping) return Promise.resolve(refused);
+    if (!this.isUnderway || this.currentlyComplete || phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.stopping) return Promise.resolve(refused);
     const underway = this.additionsUnderway.get(name);
     if (underway) return underway;
     const addition = this.additionChain.then(() => this.addOne(name, phaseKey));
@@ -2602,6 +2753,7 @@ export class Engine {
     const workspace = this.multiRepository || folder !== this.worktreePath;
     return {
       phaseDoc: this.pathFrom(folder, `${this.paths.prdDirectoryFromRoot}/${fileName}`),
+      deliveryAuthority: this.deliveryAuthority(),
       featureName: this.paths.featureName,
       prdFile: this.pathFrom(folder, this.prdFile()),
       worktreePath: this.worktreePath,
@@ -2638,6 +2790,7 @@ export class Engine {
   /** The pull-request prompt's values for a session starting in `folder`. */
   async pullRequestPromptValues(folder: string) {
     return {
+      deliveryAuthority: this.deliveryAuthority(),
       featureName: this.paths.featureName,
       prdFile: this.pathFrom(folder, this.prdFile()),
       branch: this.record.settings.featureBranch,
