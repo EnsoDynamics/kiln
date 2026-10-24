@@ -172,6 +172,8 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 
 ## Sessions
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (additive audit session kinds and `audit-<activityId>` storage, implemented in Phase 1; automatic dispatch remains Phase 2).
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (Codex protected conversations, immutable session settings and recovery; Claude behavior retained).
 
 ### Starting a phase's session
@@ -584,6 +586,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade and §Audit Report and Local Interface (schema 6 audit records, stable execution identity and immutable evidence sidecars, implemented in Phase 1; execution-wide upgrade scheduling remains Phase 2).
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Persisted schema 4 (per-agent choices and legacy Claude identities).
 

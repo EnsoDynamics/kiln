@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { processStartTime } from "../platform/process-start-time.js";
-import { readSessionRecord, writeSessionRecord, type SessionRecord, type SessionRun, type CodexRunFacts } from "../state/records.js";
+import { readSessionRecord, writeSessionRecord, sessionStorageKey, type SessionRecord, type SessionRun, type CodexRunFacts } from "../state/records.js";
 import { appendJsonLine, ensurePrivateDirectory } from "../state/state-files.js";
 import { sessionFiles, type SessionControl } from "./claude-session.js";
 import { CodexWorkRpc, codexRequestDecision, type CodexMessage } from "./codex-work-rpc.js";
@@ -59,7 +59,7 @@ export async function runCodexSession(options: CodexSessionOptions): Promise<Ses
 
 async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const { record } = options;
-  const saved = readSessionRecord(options.stateDirectory, record.kind === "pull_request" ? "pr" : record.phaseId, record.sessionId);
+  const saved = readSessionRecord(options.stateDirectory, sessionStorageKey(record), record.sessionId);
   if (saved?.runs.at(-1)?.endedAt === undefined && saved?.runs.length || record.runs.length && !record.runs.at(-1)!.endedAt) throw new Error("Reconcile the previous Codex attempt before dispatching work.");
   if (record.codex && realpathSync(options.cwd) !== record.codex.launchIntent.cwd) throw new Error("A Codex resume must keep its recorded working directory.");
   if (options.cause !== "launch" && !record.conversation?.threadId) throw new Error("Codex conversation identity is missing; use the fresh-session path.");

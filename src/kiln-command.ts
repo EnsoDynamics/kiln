@@ -1,4 +1,5 @@
 import { runDelivery } from "./delivery-command.js";
+import { runAudit } from "./audit-command.js";
 import { deliveryEnabled } from "./engine/development-delivery.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
@@ -124,6 +125,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   }
   if (command === undefined) return usageError(context);
   if (command === "delivery") return runDelivery(rest, context);
+  if (command === "audit") return runAudit(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
   if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
   if (rest.length === 0) return usageError(context);

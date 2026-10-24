@@ -243,6 +243,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API, §Snapsho
 
 ### Persisted schema 4
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order and §Recovery and Upgrade (additive audit session kinds, activity-specific storage and schema 6 evidence records, implemented in Phase 1; task-specific skill dispatch remains Phase 2).
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Authorization and Persistence (schema 5 execution authority and delivery ledger; existing provider data remains). Restricted execution behavior remains in force.
 
 Continue atomic owner-only JSON records and append-only output outside repositories. UTC ISO timestamps, explicit unknowns and provider-discriminated details preserve provenance.

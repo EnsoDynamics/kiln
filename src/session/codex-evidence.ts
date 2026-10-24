@@ -16,8 +16,9 @@ import { outsideChanges, gitCommandsIn, gitChange, OUTSIDE_NOTE, STAYED_CHECK_NA
 import type { TranscriptToolCall } from "./transcripts.js";
 
 interface SourceIdentity { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
-export interface CodexFrontier { threadId: string; path: string; source: SourceIdentity; sha256: string; turns: string; parentThreadId?: string }
+export interface CodexFrontier { ownedTurnIds?: string[]; threadId: string; path: string; source: SourceIdentity; sha256: string; turns: string; parentThreadId?: string }
 export interface CodexAudit {
+  mutations?: { conversationId: string; callId: string; at: string; paths: string[] }[];
   commands?: CommandEvidence[];
   profile: "codex-0.162.1-static-v1"; coverage: "complete" | "inconclusive"; at: string;
   fingerprint: string; frontiers: CodexFrontier[]; findings: OutsideChange[]; problems: string[]; operationsChecked: number;
@@ -46,7 +47,7 @@ interface RawPayload {
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
   internal_chat_message_metadata_passthrough?: { turn_id?: string };
-  thread_id?: string; item?: { id: string; type: string; command: string[]; cwd: string; status: string; agent_thread_id?: string };
+  thread_id?: string; item?: { id: string; type: string; command: string[]; cwd: string; status: string; agent_thread_id?: string; changes?: Record<string, { move_path?: string }> };
   state?: { environments?: { environments?: { local?: { shell?: string } } } }; full?: boolean;
 }
 const TERMINAL = new Set(["completed", "interrupted", "failed"]);
@@ -154,6 +155,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             if (!SETTLED_ITEM.has(item.status ?? "")) { if (options.commandProjection) continue; problem(`${id}: unfinished command ${item.id}.`); }
             index.put(`expectedCommand:${id}`, item.id, { ...item, turnId: turn.id });
           } else if (item.type === "fileChange") {
+            index.put(`expectedFileChange:${id}`, item.id, { ...item, turnId: turn.id });
             if (!SETTLED_ITEM.has(item.status ?? "") || !Array.isArray(item.changes)) throw new Error(`${id}: incomplete native write.`);
             for (const change of item.changes) {
               if (!["add", "update", "delete"].includes(change.kind.type)) problem(`${id}: unknown native file change.`);
@@ -209,6 +211,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             else index.unique(`foreignCommand:${id}`, item.id, { id: item.id, turnId, threadId: payload.thread_id, sha256: digest(payload) });
             index.unique(`commandEvent:${id}`, item.id, digest(payload));
           }
+          if (item?.type === "FileChange" && payload.thread_id === id && item.changes && typeof payload.started_at_ms === "number") index.put(`nativeWrite:${id}`, item.id, { id: item.id, turnId: payload.turn_id, startedAtMs: payload.started_at_ms, endedAt: record.timestamp, status: item.status, paths: Object.entries(item.changes).flatMap(([path, value]) => [physical(path), ...(value.move_path ? [physical(value.move_path)] : [])]) });
           if (item?.type === "SubAgentActivity" && item.agent_thread_id) add(item.agent_thread_id);
         }
       }
@@ -246,7 +249,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     };
     for (const frontier of report.frontiers) {
       const id = frontier.threadId;
+      if (options.commandProjection) frontier.ownedTurnIds = [];
       for await (const turn of index.values<{ id: string; status: string }>(`turn:${id}`)) {
+        if (options.commandProjection) frontier.ownedTurnIds!.push(turn.id);
         const aborted = index.get(`turn_aborted:${id}`, turn.id);
         const completed = index.get(`task_complete:${id}`, turn.id);
         if (!options.commandProjection && (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted"))) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
@@ -333,6 +338,22 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             if (typeof patch !== "string" || !patch.startsWith("*** Begin Patch\n") || !patch.trimEnd().endsWith("*** End Patch")) throw new Error("Malformed raw patch.");
             const paths = [...patch.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm)].map(match => resolve(context.cwd, match[1]!));
             if (!paths.length) throw new Error("Patch has no recorded paths.");
+            if (options.commandProjection) {
+              for await (const native of index.values<{ id: string; turnId: string; startedAtMs: number; endedAt: string; status: string; paths: string[] }>(`nativeWrite:${id}`)) {
+                if (native.turnId !== turnId || native.status !== "completed" || native.startedAtMs < Date.parse(at) || digest([...native.paths].sort()) !== digest(paths.map(physical).sort())) continue;
+                const normalized = index.get<Item>(`expectedFileChange:${id}`, native.id);
+                if (normalized?.status !== "completed" || digest(normalized.changes?.flatMap(c => [physical(c.path), ...(c.kind.move_path ? [physical(c.kind.move_path)] : [])]).sort()) !== digest([...native.paths].sort())) continue;
+                const candidates: { callId: string; at: string }[] = [];
+                for await (const candidate of index.values<{ payload: RawPayload; at: string; turnId: string }>(`invocationValue:${id}`)) {
+                  if (candidate.turnId !== turnId || Date.parse(candidate.at) > native.startedAtMs) continue;
+                  const decodedCandidate = decodeRawCall(candidate.payload);
+                  if (decodedCandidate.coverage !== "complete") continue;
+                  if (decodedCandidate.operations.some(op => op.name === "apply_patch" && typeof op.input === "string" && op.input === patch)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
+                }
+                const latest = candidates.map(c => c.at).sort().at(-1); const owners = candidates.filter(c => c.at === latest);
+                if (owners.length === 1 && owners[0]!.callId === payload.call_id) (report.mutations ??= []).push({ conversationId: id, callId: native.id, at: native.endedAt, paths: native.paths });
+              }
+            }
             for (const path of paths) { index.put(`patch:${id}`, `${turnId}:${physical(path)}`, true); effects([{ name: "Write", cwd: context.cwd, at, input: { file_path: path } }]); }
           } else if (operation.name === "write_stdin" && (operation.input as { chars?: string }).chars) problem(`${id}: interactive input requires a separate reader.`);
           else if (["spawn_agent", "send_message", "followup_task"].includes(operation.name)) {

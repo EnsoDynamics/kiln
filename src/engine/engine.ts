@@ -1,4 +1,6 @@
 import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
+import { auditStatus, issueSnapshot, submitAudit, type AdmissionContext } from "../audit/admission.js";
+import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeTarget, targetKey, type DevelopmentTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
 import { DeliveryRefusal, deliveryEnabled, documentsDigest, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
@@ -906,6 +908,25 @@ export class Engine {
       catch (error) { return { ...status, availableCommandEvidence, commandEvidenceError: (error as Error).message }; }
     }
     return { ...status, availableCommandEvidence };
+  }
+
+  /** Uses the same serialization boundary as development mutations and done checks. */
+  async auditCommand(action: "status" | "snapshot" | "result", body: Record<string, unknown> = {}, cursor?: string): Promise<unknown> {
+    if (this.deliveryBusy || this.checking || this.activeCheck || this.stopping || this.settingUp) throw new AuditRefusal("busy", "Kiln is checking or changing execution state.", 409);
+    this.deliveryBusy = true;
+    let release!: () => void; this.deliveryPending = new Promise<void>(resolve => { release = resolve; });
+    const before = structuredClone(this.record.completionAudits);
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    try {
+      const context: AdmissionContext = { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(`audit-${activity.activityId}`, id) };
+      const result = action === "status" ? await auditStatus(context, cursor) : action === "snapshot" ? await issueSnapshot(context, body) : await submitAudit(context, body);
+      signal.throwIfAborted();
+      // Direct write: stop cannot silently turn persistence into a no-op.
+      writePrdRecord(this.stateDirectory, this.record); this.changed(); return result;
+    } catch (error) {
+      if (before) this.record.completionAudits = before; else delete this.record.completionAudits;
+      throw error;
+    } finally { this.deliveryBusy = false; release(); this.deliveryPending = undefined; }
   }
 
   async deliveryCommand(action: "assessment" | "prepare" | "evidence", body: Record<string, unknown>): Promise<CommandResult & { delivery?: unknown }> {

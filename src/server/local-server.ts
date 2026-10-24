@@ -17,6 +17,8 @@ import type { CommandResult, Engine } from "../engine/engine.js";
 import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
+import { AuditRefusal } from "../audit/contracts.js";
+import { strictJson, REPORT_LIMIT } from "../audit/storage.js";
 
 export interface LocalServerOptions {
   engine: Engine;
@@ -101,6 +103,33 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (!/^[0-9a-f]{64}$/.test(digest) || !engine.record.developmentDelivery?.checkpoints.some(one => [...one.evidence, ...(one.evidenceHistory ?? [])].some(fact => fact.rawDigest === digest) || one.operations.some(op => op.failureEvidencePath?.endsWith(`${digest}.json`)))) return refuse(c, 404, "No retained evidence with this digest belongs to the execution.");
     const path = join(engine.stateDirectory, "delivery-evidence", `${digest}.json`);
     return c.json(JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>);
+  });
+  const auditError = (c: Context, error: unknown) => {
+    const refused = error instanceof AuditRefusal ? error : new AuditRefusal("evidence_unavailable", (error as Error).message, 503);
+    return c.json({ code: refused.code, reason: refused.message, criteria: refused.criteria, checks: [{ name: refused.code, passed: false, facts: [refused.message] }] }, refused.status);
+  };
+  app.get("/api/audit", async c => {
+    try { return c.json(await engine.auditCommand("status", {}, c.req.query("cursor"))); } catch (error) { return auditError(c, error); }
+  });
+  for (const action of ["snapshot", "result"] as const) app.post(`/api/audit/${action}`, async c => {
+    try {
+      if (Number(c.req.header("content-length")) > REPORT_LIMIT) throw new AuditRefusal("report_too_large", `Maximum request size is ${REPORT_LIMIT} bytes.`, 413);
+      const reader = c.req.raw.body?.getReader(); if (!reader) throw new AuditRefusal("malformed_request", "Request needs a JSON object.", 400);
+      const chunks: Uint8Array[] = []; let size = 0;
+      try { while (true) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > REPORT_LIMIT) throw new AuditRefusal("report_too_large", `Maximum request size is ${REPORT_LIMIT} bytes.`, 413); chunks.push(next.value); } }
+      finally { reader.releaseLock(); }
+      let body: unknown;
+      try { body = strictJson(Buffer.concat(chunks).toString("utf8")); }
+      catch (error) { if (error instanceof AuditRefusal && error.code === "invalid_report") throw new AuditRefusal("malformed_request", error.message, 400); throw error; }
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new AuditRefusal("malformed_request", "Request needs a JSON object.", 400);
+      const result = await engine.auditCommand(action, body as Record<string, unknown>);
+      const outcome = result as import("../audit/contracts.js").AuditResult;
+      if (action === "result" && outcome.disposition === "unresolved") {
+        const refusal = outcome.refusal ?? { code: "invalid_report", reason: "Required audit checks failed.", criteria: [], status: 422 as const };
+        return c.json({ ...outcome, code: refusal.code, reason: refusal.reason, criteria: refusal.criteria }, refusal.status);
+      }
+      return c.json(result);
+    } catch (error) { return auditError(c, error); }
   });
   app.get("/api/delivery", async c => c.json(await engine.deliveryReadStatus()));
   for (const action of ["assessment", "prepare", "evidence"] as const) app.post(`/api/delivery/${action}`, async c => {

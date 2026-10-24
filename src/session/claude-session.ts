@@ -8,7 +8,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { sessionDirectory, readSessionRecord, writeSessionRecord, PR_PHASE_KEY, type AccountIdentity, type SessionRecord, type SessionRun } from "../state/records.js";
+import { sessionDirectory, sessionStorageKey, readSessionRecord, writeSessionRecord, type AccountIdentity, type SessionRecord, type SessionRun } from "../state/records.js";
 import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
@@ -136,13 +136,13 @@ export interface SessionFiles {
   stderr: string;
 }
 
-export function sessionFiles(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId">): SessionFiles {
-  const directory = sessionDirectory(stateDirectory, record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId, record.sessionId);
+export function sessionFiles(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId" | "activityId">): SessionFiles {
+  const directory = sessionDirectory(stateDirectory, sessionStorageKey(record), record.sessionId);
   return { directory, events: join(directory, "events.jsonl"), output: join(directory, "output.jsonl"), stderr: join(directory, "stderr.log") };
 }
 
-export function readOutputLines(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId">): OutputLine[] {
-  readSessionRecord(stateDirectory, record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId, record.sessionId);
+export function readOutputLines(stateDirectory: string, record: Pick<SessionRecord, "kind" | "phaseId" | "sessionId" | "activityId">): OutputLine[] {
+  readSessionRecord(stateDirectory, sessionStorageKey(record), record.sessionId);
   return readJsonLines<OutputLine>(sessionFiles(stateDirectory, record).output);
 }
 

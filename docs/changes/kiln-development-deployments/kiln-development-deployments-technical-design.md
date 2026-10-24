@@ -43,6 +43,8 @@ The local API is the existing trusted machine-user boundary, not a new claim tha
 
 ### Record contract
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (schema 6, stable identity for restricted executions, preserved pre-migration bytes and additive audit evidence, implemented in Phase 1; development grants and delivery evidence rules remain unchanged, and audit-owned obligations remain Phase 2).
+
 Use schema 5, retaining current record locations and migrating schemas 1–4 through their existing migrations. Legacy records receive disabled authorization and empty delivery history, including executions already underway. Do not import preferences into migrated executions. Unknown/newer schema versions remain errors. All timestamps are UTC ISO 8601; displays use local time.
 
 | Record | Added fields |

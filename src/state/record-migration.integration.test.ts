@@ -96,7 +96,7 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });
-    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(5);
+    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(6);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {
