@@ -49,15 +49,25 @@ describe("independent delivery evidence and continuation", () => {
     await reconcileDelivery(f.context);expect(phaseDeliveryCheck(f.context,"1").passed).toBe(true);expect((await evaluateRepositories(f.context)).passed).toBe(true);
     expect(f.checkpoint.evidence.find(one=>one.requirementId==="deploy")?.occurredAt).toBe(f.at(20));
   });
-  it.each(["wrong environment","skipped required job","verification started before deployment","unrelated deployment job"])("does not promote a merge to verified delivery with %s", async condition => {
+  it.each(["wrong environment","wrong immutable artifact","skipped required job","verification started before deployment","unrelated deployment job"])("does not promote a merge to verified delivery with %s", async condition => {
     const f=await setup();f.synchronize();
     if(condition==="wrong environment")f.deployment.environment="another-environment";
+    if(condition==="wrong immutable artifact") {
+      f.deployment.sha="a".repeat(40);
+      // Keep deployment and verification internally consistent: only source containment is wrong.
+      f.run.head_sha=f.deployment.sha;
+      f.responses[`repos/acme/acme-shop/compare/${f.merged}...${f.deployment.sha}`]={body:{status:"diverged",merge_base_commit:{sha:f.head}}};
+    }
     if(condition==="skipped required job"){f.jobs.jobs[1]!.conclusion="skipped";}
     if(condition==="verification started before deployment")f.jobs.jobs[1]!.started_at=f.at(15);
     if(condition==="unrelated deployment job")f.jobs.jobs[0]!.html_url="https://github.com/acme/acme-shop/actions/runs/another/job/31";
     f.save();await reconcileDelivery(f.context);
     expect(f.checkpoint.merge?.resultSha).toBe(f.merged);expect(phaseDeliveryCheck(f.context,"1").passed).toBe(false);expect((await evaluateRepositories(f.context)).passed).toBe(false);
     expect(f.checkpoint.unresolvedReason).toBeTruthy();
+    if(condition==="wrong immutable artifact") {
+      expect(f.checkpoint.unresolvedRequirements?.deploy).toBe("Deployed revision does not demonstrably contain the merge result.");
+      expect(f.checkpoint.evidence.some(fact=>fact.requirementId==="deploy"&&fact.status==="success")).toBe(false);
+    }
   });
   it.each(["pending","closed unmerged"])("does not repeat an uncertain merge or accept %s as a merge", async condition => {
     const f=await setup();f.pull.merged_at=null;f.pull.state=condition==="pending"?"open":"closed";f.save();
@@ -107,11 +117,71 @@ describe("independent delivery evidence and continuation", () => {
     engine.record.developmentDelivery!.repositoryResults=[{repository:"acme-shop",state:"mixed",deliveredCheckpointIds:[f.checkpoint.id],reviewPullRequest:{number:2,url:"https://github.com/acme/acme-shop/pull/2"},reasons:[]}];
     const text=formatDecisionLine({kind:"complete"},engine,terminalColors({isTTY:false},{}));expect(text).toContain("delivered https://github.com/acme/acme-shop/pull/1");expect(text).toContain("review https://github.com/acme/acme-shop/pull/2");
   });
-  it("finishes work with no early delivery using its exact open review PR, and rejects zero-delta delivery without provenance",async()=>{
+  it("finishes work with no early delivery using its exact open review PR, and refuses missing review",async()=>{
     const f=fixture=await deliveryFixture("none");const state=f.h.engine.record.developmentDelivery!;state.checkpoints=[];state.assessments[0]!.required=false;state.assessments[0]!.checkpointIds=[];
     f.pull.state="open";f.pull.merged_at=null;const endpoint=`repos/acme/acme-shop/pulls?state=open&head=${encodeURIComponent("acme:"+f.checkpoint.featureBranch)}&base=develop&per_page=100&page=1`;
     f.responses[endpoint]={body:[f.pull]};f.save();expect(await evaluateRepositories(f.context)).toMatchObject({passed:true,pullRequests:[{number:1}]});expect(state.repositoryResults[0]?.state).toBe("review");
     f.responses[endpoint]={body:[]};f.save();expect((await evaluateRepositories(f.context)).passed).toBe(false);expect(state.repositoryResults[0]?.state).toBe("unresolved");
+  });
+  // AC-DELIVER-02: exercise the delivery evaluator after deletion, not just Git's push behavior.
+  it("refuses a missing or unrelated recreated remote branch without losing delivered history", async () => {
+    const f=await setup(); f.synchronize();
+    expect((await evaluateRepositories(f.context)).passed).toBe(true);
+    const merge=structuredClone(f.checkpoint.merge);
+    const feature=f.checkpoint.featureBranch;
+    const localHead=git(f.h.sandbox,f.context.prdWorktree,"rev-parse","HEAD").trim();
+    git(f.h.sandbox,f.context.prdWorktree,"push","origin","--delete",feature);
+    const unrelated=git(f.h.sandbox,f.h.repository,"commit-tree","HEAD^{tree}","-m","Unrelated branch owner with no shared ancestry").trim();
+    for (const recreated of [false,true]) {
+      if (recreated) git(f.h.sandbox,f.h.repository,"push","origin",`${unrelated}:refs/heads/${feature}`);
+      expect((await evaluateRepositories(f.context)).passed).toBe(false);
+      expect(f.h.engine.record.developmentDelivery!.repositoryResults[0]).toMatchObject({state:"unresolved",deliveredCheckpointIds:[f.checkpoint.id],reasons:["acme-shop: current feature head is not pushed to its assigned origin branch.","acme-shop: origin changed during completion reconciliation."]});
+      expect(f.checkpoint.merge).toEqual(merge);
+      expect(git(f.h.sandbox,f.context.prdWorktree,"rev-parse","HEAD").trim()).toBe(localHead);
+    }
+  });
+  it("does not manufacture delivered provenance from equal synchronized source and base trees", async () => {
+    const f=await setup(); f.synchronize();
+    expect((await evaluateRepositories(f.context)).passed).toBe(true);
+    expect(git(f.h.sandbox,f.context.prdWorktree,"rev-parse","HEAD^{tree}").trim()).toBe(git(f.h.sandbox,f.context.prdWorktree,"rev-parse","origin/develop^{tree}").trim());
+    const state=f.h.engine.record.developmentDelivery!;
+    state.checkpoints=[]; state.assessments[0]!.required=false; state.assessments[0]!.checkpointIds=[];
+    f.responses[`repos/acme/acme-shop/pulls?state=open&head=${encodeURIComponent("acme:"+f.checkpoint.featureBranch)}&base=develop&per_page=100&page=1`]={body:[]}; f.save();
+    expect(await evaluateRepositories(f.context)).toMatchObject({passed:false,pullRequests:[]});
+    expect(state.repositoryResults[0]).toMatchObject({state:"unresolved",deliveredCheckpointIds:[],reasons:["acme-shop: open, non-draft review PR must contain the exact current pushed head."]});
+  });
+  it.each(["draft","wrong base","fork","closed on reread","draft on reread","old head on reread"])("rejects remaining review with %s in an enabled execution", async condition => {
+    const f=fixture=await deliveryFixture("none"); const state=f.h.engine.record.developmentDelivery!;
+    state.checkpoints=[]; state.assessments[0]!.required=false; state.assessments[0]!.checkpointIds=[];
+    f.pull.state="open"; f.pull.merged_at=null;
+    const listed=structuredClone(f.pull);
+    const endpoint=`repos/acme/acme-shop/pulls?state=open&head=${encodeURIComponent("acme:"+f.checkpoint.featureBranch)}&base=develop&per_page=100&page=1`;
+    f.responses[endpoint]={body:[listed]}; f.save();
+    expect((await evaluateRepositories(f.context)).passed).toBe(true);
+    if(condition==="draft")listed.draft=true;
+    if(condition==="wrong base")listed.base.ref="main";
+    if(condition==="fork")listed.head.repo.full_name="someone/acme-shop";
+    if(condition==="closed on reread")f.pull.state="closed";
+    if(condition==="draft on reread")f.pull.draft=true;
+    if(condition==="old head on reread")f.pull.head.sha=f.checkpoint.baseSha;
+    f.save();
+    expect(await evaluateRepositories(f.context)).toMatchObject({passed:false,pullRequests:[]});
+    expect(state.repositoryResults[0]?.state).toBe("unresolved");
+    expect(state.repositoryResults[0]?.reasons).toEqual([condition.endsWith("on reread") ? "The remaining review PR changed or returned incomplete facts." : "acme-shop: open, non-draft review PR must contain the exact current pushed head."]);
+  });
+  it.each(["revision","environment"])("rejects a successful command whose typed %s disagrees with the intended artifact", async field => {
+    const f=await setup(); f.synchronize();
+    f.checkpoint.requirements[1]={id:"verify",purpose:"verification",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{"/revision":"$mergeRevision","/environment":"$environment"}}};
+    f.checkpoint.references![1]={requirementId:"verify",kind:"command",id:"verify-result",sessionId:"recorded-session"};
+    const output={revision:f.merged,environment:f.checkpoint.target.environment};
+    f.context.commands=()=>Promise.resolve([{source:"verified provider contract",callId:"verify-result",command:`node verify.mjs ${f.merged} ${f.checkpoint.target.environment}`,cwd:f.context.prdWorktree,calledAt:f.at(21),resultAt:f.at(30),outcome:"success",output:JSON.stringify(output)}]);
+    await reconcileDelivery(f.context); expect(phaseDeliveryCheck(f.context,"1").passed).toBe(true);
+    output[field as "revision"|"environment"]=field==="revision" ? "a".repeat(40) : "another-environment";
+    await reconcileDelivery(f.context);
+    expect(f.checkpoint.merge?.resultSha).toBe(f.merged);
+    expect(f.checkpoint.unresolvedRequirements?.verify).toBe(`verify: /${field} does not match its declared target/artifact.`);
+    expect(phaseDeliveryCheck(f.context,"1").passed).toBe(false);
+    expect((await evaluateRepositories(f.context)).passed).toBe(false);
   });
   it("allows a new intent only after confirmed deployment/verification failure and retains the failed attempt",async()=>{
     const f=await setup();f.checkpoint.references=f.checkpoint.references!.filter(one=>one.requirementId!=="verify");f.checkpoint.requirements[1]={id:"verify",purpose:"verification",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{}}};

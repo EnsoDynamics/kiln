@@ -1,5 +1,8 @@
 // Real temporary Git/bare origins and verified GitHub contracts, with controlled provider failures.
 import { afterEach, describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { git } from "../test-support/git-repositories.js";
 import { deliveryFixture } from "../test-support/development-delivery-fixture.js";
 import { documentsDigest, phaseDeliveryCheck, prepareOperation, reconcileDelivery, submitEvidence, evaluateRepositories } from "./development-delivery.js";
 import type { CommandEvidence, EvidenceRequirement } from "../state/development-delivery.js";
@@ -52,11 +55,35 @@ describe("ordered delivery across repositories",()=>{
     // Complete PR descriptions must carry reciprocal links and concrete order.
     first.pull.body+="\nThen https://github.com/acme/returns-api/pull/1";
     const secondPull=first.responses["repos/acme/returns-api/pulls/1"]!.body as {body:string};secondPull.body+="\nDepends on https://github.com/acme/acme-shop/pull/1";first.save();
+    // AC-DELIVER-03: each missing reciprocal link and the declared order must fail independently.
+    const firstBody=first.pull.body; const secondBody=secondPull.body;
+    for (const missing of ["first link","second link","dependency order"]) {
+      first.pull.body=missing==="first link" ? `PRD: ${first.context.prdDirectory}` : firstBody;
+      secondPull.body=missing==="second link" ? `PRD: ${first.context.prdDirectory}` : missing==="dependency order" ? secondBody.replace("Depends on", "Related delivery") : secondBody;
+      first.save();
+      expect((await evaluateRepositories(first.context)).passed).toBe(false);
+      const result=state.repositoryResults.find(one=>one.repository===(missing==="first link" ? "acme-shop" : "returns-api"))!;
+      expect(result.state).toBe("unresolved");
+      expect(result.reasons.join(" ")).toContain(missing==="dependency order" ? "state its required delivery order" : `link related delivery https://github.com/acme/${missing==="first link" ? "returns-api" : "acme-shop"}/pull/1`);
+    }
+    first.pull.body=firstBody; secondPull.body=secondBody; first.save();
     expect(await evaluateRepositories(first.context)).toMatchObject({passed:true,pullRequests:[]});
     expect(state.repositoryResults.map(one=>[one.repository,one.state])).toEqual([["acme-shop","delivered"],["returns-api","delivered"]]);
     // A completed historical verification retains the exact prerequisite it checked.
     first.responses[currentKey]={body:[{...first.deployment,id:12,sha:"a".repeat(40)},first.deployment]};first.save();await reconcileDelivery(first.context);
     expect(phaseDeliveryCheck(first.context,"2").passed).toBe(true);
+    // A later repository's new review PR must be linked from the earlier delivered PR too.
+    writeFileSync(join(second.context.prdWorktree,"later.txt"),"Review the later dependent work\n");
+    git(second.h.sandbox,second.context.prdWorktree,"add","later.txt"); git(second.h.sandbox,second.context.prdWorktree,"commit","-m","Later dependent work"); git(second.h.sandbox,second.context.prdWorktree,"push","origin",dependent.featureBranch);
+    const laterHead=git(second.h.sandbox,second.context.prdWorktree,"rev-parse","HEAD").trim();
+    const review={...(first.responses["repos/acme/returns-api/pulls/1"]!.body as Record<string,unknown>),number:2,state:"open",merged_at:null,draft:false,html_url:"https://github.com/acme/returns-api/pull/2",head:{sha:laterHead,ref:dependent.featureBranch,repo:{full_name:"acme/returns-api"}},body:`PRD: ${first.context.prdDirectory}\nEarlier deliveries: ${first.pull.html_url} https://github.com/acme/returns-api/pull/1`};
+    first.responses[`repos/acme/returns-api/pulls?state=open&head=${encodeURIComponent("acme:"+dependent.featureBranch)}&base=develop&per_page=100&page=1`]={body:[review]};
+    first.responses["repos/acme/returns-api/pulls/2"]={body:review}; secondPull.body+=`\nReview: ${review.html_url}`; first.save();
+    expect((await evaluateRepositories(first.context)).passed).toBe(false);
+    expect(state.repositoryResults[0]).toMatchObject({state:"unresolved",reasons:[`acme-shop #1: link related review ${review.html_url}.`]});
+    first.pull.body+=`\nReview: ${review.html_url}`; first.save();
+    expect((await evaluateRepositories(first.context)).passed).toBe(true);
+    expect(state.repositoryResults.map(one=>[one.repository,one.state])).toEqual([["acme-shop","delivered"],["returns-api","mixed"]]);
   });
   it("does not replay an old changed-artifact command probe after a successful restoration",async()=>{
     const f=await deliveryFixture();fixtures.push(f);f.synchronize();const state=f.h.engine.record.developmentDelivery!;

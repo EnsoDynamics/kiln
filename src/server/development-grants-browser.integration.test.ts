@@ -13,9 +13,9 @@ let h: Harness | undefined; let engine: Engine | undefined; let chrome: Headless
 afterEach(async () => { await chrome?.close(); await server?.close(); engine?.close(); await h?.cleanup(); chrome = undefined; server = undefined; engine = undefined; h = undefined; });
 const clickLabel = (text: string) => `[...document.querySelectorAll('label')].find(e => e.textContent.trim() === ${JSON.stringify(text)}).querySelector('input').click()`;
 describe("remembered targets and grant browser controls", () => {
-  it("explicitly saves/reuses separate API/web targets without granting the documents-only product repository, then grants a new exact environment", async () => {
+  it("explicitly saves/reuses separate API/web targets without granting the documents-only product repository, requires reconfirmation after target edits, then grants a new exact environment", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], files: { "customer-returns-prd.md": "# PRD: Customer returns\n\n## Acceptance Criteria\n- [ ] **AC-RET-01 — Deliver API/web.** Verify development.\n", "technical-design.md": "# Technical Design\n\nAPI/web are separate from the documents-only product repository.\n", "phase-1-deliver.md": "# Phase 1: Deliver\n\n**Repositories:** returns-api, returns-web\n\n## Acceptance criteria covered\nAC-RET-01\n" } });
-    const named = ["returns-api", "returns-web"].map(name => { const origin = createGithubOrigin(h!.sandbox, "acme", name); const mainCheckoutPath = createRepository(h!.sandbox, name, origin.url); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop"); return { name, mainCheckoutPath, github: `acme/${name}` }; });
+    const named = ["returns-api", "returns-web"].map(name => { const origin = createGithubOrigin(h!.sandbox, "acme", name); const mainCheckoutPath = createRepository(h!.sandbox, name, origin.url); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop"); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop:preview"); return { name, mainCheckoutPath, github: `acme/${name}` }; });
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
     h.engine.close();
     engine = new Engine({ paths: h.engine.paths, record: h.engine.record, stateDirectory: h.stateDirectory, tools: h.tools, env: h.env, prdTree: git(h.sandbox, h.repository, "rev-parse", `HEAD:${h.engine.paths.prdDirectoryFromRoot}`).trim(), namedRepositories: named, originRetryMs: 0, sleepReader: { next: () => Promise.resolve([]) } });
@@ -32,6 +32,8 @@ describe("remembered targets and grant browser controls", () => {
     await page.evaluate(clickLabel("Allow development deployments"));
     await page.waitFor(`document.querySelectorAll('.delivery fieldset').length === 3 && [...document.querySelectorAll('.delivery fieldset')].every(e => !e.disabled)`);
     for (const name of ["returns-api", "returns-web"]) {
+      // A persisted target may precede the browser receiving its save acknowledgement.
+      await page.waitFor(`document.querySelectorAll('.delivery fieldset').length === 3 && [...document.querySelectorAll('.delivery fieldset')].every(e => !e.disabled)`);
       await page.evaluate(`(() => { const row = [...document.querySelectorAll('.delivery fieldset')].find(e => e.querySelector('legend').textContent.startsWith('${name}')); row.querySelector('input[type=checkbox]').click(); })()`);
       await page.waitFor(`document.querySelector('input[aria-label="${name} development environment"]')`);
       await page.evaluate(`(() => { const input = document.querySelector('input[aria-label="${name} development environment"]'); input.value = '${name}-dev'; input.dispatchEvent(new Event('input', {bubbles:true})); })()`);
@@ -39,6 +41,33 @@ describe("remembered targets and grant browser controls", () => {
       await page.evaluate(`document.querySelector('input[aria-label="${name} development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].click()`);
       await waitFor(() => engine!.record.settings.developmentDeployments!.targets.some(one => one.target.environment === `${name}-dev`)).catch(async error => { throw new Error(`${name}: ${error.message}: ${JSON.stringify(engine!.record.settings.developmentDeployments)} ${await page.evaluate("document.body.innerText")}`); });
       await page.waitFor(`document.querySelector('input[aria-label="${name} development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].checked && !document.querySelector('input[aria-label="${name} development environment"]').closest('fieldset').disabled`);
+      if (name === "returns-api") {
+        // AC-PERMIT-02: a changed displayed target must not retain the old confirmation.
+        await page.evaluate(`(() => { const input = document.querySelector('input[aria-label="returns-api development environment"]'); input.value = 'api-changed-dev'; input.dispatchEvent(new Event('input', {bubbles:true})); })()`);
+        await waitFor(() => engine!.record.settings.developmentDeployments!.targets.length === 0);
+        await page.waitFor(`!document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].checked`);
+        await page.evaluate(`document.querySelector('#refined').click()`);
+        await page.waitFor(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start')?.disabled === false`);
+        await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start').click()`);
+        await page.waitFor(`document.body.innerText.includes('Select at least one confirmed non-production development target.')`);
+        expect(engine.record.startedAt).toBeUndefined();
+        expect(engine.record.developmentAuthorization?.grants).toEqual([]);
+        await page.evaluate(`(() => { const input = document.querySelector('input[aria-label="returns-api development environment"]'); input.value = 'returns-api-dev'; input.dispatchEvent(new Event('input', {bubbles:true})); })()`);
+        await page.evaluate(`document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].click()`);
+        await waitFor(() => engine!.record.settings.developmentDeployments!.targets[0]?.target.environment === "returns-api-dev");
+        for (const base of ["preview", "develop"]) {
+          await page.waitFor(`!document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').disabled`);
+          await page.evaluate(`(() => { const input = document.querySelector('#base-returns-api'); input.value = '${base}'; input.dispatchEvent(new Event('change', {bubbles:true})); })()`);
+          await waitFor(() => engine!.record.settings.bases["returns-api"] === base && engine!.baseCheck === "ok");
+          await page.waitFor(`document.querySelector('#base-returns-api').value === '${base}' && !document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].checked`);
+          await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start').click()`);
+          await page.waitFor(`document.body.innerText.includes('no longer matches a participating repository')`);
+          expect(engine.record.startedAt).toBeUndefined();
+          expect(engine.record.developmentAuthorization?.grants).toEqual([]);
+          await page.evaluate(`document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].click()`);
+          await waitFor(() => engine!.record.settings.developmentDeployments!.targets[0]?.confirmedTarget?.baseBranch === base);
+        }
+      }
     }
     await page.evaluate(clickLabel("Save these targets with this requirements repository"));
     await waitFor(() => engine!.savedDevelopmentTargets?.revision === 1).catch(async error => { throw new Error(`${error.message}: ${JSON.stringify(engine!.record.settings.developmentDeployments)} ${await page.evaluate("document.body.innerText")}`); });
@@ -48,6 +77,12 @@ describe("remembered targets and grant browser controls", () => {
     await page.close(); page = await chrome.open(server.address);
     await page.waitFor(`document.body.innerText.includes('Use these saved targets for this PRD')`);
     expect(engine.record.developmentAuthorization?.enabled).toBe(false);
+    // AC-PERMIT-03: the person sees the exact storage group and targets before choosing reuse.
+    const savedDisclosure = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
+    expect(savedDisclosure).toContain(`Saved-target storage group: github.com/acme/acme-shop · ${h.repository}`);
+    expect(savedDisclosure).toContain("github.com/acme/returns-api · develop · returns-api-dev");
+    expect(savedDisclosure).toContain("github.com/acme/returns-web · develop · returns-web-dev");
+    expect(await page.evaluate(`[...document.querySelectorAll('label')].find(e => e.textContent.trim() === 'Use these saved targets for this PRD').querySelector('input').checked`)).toBe(false);
     // A manually typed draft must not hide the exact saved environment being accepted.
     await page.evaluate(clickLabel("Allow development deployments"));
     await page.waitFor(`document.querySelectorAll('.delivery fieldset').length === 3 && [...document.querySelectorAll('.delivery fieldset')].every(e => !e.disabled)`);
@@ -57,7 +92,7 @@ describe("remembered targets and grant browser controls", () => {
     await page.evaluate(clickLabel("Use these saved targets for this PRD"));
     await waitFor(() => engine!.record.settings.developmentDeployments?.targets.length === 2);
     await page.waitFor(`document.body.innerText.includes('Selected targets below were explicitly reused') && document.querySelector('input[aria-label="returns-api development environment"]').value === 'returns-api-dev'`);
-    await page.evaluate(`document.querySelector('#refined').click()`);
+    await page.evaluate(`if (!document.querySelector('#refined').checked) document.querySelector('#refined').click()`);
     await page.waitFor(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start')?.disabled === false`);
     await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start').click()`);
     await engine.settled(); await page.waitFor(`document.querySelector('input[aria-label="returns-api grant environment"]')`, 20_000);
@@ -65,11 +100,21 @@ describe("remembered targets and grant browser controls", () => {
     expect(engine.record.developmentAuthorization?.grants.some(one => one.target.repository.includes("acme-shop"))).toBe(false);
     const calls = h.claudeCalls().length;
     await page.evaluate(`(() => { const input=document.querySelector('input[aria-label="returns-api grant environment"]'); input.value='api-second-dev'; input.dispatchEvent(new Event('input',{bubbles:true})); input.closest('fieldset').querySelector('input[type=checkbox]').click(); })()`);
+    // AC-PERMIT-05: a Needs you grant also requires reconfirming the edited environment.
+    await page.waitFor(`document.querySelector('input[aria-label="returns-api grant environment"]').closest('fieldset').querySelector('input[type=checkbox]').checked`);
+    await page.evaluate(`(() => { const input=document.querySelector('input[aria-label="returns-api grant environment"]'); input.value='api-reconfirmed-dev'; input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    await page.waitFor(`!document.querySelector('input[aria-label="returns-api grant environment"]').closest('fieldset').querySelector('input[type=checkbox]').checked && [...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Authorize returns-api development target').disabled`);
+    expect(engine.record.developmentAuthorization?.grants).toHaveLength(2);
+    const grantDisclosure = await page.evaluate<string>(`document.querySelector('input[aria-label="returns-api grant environment"]').closest('fieldset').innerText`);
+    expect(grantDisclosure).toContain("github.com/acme/returns-api · develop · api-reconfirmed-dev");
+    await page.evaluate(`document.querySelector('input[aria-label="returns-api grant environment"]').closest('fieldset').querySelector('input[type=checkbox]').click()`);
     await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Authorize returns-api development target').click()`);
     await waitFor(() => engine!.record.developmentAuthorization!.grants.length === 3);
+    expect(engine.record.developmentAuthorization?.grants.at(-1)?.target).toEqual({ repository: "github.com/acme/returns-api", baseBranch: "develop", environment: "api-reconfirmed-dev" });
+    expect(engine.record.developmentAuthorization?.grants.some(one => one.target.environment === "api-second-dev")).toBe(false);
     expect(h.claudeCalls()).toHaveLength(calls); expect(engine.record.phases["1"]?.stop).toBeDefined();
     expect(engine.savedDevelopmentTargets).toBeUndefined();
-    await page.waitFor(`document.body.innerText.includes('Copy recovery prompt') && document.querySelector('.pick pre.prompt')?.textContent.includes('api-second-dev')`);
+    await page.waitFor(`document.body.innerText.includes('Copy recovery prompt') && document.querySelector('.pick pre.prompt')?.textContent.includes('api-reconfirmed-dev')`);
     const handoff = await page.evaluate<string>(`document.querySelector('.pick pre.prompt').textContent`);
     expect(handoff).toContain("replaces earlier blanket restrictions");
     expect(handoff).toContain("phase-1-deliver.md");

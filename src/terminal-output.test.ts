@@ -161,3 +161,18 @@ describe("the terminal lines for several repositories (multi-repo technical desi
     );
   });
 });
+
+// AC-DISPLAY-02: the terminal consumes the same separate outcomes as the browser.
+describe("development delivery terminal outcomes", () => {
+  it.each([
+    ["Merge", "confirmed https://github.com/acme/returns-api/pull/41 (abcdef123456)"],
+    ["Deployment", "unresolved: deployment job failed"],
+    ["Verification", "confirmed"],
+  ])("prints %s with its exact repository, environment and observed outcome", (stage, outcome) => {
+    const at = new Date(2026, 9, 24, 11, 31);
+    const record = { plan: [] } as unknown as PrdRecord;
+    expect(formatTerminalEvent({ kind: "delivery", at, repository: "github.com/acme/returns-api", environment: "returns-api-dev", stage, outcome }, record, plain)).toBe(
+      `${at.toLocaleTimeString()}  github.com/acme/returns-api · returns-api-dev · ${stage}: ${outcome}`,
+    );
+  });
+});

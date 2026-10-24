@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
-import { git } from "../test-support/git-repositories.js";
+import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { readPrdRecord, migrateRecord } from "../state/records.js";
 import { assertDevelopmentState, type DeliveryCheckpoint } from "../state/development-delivery.js";
 import { documentsDigest, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
-import { phaseSessionPrompt, freshSessionPrompt, resumePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { codexSessionPrompt, phaseSessionPrompt, freshSessionPrompt, resumePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
 const target = { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "test-development" };
@@ -31,6 +31,32 @@ describe("execution development authorization", () => {
       { enabled: true, targets: [{ target: { ...target, environment: "different" }, confirmedTarget: target, confirmedNonProduction: true }] },
       { enabled: true, targets: [{ target: { ...target, baseBranch: "main" }, confirmedTarget: { ...target, baseBranch: "main" }, confirmedNonProduction: true }] },
     ]) { r.settings.developmentDeployments = value; expect(() => validateStartTargets(r, repos)).toThrow(); }
+  });
+  it("keeps a repository added after authorized Start restricted across restart and names its exact missing target", async () => {
+    const h = await setup();
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const checkout = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, checkout, "push", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled();
+    const authority = structuredClone(h.engine.record.developmentAuthorization);
+    expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true, added: true, baseBranch: "develop" });
+    expect(h.engine.record.developmentAuthorization).toEqual(authority);
+    expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization).toEqual(authority);
+    const again = h.reopenFromDisk(); await again.agents.refresh();
+    expect(again.record.developmentAuthorization).toEqual(authority);
+    expect(JSON.parse(again.deliveryAuthority()!).grants).toEqual([target]);
+    const added = again.record.repositories.find(repo => repo.name === "returns-api")!;
+    expect(added.setupCompletedAt).toBeDefined();
+    expect(git(h.sandbox, added.worktreePath, "branch", "--show-current").trim()).toBe(again.record.settings.featureBranch);
+    const lateTarget = { repository: "github.com/acme/returns-api", baseBranch: "develop", environment: "returns-api-dev" };
+    const late = { ...checkpoint(h), id: "added-repository-checkpoint", target: lateTarget, headSha: git(h.sandbox, added.worktreePath, "rev-parse", "HEAD").trim(), baseSha: added.baseCommit! };
+    again.record.developmentDelivery!.checkpoints.push(late);
+    const status = again.deliveryStatus();
+    expect(await again.deliveryCommand("prepare", { executionId: status.executionId, revision: status.revision, checkpointId: late.id, operation: { kind: "merge" } })).toEqual({ ok: false, status: 409, reason: "Authorize this development target: github.com/acme/returns-api / develop / returns-api-dev." });
+    expect(late.operations).toEqual([]);
+    expect(again.record.developmentAuthorization).toEqual(authority);
   });
   it("atomically retains exact Start authority across restart, refuses setting changes and does not let Closed bypass assessment", async () => {
     const h = await setup(); expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
@@ -80,12 +106,23 @@ describe("retained-state and operation evidence contracts", () => {
 });
 
 describe("one saved authority across provider entry points", () => {
-  it("replaces blanket phase restrictions in launch/fresh/finalization and every resume cause, without broadening scope", () => {
-    const values = { phaseDoc: "docs/prds/feature/phase-1-build.md", featureName: "Feature", prdFile: "docs/prds/feature/feature-prd.md", worktreePath: "/assigned/feature", branch: "feature/test", parentFolder: "/assigned", deliveryAuthority: JSON.stringify({ grants: [target] }) };
-    for (const prompt of [phaseSessionPrompt(values), freshSessionPrompt(values, true), pullRequestSessionPrompt({ ...values, repositories: [] }), ...[{}, { cause: "sleep" as const }, { usageLimit: "usage limit" }, { endedOnItsOwn: true }].map(cause => resumePrompt({ ...cause, time: "2026-10-24T12:00:00Z", phaseDoc: values.phaseDoc, deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }))]) {
-      expect(prompt).toContain(target.environment); expect(prompt).toContain("Never bypass protections"); expect(prompt).not.toContain("You are not authorized to open a pull request, merge, deploy");
+  it.each(["claude_code", "codex"] as const)("preserves every excluded permission in %s launch, fresh, finalization and resume prompts", agentId => {
+    const values = { phaseDoc: "docs/prds/feature/phase-1-build.md", featureName: "Feature", prdFile: "docs/prds/feature/feature-prd.md", worktreePath: "/assigned/feature", branch: "feature/test", parentFolder: "/assigned", deliveryAuthority: JSON.stringify({ executionId: "this-execution", grants: [target] }) };
+    const prompts = [phaseSessionPrompt(values), freshSessionPrompt(values, true), pullRequestSessionPrompt({ ...values, repositories: [] }), ...[{}, { cause: "sleep" as const }, { cause: "sigint" as const }, { usageLimit: "usage limit" }, { endedOnItsOwn: true }].map(cause => resumePrompt({ ...cause, agentId, time: "2026-10-24T12:00:00Z", phaseDoc: values.phaseDoc, deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }))];
+    for (const basePrompt of prompts) {
+      const prompt = agentId === "codex" ? codexSessionPrompt(basePrompt, [{ name: "enso-method:implement-from-requirements", path: "/skills/implement-from-requirements/SKILL.md" }]) : basePrompt;
+      expect(prompt).toContain(JSON.stringify(target));
+      expect(prompt).toContain('"executionId":"this-execution"');
+      expect(prompt).toContain("ONLY for its exact approved targets");
+      expect(prompt).toContain("It grants no authority for other targets or future executions");
+      expect(prompt).toContain("Stay in the assigned feature branches and worktrees");
+      expect(prompt).toContain("Never grant yourself permission through Kiln's browser or API");
+      expect(prompt).toContain("Never bypass protections, use administrator overrides or force-push");
+      expect(prompt).toContain("Production, destructive actions, unrelated infrastructure/data access and other people's checkouts remain unauthorized");
+      expect(prompt).toContain("An approval rejection is still a rejection");
+      expect(prompt).not.toContain("You are not authorized to open a pull request, merge, deploy");
     }
-    expect(resumePrompt({ time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("Keep my reply first.")).toBeLessThan(resumePrompt({ time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("saved development-delivery authority"));
+    expect(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("Keep my reply first.")).toBeLessThan(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("saved development-delivery authority"));
     expect(phaseSessionPrompt({ ...values, deliveryAuthority: undefined })).toContain("You are not authorized to open a pull request, merge, deploy");
   });
 });
