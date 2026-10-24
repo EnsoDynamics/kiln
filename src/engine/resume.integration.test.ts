@@ -162,10 +162,13 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
 
 describe("where Resume isn't offered (AC-RESUME-01)", () => {
   it("isn't offered when the session's first run never started", async () => {
-    harness = await createHarness({ sessions: [] });
+    harness = await createHarness({ sessions: [], engineOptions: { onTerminal: event => {
+      // The executable disappears after readiness succeeds, immediately before spawn.
+      // A missing executable during readiness correctly prevents creating a session.
+      // A path with no extension, so Windows spawns it directly rather than through cmd.exe.
+      if (event.kind === "phase" && event.event === "started") harness!.tools.claude = join(harness!.sandbox.root, "bin", "no-such-claude");
+    } } });
     const h = harness;
-    // A path with no extension, so that on Windows Node spawns it directly rather than through cmd.exe.
-    h.tools.claude = join(h.sandbox.root, "bin", "no-such-claude");
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.latestSession("1")!.runs[0]!.spawnError).toBeDefined();

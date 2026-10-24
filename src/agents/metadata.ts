@@ -1,10 +1,7 @@
 // Selection-scoped metadata. Provider reads never create a conversation or a model turn.
 import type { AccountView } from "../account/claude-account.js";
 import { ClaudeInfo, type ClaudeInfoSource, ACCOUNT_REFRESH_MS } from "../account/claude-info.js";
-import type { ModelEntry } from "../account/model-list.js";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readSkillList, type ModelEntry } from "../account/model-list.js";
 import { type AgentId } from "../state/records.js";
 import { METHOD_SKILLS, readCodexMetadata } from "./codex-metadata.js";
 
@@ -89,10 +86,16 @@ export class AgentInfo {
         await Promise.all([this.claude.refreshAccount(), this.claude.refreshModels?.()]);
         if (this.state !== state || this.abort.signal.aborted) return;
         this.updateClaude();
-        const home = this.options.env.HOME ?? this.options.env.USERPROFILE ?? homedir();
-        for (const required of METHOD_SKILLS) {
-          const candidates = [join(this.options.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "skills", required, "SKILL.md"), ...cwds.map((cwd) => join(cwd, ".claude", "skills", required, "SKILL.md"))];
-          if (!candidates.some((path) => { try { return readFileSync(path, "utf8").length > 0; } catch { return false; } })) state.blockers.push(`Install the Enso Method ${required} skill for Claude Code.`);
+        const skills = await Promise.all(cwds.map(async cwd => ({ cwd, result: await readSkillList({ claude: this.options.executable.claude, cwd, env: this.options.env, signal: this.abort.signal }) })));
+        if (this.state !== state || this.abort.signal.aborted) return;
+        for (const { cwd, result } of skills) {
+          if (!result.ok) {
+            state.blockers.push(`Could not inspect enabled Claude Code skills in ${cwd}: ${result.error}`);
+            continue;
+          }
+          for (const required of METHOD_SKILLS) {
+            if (!result.skills.some(name => name === required || name === `enso-method:${required}`)) state.blockers.push(`Enable or install the Enso Method ${required} skill for Claude Code in ${cwd}.`);
+          }
         }
       }
       if (state.account?.error && previous && !previous.error) state.account = { ...previous, stale: true, lastSuccessfulAt: previous.updatedAt, error: state.account.error };

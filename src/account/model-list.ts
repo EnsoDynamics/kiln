@@ -1,10 +1,11 @@
 // The models Claude Code offers the signed-in account, and how the Model and Effort settings
 // follow them (PRD AC-START-06, UI-004, UI-011; technical design, "Account and Usage"). No
 // `claude` command lists them; the Agent SDK's `supportedModels()` does, pointed at the
-// person's own `claude`, and nothing else of the SDK is used.
+// person's own `claude`. Skill readiness shares its bounded, prompt-free helper through
+// `supportedCommands()`, loading the actual launch directory's user and project settings.
 
 import type { ChildProcess } from "node:child_process";
-import { query, type ModelInfo, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
+import { query, type ModelInfo, type Query, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import { endProcessTree, HELPER_TIMEOUT_MS, spawnDetached } from "../platform/helper-process.js";
 import { modelNameFromId } from "../session/claude-session.js";
 import { EFFORT_LEVELS, type Effort } from "../state/records.js";
@@ -90,7 +91,7 @@ export const modelListErrorMessage = (error: string) => `Couldn’t load Claude 
 export interface ModelListOptions {
   claude: string;
   env: NodeJS.ProcessEnv;
-  /** The PRD's state directory, so no project's hooks or settings load. */
+  /** State directory for models; actual launch directory for enabled-skill discovery. */
   cwd: string;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -104,6 +105,19 @@ export type ModelListResult = { ok: true; models: ModelEntry[] } | { ok: false; 
  * error a failure shows.
  */
 export async function readModelList(options: ModelListOptions): Promise<ModelListResult> {
+  const result = await readCatalogue(options, q => q.supportedModels(), false);
+  return result.ok ? { ok: true, models: modelEntries(result.value) } : result;
+}
+
+export type SkillListResult = { ok: true; skills: string[] } | { ok: false; error: string };
+
+/** Read the skills Claude actually enables here, including plugin-qualified skills, without a prompt. */
+export async function readSkillList(options: ModelListOptions): Promise<SkillListResult> {
+  const result = await readCatalogue(options, q => q.supportedCommands(), true);
+  return result.ok ? { ok: true, skills: result.value.map(command => command.name) } : result;
+}
+
+async function readCatalogue<T>(options: ModelListOptions, read: (q: Query) => Promise<T>, loadSettings: boolean): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
   if (options.signal?.aborted) return { ok: false, error: "Kiln is stopping" };
   let stderr = "";
   let child: ChildProcess | undefined;
@@ -116,6 +130,9 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
       pathToClaudeCodeExecutable: options.claude,
       cwd: options.cwd,
       persistSession: false,
+      // Skill discovery must use the same settings as an ordinary CLI session. Model
+      // discovery stays isolated from project settings, as before.
+      settingSources: loadSettings ? ["user", "project", "local"] : [],
       env: options.env,
       abortController: abort,
       spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
@@ -141,8 +158,8 @@ export async function readModelList(options: ModelListOptions): Promise<ModelLis
     const timeoutMs = options.timeoutMs ?? HELPER_TIMEOUT_MS;
     const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs / 1000} seconds`)), timeoutMs)));
     const aborted = new Promise<never>((_, reject) => abort.signal.addEventListener("abort", () => reject(new Error("Kiln is stopping")), { once: true }));
-    const models = await Promise.race([q.supportedModels(), timeout, aborted]);
-    return { ok: true, models: modelEntries(models) };
+    const value = await Promise.race([read(q), timeout, aborted]);
+    return { ok: true, value };
   } catch (error) {
     const detail = stderr.trim().split(/\r?\n/).filter((line) => line.trim() !== "").at(-1);
     return { ok: false, error: detail ?? (error as Error).message };

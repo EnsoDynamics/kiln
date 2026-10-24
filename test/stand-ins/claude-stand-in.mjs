@@ -103,7 +103,9 @@ if (!isSession && args.includes("--input-format")) {
       buffer = buffer.slice(newline + 1);
       const message = line.trim() ? JSON.parse(line) : undefined;
       if (message?.type === "control_request" && message.request?.subtype === "initialize") {
-        const response = { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models: answer.models, account: {} };
+        const supplied = process.env.KILN_STANDIN_COMMANDS ? JSON.parse(readFileSync(process.env.KILN_STANDIN_COMMANDS, "utf8")) : undefined;
+        const names = supplied ? (Array.isArray(supplied) ? supplied : supplied[process.cwd()] ?? []) : readdirSync(join(process.env.CLAUDE_CONFIG_DIR, "skills"));
+        const response = { commands: names.map(name => ({ name, description: "Kiln test skill", argumentHint: "" })), agents: [], output_style: "default", available_output_styles: ["default"], models: answer.models, account: {} };
         process.stdout.write(`${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } })}\n`);
       }
     }
