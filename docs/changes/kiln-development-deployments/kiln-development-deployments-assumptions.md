@@ -6,36 +6,37 @@
      entry text, which version control retains. -->
 
 **Last Updated:** 2026-10-24
-**Status:** Draft — pending business validation
+**Status:** One grouping assumption pending; AUTH-002 validated
 
-These are the business assumptions used in the [development-deployments PRD](kiln-development-deployments-prd.md). Work proceeds on them unless corrected.
+These are the business assumptions used in the [development-deployments PRD](kiln-development-deployments-prd.md). Work proceeds on the pending assumption unless corrected.
 
-### AUTH-001. Does the repository holding the PRD define the project?
+<a id="auth-001"></a>
 
-**Assumption:** A remembered development-deployment choice applies to future PRDs in **the same PRD repository**. It is visible before Start and applies only to the **same approved repository, branch and environment targets**; additional or changed targets need confirmation.
+### AUTH-001. Can the PRD repository group remembered choices? — ⏳ PENDING (Ruled 2026-10-24 — we read your words; 65% confidence)
 
-**Evidence:** In the source conversation `01a16dea-9c95-7511-9d65-7bb51eb0f49e` on 2026-10-24, Doug said the choice “really depends on the project” and approved proceeding with the proposed option. Neither that conversation nor the existing PRDs and assumptions defines the boundary of a remembered project choice.
+**Since your answer:** The documents now explicitly support **a product repository holding PRDs and separate application repositories**. The remaining proposal concerns only the grouping of saved choices; sharing a PRD repository does not establish that two PRDs are the same project.
 
-The [multi-repository PRD](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), AC-PRS-05, already distinguishes the repository holding the PRD from its other participating repositories. Using that boundary favors reuse across related PRDs without inventing a new project grouping. A separate named grouping could cover several PRD repositories, but no source asks for that capability.
+**Assumption:** Use **the PRD repository as a provisional storage group** for remembered development-deployment choices, whether it holds application code or only product requirements. Show that group and its exact approved repository, branch and environment targets before Start. **Reuse is an explicit choice for the current PRD**, never automatic permission inferred from where a PRD is stored. Other PRD repositories do not inherit these choices automatically.
 
-**Confirm or Correct:**
+**Why your 2026-10-24 answer did not close this:** Your correction settles where requirements and code may live, but does not select a grouping rule for remembering permission. We read it as rejecting the claim that PRD storage necessarily defines the project. The proposed storage group is therefore still an assumption, not an approved definition of project identity.
 
-- [ ] Correct as stated
-- [ ] Wrong — correct project boundary: _______________
+**Evidence:** Doug's feedback on review `40085e080547`, exported 2026-10-24, in conversation `01a16e16-9587-7861-bdb7-4c50d9014c9d`:
 
-**Confidence:** 70% | **Impact if Wrong:** 🟡 MEDIUM — remembered preferences would need a different project boundary.
+> Sometimes, but we can't guarantee this. I thought this was a thought, a point that we already had described elsewhere in requirements where the PRDs may or main not be in the same repo that the project work happens in. Often they will be in a separate repo, like the product repo, which is meant to handle things where the actual application is spread across multiple repos. So it may or it may not.
 
-### AUTH-002. Can the person add an approved target to the current execution?
+The [multi-repository PRD](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), Summary, Terms and AC-REPO-01/03, already requires this separation. It does not define a remembered-permission group. Retaining the existing PRD-repository storage boundary avoids inventing a cross-repository project registry, while explicit reuse prevents storage location alone from granting authority.
 
-**Assumption:** When Needs you identifies an uncovered target, the person can **explicitly authorize that named repository, base branch and non-production environment for the current execution**. Kiln retains the grant across later sessions and restarts under the same checks and authority boundaries as approval before Start. It does not change future executions’ preferences.
-
-**Evidence:** In the same source conversation, Doug described granting development-merge permission to the stopped session and wanted to avoid losing unattended hours to that permission stop. [Multi-repository delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), AC-SPACE-02, permits repositories to be added during execution. Neither source specifies how a new target grant becomes retained Kiln authorization.
-
-The proposed rule completes that existing recovery path. Requiring a new execution would interrupt ongoing work; accepting Resume or vague instructions as approval would weaken the explicit-target boundary Doug approved. The interaction used to record explicit approval is left to technical design.
+**Example:** A PRD in a product-only repository can approve development targets in its API and web repositories without approving deployment in the product repository. Another PRD stored alongside it receives no effective permission until the person explicitly chooses reuse and starts that execution.
 
 **Confirm or Correct:**
 
-- [ ] Correct as stated
-- [ ] Wrong — correct handling of a newly needed target: _______________
+- [ ] Correct — group saved choices by PRD repository, with explicit reuse for each new PRD
+- [ ] Wrong — different grouping for remembered choices: _______________
 
-**Confidence:** 85% | **Impact if Wrong:** 🟡 MEDIUM — authorization and recovery behavior would need revision.
+**Confidence:** 65% | **Impact if Wrong:** 🟡 MEDIUM — remembered choices need a different grouping; concrete execution grants remain unchanged.
+
+## Validated Assumptions
+
+| ID | Assumption | Validated | Notes |
+|---|---|---|---|
+| AUTH-002 | At Needs you, explicitly approve a named repository, base branch and non-production environment for the current execution; retain the grant across sessions/restarts without changing future preferences | 2026-10-24 | Doug CONFIRMED review 40085e080547 in conversation 01a16e16-9587-7861-bdb7-4c50d9014c9d; permanent rules in PRD AC-PERMIT-05 and Technical Design → Execution grants |

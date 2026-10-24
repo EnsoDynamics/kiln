@@ -1,6 +1,6 @@
 # Technical Design: Kiln development deployments
 
-**PRD:** [Kiln development deployments](kiln-development-deployments-prd.md) · **Assumptions:** [AUTH-001 and AUTH-002](kiln-development-deployments-assumptions.md)
+**PRD:** [Kiln development deployments](kiln-development-deployments-prd.md) · **Assumptions:** [AUTH-001 pending; AUTH-002 validated](kiln-development-deployments-assumptions.md)
 
 ## Overview
 
@@ -25,13 +25,17 @@ A target is `{ repository: "github.com/owner/repo", baseBranch, environment }`. 
 
 Before Start, the person enables **Allow development deployments**, selects participating repository rows, supplies each development environment and confirms **This target is non-production** for each row. Unselected repositories remain restricted. Changing repository identity, branch or environment invalidates that row's confirmation. Start with the option enabled requires at least one valid confirmed target. The disclosure says changes may reach these shared environments before the PRD finishes.
 
-Remembering is a separate checkbox: **Remember for future PRDs in this PRD repository**. Store preferences outside the repositories, under the existing main-checkout project directory, in `development-deployment-preferences.json`. Include the PRD repository's canonical GitHub identity as well as its existing real main-checkout identity. Thus a different checkout or changed origin never inherits permission accidentally. A remembered choice prepopulates only matching rows and is visibly labeled remembered; pressing Start accepts that displayed choice for the new execution. New or changed targets remain unchecked. Preferences are read when preparing Documents found, not consulted during execution. A project preference write replaces that one project's choice atomically under a short project-file lock; a stale preference revision receives 409 instead of overwriting another window's choice. Existing executions are unaffected (AUTH-001).
+Requirements and application code need not share a repository: the existing multi-repository product repository remains supported. The PRD repository is not a deployment target by implication, and no grant is created for it merely because it stores the plan. A documents-only product repository may remain restricted while separately approved API/web repositories deploy. This is the repository distinction Doug reaffirmed on 2026-10-24, not a new project registry.
+
+For the provisional AUTH-001 grouping, remembering is a separate checkbox: **Save these targets with this requirements repository**. Show that repository's canonical identity as the storage group. Store preferences outside the repositories, under the existing main-checkout private-state directory, in `development-deployment-preferences.json`. Include the PRD repository's canonical GitHub identity as well as its existing real main-checkout identity; a different checkout or changed origin never inherits a saved choice. The identity is a storage boundary, not proof that every PRD in it belongs to one project.
+
+Loading preferences never enables delivery or selects targets automatically. Before Start, **Use these saved targets for this PRD** is initially unselected; choosing it prepopulates only matching rows and visibly labels their source group. Pressing Start accepts that explicitly chosen, displayed scope for the new execution. New or changed targets remain unchecked and require non-production confirmation. A future PRD in the same requirements repository may choose different targets or keep delivery off. Other requirements repositories never inherit the choice automatically. Preferences are read when preparing Documents found, not consulted during execution. A preference write replaces only that storage group's choice atomically under a short file lock; a stale revision receives 409 instead of overwriting another window's choice. Existing executions are unaffected. AUTH-001 remains pending at 65%; this is the implementable proposal, not a confirmed project definition.
 
 ### Execution grants
 
 At Start, save an `executionId` and a copy of the effective target grants in the same atomic PRD-record write as the start intent, before setup or session dispatch. A retry after partial setup retains the execution and its grants; any permitted change to an uncreated repository's base invalidates that target and requires reconfirmation before proceeding. Once a session has started, the grant set changes only through the explicit Needs you grant action.
 
-Needs you exposes **Authorize this development target** for a concrete missing target, with the same disclosure and non-production confirmation. The person submits the exact target and current authorization revision; atomically persist `enabled: true`, the confirmed target and an incremented authorization revision before acknowledging the grant. An identical repeated grant is idempotent, including after restart. The button records authorization but does not silently resume; existing Resume/Check again controls decide continuation. This changes no remembered preference (AUTH-002). A normal settings write, Resume note or repository addition cannot create a grant. Prompts tell agents to request this control when uncovered work is necessary.
+Needs you exposes **Authorize this development target** for a concrete missing target, with the same disclosure and non-production confirmation. The person submits the exact target and current authorization revision; atomically persist `enabled: true`, the confirmed target and an incremented authorization revision before acknowledging the grant. An identical repeated grant is idempotent, including after restart. The button records authorization but does not silently resume; existing Resume/Check again controls decide continuation. This changes no remembered preference (AUTH-002, confirmed by Doug on 2026-10-24 in review `40085e080547`). A normal settings write, Resume note or repository addition cannot create a grant. Prompts tell agents to request this control when uncovered work is necessary.
 
 The local API is the existing trusted machine-user boundary, not a new claim that a browser click can be cryptographically distinguished from the user's local agent. Agents receive instructions never to grant themselves permission; the deployment command has no grant operation. Keep provider protections, client-request refusals and branch protections unchanged.
 
@@ -41,7 +45,7 @@ Use schema 5, retaining current record locations and migrating schemas 1–4 thr
 
 | Record | Added fields |
 |---|---|
-| Before-Start settings | `developmentDeployments: { enabled, targets[], rememberForProject, preferenceRevision? }`; each candidate has confirmation and the identity it confirms |
+| Before-Start settings | `developmentDeployments: { enabled, targets[], rememberForPrdRepository, useSavedTargetsForThisPrd, preferenceRevision? }`; each candidate has confirmation and the identity it confirms |
 | PRD execution | `executionId`, `developmentAuthorization: { revision, enabled, grants: [{ target, confirmedAt, source: start \| needs_you }] }` |
 | Phase delivery assessment | `phaseId`, `documentsDigest`, `required: boolean`, `criteria[]`, `reason`, `checkpointIds[]`; required checkpoints cannot be removed by submitting a later empty assessment |
 | Split obligation assignment | `checkpointId`, `requirementId` or `requiredMerge`, `originPhaseId`, `criteria[]`, `leafIds[]`; stored with the current split-document digest and ledger revision |
@@ -167,7 +171,7 @@ Implementation must prove boundary behavior, not only prompts. Use real temporar
 | Criteria | Design contract and proof |
 |---|---|
 | AC-PERMIT-01, AC-PERMIT-02 | Authorization and Persistence; browser Start with off/default, unconfirmed/changed target refused, valid named target saved |
-| AC-PERMIT-03 | Target identity and project preferences; two projects and concurrent editors, matching reuse, changed target and preference not affecting an active execution |
+| AC-PERMIT-03 | Target identity and project preferences; documents-only product repository plus API/web targets; no implied product-repository grant; explicit reuse versus a different project in the same PRD repository; separate groups and concurrent editors; changed target and preference not affecting an active execution |
 | AC-PERMIT-04, AC-PERMIT-05 | Execution grants and activation recovery; restart/idempotent first grant, missing assessment blocks advancement, prior checkpoint recovered, future scope denied, evidence/history preserved and restricted behavior unchanged; both providers; late repository, Resume/note/preference cannot grant |
 | AC-DEV-01, AC-DEV-02, AC-DEV-04 | Session Contract; both providers deliver a needed checkpoint, protected/human-review block remains Needs you, final remainder stays open |
 | AC-DEV-03 | Evidence and Completion; merge succeeds/deploy fails, wrong artifact/environment, missing result and Closed-early cannot pass |
@@ -184,4 +188,4 @@ All `Replaces in part:` lines in this design and the PRD take effect with implem
 
 ## Open Questions
 
-None requiring a product decision. AUTH-001 and AUTH-002 remain implementable assumptions awaiting validation. The real GitHub/provider evidence checks in Verification and Criteria Coverage are implementation proof obligations; this design does not claim they have run.
+No blocking product question. AUTH-001 remains an implementable 65% assumption about saved-choice grouping; separate requirements/code repositories are settled existing behavior. AUTH-002 is validated and recorded in Execution grants and PRD AC-PERMIT-05. The real GitHub/provider evidence checks in Verification and Criteria Coverage are implementation proof obligations; this design does not claim they have run.
