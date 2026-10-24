@@ -47,6 +47,8 @@ The option removes a known permission stop. It does not turn every phase into an
 - [ ] **AC-DEV-02 — Normal checks and protections still apply.** A checkpoint is merged only after its required pre-merge tests, checks and reviews pass for the work being merged. Kiln’s permission does not bypass branch protection, waive required human review, authorize force pushes, or allow unrelated work to be merged. Routine fixes within scope can proceed unattended; a missing required approval or unresolved blocker returns to Needs you. The phase need not already be Closed when its required verification depends on the deployment.
 - [ ] **AC-DEV-03 — Deployment and verification have their own outcomes.** The saved result distinguishes a confirmed merge, deployment of the intended work to the approved environment, and the required verification’s result. A merged pull request alone never establishes the latter two. Missing or failed required development evidence prevents the affected phase from being treated as complete, even if its document was marked Closed. The person can inspect the evidence or failure identifying the work and target; the agent’s success prose alone is insufficient.
   - Replaces in part: AC-CHECK-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (for phases requiring development delivery, Closed, Committed and Pushed are insufficient without the required deployment and verification evidence; their existing checks remain).
+  - Replaces in part: AC-RUN-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (an earlier phase with unresolved required development delivery is reconciled before selecting the next unclosed leaf; sequential plan order remains).
+  - Replaces in part: AC-RUN-03, AC-DONE-01 and AC-DONE-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Closed, Committed and Pushed, together with existing workspace checks, are insufficient for phases with unresolved required development delivery).
 - [ ] **AC-DEV-04 — The permission has a clear boundary.** It authorizes only the current PRD’s development work on the confirmed targets. Production delivery, destructive operations, unrelated data access or infrastructure changes, and changes in another person’s checkout are not authorized by this option. Existing workspace checks and protections remain in force. A branch named develop is not an exception to these boundaries.
 
 ### Keep building after an early merge
@@ -80,6 +82,7 @@ An interruption must not lose permission already granted, repeat a completed mer
 - [ ] **AC-RECOVERY-03 — Completion checks mean the same thing everywhere.** Phase and final-delivery decisions apply the same criteria after sessions, before resuming, after manual work, at Check again, and when reopening a saved execution. A final-check pass must not discard a reply or advance the plan based only on an earlier open or merged pull request that no longer accounts for the current work.
   - Replaces in part: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (final-session resume eligibility uses the applicable completion result in AC-DELIVER-04).
   - Replaces in part: AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (the final-session completion precheck uses AC-DELIVER-04 rather than requiring all pull requests to be open).
+  - Replaces in part: AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (executions using development deployments reconcile current work and delivery evidence when reopened instead of treating recorded completion as sufficient; restricted executions retain historical completion).
 
 ### Show what is authorized and what actually happened
 
@@ -94,6 +97,7 @@ The interface should make early development delivery understandable without requ
   - Replaces in part: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (final pull-request summaries and terminal lines include delivery history and remaining review work).
   - Replaces in part: AC-PR-05 and AC-WATCH-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (final-session naming, recovery copy and the completion header where the result is not solely open review pull requests).
   - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (older mockup copy for delivery permissions, progress and completion gives way to this change’s outcomes; unaffected layout and visual style remain).
+  - Replaces in part: AC-SPACE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a one-repository execution using development deployments adopts this change’s authorization, progress and final-result presentation; assigned workspace layout and restricted behavior remain).
 
 ## Relationship to Earlier Requirements
 
