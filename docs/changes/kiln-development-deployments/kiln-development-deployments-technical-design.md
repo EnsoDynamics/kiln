@@ -1,0 +1,171 @@
+# Technical Design: Kiln development deployments
+
+**PRD:** [Kiln development deployments](kiln-development-deployments-prd.md) · **Assumptions:** [AUTH-001 and AUTH-002](kiln-development-deployments-assumptions.md)
+
+## Overview
+
+Add execution-scoped development authorization, a small delivery ledger and a shared evidence-based completion check to Kiln. Sessions continue to own engineering and deployment through each project's documented workflow. Kiln owns the permission snapshot, records intent before delivery, reconciles external facts and explains unresolved results. No new service, database, deployment scheduler or provider credentials are introduced.
+
+## Existing Code
+
+**Posture: Preserve**, the default. Restricted executions retain their existing delivery contract.
+
+- Reuse the foreground engine, instance lock, atomic private JSON store and local authenticated HTTP/SSE interface.
+- Extend the per-repository records and checks; keep assigned worktrees and feature branches.
+- Reuse Claude transcripts and Codex authoritative conversation-tree evidence; retain each provider's workspace audit and recovery rules.
+- Extend external prompt templates, snapshot-driven Svelte screens and terminal events.
+- Preserve pause, usage recovery, model/account provenance, historical output and separate Follow-up/running/waiting displays.
+- Keep the published Enso Method skills unchanged; Kiln's instructions supply the additional execution contract.
+
+## Authorization and Persistence
+
+### Target identity and project preferences
+
+A target is `{ repository: "github.com/owner/repo", baseBranch, environment }`. Normalize repository identity through the existing GitHub-origin parser, case-insensitively for GitHub owner/name; keep the exact Git branch and trimmed, nonempty environment identifier. Environment is the actual workflow/deployment destination, not a generic checkbox label such as “development.” The UI shows these three values together with the repository's workspace name. No branch name or workflow name proves non-production.
+
+Before Start, the person enables **Allow development deployments**, selects participating repository rows, supplies each development environment and confirms **This target is non-production** for each row. Unselected repositories remain restricted. Changing repository identity, branch or environment invalidates that row's confirmation. Start with the option enabled requires at least one valid confirmed target. The disclosure says changes may reach these shared environments before the PRD finishes.
+
+Remembering is a separate checkbox: **Remember for future PRDs in this PRD repository**. Store preferences outside the repositories, under the existing main-checkout project directory, in `development-deployment-preferences.json`. Include the PRD repository's canonical GitHub identity as well as its existing real main-checkout identity. Thus a different checkout or changed origin never inherits permission accidentally. A remembered choice prepopulates only matching rows and is visibly labeled remembered; pressing Start accepts that displayed choice for the new execution. New or changed targets remain unchecked. Preferences are read when preparing Documents found, not consulted during execution. A project preference write replaces that one project's choice atomically under a short project-file lock; a stale preference revision receives 409 instead of overwriting another window's choice. Existing executions are unaffected (AUTH-001).
+
+### Execution grants
+
+At Start, save an `executionId` and a copy of the effective target grants in the same atomic PRD-record write as the start intent, before setup or session dispatch. A retry after partial setup retains the execution and its grants; any permitted change to an uncreated repository's base invalidates that target and requires reconfirmation before proceeding. Once a session has started, the grant set changes only through the explicit Needs you grant action.
+
+Needs you exposes **Authorize this development target** for a concrete missing target, with the same disclosure and non-production confirmation. The person submits the exact target and current authorization revision; persist the grant before acknowledging it. An identical repeated grant is idempotent. The button records authorization but does not silently resume; existing Resume/Check again controls decide continuation. This changes no remembered preference (AUTH-002). A normal settings write, Resume note or repository addition cannot create a grant. Prompts tell agents to request this control when uncovered work is necessary.
+
+The local API is the existing trusted machine-user boundary, not a new claim that a browser click can be cryptographically distinguished from the user's local agent. Agents receive instructions never to grant themselves permission; the deployment command has no grant operation. Keep provider protections, client-request refusals and branch protections unchanged.
+
+### Record contract
+
+Use schema 5, retaining current record locations and migrating schemas 1–4 through their existing migrations. Legacy records receive disabled authorization and empty delivery history, including executions already underway. Do not import preferences into migrated executions. Unknown/newer schema versions remain errors. All timestamps are UTC ISO 8601; displays use local time.
+
+| Record | Added fields |
+|---|---|
+| Before-Start settings | `developmentDeployments: { enabled, targets[], rememberForProject, preferenceRevision? }`; each candidate has confirmation and the identity it confirms |
+| PRD execution | `executionId`, `developmentAuthorization: { revision, enabled, grants: [{ target, confirmedAt, source: start \| needs_you }] }` |
+| Phase delivery assessment | `phaseId`, `documentsDigest`, `required: boolean`, `criteria[]`, `reason`, `checkpointIds[]`; required checkpoints cannot be removed by submitting a later empty assessment |
+| Delivery checkpoint | `id`, `executionId`, `phaseId`, `target`, `featureBranch`, `headSha`, `baseSha`, `criteria[]`, `dependsOn[]`, `workflowSource`, `requirements`, `createdAt`, `operations[]`, `merge?`, `deployment?`, `verification[]`, `checkedAt?`, `unresolvedReason?` |
+| Operation intent | `id`, `kind: merge \| deploy \| verify \| synchronize`, intended revision/target, provider correlation fields, `preparedAt`, observed outcome or unresolved reason |
+| Merge fact | PR number/URL, repository and head/base identities, original head SHA, actual merged head SHA, merge result SHA, merge method/evidence, `mergedAt` |
+| Evidence fact | `kind`, source identity/reference, immutable revision, environment, observed status, `observedAt`, retained raw-result reference/digest, failure reason when present |
+| Repository result | `deliveredCheckpointIds[]`, `remainingHeadSha?`, `reviewPullRequest?`, `state: unchanged \| delivered \| review \| mixed \| unresolved` |
+
+Checkpoint head, target and required evidence form an immutable identity once an operation is prepared. A changed head becomes a new checkpoint; an interrupted attempt retains its identity. References remain after failure so a later pass cannot erase an unfinished obligation. Requirements identify pre-merge checks/reviews and deployment/verification evidence from the project's documented workflow, with repository-relative source paths and revision. Evidence is stored under the execution's private state directory, never in project repositories. Invalid/unreadable records stop with the offending record named; no empty-history fallback.
+
+Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Persisted schema 4 (schema version and added authorization/delivery records; provider identities and migrations retained).
+
+## Session Contract and Delivery Interface
+
+### One authority statement everywhere
+
+Generate one authorization block from the execution record for initial phases, subsequent sessions, every resume cause, finalization and fresh-session recovery. It identifies execution, assigned workspaces/feature branch and exact approved targets, the unchanged restricted repositories, and AC-DEV-02/04's boundaries. Explicitly replace the earlier no-PR/no-merge/no-deploy sentence only for the named scope; do not append a grant beside an unconditional prohibition. Resumes of older conversations say this block replaces their earlier delivery restriction for these targets, while preserving all other instructions. User notes remain first, then workspace repair guidance, then the effective authority and remaining task.
+
+Sessions may open/merge a checkpoint only to satisfy an identified PRD criterion needing development delivery. Closing a phase or finishing the PRD is not a trigger. Required pre-merge checks and reviews must pass for the checkpoint head, including human approvals when the project requires them. No administrator override, force push, production delivery or checkout switch is allowed. Use ordinary protected GitHub merge operations with the expected head pinned; if that head changes, reassess and recheck before merging. An approval auto-review rejection remains a rejection.
+
+In enabled executions, a session records a delivery assessment for its judged leaf before completion: either required checkpoints with criterion references, or no development delivery required with a short reason. The assessment binds to a digest of that leaf, governing PRD and design. A changed digest requires a new assessment before completion. A missing assessment is unresolved, not “no delivery.” Kiln validates references and evidence mechanically; identifying which business criteria need a deployment remains the engineering session's responsibility, as identifying implementation/test scope already does. Kiln makes no model call to judge completion.
+
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions and §The Pull Requests (conditional phase-time PRs, delivery authority and remaining finalization task).
+
+Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle → Unattended execution profile and Identity before work (delivery authorization supplied to the unchanged protected provider).
+
+Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (effective authority and remaining task in every continuation).
+
+### Small local command/API surface
+
+Add `kiln delivery` as a client of the running execution's engine, using the same workspace-to-instance discovery as `kiln add-repository`. It records and reads facts; the agent still runs `gh`, deployment and test commands. All mutating requests carry `executionId` and expected ledger revision. Reject a stale revision or wrong execution with 409. No generic remote command runner is added.
+
+| Interface | Request and result |
+|---|---|
+| `POST /api/settings` | Adds the before-Start candidate settings above; changes after Start refused. Saving a remembered preference is explicit and checked against its own revision |
+| `POST /api/development-authorization` | Needs you only: `{ executionId, authorizationRevision, target, confirmedNonProduction: true }`; returns effective authorization; malformed/empty input 400, stale/wrong state 409, repository/base mismatch 422 |
+| `POST /api/delivery/assessment` | `{ executionId, revision, phaseId, documentsDigest, required, criteria, reason, checkpoints }`; validates plan/target references and records assessment; missing authorization can be recorded as a named blocker |
+| `POST /api/delivery/prepare` | `{ executionId, revision, checkpointId, operation }`; reconcile first, check grant/identity/dependencies and persist intent before returning `{ operationId, disposition: proceed \| already_observed \| unresolved, facts }` |
+| `POST /api/delivery/evidence` | `{ executionId, revision, checkpointId, operationId, references[] }`; references are candidate evidence, never trusted success booleans; returns reconciled facts |
+| `GET /api/delivery` | Effective authorization, ledger revision, assessments, checkpoint facts and unresolved work |
+
+CLI subcommands `assess`, `prepare`, `evidence` accept their structured payload as a JSON file; `status` reads the ledger. The command prints the authoritative result and exits nonzero on a refusal/unresolved preparation. Prepare is allowed only for the current session's judged leaf and assigned repositories; explicit manual recovery uses the stopped leaf. It refuses while a check/resume is in progress. Existing engine serialization covers state changes; no second execution coordinator is introduced. Evidence submission is idempotent by operation/source identity. The browser grant route is not part of this CLI.
+
+An operation already prepared with an unknown outcome never returns another `proceed` merely because the client retries. After interruption the engine first queries the external source or authoritative provider tool history. Only evidence that the operation was not accepted permits another attempt. If the source offers no way to distinguish not-started from accepted, Needs you names that ambiguity; Resume does not clear it. Provider IDs discovered after a crash can be adopted only when repository, target, revision and time/correlation identify a unique matching operation.
+
+All routes retain loopback, Host, Origin and token checks. Each remote read uses the existing bounded helper timeout. Malformed provider data is unresolved with its source named. A failed private-state write prevents dispatch authorization.
+
+## Evidence and Completion
+
+### Merge, deployment and verification are separate
+
+GitHub and Git facts establish delivery. Read the exact PR number once known; discover interrupted creations using repository, same-repository head branch, base and recorded head SHA across open/merged/closed results, with pagination. An open PR or closed-unmerged PR is never a merge. Capture `headRefOid`, `baseRefName`, `mergedAt`, `mergeCommit` and PR state; check the approved base's actual remote history contains the merge result. The PR's merged head must match the prepared checkpoint. Unexpected new commits or a foreign repository cannot be adopted. Preserve the original source head even when squash/rebase changed commit IDs.
+
+For deployment and verification, accept either of these concrete evidence forms:
+
+- A GitHub workflow run/job, deployment/status or check-run reference, reread through `gh api --hostname github.com` as structured provider data. Resolve the run's actual commit/artifact, destination environment, attempt and result, not just its workflow name or green conclusion. The project's documented workflow mapping must establish which deployment job targets the approved environment and which tests provide the required verification. A general successful CI run is insufficient.
+- A command/tool result from the recorded session's authoritative provider history, with call identity, executed command/arguments, working directory, start/end, exit status and retained output. The documented verification command and its output must identify the approved environment and the deployed revision/artifact; a pasted log, agent-written JSON or final success prose is insufficient. A missing result, hidden child call or uncertain target/revision remains unresolved. This supports documented project workflows without adding a provider framework.
+
+Store candidate references and independently resolved facts separately. Normalize both forms to the evidence record, retaining enough raw evidence for the person to inspect the reason. Verification must cover the checkpoint's deployed artifact and every required check, and occur after that deployment. For dependent repositories, bind verification to the prerequisite checkpoints/artifacts too. A failure in a prerequisite blocks dependent verification, without deleting other successful repository deliveries.
+
+A deployment is historical evidence, not a claim that a shared environment stays unchanged forever. Before unfinished dependent verification, reread the environment's current artifact; if it has changed, obtain evidence for the intended work on that artifact or carry out the documented deployment again under a newly prepared operation. An unknown current artifact cannot satisfy the dependency. Already completed verification retains its original time and artifact.
+
+### One evaluator at every transition
+
+The phase result retains Closed, Committed, Pushed and Stayed in the workspace, and adds **Required development delivery verified** for phases with obligations. Enabled phases also need a current assessment. A Closed document alone cannot advance the engine past an unresolved checkpoint. Use this same evaluation after sessions, on Check again, before manual/automatic resume, after manual work and during restart reconciliation. An unresolved earlier phase is considered before the next unclosed document: do not skip it merely because its Closed line was written early.
+
+Final evaluation covers every participating repository, all phase obligations and current workspace evidence. Read each feature head and remote state afresh. A remaining review PR must be open, non-draft, same repository, correct base and contain the current pushed head, not merely share a branch name. A delivered repository needs confirmed delivery coverage for all its work; a zero diff without delivery provenance does not manufacture a merge. A mixed result retains history plus its current review PR. Only unchanged repositories can be omitted. No finalization session starts when these predicates already pass; otherwise it receives exactly the unresolved evidence/PR/linking work. It receives no permission to merge a final review remainder simply to finish.
+
+For executions using this feature, `completedAt` is a historical completion fact, not an unconditional early return when reopening. Reconcile current heads and external evidence before claiming current completion. Retain the historical result with `checkedAt` and current unresolved facts if the worktree/evidence is unavailable; never recreate a missing workspace. New work invalidates current completion and is surfaced before skipping a reply. Restricted legacy completion remains its historical snapshot behavior. Read-only transient failure does not trigger a new delivery side effect or a speculative finalization session.
+
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check and §The Pull Requests (required development evidence and per-repository remaining-work result).
+
+Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does and §The Done Check (enabled executions reconcile previously completed results; restricted snapshots retained).
+
+Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (completion precheck uses current work and delivery evidence before dropping a note).
+
+## Continuing the Assigned Branch
+
+Keep the same local feature branch and worktree. After a confirmed merge, the session fetches the approved base without changing another checkout and merges that base into its assigned feature branch, then pushes normally. This makes the delivered base an ancestor for the next PR even after squash/rebase, while retaining original feature commits. Record the synchronization operation and both tips. Do not reset, rebase away accumulated work, delete a branch or force-push. Conflicts are resolved only within the assigned worktree through the normal engineering checks; uncertain or unrelated conflict resolution returns to Needs you.
+
+If GitHub deleted the remote feature branch, the local branch remains the work record. Once synchronization and local identity are checked, the session recreates only that same remote branch with a normal push. A remote name now pointing at unrelated work is a blocker. Until push is confirmed, Pushed still fails. Kiln itself does not mutate Git beyond its established workspace setup.
+
+For remaining-work comparison use the synchronized approved base and current feature head, plus the ledger's covered head/result pairs. Do not use only the original `baseCommit` or assume source-head ancestry in the target proves squash delivery. An empty content delta after synchronization is fully delivered only when ledger coverage accounts for the original source work; synchronization-only commits do not require an empty final PR. Any new content, including phase-document closures, needs its own coverage or a review PR. If a meaningful new commit's delivery cannot be distinguished from coincidentally equal trees, keep it unresolved rather than dropping it.
+
+Before a second checkpoint, reuse only a suitable open PR whose exact current head/base match. A merged PR stays history; create a new PR for remaining changes when needed. Avoid repeated already-delivered content in its diff. Cross-links include earlier merged PRs and present review PRs; the recorded `dependsOn` order comes from the technical design/requirements, and sessions perform needed deployments in that order.
+
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Design Decisions and §The Pull Requests (original-base changed-repository predicate and one final PR give way to checkpoint coverage and remaining work).
+
+## Display Contract
+
+The snapshot adds effective authorization, candidate/remembered settings before Start, per-repository results, checkpoints with separate merge/deploy/verification outcomes, missing-target grant requests and last-check/error facts. The view renders these facts; it never computes completion from PR state.
+
+Documents found and Settings show the approved targets and early/shared-environment disclosure. Needs you names the exact missing target, required approval or unresolved evidence; its grant controls are separate from reply/Resume. Recovery text contains the saved authority and identifies already confirmed operations so a person does not repeat them.
+
+Keep the existing six progress steps. Alongside them show the currently observed delivery activity with repository and target: **Merging**, **Deploying**, **Verifying**, or **Implementing** when further work starts. A prepared intent is “planned/awaiting evidence,” not an observed successful operation. A historical Push never stands in for delivery, and Follow-up remains independent. Phase details retain checkpoint links, revisions and failures through stops and restarts. Terminal events identify repository, environment and actual outcome with separate merge, deployment and verification lines.
+
+Completion uses **Development delivered**, **Ready for review**, or **Development delivered; review remaining** according to the repository results. Rows distinguish merged PRs from open review PRs. The final-session row is **Finalize delivery**, present only when there was finalization work; no invented session/duration when none ran. Keep agent identity, phase history and workspace-retention information. Existing mockups govern unaffected style/layout and are not rewritten as if this feature were already built.
+
+Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes, and §Workspace Evidence, Output and Progress → Live and saved output (additive delivery facts and activity).
+
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Command line, §Snapshot and §Screens (permission and mixed completion presentation).
+
+## Verification and Criteria Coverage
+
+Implementation must prove boundary behavior, not only prompts. Use real temporary Git repositories and bare origins for merge, squash and rebase outcomes, deleted remote branches, advancing bases and follow-up diffs. Use captured/verified GitHub contracts beside actual disposable non-production PR/deployment checks; no production writes. Real provider runs must prove the delivery command and authoritative command evidence with both Claude Code and Codex. Mock timeouts/failures supplement those integrations. A missing real boundary is reported as unproved, never covered by a success fixture alone. Run the repository's full verification gate before the implementation commit.
+
+| Criteria | Design contract and proof |
+|---|---|
+| AC-PERMIT-01, AC-PERMIT-02 | Authorization and Persistence; browser Start with off/default, unconfirmed/changed target refused, valid named target saved |
+| AC-PERMIT-03 | Target identity and project preferences; two projects and concurrent editors, matching reuse, changed target and preference not affecting an active execution |
+| AC-PERMIT-04, AC-PERMIT-05 | Execution grants; restart plus late repository, explicit grant persisted, Resume/note/preference cannot grant |
+| AC-DEV-01, AC-DEV-02, AC-DEV-04 | Session Contract; both providers deliver a needed checkpoint, protected/human-review block remains Needs you, final remainder stays open |
+| AC-DEV-03 | Evidence and Completion; merge succeeds/deploy fails, wrong artifact/environment, missing result and Closed-early cannot pass |
+| AC-DELIVER-01, AC-DELIVER-02 | Continuing the Assigned Branch; real Git variants, later change/new PR, deleted origin branch, closed-unmerged and collision cases |
+| AC-DELIVER-03 | Evidence and Completion; two-repository dependency with one failure, retained successful history and PR links/order |
+| AC-DELIVER-04 | One evaluator; all four PRD completion rows, exact current-head review coverage, zero-delta provenance and no needless final session |
+| AC-RECOVERY-01 | One authority statement; every launch/resume/fresh-session template for both providers, including an older restricted conversation receiving a new grant |
+| AC-RECOVERY-02, AC-RECOVERY-03 | Delivery Interface and One evaluator; kill before/after each remote acceptance/local save, unknown evidence, manual work, reopen, Check again and note-skipping prechecks |
+| AC-DISPLAY-01, AC-DISPLAY-02, AC-DISPLAY-03 | Display Contract; real browser interaction for Start/grant/recovery/mixed completion and terminal snapshots; unobserved activity never shown as completed |
+
+## Supersession Boundary
+
+All `Replaces in part:` lines in this design and the PRD take effect with implementation. Add reciprocal pointers to each then-current earlier owner in the same commit as its code change, never during drafting/refinement. Preserve the earlier text and restricted-mode contract. Check additional conflicts, including prior unconditional completion/display rules, before shipping.
+
+## Open Questions
+
+None requiring a product decision. AUTH-001 and AUTH-002 remain implementable assumptions awaiting validation. The real GitHub/provider evidence checks in Verification and Criteria Coverage are implementation proof obligations; this design does not claim they have run.
