@@ -142,9 +142,9 @@ export async function launchChrome(): Promise<HeadlessChrome> {
         },
         async screenshot() {
           const fullHeight = await evaluate<number>("Math.ceil(document.documentElement.scrollHeight)");
-          await send("Emulation.setDeviceMetricsOverride", { width, height: Math.max(height, fullHeight), deviceScaleFactor: 1, mobile: false }, sessionId);
-          const { data } = (await send("Page.captureScreenshot", { format: "png" }, sessionId)) as { data: string };
-          await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
+          // Capture beyond the viewport without resizing it: dvh layouts must keep their
+          // real dimensions, and a screenshot must not change live-scroll behavior.
+          const { data } = (await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height: Math.max(height, fullHeight), scale: 1 } }, sessionId)) as { data: string };
           return Buffer.from(data, "base64");
         },
         async close() {

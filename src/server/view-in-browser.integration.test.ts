@@ -371,26 +371,6 @@ const SCREENS: {
     ],
   },
   {
-    name: "phase-detail-live",
-    mockup: "kiln-screen-phase-detail-live.html",
-    snapshot: runningSnapshot,
-    path: "/phase/2b",
-    // The mockup's last line is the reviewer's text as it is being written.
-    partial: { source: "reviewer", text: "The credit multiplier is applied before rounding; checking that against " },
-    // Assumptions, item 11: Kiln can't see what the reviewer is reading, only that it works.
-    // Live text is stamped with the page's clock, 11:47:00, where the mockup's sample reads 11:46:58.
-    decided: { "deliverable-review skill started; its reviewer subagent is reading the changed files": "deliverable-review skill started; its reviewer subagent is working", "11:46:58": "11:47:00" },
-    copy: [
-      "All phases 2b Store credit Implementing Phase 2b of 5 · Claude Code · Started 10:58 AM · 49 min",
-      "Session output LIVE Latest of 1,284 lines Load earlier",
-      "11:44:02 tool Bash pytest tests/returns -k store_credit -q 11:44:09 out 23 passed in 4.81s 11:44:15 claude AC-RET-08 to AC-RET-10 have passing tests. Running deliverable review now. 11:44:16 skill Skill deliverable-review",
-      "Progress Read from the session’s tool calls and Git Build implement-from-requirements skill started 10:58 skill call Deliverable review deliverable-review skill started; its reviewer subagent is working 11:44 skill call Test hardening Starts when the session calls the test-hardening skill Commit Kiln sees the session’s first git commit",
-      "Pause after this phase Phase 2b still finishes its commit and push. Nothing is cut off mid-step.",
-      "Session Session ID 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Model and effort Opus 5.5 · high effort Started 10:58 AM · 49 min If the phase stops before it’s done, Kiln hands you the command that opens this exact session.",
-      "Commits None for this phase yet. The feature commit comes after test hardening.",
-    ],
-  },
-  {
     name: "paused",
     mockup: "kiln-screen-paused.html",
     // The mockup draws phase 2a's Details open.
@@ -742,11 +722,160 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
   });
 });
 
+describe("the bounded terminal viewer", () => {
+  it("clamps wrapped commands on narrow screens and preserves child and error identities", async () => {
+    const output: OutputLine[] = [
+      { line: 1, at: "2026-10-17T15:40:00Z", source: "tool", text: "Bash "+"long-argument ".repeat(15) },
+      { line: 2, at: "2026-10-17T15:40:01Z", source: "stderr", text: "The process reported an error." },
+      { line: 3, at: "2026-10-17T15:40:02Z", source: "subagent", threadId: "child-7", timestampSource: "recovery", text: "A detailed child report. ".repeat(40) },
+      { line: 4, at: "2026-10-17T15:40:03Z", source: "out", text: "Result details. ".repeat(40) },
+    ];
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), output });
+    const page = await chrome.open(`${server.address}/phase/2b`, { width: 390, height: 844, clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.querySelector('[data-output-entry="1"] .expand')`);
+      const preview = await page.evaluate<number[]>(`(() => { const e = document.querySelector('[data-output-entry="1"] .entry-text'); return [e.clientHeight, parseFloat(getComputedStyle(e).lineHeight)]; })()`);
+      expect(preview[0]).toBeLessThanOrEqual(preview[1]! * 2 + 1);
+      expect(await words(page)).toContain("subagent [child-7]");
+      expect(await words(page)).toContain("recovered now; item time unavailable");
+      expect(await page.evaluate<string>(`getComputedStyle(document.querySelector('.warning .text')).color`)).toBe(AMBER);
+      await page.evaluate(`document.querySelector('[data-output-entry="1"] .expand').click()`);
+      await page.waitFor(`document.querySelector('[data-output-entry="1"] .expand').getAttribute('aria-expanded') === 'true'`);
+      expect(await page.evaluate<number>(`document.querySelector('[data-output-entry="1"] .entry-text').clientHeight`)).toBeGreaterThan(preview[0]!);
+      for (const line of [3, 4]) {
+        const selector = `[data-output-entry="${line}"]`;
+        const original = output[line - 1]!.text;
+        const collapsed = await page.evaluate<number[]>(`(() => { const e = document.querySelector('${selector} .entry-text'); return [e.clientHeight, parseFloat(getComputedStyle(e).lineHeight), e.querySelector('.text').textContent.length]; })()`);
+        expect(collapsed[0]).toBeLessThanOrEqual(collapsed[1]! * (line === 3 ? 4 : 3) + 1);
+        expect(collapsed[2]).toBeLessThanOrEqual(601); // 600 characters plus the ellipsis.
+        await page.evaluate(`document.querySelector('${selector} .expand').click()`);
+        await page.waitFor(`document.querySelector('${selector} .expand').getAttribute('aria-expanded') === 'true'`);
+        expect(await page.evaluate<string>(`document.querySelector('${selector} .text').textContent`)).toBe(original);
+        await page.evaluate(`document.querySelector('${selector} .expand').click()`);
+        await page.waitFor(`document.querySelector('${selector} .expand').getAttribute('aria-expanded') === 'false'`);
+        expect(await page.evaluate<string>(`document.querySelector('${selector} .text').textContent`)).not.toBe(original);
+      }
+      expect(await page.evaluate<boolean>(`document.documentElement.scrollWidth <= innerWidth`)).toBe(true);
+      expect(page.problems).toEqual([]);
+      if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, "terminal-viewer-mobile.png"), await page.screenshot());
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("shows a bounded tail, holds the reader's place during updates, expands scripts, and resumes following", async () => {
+    const many: OutputLine[] = Array.from({ length: 250 }, (_, i) => ({ line: i + 1, at: "2026-10-17T15:40:00Z", source: "out", text: `entry ${i + 1}` }));
+    many[248] = { ...many[248]!, source: "tool", text: `Bash python3 - <<'PY'\n${Array.from({ length: 12 }, (_, i) => `print(${i})`).join("\n")}\nEND_OF_SCRIPT\nPY` };
+    const snapshot = runningSnapshot();
+    snapshot.current!.latestLine = many.at(-1)!;
+    const { server, page } = await openScreen(snapshot, "/phase/2b", RUNNING_NOW, many);
+    try {
+      await page.waitFor(`document.querySelectorAll('[data-output-entry]').length === 100`);
+      await page.waitFor(`document.querySelector('.viewport').scrollTop > 0`);
+      expect(await words(page)).toContain(flat("Showing latest 100 of 250 entries"));
+      expect(await words(page)).not.toContain("load earlier");
+      expect(await page.evaluate<string>(`document.querySelector('[data-output-entry]').dataset.outputEntry`)).toBe("151");
+      expect(await page.evaluate<number>(`document.querySelectorAll('.output time').length`)).toBe(0);
+      const dimensions = await page.evaluate<number[]>(`[document.querySelector('.viewport').clientHeight, innerHeight, document.querySelector('.viewport').scrollHeight]`);
+      expect(dimensions[0]).toBeCloseTo(dimensions[1]! * 0.6, 0);
+      expect(dimensions[2]).toBeGreaterThan(dimensions[0]!);
+      expect(await page.evaluate<string>(`document.querySelector('[data-output-entry="249"]').innerText`)).not.toContain("END_OF_SCRIPT");
+      await page.evaluate(`document.querySelector('[data-output-entry="249"] .expand').click()`);
+      await page.waitFor(`document.querySelector('[data-output-entry="249"]').innerText.includes('END_OF_SCRIPT')`);
+      expect(await words(page)).toContain(flat("Scroll paused · Live updates continue"));
+      const heldTop = await page.evaluate<number>(`document.querySelector('[data-output-entry="249"]').getBoundingClientRect().top`);
+      server.send("output", { sessionId: snapshot.current!.sessionId, lines: [{ ...many[0], line: 251, text: "update while expanded" }] });
+      await page.waitFor(`document.querySelector('[data-output-entry="251"]')`);
+      expect(Math.abs(await page.evaluate<number>(`document.querySelector('[data-output-entry="249"]').getBoundingClientRect().top`) - heldTop)).toBeLessThan(1);
+      expect(await words(page)).toContain(flat("Scroll paused · Live updates continue"));
+      await page.evaluate(`document.querySelector('[data-output-entry="249"] .expand').click()`);
+      await page.waitFor(`!document.querySelector('[data-output-entry="249"]').innerText.includes('END_OF_SCRIPT')`);
+      await click(page, "Jump to latest ↓");
+      await page.evaluate(`document.querySelector('.options input').click()`);
+      await page.waitFor(`document.querySelectorAll('.output time').length === 100`);
+      await page.evaluate(`const pane = document.querySelector('.viewport'); const entry = document.querySelector('[data-output-entry="200"]'); pane.scrollTop += entry.getBoundingClientRect().top - pane.getBoundingClientRect().top; pane.dispatchEvent(new Event('scroll')); true`);
+      await page.waitFor(`document.querySelector('.jump')`);
+      const anchor = await page.evaluate<number>(`document.querySelector('[data-output-entry="200"]').getBoundingClientRect().top`);
+      server.send("output", { sessionId: snapshot.current!.sessionId, lines: Array.from({ length: 20 }, (_, i) => ({ ...many[0], line: 251 + i, text: `new entry ${251 + i}` })) });
+      await page.waitFor(`document.querySelector('[data-output-entry="270"]')`);
+      // Chrome rounds scrollTop to device pixels; preserve position within one CSS pixel.
+      expect(Math.abs(await page.evaluate<number>(`document.querySelector('[data-output-entry="200"]').getBoundingClientRect().top`) - anchor)).toBeLessThan(1);
+      expect(await page.evaluate<number>(`document.querySelectorAll('[data-output-entry]').length`)).toBe(100);
+      expect(await words(page)).toContain(flat("Showing latest 100 of 270 entries"));
+      await click(page, "Jump to latest ↓");
+      await page.waitFor(`document.querySelector('.viewport').scrollHeight - document.querySelector('.viewport').scrollTop - document.querySelector('.viewport').clientHeight < 2`);
+      server.send("output", { sessionId: snapshot.current!.sessionId, lines: [{ ...many[0], line: 271, text: "entry after resumed following" }] });
+      await page.waitFor(`document.querySelector('[data-output-entry="271"]') && document.querySelector('.viewport').scrollHeight - document.querySelector('.viewport').scrollTop - document.querySelector('.viewport').clientHeight < 2`);
+      expect(page.problems).toEqual([]);
+      if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, "terminal-viewer.png"), await page.screenshot());
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("opens the active phase from the plan and keeps the main preview height stable", async () => {
+    const snapshot = runningSnapshot();
+    const { server, page } = await openScreen(snapshot);
+    try {
+      await page.waitFor(`document.querySelector('.latest')`);
+      const height = await page.evaluate<number>(`document.querySelector('.latest').getBoundingClientRect().height`);
+      const previewLines = await page.evaluate<number>(`(() => { const e = document.querySelector('.latest'); const s = getComputedStyle(e); return (e.getBoundingClientRect().height - parseFloat(s.paddingTop) - parseFloat(s.borderTopWidth)) / parseFloat(s.lineHeight); })()`);
+      expect(previewLines).toBeCloseTo(3, 2);
+      snapshot.current!.latestLine = { ...snapshot.current!.latestLine!, text: "A much longer update. ".repeat(100) };
+      server.send("snapshot", snapshot);
+      await page.waitFor(`document.querySelector('.latest').textContent.includes('A much longer update.')`);
+      expect(await page.evaluate<number>(`document.querySelector('.latest').getBoundingClientRect().height`)).toBe(height);
+      await page.evaluate(`document.querySelector('[data-phase="2b"] a').click()`);
+      await page.waitFor(`location.pathname.endsWith('/phase/2b') && document.querySelector('.viewport')`);
+      expect(await page.evaluate<string>(`document.querySelector('h2').textContent`)).toBe("Store credit");
+      expect(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h2')).fontSize)`)).toBeGreaterThan(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h1')).fontSize)`));
+      await page.evaluate(`document.querySelector('.back').click()`);
+      await page.waitFor(`location.pathname === '/customer-returns'`);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("opens interrupted and stopped session details from a disconnected phase plan", async () => {
+    for (const snapshot of [runningSnapshot(), needsYouMessageSnapshot()]) {
+      const { server, page } = await openScreen(snapshot);
+      try {
+        await page.waitFor(`document.body.innerText.includes('Connected to Kiln')`);
+        await server.close();
+        await page.waitFor(`document.querySelector('[data-phase="2b"] a') && document.body.innerText.includes('Disconnected from Kiln')`);
+        expect(await page.evaluate<string>(`getComputedStyle(document.querySelector('[data-phase="2b"] a span'), '::after').content`)).toContain("›");
+        await page.evaluate(`document.querySelector('[data-phase="2b"] a').click()`);
+        await page.waitFor(`location.pathname.endsWith('/phase/2b') && document.querySelector('.output')`);
+        expect(await page.evaluate<string>(`document.querySelector('.phase h2').textContent`)).toBe("Store credit");
+        expect(await page.evaluate<string>(`document.querySelector('.back').textContent.trim()`)).toBe(snapshot.needsYou ? "Needs you" : "All phases");
+      } finally { await page.close(); await server.close(); }
+    }
+  });
+
+  it("refreshes only the latest tail after a long disconnection", async () => {
+    const port = await nextPort();
+    const snapshot = runningSnapshot();
+    const many: OutputLine[] = Array.from({ length: 500 }, (_, i) => ({ line: i + 1, at: "2026-10-17T15:40:00Z", source: "out", text: `reconnect entry ${i + 1}` }));
+    snapshot.current!.latestLine = many[99]!;
+    let server = await serveViewFixture({ port, folder: "customer-returns", snapshot, output: many.slice(0, 100) });
+    const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.querySelector('[data-output-entry="100"]')`);
+      await server.close();
+      await page.waitFor(`document.body.innerText.includes('Disconnected from Kiln')`);
+      snapshot.current!.latestLine = many[499]!;
+      server = await serveViewFixture({ port, folder: "customer-returns", snapshot, output: many });
+      await page.waitFor(`document.querySelector('[data-output-entry="500"]')`);
+      expect(await page.evaluate<string[]>(`Array.from(document.querySelectorAll('[data-output-entry]'), e => e.dataset.outputEntry)`)).toEqual(Array.from({ length: 100 }, (_, i) => String(401 + i)));
+      expect(await words(page)).toContain("showing latest 100 of 500 entries");
+      expect(await words(page)).not.toContain("load earlier");
+      const requests = await page.evaluate<string[]>(`performance.getEntriesByType('resource').map(e => e.name).filter(name => name.includes('/output?'))`);
+      expect(requests).toHaveLength(2);
+      for (const request of requests) { expect(new URL(request).searchParams.get("limit")).toBe("100"); expect(new URL(request).searchParams.has("before")).toBe(false); }
+    } finally { await page.close(); await server.close(); }
+  });
+});
+
 describe("live output and the phase route", () => {
   it("shows Claude's text as it is written, then its finished line in its place (AC-WATCH-05)", async () => {
     const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
     try {
-      await page.waitFor(`document.body.innerText.includes("Read src/returns/models.py")`);
+      await page.waitFor(`document.body.innerText.includes("Read(src/returns/models.py)")`);
       const sessionId = runningSnapshot().current!.sessionId;
       server.send("partial", { sessionId, source: "reviewer", text: "The credit multiplier " });
       server.send("partial", { sessionId, source: "reviewer", text: "is applied before rounding" });
@@ -755,7 +884,8 @@ describe("live output and the phase route", () => {
       await page.waitFor(`document.body.innerText.includes("checking that against the spec.")`);
       const text = await words(page);
       expect(text.match(/the credit multiplier is applied before rounding/g)).toHaveLength(1);
-      expect(text).toContain(flat("11:46:58 reviewer The credit multiplier is applied before rounding; checking that against the spec."));
+      expect(text).toContain(flat("The credit multiplier is applied before rounding; checking that against the spec. · reviewer"));
+      if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, "terminal-viewer-default.png"), await page.screenshot());
     } finally {
       await page.close();
       await server.close();
@@ -769,7 +899,7 @@ describe("live output and the phase route", () => {
       await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
       const text = await words(page);
       expect(text).toContain(flat("Needs you 2b Store credit Needs you Phase 2b of 5 · Claude Code · Started 10:58 AM · 54 min"));
-      expect(text).toContain(flat("Session output Latest of 612 lines Load earlier"));
+      expect(text).toContain(flat("Session output Timestamps Showing 7 of 612 entries Load earlier"));
       expect(text).toContain(flat("Progress Read from the session’s tool calls and Git Build implement-from-requirements skill started 10:58 skill call Deliverable review deliverable-review skill started 11:44 skill call"));
       expect(text).toContain(flat("Session Session ID 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Model and effort Opus 5.5 · high effort Started 10:58 AM · 54 min Commits None for this phase."));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
@@ -793,7 +923,7 @@ describe("live output and the phase route", () => {
       server.send("snapshot", needsYouMessageSnapshot());
       await page.waitFor(`document.querySelector("main a")?.textContent.trim() === "Needs you"`);
       expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
-      expect(await words(page)).toContain(flat("11:44:09 out 23 passed in 4.81s"));
+      expect(await words(page)).toContain(flat("23 passed in 4.81s"));
     } finally {
       await page.close();
       await server.close();
@@ -805,7 +935,7 @@ describe("live output and the phase route", () => {
     let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
-      await page.waitFor(`document.body.innerText.includes("Read src/returns/models.py")`);
+      await page.waitFor(`document.body.innerText.includes("Read(src/returns/models.py)")`);
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const missed = [
@@ -815,8 +945,8 @@ describe("live output and the phase route", () => {
       server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: [...PHASE_DETAIL_LINES, ...missed], heartbeatMs: 500 });
       await page.waitFor(`document.body.innerText.includes("Fixing the rounding order.")`, 20_000);
       const text = await words(page);
-      expect(text).toContain(flat("11:46:22 reviewer Read src/returns/models.py 11:46:58 reviewer The credit multiplier is applied before rounding. 11:47:30 claude Fixing the rounding order."));
-      expect(text.match(/read src\/returns\/models\.py/g)).toHaveLength(1);
+      expect(text).toContain(flat("Read(src/returns/models.py) · reviewer ● The credit multiplier is applied before rounding. · reviewer ● Fixing the rounding order."));
+      expect(text.match(/read\(src\/returns\/models\.py\)/g)).toHaveLength(1);
     } finally {
       await page.close();
       await server.close();
@@ -1109,14 +1239,16 @@ describe("the controls, in a real browser", () => {
     }
   });
 
-  it("loads earlier output on request, before the lines already shown (AC-WATCH-05)", async () => {
+  it("loads earlier stopped-session output on request, before the entries already shown (AC-WATCH-10)", async () => {
     const many = Array.from({ length: 250 }, (_, index) => ({ line: index + 1, at: "2026-10-17T15:40:00Z", source: "out" as const, text: `output line ${index + 1}.` }));
     const snapshot = runningSnapshot();
     snapshot.current!.latestLine = many.at(-1)!;
-    const { server, page } = await openScreen(snapshot, "/phase/2b", RUNNING_NOW, many);
+    const stopped = needsYouMessageSnapshot();
+    stopped.needsYou!.outputLineCount = 250;
+    const { server, page } = await openScreen(stopped, "/phase/2b", RUNNING_NOW, many);
     try {
       await page.waitFor(`document.body.innerText.includes("output line 250.")`);
-      expect(await words(page)).toContain(flat("Latest of 250 lines Load earlier"));
+      expect(await words(page)).toContain(flat("Showing 200 of 250 entries Load earlier"));
       expect(await words(page)).not.toContain(flat("output line 50."));
       await click(page, "Load earlier");
       await page.waitFor(`document.body.innerText.includes("output line 1.")`);
@@ -1216,15 +1348,16 @@ describe("the look (AC-LOOK-04)", () => {
     try {
       await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
       const style = (selector: string, property: string) => page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`);
-      expect(await style("h1", "fontFamily")).toMatch(/^"Instrument Serif"/);
+      expect(await style("h2", "fontFamily")).toMatch(/^"Instrument Serif"/);
+      expect(await style("h1", "fontFamily")).toMatch(/^Inter/);
       expect(await style("body", "fontFamily")).toMatch(/^Inter/);
       expect(await style(".lines", "fontFamily")).toMatch(/^"JetBrains Mono"/);
       // Red: the phase in progress and links.
       expect(await style(".circle", "backgroundColor")).toBe("rgb(226, 105, 79)");
       expect(await style(".pill", "backgroundColor")).toBe("rgb(226, 105, 79)");
-      // Session output labels as the mockups color them (UI-010 item 1: subagent like tool).
-      const labels = await page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll(".lines .source")].map((label) => [label.textContent, getComputedStyle(label).color]))`);
-      expect(labels).toEqual({ tool: "rgb(140, 133, 119)", out: "rgb(156, 196, 154)", claude: "rgb(226, 105, 79)", skill: "rgb(237, 232, 221)", reviewer: "rgb(230, 180, 80)" });
+      // The compact terminal uses a neutral tool name and explicit reviewer identity.
+      expect(await style(".tool-name", "color")).toBe("rgb(237, 232, 221)");
+      expect(await style(".origin.reviewer", "color")).toBe("rgb(230, 180, 80)");
     } finally {
       await page.close();
       await server.close();
@@ -1377,9 +1510,8 @@ describe("the look, beyond the progress screen (AC-LOOK-04)", () => {
     const detail = await openScreen(runningSnapshot(), "/phase/2b", RUNNING_NOW, lines);
     try {
       await detail.page.waitFor(`document.body.innerText.includes("Reading the store-credit tests.")`);
-      const labels = await detail.page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll(".lines .source")].map((label) => [label.textContent, getComputedStyle(label).color]))`);
-      expect(labels.subagent).toBe(labels.tool);
-      expect(labels.tool).toBe("rgb(140, 133, 119)");
+      const colors = await detail.page.evaluate<string[]>(`[getComputedStyle([...document.querySelectorAll('.output .origin')].find(e => e.textContent.includes('subagent'))).color, getComputedStyle(document.querySelector('.output .call .glyph')).color]`);
+      expect(colors).toEqual(["rgb(140, 133, 119)", "rgb(140, 133, 119)"]);
     } finally {
       await detail.page.close();
       await detail.server.close();

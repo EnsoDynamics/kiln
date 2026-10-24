@@ -57,7 +57,7 @@
   }
 </script>
 
-<main class="page-main roomy">
+<main class="page-main detail-page">
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId)} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
   <section class="phase">
@@ -69,7 +69,7 @@
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
-  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} total={session.total} {now} />{/key}
+  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={!stopped} total={session.total} {now} />{/key}
   <div class="columns-main">
     {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">
@@ -118,11 +118,13 @@
 {/snippet}
 
 <style>
-  .phase { display: flex; flex-direction: column; gap: 16px; padding-top: 28px; border-top: 1px solid var(--line); }
-  .back { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; color: var(--muted); text-decoration: none; align-self: flex-start; }
+  .detail-page { gap: 20px; padding-top: 24px; }
+  .phase { display: flex; flex-direction: column; gap: 12px; }
+  .back { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 13.5px; font-weight: 600; color: var(--text); text-decoration: none; align-self: flex-start; }
+  .back:hover { background: var(--panel); }
   .name { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
-  h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(32px, 4vw, 42px); line-height: 1.05; color: var(--text); }
-  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 14px; color: var(--muted); }
+  h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 3.4vw, 36px); line-height: 1.1; color: var(--text); }
+  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--muted); }
   .dot { font-size: 15px; color: var(--dim); }
   .pause { display: flex; flex-direction: column; gap: 10px; }
   .reason { font-size: 12.5px; color: var(--amber); }

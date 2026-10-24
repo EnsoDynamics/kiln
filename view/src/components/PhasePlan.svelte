@@ -6,6 +6,8 @@
   // its Details list them, and the pull-request row counts the pull requests (multi-repo AC-PRS-03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { detailRows, openedLabel, rowFacts, rowPill, rowState, type RowState } from "../lib/progress.js";
+  import { phasePath, routedClick } from "../lib/router.svelte.js";
+  import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
   import type { IconName } from "./Icon.svelte";
   import PhaseCircle, { type CircleTone } from "./PhaseCircle.svelte";
@@ -13,6 +15,7 @@
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
   const opened = $derived(openedLabel(snapshot));
+  const { config, router } = viewContext();
 
   const LOOKS: Record<RowState, { circle: CircleTone; pill: PillTone; icon?: IconName }> = {
     done: { circle: "done", pill: "green-tint", icon: "check" },
@@ -33,10 +36,12 @@
       {@const state = rowState(row, connected)}
       {@const look = LOOKS[state]}
       {@const facts = rowFacts(row, state, now)}
+      {@const accessible = snapshot.current?.phaseId === row.id || ((snapshot.needsYou?.sessionId || snapshot.waiting?.sessionId) && (snapshot.needsYou?.phaseId === row.id || snapshot.waiting?.phaseId === row.id))}
+      {@const link = phasePath(config.base, row.id)}
       <li data-phase={row.id}>
         <div class="row">
           <PhaseCircle id={row.id} tone={look.circle} />
-          <span class="names"><span class="title" class:quiet={state === "planned"}>{row.title}</span><span class="file mono">{row.file}</span></span>
+          <span class="names">{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}<span class="file mono">{row.file}</span></span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
             <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>
@@ -59,6 +64,9 @@
   .names { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .title { font-size: 16px; font-weight: 500; color: var(--text); }
   .title.quiet { color: var(--dim); }
+  .phase-link { text-decoration: none; }
+  .phase-link:hover { color: var(--red); text-decoration: underline; }
+  .phase-link > span::after { content: " ›"; color: var(--red); }
   .file { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .state { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
   .facts { font-size: 13px; color: var(--dim); white-space: nowrap; }

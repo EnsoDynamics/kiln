@@ -99,14 +99,15 @@ it("keeps Codex session facts, next choices and account guidance distinct across
       expect(await page.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
       const detail = await chrome.open(server.address + "/phase/2b", { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
       try {
-        await detail.waitFor(`document.querySelectorAll('.output .source').length === 4`);
-        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output .source'),e=>e.textContent)`)).toEqual(["claude", "stderr", "out", "Codex"]);
+        await detail.waitFor(`document.querySelectorAll('.output [data-source]').length === 4`);
+        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.dataset.source)`)).toEqual(["claude", "stderr", "out", "codex"]);
+        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.getAttribute('aria-label'))`)).toEqual(["Claude entry", "stderr entry", "out entry", "Codex entry"]);
         const text = await detail.evaluate<string>(`document.body.textContent`);
         for (const expected of ["codex-local-screen", "codex-native-screen", "GPT-6.1-Sol · high effort", "Requested: gpt-6.1-sol · high effort", "Effective configuration: gpt-6.1-sol · high effort", "Observed turn screen-turn: gpt-6.1-sol · high effort", "10:58 AM", "Provider error detail", "Expected command output; exit 0"]) expect(text).toContain(expected);
         expect(text).not.toContain("GPT-6-Luna");
         server.send("output", { sessionId: "codex-local-screen", lines: [{ line: 5, at: "2026-10-17T15:47:00Z", source: "codex", text: "Live Codex result" }] });
         await detail.waitFor(`document.body.textContent.includes('Live Codex result')`);
-        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output .source'),e=>e.textContent).at(-1)`)).toBe("Codex");
+        expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.getAttribute('aria-label')).at(-1)`)).toBe("Codex entry");
         expect(detail.problems).toEqual([]);
       } finally { await detail.close(); }
       const paused = codex(pausedSnapshot()); paused.account = running.account; paused.settings.model = running.settings.model; paused.settings.effort = "low";

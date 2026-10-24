@@ -73,7 +73,7 @@
   .seen-text { font-size: 14px; color: var(--muted); }
   strong { color: var(--text); font-weight: 600; }
   .watch { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--red); text-decoration: none; }
-  .latest { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .latest { font-size: 12.5px; line-height: 1.6; height: calc(4.8em + 13px); box-sizing: border-box; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .time, .dim { color: var(--dim); }
   .red { color: var(--red); }
   .green { color: var(--green); }
