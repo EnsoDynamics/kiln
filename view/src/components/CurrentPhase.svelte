@@ -8,7 +8,7 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { commitsAcross, commitsByRepository, commitsLine, modelAndEffort, phaseOfTotal, PR_ID, type DetailRow } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
-  import { ago, clockTime, elapsed, outputTime } from "../lib/time.js";
+  import { ago, clockTime, elapsed, outputTime, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
   import Icon from "./Icon.svelte";
@@ -48,12 +48,12 @@
       <PhaseCircle id={current.phaseId} tone={connected ? "implementing" : "amber"} />
       <div class="words"><span class="eyebrow">{connected ? "Now implementing" : "Last seen"} · {phaseOfTotal(snapshot, current.phaseId)}</span><h2 id="now-h">{row?.title ?? ""}</h2></div>
     </div>
-    <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {elapsed(now - Date.parse(current.startedAt))}{/if}</span>
+    <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}</span>
   </div>
-  {#if !isPr}<StepsRow steps={current.steps} live={connected} />{/if}
+  {#if !isPr}<StepsRow steps={current.steps} live={connected} followUp={current.followUp} />{/if}
   {#if current.seenInSession || connected}
     <div class="seen">
-      {#if current.seenInSession}<span class="seen-text">Seen in the session: <strong>{current.seenInSession.text}</strong> · {ago(current.seenInSession.at, nowDate)}</span>{:else}<span></span>{/if}
+      {#if current.seenInSession}<span class="seen-text">{current.followUp ? "Previously seen" : "Seen in the session"}: <strong>{current.seenInSession.text}</strong> · {ago(current.seenInSession.at, nowDate)}</span>{:else}<span></span>{/if}
       {#if connected}<a class="watch" href={link} onclick={(event) => routedClick(event, router, link)}>Watch live<Icon name="arrow" strokeWidth={1.9} /></a>{/if}
     </div>
   {/if}

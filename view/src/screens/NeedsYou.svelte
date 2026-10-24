@@ -41,7 +41,7 @@
   import { viewContext } from "../lib/view-context.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
-  const { config, router } = viewContext();
+  const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository));
@@ -75,9 +75,11 @@
 
   async function pressResume() {
     resuming = true;
+    if (connection) connection.notice = undefined;
     const answer = await resume(config, note);
     resuming = false;
     resumeReason = answer.ok ? undefined : answer.reason;
+    if (answer.ok && answer.noteSkipped && connection) connection.notice = "Your reply was not sent: the work was already complete, so Kiln continued the plan.";
   }
 
   async function pressCheckAgain() {
@@ -158,12 +160,13 @@
           </ol>
           <LimitAccount limit={stop.limit} footnote={limitCopy.footnote} />
           <label class="note-field">
-            <span class="note-label">Anything to tell the session first? <span class="optional">Optional</span></span>
-            <textarea rows="3" placeholder={copy.notePlaceholder} bind:value={note}></textarea>
+            <span class="note-label">Your reply to {accountAgent} <span class="optional">Optional</span></span>
+            <textarea rows="3" placeholder={copy.notePlaceholder} maxlength={4000} bind:value={note}></textarea>
           </label>
+          <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
             <!-- The amber line never holds Resume (AC-LIMIT-03). -->
-            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />Resume</button>
+            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
           </div>
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
@@ -172,15 +175,16 @@
         <section class="card resume">
           <span class="eyebrow">Let Kiln carry on</span>
           <div class="resume-head">
-            <span class="step-title">Resume this session in Kiln</span>
+            <span class="step-title">Reply and continue in Kiln</span>
             <p>{copy.resumeText}</p>
           </div>
           <label class="note-field">
-            <span class="note-label">Anything to tell the session first? <span class="optional">Optional</span></span>
-            <textarea rows="3" placeholder={copy.notePlaceholder} bind:value={note}></textarea>
+            <span class="note-label">Your reply to {accountAgent} <span class="optional">Optional</span></span>
+            <textarea rows="3" placeholder={copy.notePlaceholder} maxlength={4000} bind:value={note}></textarea>
           </label>
+          <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
-            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />Resume</button>
+            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             <span class="hint">Uses whichever {accountAgent} account is signed in now. Close the session first if you opened it in a terminal.</span>
           </div>
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
@@ -305,6 +309,7 @@
   pre.prompt { font-size: 12.5px; color: var(--muted); }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
   .hint { font-size: 13px; color: var(--dim); }
+  .resume > p.hint { margin: 0; line-height: 1.6; }
   .at-limit { font-size: 13px; color: var(--amber); }
   .fresh-link { font: inherit; font-size: 13px; color: var(--dim); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; align-self: flex-start; }
   .fresh-link span { color: var(--red); font-weight: 600; }

@@ -2,7 +2,7 @@
 process.env.TZ = "America/New_York";
 
 import { describe, expect, it } from "vitest";
-import { ago, clockTime, countdown, earlier, elapsed, limitTime, outputTime, resetsIn, shortDuration, stepTime, timeSpan } from "./time.js";
+import { ago, clockTime, countdown, earlier, elapsed, limitTime, outputTime, resetsIn, shortDuration, stepTime, timeSpan, timingText } from "./time.js";
 
 const now = new Date("2026-10-17T15:47:00Z"); // Saturday 11:47 AM in New York
 
@@ -57,5 +57,17 @@ describe("a usage limit's times (usage-limit recovery AC-LIMIT-01)", () => {
     expect(countdown("2026-10-17T16:00:00Z", now)).toBe("13m");
     expect(countdown("2026-10-19T19:47:00Z", now)).toBe("2d 4h");
     expect(countdown("2026-10-19T15:47:00Z", now)).toBe("2d");
+  });
+});
+
+describe("running and waiting clocks", () => {
+  it("ticks only the active clock, freezes at disconnect, and never advances completed totals", () => {
+    const asOf = "2026-10-24T12:00:00Z";
+    const now = Date.parse(asOf);
+    const timing = { runningMs: 90 * 60_000, waitingMs: 9 * 3_600_000, asOf };
+    expect(timingText({ ...timing, advancing: "running" }, now + 30 * 60_000)).toBe("2h running · 9h waiting");
+    expect(timingText({ ...timing, advancing: "waiting" }, now + 30 * 60_000)).toBe("1h 30m running · 9h 30m waiting");
+    expect(timingText({ ...timing, advancing: "running" }, now)).toBe("1h 30m running · 9h waiting");
+    expect(timingText(timing, now + 3_600_000)).toBe("1h 30m running · 9h waiting");
   });
 });

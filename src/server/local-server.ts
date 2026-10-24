@@ -248,7 +248,7 @@ function commandRefused(c: Context, result: Extract<CommandResult, { ok: false }
 }
 
 function answer(c: Context, result: CommandResult) {
-  return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
+  return result.ok ? c.json(result) : commandRefused(c, result);
 }
 
 async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined> {

@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, writeSessionRecord } from "../state/records.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { createRepository, git } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
@@ -58,7 +58,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     // The same session, resumed with its own concrete model, its note first, in the person's words, trimmed.
     const calls = h.claudeCalls();
     expect(calls[1]!.args).toEqual(expect.arrayContaining(["--resume", session.sessionId, "--model", "claude-opus-5-5"]));
-    expect(calls[1]!.prompt).toBe(`The person running Kiln says:\n\nUse the fields in the returns form mockup.\n\n${stoppedOpening(endedAt)} ${CARRY_ON}`);
+    expect(calls[1]!.prompt.split("\n\nThis session runs unattended.")[0]).toBe(`The person running Kiln says:\n\nUse the fields in the returns form mockup.\n\n${stoppedOpening(endedAt)} ${CARRY_ON}`);
     const runs = h.engine.latestSession("1")!.runs;
     expect(runs).toHaveLength(2);
     expect(runs[1]).toMatchObject({ cause: "person_resume", note: "Use the fields in the returns form mockup." });
@@ -78,7 +78,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     await h.engine.settled();
     finishByHand(h, h.engine);
 
-    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true });
+    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true, noteSkipped: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
@@ -238,6 +238,10 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
       `${stoppedOpening(session.runs[0]!.endedAt!)} Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.`,
     );
     expect(h.engine.record.completedAt).toBeDefined();
+    const completed = buildSnapshot(h.engine);
+    expect(completed.feature.timing).toMatchObject({ asOf: h.engine.record.completedAt });
+    expect(completed.feature.timing!.advancing).toBeUndefined();
+    expect(completed.phases.filter(phase => phase.timing).every(phase => phase.timing!.advancing === undefined)).toBe(true);
     expect(phaseEvents(h).slice(-3)).toEqual(["PR stopped", "PR resumed", "PR opened"]);
   });
 
@@ -254,7 +258,7 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     const opened = { repo, number: 219, title: "Customer returns", url: `https://github.com/${repo}/pull/219`, isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 120, deletions: 4, commits: [{ oid: "a" }] };
     writeFileSync(h.ghStatePath, JSON.stringify({ pulls: [opened] }));
 
-    expect(await h.engine.resume({ note: "I opened it myself." })).toEqual({ ok: true });
+    expect(await h.engine.resume({ note: "I opened it myself." })).toEqual({ ok: true, noteSkipped: true });
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.engine.latestSession("pr")!.runs).toHaveLength(1);
@@ -283,7 +287,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
 
     expect(await h.engine.resume({ note: "Copy the token into storefront instead." })).toEqual({ ok: true });
     await h.engine.settled();
-    expect(h.claudeCalls()[1]!.prompt).toBe(
+    expect(h.claudeCalls()[1]!.prompt.split("\n\nThis session runs unattended.")[0]).toBe(
       [
         "The person running Kiln says:",
         "",
@@ -330,7 +334,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     await h.engine.settled();
     expect(h.engine.setOutsideConfirmation(true)).toEqual({ ok: true });
 
-    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true });
+    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true, noteSkipped: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
@@ -361,5 +365,62 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     expect(prompt.startsWith("While working on phase 1, you changed a checkout outside the Kiln workspace")).toBe(true);
     expect(prompt.endsWith(`\n\nKiln was interrupted at \`${seconds(interruptedAt)}\` (Ctrl+C) while this session was working, and has resumed it. ${CARRY_ON}`)).toBe(true);
     expect(engine.latestSession("1")!.runs[1]!.cause).toBe("person_resume");
+  });
+});
+
+describe("manual follow-up after an overnight stop", () => {
+  it("preserves Push, excludes overnight time after restart, and returns a substantive answer to Needs you", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const running = join(h.sandbox.root, "reply-running");
+    const release = join(h.sandbox.root, "reply-release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [askingSession(), { actions: [{ touch: running }, { waitForFile: release }, { result: "A merge is needed for DEV. Waiting for your decision." }] }, landingSession("src/intake.txt")] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const session = h.engine.latestSession("1")!;
+    const now = Date.now();
+    session.runs[0]!.startedAt = new Date(now - 11 * 3_600_000).toISOString();
+    session.runs[0]!.endedAt = new Date(now - 9 * 3_600_000).toISOString();
+    session.steps.push({ name: "Push", startedAt: session.runs[0]!.endedAt });
+    writeSessionRecord(h.stateDirectory, session);
+    await h.engine.stop("sigint");
+    const engine = h.reopenFromDisk();
+    await engine.prepare();
+    await engine.decide();
+    await engine.resume({ note: "Why is a merge necessary? Explain before doing it." });
+    await waitFor(() => existsSync(running));
+    const snapshot = buildSnapshot(engine);
+    expect(snapshot.current?.followUp).toBe(true);
+    expect(snapshot.current?.steps.find(step => step.name === "Push")?.state).toBe("observed");
+    expect(snapshot.current?.steps.some(step => step.state === "current")).toBe(false);
+    const timing = snapshot.phases.find(row => row.id === "1")!.timing!;
+    expect(timing.runningMs).toBeGreaterThanOrEqual(2 * 3_600_000);
+    expect(timing.runningMs).toBeLessThan(2 * 3_600_000 + 60_000);
+    expect(timing.waitingMs).toBeGreaterThanOrEqual(9 * 3_600_000);
+    expect(timing.advancing).toBe("running");
+    // The snapshot classifies recorded causes, not merely the existence of a second run.
+    const active = engine.current!.session!;
+    const resumedRun = active.runs[1]!;
+    const reply = resumedRun.note!;
+    delete resumedRun.note;
+    expect(buildSnapshot(engine).current!.followUp).toBe(true); // Manual continuation without a reply.
+    resumedRun.cause = "limit_resume";
+    expect(buildSnapshot(engine).current!.followUp).toBeUndefined();
+    resumedRun.cause = "person_resume";
+    active.runs[0]!.limitRefusal = { label: "5-hour window", at: active.runs[0]!.endedAt! };
+    expect(buildSnapshot(engine).current!.followUp).toBeUndefined(); // Resume now after a limit.
+    resumedRun.note = reply;
+    expect(buildSnapshot(engine).current!.followUp).toBe(true); // A reply adds follow-up work even after a limit.
+    delete active.runs[0]!.limitRefusal;
+    expect(h.claudeCalls()[1]!.prompt).toContain("answer clearly in your final message and end this turn before taking that action");
+    writeFileSync(release, "");
+    await engine.settled();
+    expect(buildSnapshot(engine).needsYou?.finalMessage).toContain("Waiting for your decision");
+    expect(buildSnapshot(engine).needsYou?.resumeOffered).toBe(true);
+    await engine.resume({ note: "Proceed with the authorized work." });
+    await engine.settled();
+    expect(engine.latestSession("1")!.sessionId).toBe(session.sessionId);
+    expect(engine.latestSession("1")!.runs).toHaveLength(3);
+    expect(engine.record.phases["1"]?.doneAt).toBeDefined();
   });
 });

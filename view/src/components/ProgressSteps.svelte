@@ -7,7 +7,7 @@
   import Icon from "./Icon.svelte";
 
   type Step = { name: string; state: "finished" | "current" | "unreached" | "observed" | "unobserved"; startedAt?: string };
-  let { steps, live, reviewerWorking = false, now }: { steps: Step[]; live: boolean; reviewerWorking?: boolean; now: number } = $props();
+  let { steps, live, reviewerWorking = false, followUp = false, now }: { steps: Step[]; live: boolean; reviewerWorking?: boolean; followUp?: boolean; now: number } = $props();
 
   const STARTED: Record<string, { line: string; seen: string }> = {
     Build: { line: "implement-from-requirements skill started", seen: "skill call" },
@@ -37,6 +37,7 @@
 
 <section class="card progress">
   <div class="head"><span class="eyebrow">Progress</span><span class="source">Read from the session’s tool calls and Git</span></div>
+  {#if followUp}<div class="current follow-up">{#if live}<Icon name="spinner" size={14} spin />{/if}Follow-up <span>Continuing the same session after your reply or resume.</span></div>{/if}
   <ol>
     {#each steps as step, index (step.name)}
       <li class={step.state}>
@@ -49,10 +50,12 @@
       </li>
     {/each}
   </ol>
-  <p class="note">{steps.some(step => step.state === "observed" || step.state === "unobserved") ? "Codex activity does not prove a step finished. Unobserved steps stay unobserved when later work appears. Completion still depends on Kiln’s checks." : "Kiln can see a skill start but not when it ends, so a step counts as finished once the next one starts. No skill writes status for Kiln."}</p>
+  <p class="note">{steps.some(step => step.state === "observed" || step.state === "unobserved") ? "Recorded activity does not prove a step finished. Unobserved steps stay unobserved when later work appears. Completion still depends on Kiln’s checks." : "Kiln can see a skill start but not when it ends, so a step counts as finished once the next one starts. No skill writes status for Kiln."}</p>
 </section>
 
 <style>
+  .follow-up { display: flex; align-items: center; gap: 8px; color: var(--red); }
+  .follow-up span { color: var(--muted); font-size: 13px; }
   .progress { gap: 18px; }
   .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
   .source { font-size: 13px; color: var(--dim); white-space: nowrap; }

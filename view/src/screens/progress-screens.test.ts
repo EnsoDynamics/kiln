@@ -79,7 +79,7 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
     expect(words).toContain("Phase 3 hasn’t started. Kiln read the phase plan and found the problem shown on the right. Pick it up yourself 1 Fix the phase plan Kiln only checks that the plan reads");
     expect(words).toContain("2 Come back and check again Kiln reads the plan again. If it reads, Kiln starts phase 3, or pauses first if you pressed Pause. Session can’t be opened? Copy a prompt for a fresh session instead");
     expect(words).toContain("Kiln continues when Phase plan reads Not yet phase-2-refund-routing.md lists 2c, which has no file Check again");
-    for (const absent of ["Last message from Claude Code", "Full session output", "exit ", "last skill seen", "claude --resume", "Resume this session in Kiln"]) expect(words).not.toContain(absent);
+    for (const absent of ["Last message from Claude Code", "Full session output", "exit ", "last skill seen", "claude --resume", "Reply and continue in Kiln"]) expect(words).not.toContain(absent);
   });
 
   it("shows the spawn error with its code, and the fresh session in step 1, when claude never started (item 4)", () => {
@@ -123,9 +123,9 @@ describe("Resume on Needs you (usage-limit recovery AC-RESUME-01 to 03)", () => 
   it("offers Resume and its optional note above the steps, which become the other way", () => {
     const page = needsYou(stopped({}));
     expect(text(page)).toContain(
-      "Let Kiln carry on Resume this session in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with Phase 2b. Then the plan continues as usual. Anything to tell the session first? Optional Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal. Or pick it up yourself 1 Open the same Claude Code session",
+      "Let Kiln carry on Reply and continue in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with Phase 2b. Then the plan continues as usual. Your reply to Claude Optional Your reply goes to the same Claude session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply. Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal. Or pick it up yourself 1 Open the same Claude Code session",
     );
-    expect(page).toContain('placeholder="It gets this in your words, then the instruction to carry on with the phase."');
+    expect(page).toContain('placeholder="Give instructions, answer its question, or ask what you need to know before it continues."');
     expect(resumeButton(page)).not.toContain("disabled");
   });
 
@@ -138,7 +138,7 @@ describe("Resume on Needs you (usage-limit recovery AC-RESUME-01 to 03)", () => 
 
   it("offers no Resume where Kiln can't pick the session up, and keeps the steps as v1's", () => {
     const words = text(needsYou(stopped({ resumeOffered: false })));
-    expect(words).not.toContain("Resume this session in Kiln");
+    expect(words).not.toContain("Reply and continue in Kiln");
     expect(words).toContain("Pick it up yourself 1 Open the same Claude Code session");
     expect(words).not.toContain("Or pick it up yourself");
   });
@@ -154,11 +154,11 @@ describe("Resume on Needs you (usage-limit recovery AC-RESUME-01 to 03)", () => 
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "needs_you", finishedByPerson: false });
     const page = needsYou(snapshot);
     expect(text(page)).toContain(
-      "Resume this session in Kiln Kiln checks GitHub first. If the pull request isn’t open, it picks up the same session, with its full history, and tells it to carry on opening the pull request. Anything to tell",
+      "Reply and continue in Kiln Kiln checks GitHub first. If the pull request isn’t open, it picks up the same session, with its full history, and sends your reply before continuing to open the pull request. Your reply to Claude",
     );
-    expect(page).toContain('placeholder="It gets this in your words, then the instruction to carry on opening the pull request."');
+    expect(page).toContain('placeholder="Give instructions, answer its question, or ask what you need to know before it continues."');
     snapshot.feature.multiRepository = true;
-    expect(text(needsYou(snapshot))).toContain("If the pull requests aren’t all open, it picks up the same session, with its full history, and tells it to carry on opening the pull requests.");
+    expect(text(needsYou(snapshot))).toContain("If the pull requests aren’t all open, it picks up the same session, with its full history, and sends your reply before continuing to open the pull requests.");
   });
 });
 
@@ -361,5 +361,26 @@ describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS
     snapshot.needsYou = { ...snapshot.needsYou!, kind: "not_resumable" };
     delete snapshot.needsYou.resumeCommand;
     expect(text(needsYou(snapshot))).toContain("1 Start a fresh Claude Code session in the workspace");
+  });
+});
+
+
+describe("resumed progress and time", () => {
+  it("keeps Push as observed history and puts the spinner on Follow-up, with overnight waiting separate", () => {
+    const snapshot = runningSnapshot();
+    snapshot.current!.followUp = true;
+    snapshot.current!.steps = [{ name: "Push", state: "observed", startedAt: "2026-10-17T15:00:00Z" }];
+    snapshot.phases.find(row => row.id === snapshot.current!.phaseId)!.timing = { runningMs: 111 * 60_000, waitingMs: 532 * 60_000, asOf: new Date(RUNNING_NOW).toISOString(), advancing: "running" };
+    const html = running(snapshot);
+    expect(text(html)).toContain("1h 51m running · 8h 52m waiting");
+    expect(text(html)).toContain("Push· observed Follow-up");
+    expect(html).toMatch(/class="observed[^>]*>Push/);
+    expect(html).toMatch(/class="current[^>]*>.*?Follow-up/s);
+    const stoppedClock = strip(render(Running, { props: { snapshot, connected: false, now: RUNNING_NOW + 30 * 60_000, lastSeenAt: RUNNING_NOW } }).body);
+    expect(text(stoppedClock)).toContain("1h 51m running · 8h 52m waiting");
+    expect(text(stoppedClock)).not.toContain("2h 21m running");
+    const disconnectedDetail = strip(render(PhaseDetail, { props: { snapshot, phaseId: "2b", connected: false, now: RUNNING_NOW + 30 * 60_000, lastSeenAt: RUNNING_NOW } }).body);
+    expect(text(disconnectedDetail)).toContain("1h 51m running · 8h 52m waiting");
+    expect(text(disconnectedDetail)).not.toContain("2h 21m running");
   });
 });

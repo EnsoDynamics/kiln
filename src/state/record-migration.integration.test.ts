@@ -5,6 +5,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Timing } from "../session/timing.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
@@ -66,7 +67,15 @@ describe("a schema 1 record read by this Kiln", () => {
     await engine.settled();
     const after = buildSnapshot(engine);
     expect(after.account).toEqual({ ...before.account, startedAt: expect.any(String), updatedAt: expect.any(String) });
-    expect(after).toEqual({ ...before, account: after.account, needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt } });
+    // A stopped run keeps accruing waiting time during the restart; all other timing facts survive migration.
+    const advanceWaiting = (earlier: Timing, later: Timing): Timing => ({ ...earlier, asOf: later.asOf, waitingMs: earlier.waitingMs + Date.parse(later.asOf) - Date.parse(earlier.asOf) });
+    expect(after).toEqual({
+      ...before,
+      feature: { ...before.feature, timing: advanceWaiting(before.feature.timing!, after.feature.timing!) },
+      phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
+      account: after.account,
+      needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt },
+    });
     expect(after.feature.multiRepository).toBe(false);
   });
 

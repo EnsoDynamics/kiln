@@ -185,7 +185,7 @@ describe("Needs you after a usage limit (AC-LIMIT-01 to 03, AC-AUTO-05)", () => 
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "needs_you", finishedByPerson: false });
     const page = needsYouPage(snapshot);
     expect(text(page)).toContain("The pull-request session stopped at the 5-hour usage limit.");
-    expect(page).toContain('placeholder="It gets this in your words, then the instruction to carry on opening the pull request."');
+    expect(page).toContain('placeholder="Give instructions, answer its question, or ask what you need to know before it continues."');
   });
 });
 

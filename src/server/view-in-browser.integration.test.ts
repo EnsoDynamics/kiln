@@ -16,6 +16,7 @@ import type { Snapshot } from "../engine/snapshot.js";
 import type { OutputLine } from "../session/session-output.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
+import { git } from "../test-support/git-repositories.js";
 import { createHarness, landingSession, waitFor } from "../test-support/engine-harness.js";
 import { startLocalServer } from "./local-server.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
@@ -63,7 +64,7 @@ const withResumeCard = (phase: string) => `(() => {
   const holder = document.createElement("div");
   holder.innerHTML = ${JSON.stringify(RESUME_CARD)};
   const card = holder.firstElementChild;
-  const text = [...card.querySelectorAll("p")].find((e) => e.textContent.includes("carry on with Phase 2b"));
+  const text = [...card.querySelectorAll("p")].find((e) => e.textContent.includes("continuing with Phase 2b"));
   text.textContent = text.textContent.replace("Phase 2b", ${JSON.stringify(phase)});
   eyebrow.closest("section").before(card);
   eyebrow.textContent = "Or pick it up yourself";
@@ -399,7 +400,7 @@ const SCREENS: {
       "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier",
       "Last message from Claude Code Critical finding, stopping to surface: the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s 0042_store_credits clashes with it.",
       "Full session output · 612 lines",
-      "Let Kiln carry on Resume this session in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with Phase 2b. Then the plan continues as usual. Anything to tell the session first? Optional Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.",
+      "Let Kiln carry on Reply and continue in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with Phase 2b. Then the plan continues as usual. Your reply to Claude Optional Your reply goes to the same Claude session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply. Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.",
       "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command Full history, right where it stopped. Kiln stays out of it.",
       "2 Finish the phase with Claude, the way you normally would Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
       "3 Come back and check again Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase. Session can’t be opened? Copy a prompt for a fresh session instead",
@@ -419,7 +420,7 @@ const SCREENS: {
       "Two ways to carry on 1 Wait for the reset The 5-hour usage limit resets at 3:40 PM, in 1h 12m. Come back after that and press Resume.",
       "2 Or switch to another Claude account now In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account. claude auth login Copy command To fill in the other account’s email, add it: claude auth login --email <address>",
       "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% Usage updated 1 min ago. Switch accounts and this changes within 5 minutes. Close the session first if you opened it in a terminal.",
-      "Anything to tell the session first? Optional Resume This account’s 5-hour usage limit is at 100% until 3:40 PM.",
+      "Your reply to Claude Optional Your reply goes to the same Claude session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply. Resume This account’s 5-hour usage limit is at 100% until 3:40 PM.",
       "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command",
       "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 3 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 2:28 PM.",
     ],
@@ -1026,7 +1027,7 @@ describe("the controls, in a real browser", () => {
     try {
       await page.waitFor(`document.querySelector("textarea")`);
       await page.evaluate(`(() => { const box = document.querySelector("textarea"); box.value = "Renumber the migration to 0043, then carry on."; box.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
-      await click(page, "Resume");
+      await click(page, "Send and resume");
       await page.waitFor(`document.body.innerText.includes("Kiln is already checking.")`);
       expect(server.commands).toEqual([`POST /api/resume ${JSON.stringify({ note: "Renumber the migration to 0043, then carry on." })}`]);
       // While Kiln holds the stop for a check or a resume, neither button can be pressed.
@@ -1437,6 +1438,44 @@ describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
 });
 
 describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)", () => {
+  it("keeps a not-sent reply notice visible after completion advances the screen", async () => {
+    const harness = await createHarness({ sessions: [] });
+    const release = join(harness.sandbox.root, "release-next-phase");
+    writeFileSync(harness.scenarioPath, JSON.stringify({ sessions: [
+      { actions: [{ result: "Waiting for your decision." }] },
+      { actions: [{ waitForFile: release }, { result: "Next phase stopped." }] },
+    ] }));
+    await harness.engine.start({ refinementConfirmed: true });
+    await harness.engine.settled();
+    const server = await startLocalServer({ engine: harness.engine, port: await nextPort(), folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
+    const page = await chrome.open(server.address, { timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.querySelector("textarea")`);
+      const path = "docs/prds/customer-returns/phase-1-return-intake.md";
+      const file = join(harness.engine.worktreePath, path);
+      writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-24\n"));
+      git(harness.sandbox, harness.engine.worktreePath, "add", path);
+      git(harness.sandbox, harness.engine.worktreePath, "commit", "-qm", "test: finish phase by hand");
+      git(harness.sandbox, harness.engine.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
+      await page.evaluate(`(() => { const box = document.querySelector("textarea"); box.value = "Explain before continuing."; box.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+      await page.waitFor(`document.body.innerText.includes("Send and resume")`);
+      await click(page, "Send and resume");
+      await page.waitFor(`document.querySelector('[role="status"]')?.textContent.includes("Your reply was not sent")`);
+      await page.waitFor(`document.body.innerText.includes("Implementing phase 2b") && !document.querySelector("textarea")`);
+      expect(harness.engine.latestSession("1")!.runs).toHaveLength(1);
+      expect(await words(page)).toContain(flat("Your reply was not sent"));
+      expect(page.problems).toEqual([]);
+      await click(page, "Dismiss");
+      await page.waitFor(`!document.querySelector('[role="status"]')`);
+    } finally {
+      await page.close();
+      await server.close();
+      writeFileSync(release, "");
+      await harness.engine.settled();
+      await harness.cleanup();
+    }
+  });
+
   it("connects with the page's token and Origin, its controls reach the engine, and the engine's changes reach it without a reload", async () => {
     const harness = await createHarness({ sessions: [] });
     const release = join(harness.sandbox.root, "release");
@@ -1467,6 +1506,34 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       writeFileSync(release, "");
       await harness.engine.settled();
       await harness.cleanup();
+    }
+  });
+});
+
+describe("follow-up progress in a real browser", () => {
+  it("keeps Push history separate from Follow-up and shows running and waiting in both views", async () => {
+    const snapshot = runningSnapshot();
+    snapshot.current!.followUp = true;
+    snapshot.current!.steps = snapshot.current!.steps.map(step => ({ ...step, state: step.name === "Push" ? "observed" : "finished" }));
+    snapshot.current!.seenInSession = { text: "git push seen", at: "2026-10-17T06:28:00Z" };
+    snapshot.phases.find(row => row.id === "2b")!.timing = { runningMs: 111 * 60_000, waitingMs: 532 * 60_000, asOf: new Date(RUNNING_NOW).toISOString(), advancing: "running" };
+    for (const path of ["", "/phase/2b"]) {
+      const { server, page } = await openScreen(snapshot, path);
+      try {
+        await page.waitFor(`document.body.innerText.includes("Follow-up")`);
+        expect(await words(page)).toContain(flat("1h 51m running · 8h 52m waiting"));
+        expect(await words(page)).not.toContain(flat("Codex activity"));
+        expect(await page.evaluate<number>(`document.querySelectorAll('li.current').length`)).toBe(path ? 0 : 1);
+        expect(page.problems).toEqual([]);
+        const folder = process.env.KILN_SCREENSHOTS;
+        if (folder) {
+          mkdirSync(folder, { recursive: true });
+          writeFileSync(join(folder, `follow-up-${path ? "detail" : "running"}.png`), await page.screenshot());
+        }
+      } finally {
+        await page.close();
+        await server.close();
+      }
     }
   });
 });

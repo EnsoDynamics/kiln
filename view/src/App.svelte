@@ -66,6 +66,7 @@
 
 <div class="page">
   <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} />
+  {#if connection.notice}<div class="command-notice" role="status">{connection.notice}<button type="button" onclick={() => { connection.notice = undefined; }}>Dismiss</button></div>{/if}
   {#if snapshot}
     {#if phaseScreen !== undefined}
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
@@ -86,5 +87,6 @@
 </div>
 
 <style>
+  .command-notice { margin: 16px 28px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); display: flex; justify-content: space-between; gap: 16px; }
   .page { min-height: 100vh; }
 </style>

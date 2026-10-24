@@ -129,7 +129,7 @@ describe("the resumed session's prompt", () => {
     const account = agentId === "codex" ? "Codex" : "Claude";
     for (const usageLimit of ["", "the weekly usage limit"]) {
       const prompt = resumePrompt({ ...(agentId ? { agentId } : {}), usageLimit, time: "2026-10-23T18:00:00Z", phaseDoc, note: "Keep my edits.", outside: "Repair the workspace first." });
-      expect(prompt).toBe(`The person running Kiln says:\n\nKeep my edits.\n\nRepair the workspace first.\n\nThis session stopped at \`2026-10-23T18:00:00Z\` because ${agent}'s usage limit${usageLimit ? ` (${usageLimit})` : ""} refused its request. Kiln has resumed it on the ${account} account signed in now. Carry on with \`${phaseDoc}\` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies.`);
+      expect(prompt.split("\n\nThis session runs unattended.")[0]).toBe(`The person running Kiln says:\n\nKeep my edits.\n\nRepair the workspace first.\n\nThis session stopped at \`2026-10-23T18:00:00Z\` because ${agent}'s usage limit${usageLimit ? ` (${usageLimit})` : ""} refused its request. Kiln has resumed it on the ${account} account signed in now. Carry on with \`${phaseDoc}\` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies.`);
     }
     const pr = resumePrompt({ ...(agentId ? { agentId } : {}), usageLimit: "", time: "t", multiRepository: true });
     expect(pr).toContain(`because ${agent}'s usage limit refused`);
@@ -306,5 +306,21 @@ describe("the default settings", () => {
 
   it("lists develop, then origin's default, then the rest by name", () => {
     expect(baseBranchChoices({ branches: new Map([["zeta", "1"], ["main", "2"], ["alpha", "3"], ["develop", "4"]]), defaultBranch: "main" })).toEqual(["develop", "main", "alpha", "zeta"]);
+  });
+});
+
+describe("reply policy keeps unattended continuation as the default", () => {
+  it.each(["claude_code", "codex"] as const)("qualifies carry-on after a person's reply for %s, including PR and workspace repair", agentId => {
+    for (const phaseDoc of [undefined, "docs/phase-1-build.md"]) {
+      const prompt = resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", note: "Why is a merge necessary? Explain before doing it.", outside: "Repair the workspace first.", ...(phaseDoc ? { phaseDoc } : {}) });
+      expect(prompt.indexOf("Why is a merge necessary?")).toBeLessThan(prompt.indexOf("Repair the workspace first."));
+      expect(prompt.indexOf("These reply-handling instructions qualify")).toBeGreaterThan(prompt.indexOf("Carry on"));
+      expect(prompt).toContain("continue through the authorized work by default");
+      expect(prompt).toContain("Do not stop for progress updates, reassurance, optional preferences, or incidental questions");
+      expect(prompt).toContain("answer clearly in your final message and end this turn before taking that action");
+      expect(prompt).toContain("writing a message does not mean they have read it or granted permission");
+      expect(prompt).toContain("do not expand your authorization");
+    }
+    expect(resumePrompt({ agentId, time: "t", usageLimit: "weekly" })).not.toContain("reply-handling");
   });
 });

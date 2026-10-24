@@ -162,7 +162,7 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
-  return [...before, `${opening} ${carryOn}`].join("\n\n");
+  return [...before, `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */

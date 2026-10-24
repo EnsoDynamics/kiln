@@ -3,7 +3,7 @@
   // live output, its progress steps, its session and its commits (PRD AC-WATCH-04 to 06). For a
   // stopped phase it is Full session output (AC-WATCH-10; technical design, "Full session
   // output"): the same layout without the LIVE badge, the live text or the pause, its time
-  // stopped at the session's end, and a back link to Needs you (UI-010 item 2). A
+  // split into running and waiting, and a back link to Needs you (UI-010 item 2). A
   // multi-repository PRD's Commits are grouped by repository, each name with its added-in-phase
   // label (multi-repo AC-SHOW-01). A phase waiting for usage is served as a stopped one is, its
   // back link to the waiting screen and its pill styled as Paused is (usage-limit recovery,
@@ -20,7 +20,7 @@
   import { keepGoing, pause } from "../lib/api.js";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
-  import { clockTime, elapsed } from "../lib/time.js";
+  import { clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
 
   let { snapshot, phaseId, connected, now, lastSeenAt }: { snapshot: Snapshot; phaseId: string; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
@@ -32,7 +32,7 @@
   const isPr = $derived(phaseId === PR_ID);
   const row = $derived(snapshot.phases.find((phase) => phase.id === phaseId));
   const live = $derived(current !== undefined && connected);
-  // The live phase's clock stops when the view loses Kiln; a stopped phase's at its session's end.
+  // Both clocks stop when the view loses Kiln; while stopped, only waiting advances.
   const shownNow = $derived(connected ? now : (lastSeenAt ?? now));
   const identity = $derived(stopped ?? current ?? row?.details);
   const session = $derived(
@@ -42,7 +42,7 @@
   );
   const commits = $derived(session.repositories.flatMap((repository) => repository.commits));
   const grouped = $derived(snapshot.feature.multiRepository ? commitsByRepository(snapshot, session.repositories) : undefined);
-  const sinceStart = $derived(session.startedAt ? elapsed(session.endsAt - Date.parse(session.startedAt)) : undefined);
+  const sinceStart = $derived(row?.timing ? timingText(row.timing, shownNow) : session.startedAt ? elapsed(session.endsAt - Date.parse(session.startedAt)) : undefined);
   /** "10:58 AM · 49 min" on its own; after "Started" a day reads in lowercase (UI-010 item 8). */
   const started = (afterWord: boolean) => (session.startedAt ? `${clockTime(session.startedAt, new Date(now), { afterWord })} · ${sinceStart}` : undefined);
   const back = $derived(config.base);
@@ -71,7 +71,7 @@
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={!stopped} total={session.total} {now} />{/key}
   <div class="columns-main">
-    {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
+    {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">
       {#if live && !isPr}
         <div class="pause">

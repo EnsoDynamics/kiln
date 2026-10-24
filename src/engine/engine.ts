@@ -142,7 +142,7 @@ export type TerminalEvent =
   | { kind: "message"; text: string };
 
 export type CommandResult =
-  | { ok: true }
+  | { ok: true; noteSkipped?: true }
   | { ok: false; status: 400 | 409 | 422; reason: string; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
 
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
@@ -658,7 +658,7 @@ export class Engine {
     }
     if (verdict === "still_stopped" && !this.stopping) this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
     this.kick();
-    return { ok: true };
+    return { ok: true, ...(note !== "" && (verdict === "done" || verdict === "complete") ? { noteSkipped: true as const } : {}) };
   }
 
   /**

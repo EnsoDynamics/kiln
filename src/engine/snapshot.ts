@@ -12,6 +12,7 @@ import { countAssumptions, countDesignCitations, countPrdCriteria } from "../pla
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
 import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt } from "../session/prompts.js";
+import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
@@ -96,6 +97,7 @@ export interface PhaseView {
   state: "planned" | "next" | "implementing" | "needs_you" | "waiting" | "done" | "split";
   splitInto?: string[];
   sessionStartedAt?: string;
+  timing?: Timing;
   doneAt?: string;
   pushedSha?: string;
   finishedByPerson: boolean;
@@ -156,6 +158,7 @@ export interface Snapshot {
     phasesTotal: number;
     startedAt?: string;
     completedAt?: string;
+    timing?: Timing;
     stoppedAt?: string;
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
@@ -204,6 +207,7 @@ export interface Snapshot {
     /** The phase's commits by repository, only those with commits, newest first. */
     repositories: RepositoryCommits[];
     reviewerWorking?: boolean;
+    followUp?: boolean;
   };
   needsYou?: SessionIdentityView & {
     phaseId: string;
@@ -331,6 +335,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
+      ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     settings: {
@@ -401,7 +406,8 @@ function currentView(engine: Engine): Snapshot["current"] {
   if (!session) {
     return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: stepStates([], settings.agentId), repositories: [] };
   }
-  const steps = stepStates(session.steps, session.agentId);
+  const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
+  const steps = stepStates(session.steps, session.agentId).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
   const latestStep = [...session.steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).at(-1);
   let seen: { text: string; at: string } | undefined;
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
@@ -414,6 +420,7 @@ function currentView(engine: Engine): Snapshot["current"] {
     ...optional("effort", session.effort),
     ...optional("startedAt", session.runs[0]?.startedAt),
     steps,
+    ...(followUp ? { followUp: true } : {}),
     ...optional("seenInSession", seen),
     ...optional("latestLine", current.latestLine),
     repositories: current.commits,
@@ -682,6 +689,22 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
   return codexCommand(folder, ["resume", session.conversation.threadId, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])], platform, session.conversation.codexHome);
 }
 
+/** Timing is derived from saved runs; historical open runs stop at their last evidence. */
+function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: string): Timing | undefined {
+  if (!from) return undefined;
+  let running = false;
+  const runs = keys.flatMap(key => (engine.record.phases[key]?.sessionIds ?? []).flatMap(id => {
+    const session = engine.sessionRecord(key, id);
+    if (!session) return [];
+    return session.runs.map((run, index) => {
+      const live = engine.current?.session?.sessionId === id && engine.current.processRunning && index === session.runs.length - 1 && !run.endedAt && !run.interruptedAt;
+      running ||= live;
+      return { ...run, ...(!live && !run.endedAt && !run.interruptedAt ? { endedAt: engine.runLastOutputAt(session, index) ?? run.startedAt } : {}) };
+    });
+  }));
+  return runTiming(runs, from, doneAt ?? new Date().toISOString(), doneAt ? undefined : running ? "running" : "waiting");
+}
+
 function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
   const { record } = engine;
   const plan = record.plan ?? [];
@@ -715,6 +738,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const startedAt = firstSession?.runs[0]?.startedAt;
     if (startedAt && session) {
       view.sessionStartedAt = startedAt;
+      view.timing = timingFor(engine, [key!], startedAt, facts?.doneAt)!;
       // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
       const read = engine.stoppedCommits;
       const stopped = (view.state === "needs_you" || view.state === "waiting") && read?.phaseKey === key ? read?.commits : undefined;
@@ -738,15 +762,18 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
 
   if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed)) {
     const facts = record.phases[PR_PHASE_KEY];
-    const session = sessionFor(engine, PR_PHASE_KEY);
-    const startedAt = session?.runs[0]?.startedAt;
+    const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
+    const startedAt = firstSession?.runs[0]?.startedAt;
     const row: PhaseView = { id: PR_PHASE_KEY, title: PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
     if (record.completedAt) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
     else if (state === "paused") row.state = "next";
-    if (startedAt) row.sessionStartedAt = startedAt;
+    if (startedAt) {
+      row.sessionStartedAt = startedAt;
+      row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
+    }
     rows.push(row);
   }
   return rows;

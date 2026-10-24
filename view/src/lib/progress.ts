@@ -7,7 +7,7 @@
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
-import { clockTime, limitTime, shortDuration, timeSpan } from "./time.js";
+import { clockTime, limitTime, shortDuration, timeSpan, timingText } from "./time.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -66,7 +66,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       return { kind: "paused", label: "Paused", facts: [done] };
     case "complete": {
       const facts = [done];
-      if (feature.startedAt && feature.completedAt) facts.push(shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));
+      if (feature.startedAt && feature.completedAt) facts.push(feature.timing ? timingText(feature.timing, now.getTime()) : shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));
       if (feature.completedAt) facts.push(`Finished ${clockTime(feature.completedAt, now, { afterWord: true })}`);
       return { kind: "complete", label: "PR ready for review", facts };
     }
@@ -130,7 +130,7 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
 export function rowFacts(row: PhaseView, state: RowState, now: number): string | undefined {
   if (state === "done") {
     if (row.sessionStartedAt === undefined || row.doneAt === undefined) return undefined;
-    const parts = [shortDuration(Date.parse(row.doneAt) - Date.parse(row.sessionStartedAt))];
+    const parts = [row.timing ? timingText(row.timing, now) : shortDuration(Date.parse(row.doneAt) - Date.parse(row.sessionStartedAt))];
     if (row.finishedByPerson) parts.push("finished by you");
     if (row.pushedRepositoryCount !== undefined) {
       if (row.pushedRepositoryCount > 0) parts.push(`pushed to ${plural(row.pushedRepositoryCount, "repository", "repositories")}`);
@@ -138,7 +138,7 @@ export function rowFacts(row: PhaseView, state: RowState, now: number): string |
     return parts.join(" · ");
   }
   if ((state === "implementing" || state === "interrupted") && row.sessionStartedAt !== undefined) {
-    return shortDuration(now - Date.parse(row.sessionStartedAt));
+    return row.timing ? timingText(row.timing, now) : shortDuration(now - Date.parse(row.sessionStartedAt));
   }
   return undefined;
 }
@@ -353,9 +353,9 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     footnote: isPr ? "This is the check Kiln runs after the pull-request session." : "This is the same check Kiln runs after every phase. Later phases wait until it passes.",
     // The pull-request session carries on opening the pull request in place of the phase (usage-limit recovery technical design, "Screens").
     resumeText: isPr
-      ? `Kiln checks GitHub first. If ${multiRepository ? "the pull requests aren’t all open" : "the pull request isn’t open"}, it picks up the same session, with its full history, and tells it to carry on opening ${multiRepository ? "the pull requests" : "the pull request"}.`
-      : `Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and tells it to carry on with ${name}. Then the plan continues as usual.`,
-    notePlaceholder: `It gets this in your words, then the instruction to carry on ${isPr ? `opening ${multiRepository ? "the pull requests" : "the pull request"}` : "with the phase"}.`,
+      ? `Kiln checks GitHub first. If ${multiRepository ? "the pull requests aren’t all open" : "the pull request isn’t open"}, it picks up the same session, with its full history, and sends your reply before continuing to open ${multiRepository ? "the pull requests" : "the pull request"}.`
+      : `Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with ${name}. Then the plan continues as usual.`,
+    notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
 
   if (stop.kind === "selection") {

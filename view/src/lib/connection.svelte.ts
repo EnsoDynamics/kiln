@@ -16,6 +16,8 @@ export type PartialEvent = { sessionId: string } & PartialText;
 export class Connection {
   snapshot = $state<Snapshot | undefined>(undefined);
   connected = $state(false);
+  /** A control result that must survive the screen changing. */
+  notice = $state<string | undefined>(undefined);
   /** When the last event arrived, for "updated <n>s ago" and, once disconnected, "last seen". */
   lastEventAt = $state<number | undefined>(undefined);
   private source: EventSource | undefined;

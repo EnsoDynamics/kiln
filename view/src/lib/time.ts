@@ -83,6 +83,14 @@ export function shortDuration(ms: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
+/** Running is recorded session execution; waiting includes stops and gaps between runs. */
+export function timingText(timing: import("../../../src/session/timing.js").Timing, now: number): string {
+  const delta = Math.max(0, now - Date.parse(timing.asOf));
+  const running = timing.runningMs + (timing.advancing === "running" ? delta : 0);
+  const waiting = timing.waitingMs + (timing.advancing === "waiting" ? delta : 0);
+  return `${shortDuration(running)} running${waiting >= 60_000 ? ` · ${shortDuration(waiting)} waiting` : ""}`;
+}
+
 /** An elapsed time beside "Started": "49 min", "1h 12m". */
 export function elapsed(ms: number): string {
   const minutes = Math.max(0, Math.floor(ms / 60_000));
