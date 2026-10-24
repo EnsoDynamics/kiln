@@ -108,4 +108,4 @@ No criterion waits on delivery or an external resource.
 
 ## Publication
 
-Publication remains held by Doug’s instruction in source chat `01a16f61-34a0-7020-9e7d-f1fcdcb2b8d0`: “Commit under the skill default; hold publication for approval.”
+The original instruction in source chat `01a16f61-34a0-7020-9e7d-f1fcdcb2b8d0` was “Commit under the skill default; hold publication for approval.” Doug lifted that hold in this audit chat on 2026-10-24: “Go ahead and commit and push.” The audit is approved for publication to the shared development branch; all planned implementation and audit work is complete.
