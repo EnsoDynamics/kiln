@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { auditRecoveryPrompt, codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
@@ -492,8 +492,10 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
   const withOutside = (prompt: string) => (outside?.note === undefined ? prompt : `${prompt}\n\n${outside.note}`);
+  const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const originalPrompts = (ran: boolean) =>
     withOutside(
+      auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
         ? pullRequestSessionPrompt({
             deliveryAuthority: engine.deliveryAuthority(),
@@ -575,7 +577,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
         agentId: session.agentId ?? "claude_code",
         endedOnItsOwn: interrupted === undefined,
         time: interrupted?.at ?? endedAt,
-        ...(isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
+        ...(auditTask ? { auditTask } : isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
         multiRepository: isPr ? engine.pullRequestRepositories().length > 1 : folder !== engine.worktreePath,
         ...(outside?.view?.prompt === undefined ? {} : { outside: outside.view.prompt }),
       }) } : {}),

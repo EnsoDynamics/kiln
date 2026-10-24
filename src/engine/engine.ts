@@ -1,9 +1,12 @@
+import { orderedRecoveryOwners } from "./development-owners.js";
+import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
+import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
 import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
 import { auditStatus, issueSnapshot, submitAudit, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeTarget, targetKey, type DevelopmentTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, documentsDigest, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -57,6 +60,7 @@ import {
   resumePrompt,
   type OutsideCheckout,
   type PhasePromptValues,
+  type AuditRecoveryTask,
   type PromptRepository,
 } from "../session/prompts.js";
 import { isModelResponse } from "../session/run-verdict.js";
@@ -865,10 +869,16 @@ export class Engine {
     try {
       if (!authority.enabled) {
         const leaves = recordedLeaves(this.record.plan ?? []);
-        const stopId = phaseKey === PR_PHASE_KEY ? PR_PHASE_KEY : this.judgedId(phaseKey);
+        const owner = this.deliveryOwnerFor(phaseKey);
+        const stopId = phaseKey === PR_PHASE_KEY || owner.kind === "audit" ? PR_PHASE_KEY : this.judgedId(phaseKey);
         const stopIndex = stopId === PR_PHASE_KEY ? leaves.length : leaves.findIndex(leaf => leaf.id === stopId);
         if (stopIndex < 0) return refuse("Read the current stopped phase plan before granting authority.");
-        authority.activationRecovery = { stoppedPhaseId: phaseKey, phaseIds: leaves.filter((leaf, index) => index <= stopIndex && (leaf.id === stopId || leaf.closed || this.record.phases[leaf.id]?.doneAt)).map(leaf => leaf.id), repositoryNames: this.setUpRepositories.map(repo => repo.name) };
+        const phaseIds = leaves.filter((leaf, index) => index <= stopIndex && (leaf.id === stopId || leaf.closed || this.record.phases[leaf.id]?.doneAt)).map(leaf => leaf.id);
+        const owners = orderedRecoveryOwners(this.record, this.stateDirectory, phaseIds, owner, id => {
+          const facts = this.record.phases[id];
+          const first = facts?.sessionIds[0]; return first ? this.sessionRecord(id, first)?.createdAt : undefined;
+        }, this.record.phases[phaseKey]!.stop!.at);
+        authority.activationRecovery = { ...(owner.kind === "phase" ? { stoppedPhaseId: phaseKey } : {}), stoppedOwner: owner, phaseIds, owners, repositoryNames: this.setUpRepositories.map(repo => repo.name) };
       }
       authority.enabled = true; authority.grants.push({ target, confirmedAt: this.now().toISOString(), source: "needs_you" }); authority.revision++;
       ledger(this.record).currentComplete = false;
@@ -881,30 +891,50 @@ export class Engine {
 
   private activationChecks(): CheckResult[] {
     const recovery = this.record.developmentAuthorization?.activationRecovery;
-    return recovery ? recovery.phaseIds.map(id => phaseDeliveryCheck(this.deliveryContext(id), id)) : [];
+    return recovery ? recoveryOwners(recovery).map(owner => ownerDeliveryCheck(this.deliveryContext(), owner)) : [];
   }
 
   get currentlyComplete(): boolean { return this.record.completedAt !== undefined && (!deliveryEnabled(this.record) || this.record.developmentDelivery?.currentComplete === true); }
 
+  /** Audits have activity storage keys, never synthetic implementation phase IDs. */
+  auditRecoveryTask(key: string, folder: string): AuditRecoveryTask | undefined {
+    const activity = this.record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
+    return activity ? { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path } : undefined;
+  }
+
+  deliveryOwnerFor(key: string): DeliveryOwner {
+    const audit = this.record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
+    if (audit) return { kind: "audit", activityId: audit.activityId };
+    if (key.startsWith("audit-")) throw new DeliveryRefusal("Unknown assigned audit activity.");
+    return { kind: "phase", phaseId: key };
+  }
+
   private deliveryContext(phaseId?: string): DeliveryContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    return { record: this.record, stateDirectory: this.stateDirectory, prdWorktree: this.worktreePath, prdDirectory: this.paths.prdDirectoryFromRoot, git: { ...this.git, signal }, gh: this.options.tools.gh, env: this.options.env, ...(phaseId ? { phaseId } : {}), signal, now: () => this.now().toISOString(), commands: (id, deadline) => this.deliveryCommands(id, deadline) };
+    return { record: this.record, stateDirectory: this.stateDirectory, prdWorktree: this.worktreePath, prdDirectory: this.paths.prdDirectoryFromRoot, git: { ...this.git, signal }, gh: this.options.tools.gh, env: this.options.env, ...(phaseId ? { ...(this.deliveryOwnerFor(phaseId).kind === "phase" ? { phaseId } : {}), owner: this.deliveryOwnerFor(phaseId) } : {}), signal, now: () => this.now().toISOString(), commands: (id, deadline) => this.deliveryCommands(id, deadline) };
   }
 
   deliveryStatus() {
     const state = ledger(this.record);
     const phaseId = this.current?.phaseKey ?? this.stoppedPhaseKey();
-    let digest: string | undefined;
-    if (phaseId && phaseId !== PR_PHASE_KEY) { try { digest = documentsDigest(this.deliveryContext(phaseId), this.judgedId(phaseId)); } catch { /* The plan check names unreadable documents. */ } }
-    return { ...(this.record.developmentAuthorization?.activationRecovery ? { activationRecovery: this.record.developmentAuthorization.activationRecovery.phaseIds.map(id => { let digest: string | undefined; try { digest = documentsDigest(this.deliveryContext(id), id); } catch { /* The failed check below names unreadable documents. */ } return { phaseId: id, documentsDigest: digest, ...phaseDeliveryCheck(this.deliveryContext(id), id) }; }) } : {}), executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(digest ? { documentsDigest: digest } : {}), phaseId };
+    const owner = phaseId ? this.deliveryOwnerFor(phaseId) : undefined;
+    let binding: { documentsDigest: string; requirementManifestDigest?: string } | undefined;
+    if (owner && !(owner.kind === "phase" && owner.phaseId === PR_PHASE_KEY)) { try { binding = ownerDocuments(this.deliveryContext(phaseId), owner); } catch { /* The corresponding completion check names unreadable documents. */ } }
+    const recovery = this.record.developmentAuthorization?.activationRecovery;
+    return { ...(recovery ? { activationRecovery: recoveryOwners(recovery).map(owner => {
+      let binding: { documentsDigest: string; requirementManifestDigest?: string } | undefined;
+      try { binding = ownerDocuments(this.deliveryContext(), owner); } catch { /* Failed check below names the source. */ }
+      return { ...ownerFields(owner), ...(binding ? { documentsDigest: binding.documentsDigest, ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}) } : {}), ...ownerDeliveryCheck(this.deliveryContext(), owner) };
+    }) } : {}), executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(binding ? { documentsDigest: binding.documentsDigest, ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}) } : {}), ...(owner ? ownerFields(owner) : {}) };
   }
 
   async deliveryReadStatus() {
     const status = this.deliveryStatus();
-    const ids = Object.values(this.record.phases).flatMap(one => one.sessionIds);
+    const ids = [...new Set([...Object.values(this.record.phases).flatMap(one => one.sessionIds), ...(this.record.completionAudits?.activities ?? []).flatMap(one => one.sessionIds)])];
     const availableCommandEvidence: { sessionId: string; id: string; command: string; cwd: string; calledAt: string; resultAt?: string }[] = [];
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     if (deliveryEnabled(this.record)) for (const id of ids) {
-      try { for (const command of await this.deliveryCommands(id)) availableCommandEvidence.push({ sessionId: id, id: command.callId, command: command.command, cwd: command.cwd, calledAt: command.calledAt, ...(command.resultAt ? { resultAt: command.resultAt } : {}) }); }
+      try { for (const command of await this.deliveryCommands(id, signal)) availableCommandEvidence.push({ sessionId: id, id: command.callId, command: command.command, cwd: command.cwd, calledAt: command.calledAt, ...(command.resultAt ? { resultAt: command.resultAt } : {}) }); }
       catch (error) { return { ...status, availableCommandEvidence, commandEvidenceError: (error as Error).message }; }
     }
     return { ...status, availableCommandEvidence };
@@ -915,16 +945,18 @@ export class Engine {
     if (this.deliveryBusy || this.checking || this.activeCheck || this.stopping || this.settingUp) throw new AuditRefusal("busy", "Kiln is checking or changing execution state.", 409);
     this.deliveryBusy = true;
     let release!: () => void; this.deliveryPending = new Promise<void>(resolve => { release = resolve; });
-    const before = structuredClone(this.record.completionAudits);
+    const before = structuredClone(this.record.completionAudits); const beforeDelivery = structuredClone(this.record.developmentDelivery);
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     try {
-      const context: AdmissionContext = { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(`audit-${activity.activityId}`, id) };
+      const context: AdmissionContext = { ...(deliveryEnabled(this.record) ? { developmentChecks: () => [ownerDeliveryCheck(this.deliveryContext(), { kind: "audit", activityId: this.record.completionAudits!.activities.at(-1)!.activityId })] } : {}), record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(`audit-${activity.activityId}`, id) };
+      if (action === "result" && deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext());
       const result = action === "status" ? await auditStatus(context, cursor) : action === "snapshot" ? await issueSnapshot(context, body) : await submitAudit(context, body);
       signal.throwIfAborted();
       // Direct write: stop cannot silently turn persistence into a no-op.
       writePrdRecord(this.stateDirectory, this.record); this.changed(); return result;
     } catch (error) {
       if (before) this.record.completionAudits = before; else delete this.record.completionAudits;
+      if (beforeDelivery) this.record.developmentDelivery = beforeDelivery; else delete this.record.developmentDelivery;
       throw error;
     } finally { this.deliveryBusy = false; release(); this.deliveryPending = undefined; }
   }
@@ -934,6 +966,11 @@ export class Engine {
     if (!this.record.executionId || body.executionId !== this.record.executionId || body.revision !== ledger(this.record).revision) return refuse("Wrong execution or stale delivery revision; read kiln delivery status again.");
     const phaseId = this.current?.phaseKey ?? this.stoppedPhaseKey();
     if (!phaseId || !deliveryEnabled(this.record)) return refuse("No authorized development-delivery session is active or stopped.");
+    const activeOwner = this.deliveryOwnerFor(phaseId);
+    if (action !== "assessment") {
+      try { if (body.owner !== undefined || activeOwner.kind === "audit") { const requested = deliveryOwner({ owner: body.owner as DeliveryOwner }); if (ownerKey(requested) !== ownerKey(activeOwner)) return refuse("Delivery request belongs to another active owner."); } }
+      catch { return { ok: false, status: 400, reason: "Audit delivery requests require the exact active owner." }; }
+    }
     this.deliveryBusy = true;
     let release!: () => void; this.deliveryPending = new Promise<void>(resolve => { release = resolve; });
     const before = structuredClone(this.record.developmentDelivery);
@@ -943,8 +980,9 @@ export class Engine {
       if (action === "assessment") await recordAssessment(context, body);
       else if (action === "prepare") result = await prepareOperation(context, body);
       else await submitEvidence(context, body);
+      context.signal?.throwIfAborted();
       ledger(this.record).revision++; ledger(this.record).currentComplete = false;
-      assertDevelopmentState(this.record); this.save(); this.announceDelivery();
+      assertDevelopmentState(this.record); writePrdRecord(this.stateDirectory, this.record); this.changed(); this.announceDelivery();
       return { ok: true, delivery: { ...this.deliveryStatus(), ...(result ? { result } : {}) } };
     } catch (error) {
       if (before) this.record.developmentDelivery = before; else delete this.record.developmentDelivery;
@@ -954,7 +992,8 @@ export class Engine {
 
   private async deliveryCommands(id: string, deadline?: AbortSignal): Promise<CommandEvidence[]> {
     const signal = deadline ? AbortSignal.any([this.abort.signal, deadline]) : this.abort.signal; signal.throwIfAborted();
-    const phaseKey = Object.entries(this.record.phases).find(([, facts]) => facts.sessionIds.includes(id))?.[0];
+    const audit = this.record.completionAudits?.activities.find(one => one.sessionIds.includes(id));
+    const phaseKey = audit ? `audit-${audit.activityId}` : Object.entries(this.record.phases).find(([, facts]) => facts.sessionIds.includes(id))?.[0];
     const session = phaseKey ? this.sessionRecord(phaseKey, id) : undefined;
     if (!session) throw new DeliveryRefusal("The command session does not belong to this execution.");
     if (session.agentId === "codex") {
@@ -988,13 +1027,13 @@ export class Engine {
 
   deliveryAuthority(): string | undefined {
     if (!deliveryEnabled(this.record)) return undefined;
-    return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, activationRecovery: this.record.developmentAuthorization?.activationRecovery, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
+    return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, owner: this.current?.phaseKey || this.stoppedPhaseKey() ? this.deliveryOwnerFor((this.current?.phaseKey ?? this.stoppedPhaseKey())!) : undefined, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, activationRecovery: this.record.developmentAuthorization?.activationRecovery, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
   }
 
   /** A grant may precede the stopped leaf's very first provider session (plan/readiness stop). */
   private nextExecutionLeaf(plan: PhasePlan): PlannedPhase | undefined {
     const activation = this.record.developmentAuthorization?.activationRecovery;
-    if (activation && !this.record.phases[activation.stoppedPhaseId]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, activation.stoppedPhaseId);
+    if (activation && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, recoveryStopKey(activation));
     return nextLeaf(plan);
   }
 
@@ -1004,13 +1043,13 @@ export class Engine {
     const activation = this.record.developmentAuthorization?.activationRecovery;
     if (activation) {
       const failed = this.activationChecks().filter(check => !check.passed);
-      if (failed.length && !this.record.phases[activation.stoppedPhaseId]?.sessionIds.length) {
+      if (failed.length && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length) {
         // Launch the authorized stopped leaf once its original blocker clears. Its first
         // session supplies the historical assessments; no future leaf can overtake it.
-        if (activation.stoppedPhaseId === PR_PHASE_KEY || judgedPhase(this.record.plan ?? [], activation.stoppedPhaseId)) return undefined;
-        this.recordStop(activation.stoppedPhaseId, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: ["The activation-recovery phase is missing from the current plan."] }]); return activation.stoppedPhaseId;
+        if (recoveryStopKey(activation) === PR_PHASE_KEY || judgedPhase(this.record.plan ?? [], recoveryStopKey(activation))) return undefined;
+        this.recordStop(recoveryStopKey(activation), "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: ["The activation-recovery phase is missing from the current plan."] }]); return recoveryStopKey(activation);
       }
-      if (failed.length) { this.recordStop(activation.stoppedPhaseId, activation.stoppedPhaseId === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return activation.stoppedPhaseId; }
+      if (failed.length) { this.recordStop(recoveryStopKey(activation), recoveryStopKey(activation) === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return recoveryStopKey(activation); }
     }
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
       if (!leaf.closed) break;
@@ -1555,7 +1594,7 @@ export class Engine {
       ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
-      ...(phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
+      ...(this.auditRecoveryTask(phaseKey, cwd) ? { auditTask: this.auditRecoveryTask(phaseKey, cwd)! } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
       ...(outside === undefined ? {} : { outside }),
@@ -1926,7 +1965,7 @@ export class Engine {
       return "cleared";
     }
     const activation = this.record.developmentAuthorization?.activationRecovery;
-    if (activation?.stoppedPhaseId === phaseKey && facts.sessionIds.length === 0) {
+    if (activation && recoveryStopKey(activation) === phaseKey && facts.sessionIds.length === 0) {
       // There is no conversation to resume yet. After the original plan/readiness
       // blocker clears, the ordinary launch supplies the bounded recovery session.
       delete facts.stop; this.save(); return "cleared";

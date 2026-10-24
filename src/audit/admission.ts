@@ -11,6 +11,7 @@ import { validateReport } from "./validate-report.js";
 export interface AdmissionContext {
   record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; codex: string; signal: AbortSignal;
   session(activity: AuditActivity, id: string): SessionRecord | undefined;
+  developmentChecks?(): CheckResult[];
 }
 export function activeAudit(record: PrdRecord): AuditActivity {
   const activity = record.completionAudits?.activities.at(-1);
@@ -152,6 +153,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     checks.push(...await repositoryChecks(context));
     // The provider collector applies the same authoritative workspace scan as ordinary work.
     checks.push({ name: "Stayed in the workspace", passed: true, facts: ["Assigned provider histories were reconciled."] });
+    checks.push(...context.developmentChecks?.() ?? []);
     nextAction = validated.nextAction;
     if (nextAction === "needs_you") checks.push({ name: "Audit work resolved", passed: false, facts: [...validated.report.blockers.map(b => `${b.problem} ${b.requiredAction}`), ...validated.report.pendingHumanActions.filter(a => !a.beyondDelivery && !a.result).map(a => a.action)] });
     if (validated.report.outcome === "continue_test") {

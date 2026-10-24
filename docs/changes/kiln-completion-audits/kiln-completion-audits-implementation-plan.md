@@ -12,7 +12,7 @@ Implement one phase at a time, in this order. Each linked document is one implem
 | Phase | What it does | Depends on |
 |---|---|---|
 | [1 Audit evidence interface](phase-1-audit-evidence-interface.md) | Accept or refuse whole-PRD audit reports through the packaged CLI and local server, using retained provider evidence and current repository content. | None |
-| [2 Automatic delivery-audit cycles](phase-2-delivery-audit-cycles.md) | Run delivery audits, build their completion phases and audit the repairs again, with visible progress, recovery and existing development permissions. | 1 (report admission, snapshots, evidence catalog and durable audit records) |
+| [2 Automatic delivery-audit cycles](phase-2-delivery-audit-cycles.md) | Split into 2a audit development delivery and 2b automatic cycles/progress. | 1 (report admission, snapshots, evidence catalog and durable audit records) |
 | [3 Automatic test remediation](phase-3-test-audit-remediation.md) | Continue test remediation automatically and return test-discovered implementation changes through delivery audits before allowing final completion. | 1 (typed test reports and evidence/currentness checks); 2 (activity dispatch, repair loop, recovery, progress and development obligations) |
 
 ## Sizing and independently verifiable boundaries
@@ -22,10 +22,10 @@ The whole PRD exceeds one coherent implementation run: it combines a new evidenc
 | Phase | Why it fits one coherent session | Proof possible before later phases exist |
 |---|---|---|
 | 1 | One report-admission capability from real Git/provider inputs through authenticated CLI/HTTP to immutable accepted records; substantial schema, provenance and fingerprint work stays together. | Seed an assigned audit activity in disposable execution state, run actual Claude Code and Codex report producers against it, and submit through the packaged CLI/server. Exercise acceptance, refusal, currentness and crash/retry behavior without automatic scheduling or a new user-facing launch mode. |
-| 2 | One delivery-audit workflow built on the already verified admission boundary; activity identity, recovery, progress and development ownership belong with its first real automatic execution. | Run a closed plan through delivery audit, multiple repair rounds and an already-adequate test audit into existing final delivery. Interrupt/recover the workflow, inspect browser/terminal rows and prove old completed history is preserved. |
+| 2 (split) | 2a proves the audit development interface; 2b builds the automatic workflow on that preserved authority boundary. | 2a exercises assigned audits through CLI/HTTP and retained development evidence. 2b runs a closed plan through multiple repair rounds and a clean test audit into final delivery, including both providers, browser progress, interruptions and upgrades. |
 | 3 | One extension of that workflow for unfinished test evidence; reuse delivery repairs and recovery instead of building a second scheduler. | Exercise real test remediation, independent re-grading, continuations, direct fixes and test-created completion phases, then verify both gates at final completion. |
 
-Phase 1 is deliberately an API slice, independently verifiable rather than a complete unattended feature. Phase 2 includes generic dispatch for both audit kinds and the clean test-audit path; Phase 3 owns the full test-remediation criteria. The entire PRD remains unfinished until all three phases close. No intermediate phase may substitute a passing placeholder, waive the required test gate or weaken report validation to reach Complete.
+Phase 1 is deliberately an API slice, independently verifiable rather than a complete unattended feature. Phase 2 includes generic dispatch for both audit kinds and the clean test-audit path; Phase 3 owns the full test-remediation criteria. The entire PRD remains unfinished until all planned leaves close. No intermediate phase may substitute a passing placeholder, waive the required test gate or weaken report validation to reach Complete.
 
 Combining 1 and 2 would require designing and proving the evidence/provenance boundary while simultaneously replacing execution routing, recovery, development ownership and progress. Combining 2 and 3 would add test batching, retained grades and direct-fix feedback to that same execution rewrite. Those are separate substantial capabilities. Further cuts into schema, providers, UI or tests would create layers or undersized phases rather than useful verification boundaries.
 
@@ -35,25 +35,25 @@ Each of the PRD's 19 current criteria has exactly one owner. Constraints marked 
 
 | Criterion | Owning phase |
 |---|---|
-| AC-AUDIT-01 | 2 |
+| AC-AUDIT-01 | 2b |
 | AC-AUDIT-02 | 1 |
 | AC-AUDIT-03 | 1 |
 | AC-AUDIT-04 | 3 |
-| AC-LOOP-01 | 2 |
-| AC-LOOP-02 | 2 |
-| AC-LOOP-03 | 2 |
-| AC-LOOP-04 | 2 |
+| AC-LOOP-01 | 2b |
+| AC-LOOP-02 | 2b |
+| AC-LOOP-03 | 2b |
+| AC-LOOP-04 | 2b |
 | AC-TEST-01 | 3 |
 | AC-TEST-02 | 3 |
 | AC-TEST-03 | 3 |
 | AC-TEST-04 | 3 |
-| AC-RUN-01 | 2 |
-| AC-RUN-07 | 2 |
-| AC-RUN-02 | 2 |
+| AC-RUN-01 | 2b |
+| AC-RUN-07 | 2b |
+| AC-RUN-02 | 2b |
 | AC-RUN-03 | 1 |
-| AC-RUN-04 | 2 |
-| AC-RUN-05 | 2 |
-| AC-RUN-06 | 2 |
+| AC-RUN-04 | 2b |
+| AC-RUN-05 | 2a |
+| AC-RUN-06 | 2b |
 
 ## Sequential verification
 
@@ -66,3 +66,7 @@ Each of the PRD's 19 current criteria has exactly one owner. Constraints marked 
 The technical design's **Verification and Criteria Coverage** section is the proof contract for every phase. Use real disposable Git origins/worktrees, the packaged CLI/local server, actual Claude Code and Codex runs and real browser interactions for their respective boundaries. Deterministic fixtures supplement those proofs. Keep proof artifacts and observed limitations with each implementing phase; do not claim runtime validation from this planning document.
 
 Each phase runs appropriate focused checks while iterating and full repository verification before its implementation commit. Reverse replacement pointers in historical requirements/designs land with the phase implementing the replaced behavior, per the PRD and design; this planning commit changes none of those historical documents. After Phase 3, run whole-PRD delivery-audit, implement any completion phases it adds, then whole-PRD test-audit under the method. This paragraph is closing workflow, not additional planned implementation phases.
+
+## Phase 2 sizing update
+
+Phase 2 now has two leaves; its split record owns their ordering and dependencies. Criterion AC-RUN-05 is owned by 2a; the other Phase 2 criteria are owned by 2b. Original Phases 1 and 3 and all PRD criteria remain unchanged. Phase 2a proves the development interface with assigned audit activities; Phase 2b proves the full automatic workflow, both actual providers and browser progress.

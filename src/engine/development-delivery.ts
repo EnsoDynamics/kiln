@@ -1,3 +1,4 @@
+import { contextOwner, auditDeliveryScope, activeRecoveryOwner, assignedObligations, assignedObligationCriteria } from "./development-owners.js";
 import { simpleCommands } from "../session/bash-command.js";
 /** The delivery ledger is evidence, never a remote command runner. All remote reads are bounded. */
 import { createHash, randomUUID } from "node:crypto";
@@ -6,7 +7,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { runHelper } from "../platform/helper-process.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.js";
-import { emptyDevelopmentLedger, normalizeTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact } from "../state/development-delivery.js";
+import { emptyDevelopmentLedger, normalizeTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
@@ -15,7 +16,7 @@ export class DeliveryRefusal extends Error { constructor(message: string, readon
 class ObservedOperationFailure extends DeliveryRefusal { constructor(message: string, readonly rawPath: string) { super(message); } }
 export interface DeliveryContext {
   record: PrdRecord; stateDirectory: string; prdWorktree: string; prdDirectory: string;
-  git: GitContext; gh: string; env: NodeJS.ProcessEnv; phaseId?: string;
+  git: GitContext; gh: string; env: NodeJS.ProcessEnv; phaseId?: string; owner?: DeliveryOwner;
   commands(sessionId: string, signal?: AbortSignal): Promise<CommandEvidence[]>; now(): string; signal?: AbortSignal;
 }
 function sourceUnavailable(error: unknown): boolean { return /unavailable|deadline|timeout|timed out|aborted|malformed|unreadable|incomplete github|pagination/i.test((error as Error).message); }
@@ -69,33 +70,46 @@ async function source(context: DeliveryContext, repo: RepositoryEntry, path: str
 function currentLeaves(context: DeliveryContext) {
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem); return plan.plan.phases.filter(phase => !phase.splitInto);
 }
-function activationLeaf(context: DeliveryContext): string | undefined {
-  const recovery = context.record.developmentAuthorization?.activationRecovery;
-  if (!recovery || recovery.stoppedPhaseId !== context.phaseId) return undefined;
-  return recovery.phaseIds.find(id => !phaseDeliveryCheck(context, id).passed);
+export function ownerDocuments(context: DeliveryContext, owner: DeliveryOwner): { documentsDigest: string; requirementManifestDigest?: string } {
+  if (owner.kind === "phase") return { documentsDigest: documentsDigest(context, owner.phaseId) };
+  const binding = auditDeliveryScope(context, owner);
+  return { documentsDigest: binding.documentsDigest, requirementManifestDigest: binding.requirementManifestDigest };
 }
-function scope(context: DeliveryContext, phaseId: string): void {
-  const recovery = context.record.developmentAuthorization?.activationRecovery;
-  if (recovery?.stoppedPhaseId === context.phaseId) {
-    const first = activationLeaf(context);
-    if (first) { need(first === phaseId, `Activation recovery must assess unresolved leaf ${first} before later or future work.`); return; }
+function recoveryOwner(context: DeliveryContext): DeliveryOwner | undefined {
+  return activeRecoveryOwner(context, owner => ownerDeliveryCheck(context, owner).passed);
+}
+function activationLeaf(context: DeliveryContext): string | undefined {
+  const owner = recoveryOwner(context); return owner?.kind === "phase" ? owner.phaseId : undefined;
+}
+function scope(context: DeliveryContext, owner: DeliveryOwner): void {
+  const recovering = recoveryOwner(context);
+  if (recovering) { need(ownerKey(recovering) === ownerKey(owner), `Activation recovery must assess unresolved ${recovering.kind === "phase" ? `leaf ${recovering.phaseId}` : `audit ${recovering.activityId}`} before later or future work.`); return; }
+  const active = contextOwner(context);
+  need(active, "Delivery changes require the running or stopped activity.");
+  if (active.kind === "audit") {
+    const assigned = context.record.completionAudits?.activities.at(-1);
+    need(assigned?.activityId === active.activityId && !assigned.acceptedResult && ownerKey(active) === ownerKey(owner), "Only the current unfinished audit may record delivery.");
+    return;
   }
-  need(context.phaseId && context.phaseId !== "pr", "Delivery changes require the running or stopped implementation leaf.");
-  const leaves = currentLeaves(context);
-  const judged = leaves.find(leaf => leaf.id === context.phaseId || isAncestorOf(context.phaseId!, leaf.id));
-  need(judged?.id === phaseId, `Only the current judged leaf ${judged?.id ?? context.phaseId} may record delivery.`);
+  need(active.phaseId !== "pr" && owner.kind === "phase", "Delivery changes require the running or stopped implementation leaf.");
+  const judged = currentLeaves(context).find(leaf => leaf.id === active.phaseId || isAncestorOf(active.phaseId, leaf.id));
+  need(judged?.id === owner.phaseId, `Only the current judged leaf ${judged?.id ?? active.phaseId} may record delivery.`);
+}
+function operationOwner(context: DeliveryContext): DeliveryOwner | undefined {
+  const recovering = recoveryOwner(context); if (recovering) return recovering;
+  const active = contextOwner(context);
+  if (active?.kind !== "phase" || active.phaseId === "pr") return active;
+  const leaf = currentLeaves(context).find(one => one.id === active.phaseId || isAncestorOf(active.phaseId, one.id));
+  return leaf ? { kind: "phase", phaseId: leaf.id } : undefined;
 }
 function checkpointScope(context: DeliveryContext, checkpoint: DeliveryCheckpoint, requirementIds: string[]): void {
-  const leaves = currentLeaves(context);
-  const recovering = activationLeaf(context);
-  const leaf = leaves.find(one => recovering ? one.id === recovering : one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
-  if (recovering) {
-    const recovery = context.record.developmentAuthorization!.activationRecovery!;
-    need(recovery.repositoryNames.includes(repository(context, checkpoint).name), "Activation recovery cannot add a repository.");
-  }
-  if (leaf?.id === checkpoint.phaseId) return;
-  if (context.phaseId === "pr" && !recovering) { need(leaves.every(one => one.closed), "Finalization cannot prepare future phase work."); return; }
-  need(leaf && requirementIds.every(id => ledger(context.record).splits.some(split => split.assignments.some(one => one.checkpointId === checkpoint.id && one.requirementId === id && one.leafIds.includes(leaf.id)))), "This operation's obligations are not assigned to the current recovery leaf.");
+  const owner = operationOwner(context); need(owner, "No active delivery owner.");
+  const recovering = recoveryOwner(context);
+  if (recovering) need(context.record.developmentAuthorization!.activationRecovery!.repositoryNames.includes(repository(context, checkpoint).name), "Activation recovery cannot add a repository.");
+  if (owner.kind === "phase" && owner.phaseId === "pr" && !recovering) { need(currentLeaves(context).every(one => one.closed), "Finalization cannot prepare future phase work."); return; }
+  scope(context, owner);
+  validateSplits(context);
+  need(requirementIds.every(id => assignedObligations(ledger(context.record), checkpoint, owner).includes(id)), "This operation's obligations are not assigned to the current recovery leaf or audit.");
 }
 function failure(context: DeliveryContext, raw: unknown, message: string): never {
   const rawPath = join(context.stateDirectory, "delivery-evidence", `${hash(raw)}.json`); writeJsonAtomically(rawPath, raw); throw new ObservedOperationFailure(message, rawPath);
@@ -131,14 +145,21 @@ function requirementsValid(checkpoint: DeliveryCheckpoint): void {
 }
 export async function recordAssessment(context: DeliveryContext, body: Record<string, unknown>): Promise<void> {
   const assessment = body as unknown as DeliveryAssessment & { checkpoints?: DeliveryCheckpoint[]; split?: DeliverySplit; splits?: DeliverySplit[] };
-  need(typeof assessment.phaseId === "string", "Name the assessed leaf.", 400); scope(context, assessment.phaseId);
-  need(assessment.documentsDigest === documentsDigest(context, assessment.phaseId), "The governing documents changed; assess the current digest.");
+  let owner: DeliveryOwner;
+  try { owner = deliveryOwner(assessment); } catch { throw new DeliveryRefusal("Name the assessed phase or audit owner.", 400); }
+  scope(context, owner);
+  const binding = ownerDocuments(context, owner);
+  need(assessment.documentsDigest === binding.documentsDigest && assessment.requirementManifestDigest === binding.requirementManifestDigest, "The governing documents or audit manifest changed; assess the current digest.");
   need(typeof assessment.required === "boolean" && strings(assessment.criteria) && typeof assessment.reason === "string" && assessment.reason.trim(), "Assessment needs required, criterion labels and a reason.", 400);
+  if (owner.kind === "audit") {
+    const keys = auditDeliveryScope(context, owner).manifest.criteria.map(one => one.key);
+    need(new Set(assessment.criteria).size === keys.length && assessment.criteria.length === keys.length && assessment.criteria.every(key => keys.includes(key)), "Audit development assessment must account for every exact criterion key in its requirement manifest.", 422);
+  }
   const state = ledger(context.record); const ids: string[] = [];
   for (const candidate of assessment.checkpoints ?? []) {
-    need(candidate && typeof candidate.id === "string" && candidate.id && candidate.executionId === context.record.executionId && candidate.phaseId === assessment.phaseId && candidate.featureBranch === context.record.settings.featureBranch && sha(candidate.headSha) && sha(candidate.baseSha) && strings(candidate.criteria) && candidate.criteria.length && strings(candidate.dependsOn) && strings(candidate.requiredChecks) && typeof candidate.requireReview === "boolean", "Incomplete checkpoint identity or required checks.", 422);
+    need(candidate && typeof candidate.id === "string" && candidate.id && candidate.executionId === context.record.executionId && sameOwner(candidate, { owner }) && candidate.requirementManifestDigest === binding.requirementManifestDigest && candidate.featureBranch === context.record.settings.featureBranch && sha(candidate.headSha) && sha(candidate.baseSha) && strings(candidate.criteria) && candidate.criteria.length && strings(candidate.dependsOn) && strings(candidate.requiredChecks) && typeof candidate.requireReview === "boolean", "Incomplete checkpoint identity or required checks.", 422);
     const target = normalizeTarget(candidate.target);
-    const checkpoint: DeliveryCheckpoint = { id: candidate.id, executionId: candidate.executionId, phaseId: candidate.phaseId, target, featureBranch: candidate.featureBranch, headSha: candidate.headSha, baseSha: candidate.baseSha, criteria: candidate.criteria, dependsOn: candidate.dependsOn, workflowSource: candidate.workflowSource, requirements: candidate.requirements, requiredChecks: candidate.requiredChecks, requireReview: candidate.requireReview, operations: [], evidence: [], createdAt: context.now(), ...(candidate.references ? { references: candidate.references } : {}) };
+    const checkpoint: DeliveryCheckpoint = { id: candidate.id, executionId: candidate.executionId, ...ownerFields(owner), ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}), target, featureBranch: candidate.featureBranch, headSha: candidate.headSha, baseSha: candidate.baseSha, criteria: candidate.criteria, dependsOn: candidate.dependsOn, workflowSource: candidate.workflowSource, requirements: candidate.requirements, requiredChecks: candidate.requiredChecks, requireReview: candidate.requireReview, operations: [], evidence: [], createdAt: context.now(), ...(candidate.references ? { references: candidate.references } : {}) };
     requirementsValid(checkpoint);
     if (checkpoint.references) need(Array.isArray(checkpoint.references) && checkpoint.references.every(ref => ref && typeof ref.id === "string" && ref.id && checkpoint.requirements.some(one => one.id === ref.requirementId && one.purpose === "pre_merge")), "Initial references may identify only pre-merge evidence.", 422);
     const repo = repository(context, checkpoint);
@@ -152,36 +173,45 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
     }
     const existing = state.checkpoints.find(one => one.id === checkpoint.id);
     if (existing) {
-      const identity = (one: DeliveryCheckpoint) => ({ target: one.target, executionId: one.executionId, phaseId: one.phaseId, featureBranch: one.featureBranch, headSha: one.headSha, baseSha: one.baseSha, criteria: one.criteria, dependsOn: one.dependsOn, requirements: one.requirements, workflowSource: one.workflowSource, requiredChecks: one.requiredChecks, requireReview: one.requireReview });
+      const identity = (one: DeliveryCheckpoint) => ({ target: one.target, executionId: one.executionId, owner: deliveryOwner(one), requirementManifestDigest: one.requirementManifestDigest, featureBranch: one.featureBranch, headSha: one.headSha, baseSha: one.baseSha, criteria: one.criteria, dependsOn: one.dependsOn, requirements: one.requirements, workflowSource: one.workflowSource, requiredChecks: one.requiredChecks, requireReview: one.requireReview });
       need(hash(identity(existing)) === hash(identity(checkpoint)), "A checkpoint identity is immutable; record a new checkpoint for changed work.");
       for (const reference of checkpoint.references ?? []) if (!(existing.references ??= []).some(one => hash(one) === hash(reference))) existing.references.push(reference);
     } else {
       const replaces = (candidate as DeliveryCheckpoint & { replaces?: string }).replaces;
       if (replaces) {
         const prior = state.checkpoints.find(one => one.id === replaces);
+        const replacingOwner = operationOwner(context);
+        need(prior && replacingOwner && ["requiredMerge", ...prior.requirements.map(one => one.id)].every(id => prior.criteria.every(criterion => assignedObligationCriteria(state, prior, replacingOwner, id).includes(criterion))), "Replacing a checkpoint requires all retained merge/evidence obligations and criteria to be assigned to the current owner.", 422);
         need(prior && prior.headSha !== checkpoint.headSha && !prior.supersededBy && targetKey(prior.target) === targetKey(checkpoint.target) && prior.criteria.every(criterion => checkpoint.criteria.includes(criterion)) && prior.dependsOn.every(id => checkpoint.dependsOn.includes(id)) && prior.requiredChecks.every(check => checkpoint.requiredChecks.includes(check)) && (!prior.requireReview || checkpoint.requireReview) && prior.requirements.every(requirement => checkpoint.requirements.some(one => one.id === requirement.id && one.purpose === requirement.purpose && one.source.path === requirement.source.path && hash(one.match) === hash(requirement.match))) && await ancestor(context, repo, prior.headSha, checkpoint.headSha), "Replacement must retain the earlier source work, target, criteria, requirements and prerequisites.", 422);
         prior.supersededBy = checkpoint.id;
       }
       state.checkpoints.push(checkpoint);
     }
     const document = readdirSync(join(context.prdWorktree, context.prdDirectory)).filter(file => file.endsWith("-prd.md")).map(file => readFileSync(join(context.prdWorktree, context.prdDirectory, file), "utf8")).join("\n");
-    need(checkpoint.criteria.every(criterion => assessment.criteria.includes(criterion) && document.includes(criterion)), "A checkpoint must identify governing PRD criteria from its assessment.", 422);
+    need(checkpoint.criteria.every(criterion => assessment.criteria.includes(criterion) && (owner.kind === "audit" ? auditDeliveryScope(context, owner).manifest.criteria.some(one => one.key === criterion) : document.includes(criterion) || (state.assignments ?? []).some(one => one.owner.kind === "phase" && one.owner.phaseId === owner.phaseId && one.criteria.includes(criterion) && document.includes(criterion.slice(criterion.lastIndexOf("#") + 1))))), "A checkpoint must identify governing PRD criteria from its assessment.", 422);
     ids.push(checkpoint.id);
   }
-  const old = state.assessments.find(one => one.phaseId === assessment.phaseId);
+  const old = state.assessments.find(one => sameOwner(one, { owner }));
   const retained = [...new Set([...(old?.checkpointIds ?? []), ...ids])];
   need(!assessment.required || retained.length > 0, "Required development delivery needs a checkpoint.", 422);
-  const saved: DeliveryAssessment = { phaseId: assessment.phaseId, documentsDigest: assessment.documentsDigest, required: assessment.required || retained.length > 0, criteria: assessment.criteria, reason: assessment.reason.trim(), checkpointIds: retained };
-  state.assessments = [...state.assessments.filter(one => one.phaseId !== saved.phaseId), saved];
+  const saved: DeliveryAssessment = { ...ownerFields(owner), ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}), documentsDigest: assessment.documentsDigest, required: assessment.required || retained.length > 0, criteria: assessment.criteria, reason: assessment.reason.trim(), checkpointIds: retained };
+  state.assessments = [...state.assessments.filter(one => !sameOwner(one, saved)), saved];
   for (const checkpoint of state.checkpoints) for (const dependency of checkpoint.dependsOn) need(dependency !== checkpoint.id && state.checkpoints.some(one => one.id === dependency), `Unknown prerequisite ${dependency}.`, 422);
   const leaves = currentLeaves(context);
   const phaseIndex = (id: string) => leaves.findIndex(leaf => leaf.id === id || isAncestorOf(id, leaf.id));
-  for (const checkpoint of state.checkpoints) for (const id of checkpoint.dependsOn) need(phaseIndex(state.checkpoints.find(one => one.id === id)!.phaseId) <= phaseIndex(checkpoint.phaseId), "A delivery prerequisite cannot belong to a future phase.", 422);
+  for (const checkpoint of state.checkpoints) for (const id of checkpoint.dependsOn) {
+    const prior = deliveryOwner(state.checkpoints.find(one => one.id === id)!); const next = deliveryOwner(checkpoint);
+    if (prior.kind === "phase" && next.kind === "phase") need(phaseIndex(prior.phaseId) <= phaseIndex(next.phaseId), "A delivery prerequisite cannot belong to a future phase.", 422);
+    if (prior.kind === "audit" && next.kind === "audit") {
+      const activities = context.record.completionAudits?.activities ?? [];
+      need(activities.findIndex(one => one.activityId === prior.activityId) <= activities.findIndex(one => one.activityId === next.activityId), "A delivery prerequisite cannot belong to a future audit.", 422);
+    }
+  }
   const visiting = new Set<string>(); const visited = new Set<string>();
   const walk = (id: string) => { need(!visiting.has(id), "Delivery dependency cycle.", 422); if (visited.has(id)) return; visiting.add(id); for (const dep of state.checkpoints.find(one => one.id === id)!.dependsOn) walk(dep); visiting.delete(id); visited.add(id); };
   for (const checkpoint of state.checkpoints) walk(checkpoint.id);
   const splits = [...(assessment.split ? [assessment.split] : []), ...(assessment.splits ?? [])];
-  for (const split of splits) { need(typeof split.phaseId === "string" && (split.phaseId === context.phaseId || isAncestorOf(split.phaseId, assessment.phaseId)) && split.documentsDigest === documentsDigest(context, split.phaseId) && Array.isArray(split.assignments), "Invalid or stale split assignment.");
+  for (const split of splits) { need(typeof split.phaseId === "string" && (split.phaseId === context.phaseId || owner.kind === "phase" && isAncestorOf(split.phaseId, owner.phaseId)) && split.documentsDigest === documentsDigest(context, split.phaseId) && Array.isArray(split.assignments), "Invalid or stale split assignment.");
     state.splits = [...state.splits.filter(one => one.phaseId !== split.phaseId), { ...split, revision: state.revision + 1 }];
   }
   if (splits.length) validateSplits(context);
@@ -190,19 +220,24 @@ export function validateSplits(context: DeliveryContext): void {
   const leaves = currentLeaves(context); const state = ledger(context.record);
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem);
   for (const checkpoint of state.checkpoints) {
-    const phase = plan.plan.phases.find(one => one.id === checkpoint.phaseId); need(phase, `Checkpoint ${checkpoint.id} lost its originating phase.`);
-    if (!phase.splitInto) continue;
-    // Every split between the origin and each leaf needs its own complete assignment.
-    for (const parent of plan.plan.phases.filter(one => one.splitInto && (one.id === checkpoint.phaseId || isAncestorOf(checkpoint.phaseId, one.id)))) {
-      const split = state.splits.find(one => one.phaseId === parent.id);
-      const inheritedIds = ["requiredMerge", ...checkpoint.requirements.map(one => one.id)].filter(id => parent.id === checkpoint.phaseId || state.splits.some(ancestor => isAncestorOf(ancestor.phaseId, parent.id) && ancestor.assignments.some(one => one.checkpointId === checkpoint.id && one.requirementId === id && one.leafIds.some(leafId => isAncestorOf(parent.id, leafId)))));
-      if (!inheritedIds.length) continue;
-      need(split && split.documentsDigest === documentsDigest(context, parent.id), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
-      for (const requirementId of inheritedIds) {
-        const assignments = split.assignments.filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId);
-        need(assignments.length > 0, `Split ${parent.id} omitted ${checkpoint.id}/${requirementId}.`);
-        for (const assignment of assignments) need(assignment.originPhaseId === checkpoint.phaseId && strings(assignment.criteria) && assignment.criteria.length && assignment.criteria.every(criterion => checkpoint.criteria.includes(criterion)) && strings(assignment.leafIds) && assignment.leafIds.length && assignment.leafIds.every(id => leaves.some(leaf => leaf.id === id && isAncestorOf(parent.id, id))), `Split ${parent.id} has an invalid descendant or criterion assignment.`);
-        need(checkpoint.criteria.every(criterion => assignments.some(one => one.criteria.includes(criterion))), `Split ${parent.id} lost original criterion coverage for ${requirementId}.`);
+    const origin = deliveryOwner(checkpoint);
+    const roots = [...new Set([...(origin.kind === "phase" ? [origin.phaseId] : []), ...(state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.owner.kind === "phase").map(one => (one.owner as { kind: "phase"; phaseId: string }).phaseId)])];
+    for (const root of roots) {
+      const phase = plan.plan.phases.find(one => one.id === root); need(phase, `Checkpoint ${checkpoint.id} lost its originating or assigned phase ${root}.`);
+      if (!phase.splitInto) continue;
+      for (const parent of plan.plan.phases.filter(one => one.splitInto && (one.id === root || isAncestorOf(root, one.id)))) {
+        const split = state.splits.find(one => one.phaseId === parent.id);
+        const inherited = parent.id === root ? assignedObligations(state, checkpoint, { kind: "phase", phaseId: root }).map(requirementId => ({ requirementId, criteria: origin.kind === "phase" && origin.phaseId === root ? checkpoint.criteria : (state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId && one.owner.kind === "phase" && one.owner.phaseId === root).flatMap(one => one.criteria) })) : state.splits.flatMap(ancestor => isAncestorOf(ancestor.phaseId, parent.id) ? ancestor.assignments.filter(one => one.checkpointId === checkpoint.id && one.leafIds.some(id => isAncestorOf(parent.id, id))) : []);
+        if (!inherited.length) continue;
+        need(split && split.documentsDigest === documentsDigest(context, parent.id), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
+        const obligations = new Map<string, Set<string>>();
+        for (const obligation of inherited) { const criteria = obligations.get(obligation.requirementId) ?? new Set<string>(); for (const criterion of obligation.criteria) criteria.add(criterion); obligations.set(obligation.requirementId, criteria); }
+        for (const [requirementId, inheritedCriteria] of obligations) {
+          const assignments = split.assignments.filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId);
+          need(assignments.length > 0, `Split ${parent.id} omitted ${checkpoint.id}/${requirementId}.`);
+          for (const assignment of assignments) need(sameOwner({ owner: assignment.originOwner, phaseId: assignment.originPhaseId }, checkpoint) && strings(assignment.criteria) && assignment.criteria.length && assignment.criteria.every(criterion => inheritedCriteria.has(criterion)) && strings(assignment.leafIds) && assignment.leafIds.length && assignment.leafIds.every(id => leaves.some(leaf => leaf.id === id && isAncestorOf(parent.id, id))), `Split ${parent.id} has an invalid descendant or criterion assignment.`);
+          need([...inheritedCriteria].every(criterion => assignments.some(one => one.criteria.includes(criterion))), `Split ${parent.id} lost original criterion coverage for ${requirementId}.`);
+        }
       }
     }
   }
@@ -218,7 +253,8 @@ export function validateSplits(context: DeliveryContext): void {
     const assigned = state.splits.flatMap(split => split.assignments.filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId).flatMap(one => one.leafIds));
     const indexes = assigned.map(id => leaves.findIndex(leaf => leaf.id === id)).filter(index => index >= 0);
     if (indexes.length) return Math.min(...indexes);
-    return leaves.findIndex(leaf => leaf.id === checkpoint.phaseId);
+    const retained = (state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId && one.owner.kind === "phase").flatMap(one => one.owner.kind === "phase" ? [one.owner.phaseId] : []).map(id => leaves.findIndex(leaf => leaf.id === id)).filter(index => index >= 0);
+    return retained.length ? Math.min(...retained) : leaves.findIndex(leaf => leaf.id === checkpoint.phaseId);
   };
   for (const checkpoint of state.checkpoints) {
     const merge = firstAssigned(checkpoint, "requiredMerge");
@@ -455,14 +491,16 @@ export async function reconcileDelivery(context: DeliveryContext): Promise<void>
   }
   state.checkedAt = context.now();
 }
-export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult {
+export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult { return ownerDeliveryCheck(context, { kind: "phase", phaseId }); }
+export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwner): CheckResult {
   const check: CheckResult = { name: "Required development delivery verified", passed: false, facts: [] }; const state = ledger(context.record);
   try {
     validateSplits(context);
-    const assessment = state.assessments.find(one => one.phaseId === phaseId);
-    need(assessment && assessment.documentsDigest === documentsDigest(context, phaseId), `Phase ${phaseId} needs a current development-delivery assessment.`);
+    const assessment = state.assessments.find(one => sameOwner(one, { owner }));
+    const binding = ownerDocuments(context, owner);
+    need(assessment && assessment.documentsDigest === binding.documentsDigest && assessment.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
     for (const checkpoint of state.checkpoints) {
-      const ids = checkpoint.phaseId === phaseId ? ["requiredMerge", ...checkpoint.requirements.filter(one => one.purpose !== "current_artifact").map(one => one.id)] : state.splits.flatMap(split => split.assignments.filter(one => one.checkpointId === checkpoint.id && one.leafIds.includes(phaseId)).map(one => one.requirementId));
+      const ids = assignedObligations(state, checkpoint, owner).filter(id => id === "requiredMerge" || checkpoint.requirements.find(one => one.id === id)?.purpose !== "current_artifact");
       if (!ids.length) continue;
       if (checkpoint.supersededBy && checkpointSatisfied(state, checkpoint)) continue;
       for (const id of ids) need(id === "requiredMerge" ? !!checkpoint.merge && !checkpoint.mergeUnresolvedReason && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed") : !checkpoint.unresolvedRequirements?.[id] && !checkpoint.unresolvedRequirements?.["*"] && checkpoint.evidence.some(fact => fact.requirementId === id && fact.status === "success"), `${checkpoint.id} / ${id}: ${checkpoint.unresolvedReason ?? "required delivery evidence remains unresolved"}`);
@@ -545,10 +583,11 @@ export async function submitEvidence(context: DeliveryContext, body: Record<stri
   if (body.operationId === "current-artifact") {
     need(Array.isArray(body.references) && body.references.length > 0, "Submit current-artifact probe references.", 400);
     const state = ledger(context.record);
-    const recovering = activationLeaf(context);
-    const leaf = currentLeaves(context).find(one => recovering ? one.id === recovering : one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
-    const dependent = state.checkpoints.find(one => one.dependsOn.some(id => effectiveCheckpoint(state, id)?.id === checkpoint.id) && one.verificationProbeAfter && (context.phaseId === "pr" && !recovering && currentLeaves(context).every(leaf => leaf.closed) || one.phaseId === leaf?.id || state.splits.some(split => split.assignments.some(assignment => assignment.checkpointId === one.id && one.requirements.some(requirement => requirement.purpose === "verification" && requirement.id === assignment.requirementId) && assignment.leafIds.includes(leaf?.id ?? "")))));
+    const active = operationOwner(context);
+    const recovering = recoveryOwner(context);
+    const dependent = state.checkpoints.find(one => one.dependsOn.some(id => effectiveCheckpoint(state, id)?.id === checkpoint.id) && one.verificationProbeAfter && (active?.kind === "phase" && active.phaseId === "pr" && !recovering && currentLeaves(context).every(leaf => leaf.closed) || active && one.requirements.some(requirement => requirement.purpose === "verification" && assignedObligations(state, one, active).includes(requirement.id))));
     need(dependent, "The active dependent verification has not requested fresh prerequisite probes.");
+    checkpointScope(context, dependent, dependent.requirements.filter(one => one.purpose === "verification").map(one => one.id));
     for (const value of body.references) {
       const reference = object(value) as unknown as EvidenceReference; const requirement = checkpoint.requirements.find(one => one.id === reference.requirementId && one.purpose === "current_artifact"); need(requirement, "This read-only submission accepts only prerequisite current-artifact probes.", 422);
       const fact = await evidenceFact(context, checkpoint, requirement, reference);

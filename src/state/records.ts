@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger } from "./development-delivery.js";
+import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger, deliveryOwner, recoveryOwners } from "./development-delivery.js";
 // The PRD record and session records Kiln keeps on disk (technical design, "Kiln's State on
 // Disk"). Git and the phase documents stay the record of what is done; these remember
 // settings, sessions, stops and the facts shown for finished work. Schema 2 keeps every
@@ -14,7 +14,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -433,8 +433,13 @@ interface SchemaOnePhase {
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
-  if (record.schemaVersion >= 5) assertDevelopmentState(record);
+  if (![1, 2, 3, 4, 5, 6, 7].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (record.schemaVersion >= 5) {
+    for (const owned of [...(record.developmentDelivery?.assessments ?? []), ...(record.developmentDelivery?.checkpoints ?? [])]) owned.owner ??= deliveryOwner(owned);
+    const recovery = record.developmentAuthorization?.activationRecovery;
+    if (recovery) { recovery.stoppedOwner ??= deliveryOwner({ phaseId: recovery.stoppedPhaseId }); recovery.owners ??= recoveryOwners(recovery); }
+    assertDevelopmentState(record);
+  }
   if (record.schemaVersion < 6) {
     record.executionId ??= randomUUID();
     record.completionAudits = { revision: 0, policy: record.completedAt ? "legacy_complete" : "required", activities: [], evidence: [] };

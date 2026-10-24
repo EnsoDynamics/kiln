@@ -9,6 +9,7 @@ import { createBareOrigin, createRepository, createSandbox, commitFiles, git, in
 import { newPrdRecord } from "../state/new-record.js";
 import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type SessionRecord } from "../state/records.js";
 import { prdStateDirectory, stateRoot } from "../state/state-files.js";
+import { ownerDeliveryCheck, ownerDocuments, recordAssessment, type DeliveryContext } from "../engine/development-delivery.js";
 import { Engine } from "../engine/engine.js";
 import { startLocalServer, TOKEN_HEADER, type LocalServer } from "../server/local-server.js";
 import { takeInstanceLock } from "../state/instance-lock.js";
@@ -99,6 +100,18 @@ describe("audit evidence admission", () => {
     f.saveReport(mode === "duplicate keys" ? '{"schemaVersion":1,"schemaVersion":1}' : undefined);
     const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
     expect(result.disposition).toBe("unresolved"); expect(result.nextAction).toBe("needs_you"); expect(result.checks.some(c => !c.passed)).toBe(true); expect(f.activity.acceptedResult).toBeUndefined(); expect(f.activity.attempts).toHaveLength(1);
+  });
+  it("keeps a valid audit report correctable until its development owner assessment passes", async () => {
+    const f = await fixture(); f.saveReport();
+    const owner = { kind: "audit" as const, activityId: f.activity.activityId };
+    const delivery: DeliveryContext = { record: f.record, stateDirectory: f.stateDirectory, prdWorktree: f.root, prdDirectory: directory, git: f.context.git, env: f.context.env, gh: "unused", owner, now: () => new Date().toISOString(), commands: async () => [] };
+    const context = { ...f.context, developmentChecks: () => [ownerDeliveryCheck(delivery, owner)] };
+    const first = await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(first.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
+    expect(first.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", passed: false }));
+    await recordAssessment(delivery, { owner, ...ownerDocuments(delivery, owner), required: false, criteria: f.checked.requirements.criteria.map(one => one.key), reason: "No PRD criterion requires development delivery.", checkpoints: [] });
+    const next = await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(next.disposition).toBe("recorded"); expect(f.activity.attempts).toHaveLength(2);
   });
   it("retains missing reports and permits corrected blocked submissions in the same activity", async () => {
     const f = await fixture(); const missing = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });

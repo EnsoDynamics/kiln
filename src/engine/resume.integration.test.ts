@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readPrdRecord, writeSessionRecord } from "../state/records.js";
+import { readPrdRecord, SCHEMA_VERSION, writeSessionRecord } from "../state/records.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { createRepository, git } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
@@ -68,7 +68,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 stopped", "1 resumed", "1 done", "2b started", "2b stopped"]);
     expect(calls[2]!.prompt).toContain("implement `docs/prds/customer-returns/phase-2b-store-credit.md`");
     // Kept on disk with the current execution/delivery schema.
-    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(6);
+    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("counts a phase the person finished by hand as Done when Resume's check passes, resuming nothing and dropping the note", async () => {

@@ -43,6 +43,8 @@ The local API is the existing trusted machine-user boundary, not a new claim tha
 
 ### Record contract
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery and §Recovery and Upgrade (schema 7 phase/audit owners, manifest-bound audit assessments, criterion-scoped retained assignments and ordered first-grant recovery, implemented in Phase 2a; existing grants, evidence and final-reconciliation protections remain).
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (schema 6, stable identity for restricted executions, preserved pre-migration bytes and additive audit evidence, implemented in Phase 1; development grants and delivery evidence rules remain unchanged, and audit-owned obligations remain Phase 2).
 
 Use schema 5, retaining current record locations and migrating schemas 1–4 through their existing migrations. Legacy records receive disabled authorization and empty delivery history, including executions already underway. Do not import preferences into migrated executions. Unknown/newer schema versions remain errors. All timestamps are UTC ISO 8601; displays use local time.
@@ -66,6 +68,8 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 ## Session Contract and Delivery Interface
 
 ### One authority statement everywhere
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (audit task identity and owner scope accompany current authority in resumed and manual recovery; note/workspace-repair precedence remains).
 
 Generate one authorization block from the execution record for initial phases, subsequent sessions, every resume cause, finalization and fresh-session recovery. It identifies execution, assigned workspaces/feature branch and exact approved targets, the unchanged restricted repositories, and AC-DEV-02/04's boundaries. Explicitly replace the earlier no-PR/no-merge/no-deploy sentence only for the named scope; do not append a grant beside an unconditional prohibition. Resumes of older conversations say this block replaces their earlier delivery restriction for these targets, while preserving all other instructions. User notes remain first, then workspace repair guidance, then the effective authority and remaining task.
 

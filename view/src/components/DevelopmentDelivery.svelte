@@ -110,7 +110,7 @@
         <button type="button" disabled={!grantConfirmed[row.name] || !environments[row.name]?.trim()} onclick={() => grant(row)}>Authorize {row.name} development target</button>
       </fieldset>
     {/each}
-    {#if delivery.activationRecovery?.some(one => !one.passed)}<p>Recovery assessments required for earlier/stopped work: {delivery.activationRecovery.filter(one => !one.passed).map(one => one.phaseId).join(", ")}. Resume or manual recovery can supply them; Check again only checks evidence.</p>{/if}
+    {#if delivery.activationRecovery?.some(one => !one.passed)}<p>Recovery assessments required for earlier/stopped work: {delivery.activationRecovery.filter(one => !one.passed).map(one => one.owner?.kind === "audit" ? `audit ${one.owner.activityId}` : one.phaseId).join(", ")}. Resume or manual recovery can supply them; Check again only checks evidence.</p>{/if}
     {#if error}<p role="alert">{error}</p>{/if}
   {/if}
 </section>

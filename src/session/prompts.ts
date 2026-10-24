@@ -110,7 +110,13 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
 /** The cause in a resumed session's prompt, from the run's `interruptedBy`. */
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
+export interface AuditRecoveryTask { label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string }
+export function auditRecoveryPrompt(task: AuditRecoveryTask, deliveryAuthority?: string): string {
+  return [fill(template("resume-carry-on-audit.txt"), { ...task, round: String(task.round) }), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
+}
+
 export interface ResumePromptValues {
+  auditTask?: AuditRecoveryTask;
   deliveryAuthority?: string | undefined;
   /** The saved session's agent; absent for legacy Claude callers. */
   agentId?: AgentId;
@@ -162,7 +168,7 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
-    values.phaseDoc === undefined
+    values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
       ? values.deliveryAuthority
         ? template("resume-carry-on-development-finalization.txt")
         : fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })

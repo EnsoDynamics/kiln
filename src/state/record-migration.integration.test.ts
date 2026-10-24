@@ -9,7 +9,7 @@ import type { Timing } from "../session/timing.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { prdRecordPath, readPrdRecord, type PrdRecord } from "./records.js";
+import { prdRecordPath, readPrdRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -96,7 +96,7 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });
-    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(6);
+    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {
