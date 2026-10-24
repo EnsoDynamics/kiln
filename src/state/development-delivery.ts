@@ -1,9 +1,10 @@
 /** Execution-scoped authority and retained delivery obligations (schema 5). */
 export interface DevelopmentTarget { repository: string; baseBranch: string; environment: string }
 export interface DevelopmentCandidate { target: DevelopmentTarget; confirmedNonProduction: boolean; confirmedTarget?: DevelopmentTarget }
-export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[] }
+export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[]; rememberForPrdRepository?: boolean; useSavedTargetsForThisPrd?: boolean; preferenceRevision?: number }
 export interface DevelopmentAuthorization {
   revision: number; enabled: boolean;
+  activationRecovery?: { stoppedPhaseId: string; phaseIds: string[]; repositoryNames: string[] };
   grants: { target: DevelopmentTarget; confirmedAt: string; source: "start" | "needs_you" }[];
 }
 export interface CommandEvidence {
@@ -70,6 +71,7 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
   const candidates = record.settings?.developmentDeployments;
   if (candidates !== undefined) {
     require(object(candidates) && typeof candidates.enabled === "boolean" && Array.isArray(candidates.targets), "before-Start development settings");
+    require([candidates.rememberForPrdRepository, candidates.useSavedTargetsForThisPrd].every(value => value === undefined || typeof value === "boolean") && (candidates.preferenceRevision === undefined || Number.isSafeInteger(candidates.preferenceRevision) && candidates.preferenceRevision >= 0), "preference choice/revision");
     for (const candidate of candidates.targets) { require(object(candidate) && typeof candidate.confirmedNonProduction === "boolean", "candidate target confirmation"); normalizeTarget(candidate.target); if (candidate.confirmedTarget !== undefined) normalizeTarget(candidate.confirmedTarget); }
   }
   const authority = record.developmentAuthorization; const state = record.developmentDelivery;
@@ -80,6 +82,7 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you"].includes(grant.source), "target grant"); normalizeTarget(grant.target);
   }
   require(!authority.enabled || text(record.executionId) && authority.grants.length > 0, "enabled execution identity/grants");
+  if (authority.activationRecovery) require(authority.enabled && object(authority.activationRecovery) && text(authority.activationRecovery.stoppedPhaseId) && texts(authority.activationRecovery.phaseIds) && authority.activationRecovery.phaseIds.length > 0 && texts(authority.activationRecovery.repositoryNames), "activation recovery scope");
   const ids = new Set<string>();
   for (const checkpoint of state.checkpoints) {
     require(object(checkpoint), "checkpoint object");

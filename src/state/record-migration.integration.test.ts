@@ -71,11 +71,16 @@ describe("a schema 1 record read by this Kiln", () => {
     const advanceWaiting = (earlier: Timing, later: Timing): Timing => ({ ...earlier, asOf: later.asOf, waitingMs: earlier.waitingMs + Date.parse(later.asOf) - Date.parse(earlier.asOf) });
     expect(after).toEqual({
       ...before,
+      // Schema 1–4 deliberately receive revision-0 restricted authority. The new grant
+      // control must use that revision without changing the historical execution view.
+      developmentDelivery: after.developmentDelivery,
       feature: { ...before.feature, timing: advanceWaiting(before.feature.timing!, after.feature.timing!) },
       phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
       account: after.account,
       needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt },
     });
+    expect(after.developmentDelivery?.authorization).toEqual({ revision: 0, enabled: false, grants: [] });
+    expect(after.developmentDelivery?.executionId).toBe(before.developmentDelivery?.executionId);
     expect(after.feature.multiRepository).toBe(false);
   });
 

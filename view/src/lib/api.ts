@@ -51,3 +51,6 @@ export async function outputPage(config: PageConfig, sessionId: string, before?:
   if (!response.ok) throw new Error(`Couldn't load the session's output: ${response.status} ${response.statusText}`);
   return (await response.json()) as { lines: OutputLine[]; total: number };
 }
+
+/** Human confirmation is separate from Resume and never writes remembered preferences. */
+export const authorizeDevelopmentTarget = (config: PageConfig, body: { executionId: string; authorizationRevision: number; target: import("../../../src/state/development-delivery.js").DevelopmentTarget; confirmedNonProduction: true }) => send(config, "POST", "/api/development-authorization", body);

@@ -152,6 +152,7 @@ export interface RepositoryRow {
 
 export interface Snapshot {
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
+  savedDevelopmentTargets?: Engine["savedDevelopmentTargets"];
   feature: {
     name: string;
     repositoryName: string;
@@ -351,7 +352,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
-    ...(deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
+    ...(!record.startedAt ? { savedDevelopmentTargets: engine.savedDevelopmentTargets } : {}),
+    ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
       agent: AGENT_NAMES[settings.agentId],

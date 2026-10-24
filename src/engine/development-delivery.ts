@@ -69,7 +69,17 @@ async function source(context: DeliveryContext, repo: RepositoryEntry, path: str
 function currentLeaves(context: DeliveryContext) {
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem); return plan.plan.phases.filter(phase => !phase.splitInto);
 }
+function activationLeaf(context: DeliveryContext): string | undefined {
+  const recovery = context.record.developmentAuthorization?.activationRecovery;
+  if (!recovery || recovery.stoppedPhaseId !== context.phaseId) return undefined;
+  return recovery.phaseIds.find(id => !phaseDeliveryCheck(context, id).passed);
+}
 function scope(context: DeliveryContext, phaseId: string): void {
+  const recovery = context.record.developmentAuthorization?.activationRecovery;
+  if (recovery?.stoppedPhaseId === context.phaseId) {
+    const first = activationLeaf(context);
+    if (first) { need(first === phaseId, `Activation recovery must assess unresolved leaf ${first} before later or future work.`); return; }
+  }
   need(context.phaseId && context.phaseId !== "pr", "Delivery changes require the running or stopped implementation leaf.");
   const leaves = currentLeaves(context);
   const judged = leaves.find(leaf => leaf.id === context.phaseId || isAncestorOf(context.phaseId!, leaf.id));
@@ -77,9 +87,14 @@ function scope(context: DeliveryContext, phaseId: string): void {
 }
 function checkpointScope(context: DeliveryContext, checkpoint: DeliveryCheckpoint, requirementIds: string[]): void {
   const leaves = currentLeaves(context);
-  const leaf = leaves.find(one => one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
+  const recovering = activationLeaf(context);
+  const leaf = leaves.find(one => recovering ? one.id === recovering : one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
+  if (recovering) {
+    const recovery = context.record.developmentAuthorization!.activationRecovery!;
+    need(recovery.repositoryNames.includes(repository(context, checkpoint).name), "Activation recovery cannot add a repository.");
+  }
   if (leaf?.id === checkpoint.phaseId) return;
-  if (context.phaseId === "pr") { need(leaves.every(one => one.closed), "Finalization cannot prepare future phase work."); return; }
+  if (context.phaseId === "pr" && !recovering) { need(leaves.every(one => one.closed), "Finalization cannot prepare future phase work."); return; }
   need(leaf && requirementIds.every(id => ledger(context.record).splits.some(split => split.assignments.some(one => one.checkpointId === checkpoint.id && one.requirementId === id && one.leafIds.includes(leaf.id)))), "This operation's obligations are not assigned to the current recovery leaf.");
 }
 function failure(context: DeliveryContext, raw: unknown, message: string): never {
@@ -461,7 +476,7 @@ export async function prepareOperation(context: DeliveryContext, body: Record<st
   await reconcileDelivery(context);
   const request = object(body.operation); need(["merge", "deploy", "verify", "synchronize"].includes(String(request.kind)), "Unknown delivery operation.", 400);
   const kind = request.kind as "merge" | "deploy" | "verify" | "synchronize";
-  need(!(context.phaseId === "pr" && kind === "merge"), "Finalization does not authorize merging remaining review work.");
+  need(!(context.phaseId === "pr" && kind === "merge" && !activationLeaf(context)), "Finalization does not authorize merging remaining review work.");
   const eligible = kind === "merge" || kind === "synchronize" ? ["requiredMerge"] : checkpoint.requirements.filter(one => one.purpose === (kind === "deploy" ? "deployment" : "verification")).map(one => one.id);
   const obligations = request.requirementIds === undefined ? eligible : request.requirementIds;
   need(strings(obligations) && obligations.length && obligations.every(id => eligible.includes(id)), "Name the operation's assigned requirement IDs.", 422);
@@ -530,8 +545,9 @@ export async function submitEvidence(context: DeliveryContext, body: Record<stri
   if (body.operationId === "current-artifact") {
     need(Array.isArray(body.references) && body.references.length > 0, "Submit current-artifact probe references.", 400);
     const state = ledger(context.record);
-    const leaf = currentLeaves(context).find(one => one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
-    const dependent = state.checkpoints.find(one => one.dependsOn.some(id => effectiveCheckpoint(state, id)?.id === checkpoint.id) && one.verificationProbeAfter && (context.phaseId === "pr" && currentLeaves(context).every(leaf => leaf.closed) || one.phaseId === leaf?.id || state.splits.some(split => split.assignments.some(assignment => assignment.checkpointId === one.id && one.requirements.some(requirement => requirement.purpose === "verification" && requirement.id === assignment.requirementId) && assignment.leafIds.includes(leaf?.id ?? "")))));
+    const recovering = activationLeaf(context);
+    const leaf = currentLeaves(context).find(one => recovering ? one.id === recovering : one.id === context.phaseId || context.phaseId && isAncestorOf(context.phaseId, one.id));
+    const dependent = state.checkpoints.find(one => one.dependsOn.some(id => effectiveCheckpoint(state, id)?.id === checkpoint.id) && one.verificationProbeAfter && (context.phaseId === "pr" && !recovering && currentLeaves(context).every(leaf => leaf.closed) || one.phaseId === leaf?.id || state.splits.some(split => split.assignments.some(assignment => assignment.checkpointId === one.id && one.requirements.some(requirement => requirement.purpose === "verification" && requirement.id === assignment.requirementId) && assignment.leafIds.includes(leaf?.id ?? "")))));
     need(dependent, "The active dependent verification has not requested fresh prerequisite probes.");
     for (const value of body.references) {
       const reference = object(value) as unknown as EvidenceReference; const requirement = checkpoint.requirements.find(one => one.id === reference.requirementId && one.purpose === "current_artifact"); need(requirement, "This read-only submission accepts only prerequisite current-artifact probes.", 422);

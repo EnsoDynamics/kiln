@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger } from "./development-delivery.js";
 // The PRD record and session records Kiln keeps on disk (technical design, "Kiln's State on
 // Disk"). Git and the phase documents stay the record of what is done; these remember
@@ -419,7 +420,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
   if (![1, 2, 3, 4, 5].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion === 5) assertDevelopmentState(record);
-  if (record.schemaVersion < 5) { record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
+  if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
   if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
   assertAgent(record.settings.agentId);
   record.settings.selectionGeneration ??= 0;

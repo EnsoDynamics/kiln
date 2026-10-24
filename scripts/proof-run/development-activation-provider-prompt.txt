@@ -1,0 +1,12 @@
+This is the controlled activation-recovery proof, in the same previously restricted conversation. The person's explicit Needs you grant has now activated only the exact saved target. Use the supplied authority; never grant yourself permission. Do not inspect skills, edit tracked files, merge, deploy, synchronize, push, or close any phase. Keep the stopped implementation leaf open.
+
+Run these direct commands in order in the current working directory. Each driver call is the actual pinned Kiln delivery CLI client. Stop and report any refusal other than the deliberately refused future assessment.
+1. node .kiln-proof/activation-driver.mjs future
+2. node .kiln-proof/activation-driver.mjs assess-1
+3. node .kiln-proof/activation-driver.mjs prepare-verify
+4. If disposition is proceed, run exactly: node development-probe.mjs {{MERGE}} {{ENVIRONMENT}}
+5. node .kiln-proof/activation-driver.mjs record-verify
+6. node .kiln-proof/activation-driver.mjs assess-2
+7. node .kiln-proof/activation-driver.mjs status
+
+Keep command 4 in its own tool call as that exact direct command. It downloads the real immutable Actions artifact and checks its bytes; its actual authoritative call/result supplies the verification evidence. Reuse the already confirmed merge/deployment; do not repeat either. Finish once assessments 1 and 2 pass, with future phase 3 refused and historical merge preserved.

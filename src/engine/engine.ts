@@ -1,3 +1,5 @@
+import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
+import { normalizeTarget, targetKey, type DevelopmentTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
 import { DeliveryRefusal, deliveryEnabled, documentsDigest, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
@@ -352,6 +354,11 @@ export class Engine {
     this.agents.start();
   }
 
+  get savedDevelopmentTargets(): DevelopmentPreference | undefined {
+    if (this.record.startedAt) return undefined;
+    return readDevelopmentPreference(preferencePath(this.stateDirectory), preferenceGroup(this.record.repository.github, this.paths.mainCheckoutPath));
+  }
+
   readonly agents: AgentInfo;
   choiceNotice: string | undefined;
 
@@ -576,7 +583,7 @@ export class Engine {
       const at = this.now().toISOString();
       try { validateStartTargets(record, list); } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
       record.executionId ??= randomUUID();
-      record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
+      if (!record.startedAt) record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
       record.developmentDelivery ??= emptyDevelopmentLedger();
       record.startedAt = at;
       record.refinementConfirmedAt = at;
@@ -758,6 +765,27 @@ export class Engine {
     };
     const fixedBases = [...(change.baseBranch !== undefined ? [this.paths.repositoryName] : []), ...Object.keys(change.bases ?? {})].filter(fixedBase);
     if (fixedBases.length > 0) return refuse(`The base of ${fixedBases.join(" and ")} is fixed: Kiln already made its branch.`);
+    if (change.developmentDeployments) {
+      const candidate = structuredClone(change.developmentDeployments);
+      const preference = this.savedDevelopmentTargets!;
+      if (candidate.useSavedTargetsForThisPrd) {
+        if (readDevelopmentPreference(preferencePath(this.stateDirectory), preference.group).revision !== preference.revision || candidate.preferenceRevision !== preference.revision) return refuse("Saved targets changed; reload Documents found before reuse.");
+        // The displayed exact saved identities are accepted only by this explicit choice.
+        if (!this.record.settings.developmentDeployments?.useSavedTargetsForThisPrd) {
+          candidate.enabled = preference.enabled;
+          candidate.targets = preference.targets.filter(target => this.plannedRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === baseFor(repo, this.record.settings, this.workspaceFixed))).map(target => ({ target, confirmedTarget: target, confirmedNonProduction: true }));
+        }
+      }
+      if (candidate.rememberForPrdRepository) {
+        if (candidate.preferenceRevision !== preference.revision) return refuse("Saved targets changed; reload Documents found before saving.");
+        try {
+          validateStartTargets({ ...this.record, settings: { ...this.record.settings, developmentDeployments: candidate } }, this.plannedRepositories.map(repo => ({ github: repo.github, baseBranch: baseFor(repo, this.record.settings, this.workspaceFixed) })));
+          const savedPreference = saveDevelopmentPreference(preferencePath(this.stateDirectory), { ...preference, enabled: candidate.enabled, targets: candidate.enabled ? candidate.targets.map(one => normalizeTarget(one.target)) : [] }, candidate.preferenceRevision);
+          candidate.preferenceRevision = savedPreference.revision;
+        } catch (error) { return { ok: false, status: error instanceof DeliveryRefusal ? error.status : 409, reason: (error as Error).message }; }
+      }
+      change = { ...change, developmentDeployments: candidate };
+    }
     if (change.agentId !== undefined) {
       try { assertAgent(change.agentId); } catch { return { ok: false, status: 400, reason: "Unknown agent." }; }
     }
@@ -818,6 +846,42 @@ export class Engine {
     return { ok: true };
   }
 
+  /** A grant is a separate human action, never a settings change or Resume side effect. */
+  authorizeDevelopmentTarget(body: Record<string, unknown>): CommandResult {
+    if (!body || typeof body.executionId !== "string" || !Number.isSafeInteger(body.authorizationRevision) || body.confirmedNonProduction !== true) return { ok: false, status: 400, reason: "Submit executionId, authorizationRevision and explicit non-production confirmation." };
+    let target: DevelopmentTarget;
+    try { target = normalizeTarget(body.target); } catch (error) { return { ok: false, status: 400, reason: (error as Error).message }; }
+    const phaseKey = this.stoppedPhaseKey();
+    if (!phaseKey || !this.record.startedAt || this.deliveryBusy || this.checking || this.driving || this.current || this.stopping || this.settingUp) return refuse("Authorize a development target only while Needs you is stopped and idle.");
+    const authority = this.record.developmentAuthorization!;
+    if (body.executionId !== this.record.executionId) return refuse("Wrong execution.");
+    if (!this.setUpRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === repo.baseBranch)) return { ok: false, status: 422, reason: "The target must match an assigned repository and its configured base branch." };
+    // A retry after lost acknowledgement is idempotent, even with its earlier revision.
+    if (authority.grants.some(grant => targetKey(grant.target) === targetKey(target))) return { ok: true };
+    if (body.authorizationRevision !== authority.revision) return refuse("Stale authorization revision; read the current targets again.");
+    const before = structuredClone(authority); const beforeLedger = structuredClone(this.record.developmentDelivery);
+    try {
+      if (!authority.enabled) {
+        const leaves = recordedLeaves(this.record.plan ?? []);
+        const stopId = phaseKey === PR_PHASE_KEY ? PR_PHASE_KEY : this.judgedId(phaseKey);
+        const stopIndex = stopId === PR_PHASE_KEY ? leaves.length : leaves.findIndex(leaf => leaf.id === stopId);
+        if (stopIndex < 0) return refuse("Read the current stopped phase plan before granting authority.");
+        authority.activationRecovery = { stoppedPhaseId: phaseKey, phaseIds: leaves.filter((leaf, index) => index <= stopIndex && (leaf.id === stopId || leaf.closed || this.record.phases[leaf.id]?.doneAt)).map(leaf => leaf.id), repositoryNames: this.setUpRepositories.map(repo => repo.name) };
+      }
+      authority.enabled = true; authority.grants.push({ target, confirmedAt: this.now().toISOString(), source: "needs_you" }); authority.revision++;
+      ledger(this.record).currentComplete = false;
+      assertDevelopmentState(this.record); this.save(); this.changed(); return { ok: true };
+    } catch (error) {
+      this.record.developmentAuthorization = before; if (beforeLedger) this.record.developmentDelivery = beforeLedger; else delete this.record.developmentDelivery;
+      return refuse(`Development authorization could not be saved: ${(error as Error).message}`);
+    }
+  }
+
+  private activationChecks(): CheckResult[] {
+    const recovery = this.record.developmentAuthorization?.activationRecovery;
+    return recovery ? recovery.phaseIds.map(id => phaseDeliveryCheck(this.deliveryContext(id), id)) : [];
+  }
+
   get currentlyComplete(): boolean { return this.record.completedAt !== undefined && (!deliveryEnabled(this.record) || this.record.developmentDelivery?.currentComplete === true); }
 
   private deliveryContext(phaseId?: string): DeliveryContext {
@@ -830,7 +894,7 @@ export class Engine {
     const phaseId = this.current?.phaseKey ?? this.stoppedPhaseKey();
     let digest: string | undefined;
     if (phaseId && phaseId !== PR_PHASE_KEY) { try { digest = documentsDigest(this.deliveryContext(phaseId), this.judgedId(phaseId)); } catch { /* The plan check names unreadable documents. */ } }
-    return { executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(digest ? { documentsDigest: digest } : {}), phaseId };
+    return { ...(this.record.developmentAuthorization?.activationRecovery ? { activationRecovery: this.record.developmentAuthorization.activationRecovery.phaseIds.map(id => { let digest: string | undefined; try { digest = documentsDigest(this.deliveryContext(id), id); } catch { /* The failed check below names unreadable documents. */ } return { phaseId: id, documentsDigest: digest, ...phaseDeliveryCheck(this.deliveryContext(id), id) }; }) } : {}), executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(digest ? { documentsDigest: digest } : {}), phaseId };
   }
 
   async deliveryReadStatus() {
@@ -903,12 +967,30 @@ export class Engine {
 
   deliveryAuthority(): string | undefined {
     if (!deliveryEnabled(this.record)) return undefined;
-    return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
+    return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, activationRecovery: this.record.developmentAuthorization?.activationRecovery, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
+  }
+
+  /** A grant may precede the stopped leaf's very first provider session (plan/readiness stop). */
+  private nextExecutionLeaf(plan: PhasePlan): PlannedPhase | undefined {
+    const activation = this.record.developmentAuthorization?.activationRecovery;
+    if (activation && !this.record.phases[activation.stoppedPhaseId]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, activation.stoppedPhaseId);
+    return nextLeaf(plan);
   }
 
   private async unresolvedDeliveryLeaf(): Promise<string | undefined> {
     if (!deliveryEnabled(this.record)) return undefined;
     await reconcileDelivery(this.deliveryContext());
+    const activation = this.record.developmentAuthorization?.activationRecovery;
+    if (activation) {
+      const failed = this.activationChecks().filter(check => !check.passed);
+      if (failed.length && !this.record.phases[activation.stoppedPhaseId]?.sessionIds.length) {
+        // Launch the authorized stopped leaf once its original blocker clears. Its first
+        // session supplies the historical assessments; no future leaf can overtake it.
+        if (activation.stoppedPhaseId === PR_PHASE_KEY || judgedPhase(this.record.plan ?? [], activation.stoppedPhaseId)) return undefined;
+        this.recordStop(activation.stoppedPhaseId, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: ["The activation-recovery phase is missing from the current plan."] }]); return activation.stoppedPhaseId;
+      }
+      if (failed.length) { this.recordStop(activation.stoppedPhaseId, activation.stoppedPhaseId === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return activation.stoppedPhaseId; }
+    }
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
       if (!leaf.closed) break;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
@@ -1222,7 +1304,7 @@ export class Engine {
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
     const unresolved = await this.unresolvedDeliveryLeaf();
     if (unresolved) return withDone({ kind: "needs_you" as const, phaseKey: unresolved, again: true });
-    const leaf = nextLeaf(read.plan);
+    const leaf = this.nextExecutionLeaf(read.plan);
     if (!leaf) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (deliveryEnabled(record) && check.ghError) { this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true }); }
@@ -1290,7 +1372,7 @@ export class Engine {
         return;
       }
       if (await this.unresolvedDeliveryLeaf()) return;
-      const leaf = nextLeaf(read.plan);
+      const leaf = this.nextExecutionLeaf(read.plan);
       this.current = { phaseKey: leaf?.id ?? PR_PHASE_KEY, commits: [], processRunning: false };
       this.changed();
       // A repository the next phase names that the workspace lacks is added before it starts (multi-repo AC-ADD-04).
@@ -1808,7 +1890,7 @@ export class Engine {
         return "still_stopped";
       }
       // A repository the phase names that the workspace lacks is tried again (multi-repo AC-ADD-04).
-      const leaf = nextLeaf(read.plan);
+      const leaf = this.nextExecutionLeaf(read.plan);
       if (leaf && leaf.id === phaseKey) {
         const added = await this.addNamedRepositories(leaf, read.plan);
         if (!added.ok) {
@@ -1821,6 +1903,12 @@ export class Engine {
       if (facts.sessionIds.length === 0) delete this.record.phases[phaseKey];
       this.save();
       return "cleared";
+    }
+    const activation = this.record.developmentAuthorization?.activationRecovery;
+    if (activation?.stoppedPhaseId === phaseKey && facts.sessionIds.length === 0) {
+      // There is no conversation to resume yet. After the original plan/readiness
+      // blocker clears, the ordinary launch supplies the bounded recovery session.
+      delete facts.stop; this.save(); return "cleared";
     }
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -1915,7 +2003,7 @@ export class Engine {
       if (deliveryEnabled(this.record)) {
         await reconcileDelivery(this.deliveryContext(phaseKey));
         const delivery = phaseDeliveryCheck(this.deliveryContext(phaseKey), outcome.judgedLeafId);
-        outcome.checks.push(delivery); outcome.passed = outcome.passed && delivery.passed; this.save(); this.announceDelivery();
+        outcome.checks.push(delivery, ...this.activationChecks().filter(check => !check.passed)); outcome.passed = outcome.passed && outcome.checks.every(check => check.passed); this.save(); this.announceDelivery();
       }
       if (outcome.plan.ok && !this.stopping) this.acceptPlan(outcome.plan.plan);
       return this.withCodexSafety(phaseKey, outcome);
@@ -1967,6 +2055,8 @@ export class Engine {
 
   private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
+    // Backfilling development assessments does not rewrite historical completion/push facts.
+    if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery) { this.save(); return; }
     const shas = outcome.pushedShas!;
     facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;

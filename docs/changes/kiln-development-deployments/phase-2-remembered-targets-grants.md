@@ -1,5 +1,7 @@
 # Phase 2: Remembered targets and execution grants
 
+**Closed:** 2026-10-24
+
 **Parent PRD:** [Kiln development deployments](kiln-development-deployments-prd.md)
 **Technical design:** [Kiln development deployments](kiln-development-deployments-technical-design.md) — Authorization and Persistence; Session Contract and Delivery Interface; Evidence and Completion → One evaluator at every transition; Display Contract; Verification and Criteria Coverage; Supersession Boundary.
 **Assumptions:** [AUTH-001 provisional grouping; AUTH-002 validated](kiln-development-deployments-assumptions.md).
@@ -21,3 +23,7 @@ No remaining planned PRD scope is deferred. Production authority, automatic perm
 
 ## Phase-specific notes
 Use the phase plan's Phase 2 proof rows. First-grant activation must exercise earlier completed leaves and the stopped leaf through real provider recovery, beyond merely saving a target. AUTH-001 proceeds at its recorded confidence without treating the requirements repository as project identity; do not reopen validated AUTH-002.
+
+## Completion evidence
+
+[Phase 2 proof results](kiln-development-authorization-proof-results.md) record the real browser, concurrent private storage, both-provider activation recovery, and full verification gates. The next planned unit is the whole-PRD delivery audit, followed by its test audit, as the phase plan states.

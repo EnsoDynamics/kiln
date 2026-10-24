@@ -109,6 +109,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json(result.delivery) : commandRefused(c, result);
   });
 
+  app.post("/api/development-authorization", async c => {
+    const body = await jsonBody(c); if (!body) return refuse(c, 400, "The body must be a JSON object.");
+    const result = engine.authorizeDevelopmentTarget(body);
+    return result.ok ? c.json({ authorization: engine.deliveryStatus().authorization }) : commandRefused(c, result);
+  });
+
   app.get("/api/snapshot", (c) => c.json(snapshot()));
 
   app.get("/api/events", (c) =>
@@ -281,7 +287,10 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     const raw = body.developmentDeployments as DevelopmentSettings;
     if (!raw || typeof raw !== "object" || typeof raw.enabled !== "boolean" || !Array.isArray(raw.targets)) return "Development deployments need enabled and target rows.";
     try {
-      change.developmentDeployments = { enabled: raw.enabled, targets: raw.targets.map(candidate => {
+      if (Object.keys(raw).some(key => !["enabled", "targets", "rememberForPrdRepository", "useSavedTargetsForThisPrd", "preferenceRevision"].includes(key))) throw new Error("Unknown development-deployment setting.");
+      for (const field of ["rememberForPrdRepository", "useSavedTargetsForThisPrd"] as const) if (raw[field] !== undefined && typeof raw[field] !== "boolean") throw new Error(`${field} must be true or false.`);
+      if (raw.preferenceRevision !== undefined && (!Number.isSafeInteger(raw.preferenceRevision) || raw.preferenceRevision < 0)) throw new Error("preferenceRevision must be a nonnegative integer.");
+      change.developmentDeployments = { ...raw, enabled: raw.enabled, targets: raw.targets.map(candidate => {
         if (!candidate || typeof candidate.confirmedNonProduction !== "boolean") throw new Error("Confirm each concrete target as non-production.");
         return { target: normalizeTarget(candidate.target), confirmedNonProduction: candidate.confirmedNonProduction, ...(candidate.confirmedTarget ? { confirmedTarget: normalizeTarget(candidate.confirmedTarget) } : {}) };
       }) };
