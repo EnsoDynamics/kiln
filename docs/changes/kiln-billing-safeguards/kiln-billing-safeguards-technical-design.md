@@ -186,7 +186,7 @@ Generated codex-cli 0.162.1 schemas establish optional `RateLimitSnapshot.credit
 - **Browser:** render the approved Claude and Codex states through the real local server. Exercise click/recheck/stale-click/clear and disconnect behavior, account-email placement, run versus next identity, Fable and all Codex usage rows. No warning/checkbox for missing optional credits or overflow. No new usage bar.
 - **Release documentation:** update root installation/usage guidance for the launch-time boundary, Claude metered approval, account-managed overflow/credits and Codex restrictions. Inspect the built npm package to ensure guidance is available and private fixtures/state are excluded. This is verification, not authorization to publish.
 
-The existing full verification suite remains the implementation commit gate. This design-only change uses document/link/coverage checks and an independent technical review; it does not claim product behavior has been implemented or end-to-end billing proven. Native Linux/Windows metadata parity and provider configurations unavailable on the Mac remain explicit test limitations, consistent with the existing platform support decisions.
+The existing full verification suite remains the implementation commit gate. Native Linux/Windows metadata parity and provider configurations unavailable on the Mac remain explicit test limitations, consistent with the existing platform support decisions.
 
 ## Acceptance Criteria Coverage
 
