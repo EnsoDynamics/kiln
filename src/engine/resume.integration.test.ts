@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readPrdRecord, SCHEMA_VERSION, writeSessionRecord } from "../state/records.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { createRepository, git } from "../test-support/git-repositories.js";
+import { createRepository, git, posixShellPath } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
 import { displayPath } from "./worktree-setup.js";
@@ -350,7 +350,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     const working = join(h.sandbox.root, "working");
     writeFileSync(
       h.scenarioPath,
-      JSON.stringify({ sessions: [{ actions: [{ bash: `git -C ${outside} checkout -q -b scratch` }, { text: "Building the intake form." }, { touch: working }, { work: "npm test" }] }, { actions: [{ result: "Put it back." }] }] }),
+      JSON.stringify({ sessions: [{ actions: [{ bash: `git -C ${posixShellPath(outside)} checkout -q -b scratch` }, { text: "Building the intake form." }, { touch: working }, { work: "npm test" }] }, { actions: [{ result: "Put it back." }] }] }),
     );
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));

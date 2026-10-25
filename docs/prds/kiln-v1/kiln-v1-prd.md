@@ -289,7 +289,7 @@ Kiln's users already run Claude Code from a terminal, so Kiln installs the way t
 - [ ] **AC-INSTALL-01 — One package, one command.** Kiln installs from npm as a single package with one command. That one install includes the `kiln` command and the browser view.
 - [ ] **AC-INSTALL-02 — Nothing runs outside the person's machine.** Kiln uses only the Claude Code, Git and GitHub access already on the machine; it has no account, credential, server or cloud service of its own. Nothing Kiln handles leaves the person's machine, apart from what Claude Code and Git already send and Kiln's reads from GitHub (AC-PR-02, AC-PR-04).
   - Superseded in part by: AC-AGENT-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex readiness and existing ChatGPT authentication).
-- [ ] **AC-INSTALL-03 — macOS validation, best-effort Linux and Windows.** macOS is the natively validated release platform. Linux and Windows remain available as best-effort targets; their native agent, console, sleep and desktop behavior is not claimed as tested. Automated compatibility checks remain enabled, and reported native issues are investigated when users encounter them. Native Windows/Linux tests are not a release gate (Doug, 2026-10-25, correcting PLAT-002).
+- [ ] **AC-INSTALL-03 — macOS validation, best-effort Linux and Windows.** macOS is the natively validated release platform. Linux and Windows remain available as best-effort targets; their native agent, console, sleep and desktop behavior is not claimed as tested. CI must pass the full verification and installed-package tests on macOS and must build and pack successfully on Linux and Windows. It does not run Linux/Windows runtime tests. Reported native issues are investigated when users encounter them. Native Windows/Linux tests are not a release gate (Doug, 2026-10-25, correcting PLAT-002).
 
 ### Look and Read Like the Design
 
@@ -333,5 +333,5 @@ None. The [technical design](technical-design.md) settles the architecture propo
 
 - Completed 2026-10-25: Doug confirmed the `ensodynamics` npm organization; the package remains `@ensodynamics/kiln`. The account login is a separate identity.
 - Doug: create the proof repository and run the proof feature on macOS (AC-PROOF-01, AC-PROOF-02), parts A and B of [Kiln proof run steps](../../design/kiln-proof-run-steps.md), recording results in [Kiln proof run results](../../design/kiln-proof-run-results.md).
-- Native Windows/Linux proof and desktop keep-awake checks are best effort, not pending release actions (Doug, 2026-10-25; AC-INSTALL-03). Automated compatibility checks remain enabled.
+- Native Windows/Linux proof and desktop keep-awake checks are best effort, not pending release actions (Doug, 2026-10-25; AC-INSTALL-03). Required Linux/Windows build-and-pack checks remain enabled; full runtime and installed-package checks run on macOS.
 - Doug: explicitly approve publication after the release candidate is reviewed. MIT/public-source intent is confirmed under REL-001; repository visibility, release tags and npm publication remain on hold until that approval. Follow [Kiln npm release steps](../../release/kiln-npm-release-steps.md).

@@ -1,6 +1,7 @@
 /** Convert retained provider history into catalog entries, never report-supplied outcomes. */
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
+import { comparable, expandHome, realPathOfNearestAncestor } from "../engine/worktree-setup.js";
 import { auditCodexConversation } from "../session/codex-evidence.js";
 import { claudeConfigFolder, findTranscripts, readTranscript } from "../session/transcripts.js";
 import { simpleCommands } from "../session/bash-command.js";
@@ -62,7 +63,7 @@ export function codexDelegationReceiver(rows: { type: string; payload: Json }[],
 export async function collectProviderEvidence(context: ProviderEvidenceContext): Promise<EvidenceEntry[]> {
   const { session, activity, signal } = context; const store = new AuditStore(context.stateDirectory);
   const result: EvidenceEntry[] = []; const capturedAt = new Date().toISOString();
-  const roots = context.record.repositories.map(r => r.worktreePath);
+  const roots = context.record.repositories.map(r => comparable(realPathOfNearestAncestor(resolve(expandHome(r.worktreePath)))));
   const skillBytes = readFileSync(activity.skill.path, "utf8");
   requireAudit(hashBytes(skillBytes) === activity.skill.digest, `Assigned skill source changed: ${activity.skill.path}`, "missing_evidence");
   const put = (conversationId: string, locator: string, source: string, at: string, value: Partial<EvidenceEntry>) => {

@@ -15,6 +15,12 @@ export interface Sandbox {
   cleanup(): Promise<void>;
 }
 
+/** A native fixture path quoted for the real POSIX shell used by scripted provider calls. */
+export function posixShellPath(path: string): string {
+  const native = process.platform === "win32" ? path.replaceAll("\\", "/") : path;
+  return "'" + native.replaceAll("'", "'\\''") + "'";
+}
+
 export function createSandbox(): Sandbox {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kiln-test-")));
   const globalConfig = join(root, "empty.gitconfig");

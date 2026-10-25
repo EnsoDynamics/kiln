@@ -7,14 +7,14 @@ on:
   # The release workflow runs these same checks before it publishes.
   workflow_call:
 
-# macOS is the natively validated release platform. Linux/Windows remain best effort;
-# their automated checks detect compatibility regressions but do not establish native
-# agent, console or sleep behavior (PRD AC-INSTALL-03, 2026-10-25 decision).
-# All runners also install and exercise the packed package (AC-INSTALL-01).
+# Doug's 2026-10-25 release policy (AC-INSTALL-03): full runtime and
+# installed-package validation on macOS; required build/pack checks on Linux and
+# Windows, without claiming their native runtime behavior has been confirmed.
 permissions:
   contents: read
 jobs:
   verify:
+    name: ${{ matrix.os == 'macos-latest' && 'macOS tests and package' || format('Build and pack ({0})', matrix.os) }}
     strategy:
       fail-fast: false
       matrix:
@@ -27,5 +27,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run verify
-      - run: npm run test:package
+      - if: ${{ matrix.os == 'macos-latest' }}
+        run: npm run verify
+      - if: ${{ matrix.os == 'macos-latest' }}
+        run: npm run test:package
+      - if: ${{ matrix.os != 'macos-latest' }}
+        run: npm run build
+      - if: ${{ matrix.os != 'macos-latest' }}
+        run: npm pack --ignore-scripts

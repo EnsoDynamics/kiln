@@ -82,6 +82,19 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
 function commit(sandbox: Sandbox, root: string, paths: string[]) { git(sandbox, root, "add", "--", ...paths); git(sandbox, root, "commit", "--allow-empty", "-qm", "test(audit): fixture work"); git(sandbox, root, "push", "-qu", "origin", "develop"); }
 
 describe("audit evidence admission", () => {
+  it("accepts an aliased workspace root without accepting writes to another checkout", async () => {
+    const f = await fixture();
+    const alias = join(f.sandbox.root, "worktree-alias");
+    symlinkSync(f.root, alias, "junction");
+    f.record.repositories[0]!.worktreePath = alias;
+    const inside = join(f.root, "value.mjs");
+    f.call("inside-write", "Write", { file_path: inside }, "Written");
+    const evidence = await refreshAuditEvidence(f.context);
+    expect(evidence.find(entry => entry.locator === "inside-write")?.mutation?.paths).toEqual([inside]);
+    const outside = createRepository(f.sandbox, "outside");
+    f.call("outside-write", "Write", { file_path: join(outside, "value.mjs") }, "Written");
+    await expect(refreshAuditEvidence(f.context)).rejects.toMatchObject({ code: "outside_execution" });
+  });
   it("accepts current whole-PRD evidence, survives a lost response, and preserves immutable result history", async () => {
     const f = await fixture(); f.saveReport(); const request = { ...f.body(), reportPath: f.activity.reportPath };
     const result = await submitAudit(f.context, request); expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Audit result recorded", passed: true })])); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("test_audit");

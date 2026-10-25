@@ -28,7 +28,7 @@ async function setup(value: Record<string, unknown> = {}, engineOptions: Partial
   h = await createHarness({ sessions: [], claude: join("missing", "claude") });
   f = codexWorkFixture();
   Object.assign(h.tools, { codex: f.options.executable });
-  Object.assign(h.env, { KILN_CODEX_WORK_FIXTURE: f.file });
+  f.configureEnvironment(h.env);
   f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
   h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
@@ -300,7 +300,7 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     { write: { path: "claude-only.txt", content: "Claude work\n" } },
     { text: "Claude-only result" }, { waitForFile: "release-mixed-test" }, { result: "Claude-only result" },
   ] }] });
-  f = codexWorkFixture(); Object.assign(h.tools, { codex: f.options.executable }); Object.assign(h.env, { KILN_CODEX_WORK_FIXTURE: f.file });
+  f = codexWorkFixture(); Object.assign(h.tools, { codex: f.options.executable }); f.configureEnvironment(h.env);
   const other = await h.engineFor("second-prd");
   try {
     h.engine.close();

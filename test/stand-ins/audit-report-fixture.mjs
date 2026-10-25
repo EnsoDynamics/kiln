@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 export async function auditReportFixture({prompt,sessionId,transcriptPath,toolCall,toolResult,behavior={}}){
  const pinned=/Pinned CLI: ([^\n]+)/.exec(prompt)[1];
  const parts=JSON.parse('['+pinned.replace(/"\s+"/g,'","')+']');
- parts[1]=parts[1].replace('/src/cli.js','/dist/cli.js');
+ parts[1]=parts[1].replace(/([\\/])src([\\/])cli\.js$/, '$1dist$2cli.js');
  const invoke=(args)=>JSON.parse(execFileSync(parts[0],[parts[1],'audit',...args],{encoding:'utf8',timeout:125000}));
  const status=()=>{const s=invoke(['status']);let cursor=s.nextCursor;while(cursor){const page=invoke(['status',cursor]);s.evidence.push(...page.evidence);cursor=page.nextCursor;}return s;};
  const command=(text)=>{const id=toolCall('Bash',{command:text});let out,failed=false;try{out=execFileSync('sh',['-c',text],{encoding:'utf8',stdio:['ignore','pipe','pipe']});}catch(e){out=String(e.stdout)+String(e.stderr);failed=true;}toolResult(id,out,failed);};

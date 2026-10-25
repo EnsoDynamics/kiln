@@ -21,7 +21,7 @@ const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, sta
 const dispatches = () => f.calls().filter(call => call.method === "turn/start");
 async function setup(value: Record<string, unknown> = {}) {
   h = await createHarness({ sessions: [], claude: join("missing", "claude") }); f = codexWorkFixture();
-  Object.assign(h.tools, { codex: f.options.executable }); Object.assign(h.env, { KILN_CODEX_WORK_FIXTURE: f.file });
+  Object.assign(h.tools, { codex: f.options.executable }); f.configureEnvironment(h.env);
   set(value); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });

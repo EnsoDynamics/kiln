@@ -1,5 +1,7 @@
 # Test audit: Kiln v1
 
+**Release-policy update, 2026-10-25:** Doug requires full macOS runtime and installed-package validation plus Linux/Windows build-and-pack checks. Native Linux/Windows runtime tests are not part of the release gate. The 2026-10-18 cross-platform runtime gaps recorded below remain historical evidence limits; they are not pending human release actions under the updated AC-INSTALL-03.
+
 **Status:** 0 to fix; 1 waiting (AC-INSTALL-03, on CI's Linux and Windows runs once develop is pushed)
 **Last audit:** 2026-10-18, whole PRD (phases 1 to 5; Phase 6 open), at `9976d95`; remediation re-graded at `bf9df26`, and again on the changes committed after `97d1a18` (Checked `97d1a18`+)
 **PRD:** [kiln-v1-prd.md](./kiln-v1-prd.md)

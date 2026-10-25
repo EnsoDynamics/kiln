@@ -58,7 +58,7 @@ By default, work stays on feature branches for review. Before Start, you can sep
 
 ## Development
 
-Node 22 or later and Git 2.29 or later. `npm install`, then `npm run verify`: dependency audit, lint, typecheck, the unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the tarball globally into a temporary folder and runs that `kiln`. CI runs both on macOS, Linux and Windows. Releases are published to npm by CI from a version tag: [release steps](docs/release/kiln-npm-release-steps.md).
+Node 22 or later and Git 2.29 or later. `npm install`, then `npm run verify`: dependency audit, lint, typecheck, the unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the tarball globally into a temporary folder and runs that `kiln`. CI requires both on macOS, plus successful builds and package archives on Linux and Windows; Linux/Windows runtime behavior remains unconfirmed. Releases are published to npm by CI from a version tag: [release steps](docs/release/kiln-npm-release-steps.md).
 
 ## License
 

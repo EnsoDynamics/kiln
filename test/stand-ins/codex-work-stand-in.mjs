@@ -102,7 +102,8 @@ createInterface({ input: process.stdin }).on('line', async line => {
           raw('response_item', { type: 'function_call', name: 'exec_command', call_id: callId, arguments: JSON.stringify({ cmd: command, workdir: process.cwd() }) });
           const item = { type: 'commandExecution', id: callId, command, cwd: process.cwd(), status: 'inProgress', aggregatedOutput: null, exitCode: null };
           send({ method: 'item/started', params: { threadId, turnId, item } });
-          const result = spawnSync(command, { cwd: process.cwd(), env: process.env, shell: true, encoding: 'utf8' });
+          // Fixture programs and retained command evidence use POSIX shell syntax on every host.
+          const result = spawnSync('sh', ['-c', command], { cwd: process.cwd(), env: process.env, encoding: 'utf8' });
           Object.assign(item, { status: result.status === 0 ? 'completed' : 'failed', aggregatedOutput: result.stdout + result.stderr, exitCode: result.status });
           const turns = history(); turns.find(turn => turn.id === turnId).items.push(item); writeFileSync(historyFile(), JSON.stringify(turns));
           raw('response_item', { type: 'function_call_output', call_id: callId, output: result.stdout + result.stderr });

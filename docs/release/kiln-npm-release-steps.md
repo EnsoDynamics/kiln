@@ -9,12 +9,12 @@ Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics
 - Doug confirmed the `ensodynamics` npm organization on 2026-10-25 and supplied an npm account screenshot showing membership. `doug-ensodynamics` is the login; the package scope is `@ensodynamics`.
 - `package.json` names `@ensodynamics/kiln` at `1.0.0`, sets public package access and declares MIT. The root `LICENSE` already contains the MIT license, copyright Enso Dynamics.
 - GitHub repository visibility is still private. The default `main` branch predates the application and its license; release preparation is on `develop`.
-- `.github/workflows/release.yml` publishes from a pushed `v*.*.*` tag only after its three-platform CI jobs pass. It checks that the tag matches the package version and the commit is contained in `main`, then runs `npm publish --provenance`.
+- `.github/workflows/release.yml` publishes from a pushed `v*.*.*` tag only after full macOS verification/installed-package tests and Linux/Windows build-and-pack checks pass. It checks that the tag matches the package version and the commit is contained in `main`, then runs `npm publish --provenance`.
 - No public `@ensodynamics/kiln` version was returned by the registry on 2026-10-25. The local npm login returned E401, so authenticated organization permissions remain unverified.
 
 ## Finish preparation before approving release
 
-1. After the CI repairs are reviewed and an integration-branch push is authorized, require a passing CI run on that exact candidate. Keep automated macOS/Linux/Windows checks enabled, including the package installation tier; local macOS evidence does not imply the remote runners passed.
+1. After the CI repairs are reviewed and an integration-branch push is authorized, require a passing CI run on that exact candidate. Require full verification and installed-package tests on macOS, plus build-and-pack checks on Linux and Windows; do not run or claim Linux/Windows runtime validation; local macOS evidence does not imply the remote runners passed.
 2. Rerun the full and production-only dependency audits on the final candidate. The preparation update to `fast-uri@3.1.9` clears the finding identified in the readiness review.
 3. Apply the confirmed platform policy: macOS is natively validated; Windows and Linux are best effort. Doug waived native Windows/Linux release proofs on 2026-10-25. The PRD, design, PLAT-002, README and prepared website copy reflect that decision; do not claim native Windows/Linux execution was tested.
 4. Review and validate the prepared website source changes covering explicit development delivery, whole-PRD completion audits, the pinned Codex CLI prerequisite and platform policy. Doug authorized deployment of the standalone page on 2026-10-25. Keep it unlisted and `noindex`, with no homepage/navigation links or sitemap entry; package publication does not lift that restriction.
@@ -48,7 +48,7 @@ Use this setup during step 3 of the release sequence below, after the approved c
 ## After explicit release approval: release the selected version
 
 1. Integrate only the reviewed release candidate into `main`, using normal repository review and protection rules. Preserve any other session's unmerged work. Push only under the release authorization.
-2. Wait for CI to pass on that exact `main` SHA, including installation of the packed package on all three runners.
+2. Wait for CI to pass on that exact `main` SHA, including installation of the packed package on macOS and successful builds/packs on Linux and Windows.
 3. Complete the GitHub visibility and initial npm access setup above. Confirm `main` displays the reviewed README and MIT license.
 4. Confirm the npm version is still unpublished and `package.json` has the intended version. Create and push the matching annotated tag (for the current version, `v1.0.0`). A tag push triggers publication; this is the release boundary.
 5. Follow the Release workflow to its final result. It repeats the CI checks and publishes through GitHub Actions, never from a laptop.

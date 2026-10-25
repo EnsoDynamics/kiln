@@ -13,7 +13,7 @@ import { findTranscripts } from "../session/transcripts.js";
 import { readPrdRecord, writeSessionRecord } from "../state/records.js";
 import { readJsonLines } from "../state/state-files.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { createRepository, git } from "../test-support/git-repositories.js";
+import { createRepository, git, posixShellPath } from "../test-support/git-repositories.js";
 import { buildSnapshot } from "./snapshot.js";
 
 let harness: Harness | undefined;
@@ -36,7 +36,7 @@ function landingOutside(outside: string): ScenarioSession {
   return {
     actions: [
       { write: { path: join(outside, "src", "tokens", "colors.ts"), content: "export const refunded = '#e6b450';\n" } },
-      { bash: `cd ${outside} && git add -A && git commit -m "fix(tokens): refunded"` },
+      { bash: `cd ${posixShellPath(outside)} && git add -A && git commit -m "fix(tokens): refunded"` },
       ...landing.actions,
     ],
   };
@@ -175,7 +175,7 @@ describe("an interrupted session that worked outside the workspace (AC-OUTSIDE-0
     const working = join(h.sandbox.root, "working");
     writeFileSync(
       h.scenarioPath,
-      JSON.stringify({ sessions: [{ actions: [{ bash: `git -C ${outside.path} checkout -q -b scratch` }, { text: "Building the intake form." }, { touch: working }, { work: "npm test" }] }] }),
+      JSON.stringify({ sessions: [{ actions: [{ bash: `git -C ${posixShellPath(outside.path)} checkout -q -b scratch` }, { text: "Building the intake form." }, { touch: working }, { work: "npm test" }] }] }),
     );
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
@@ -227,7 +227,7 @@ describe("an interruption by a sleep, or of the pull-request session (AC-OUTSIDE
     writeFileSync(
       h.scenarioPath,
       JSON.stringify({
-        sessions: [{ actions: [{ bash: `git -C ${outside.path} stash list && git -C ${outside.path} switch -q -c scratch` }, { text: "Building the intake form." }, { waitForFile: `${slept}.found` }, { stderr: "API Error: Connection error." }, { exit: 1 }] }],
+        sessions: [{ actions: [{ bash: `git -C ${posixShellPath(outside.path)} stash list && git -C ${posixShellPath(outside.path)} switch -q -c scratch` }, { text: "Building the intake form." }, { waitForFile: `${slept}.found` }, { stderr: "API Error: Connection error." }, { exit: 1 }] }],
       }),
     );
     await h.engine.start({ refinementConfirmed: true });
@@ -252,7 +252,7 @@ describe("an interruption by a sleep, or of the pull-request session (AC-OUTSIDE
     const h = harness;
     const outside = designSystem(h);
     const working = join(h.sandbox.root, "working");
-    const opening = { actions: [{ bash: `git -C ${outside.path} push 2>/dev/null; true` }, { touch: working }, { work: "gh pr create" }] };
+    const opening = { actions: [{ bash: `git -C ${posixShellPath(outside.path)} push 2>/dev/null; true` }, { touch: working }, { work: "gh pr create" }] };
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("src/a.txt"), landingSession("src/b.txt"), landingSession("src/c.txt"), opening] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
@@ -318,7 +318,7 @@ describe("the pull-request session's check (AC-PRS-06)", () => {
     const h = harness;
     const outside = designSystem(h);
     const opening = pullRequestSession(218);
-    opening.actions.unshift({ bash: `git -C ${outside.path} commit --allow-empty -q -m wip` });
+    opening.actions.unshift({ bash: `git -C ${posixShellPath(outside.path)} commit --allow-empty -q -m wip` });
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("src/a.txt"), landingSession("src/b.txt"), landingSession("src/c.txt"), opening] }));
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
