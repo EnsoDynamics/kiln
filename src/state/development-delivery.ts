@@ -1,10 +1,29 @@
-/** Execution-scoped authority and retained delivery obligations (schema 5). */
+/** Execution-scoped authority and retained delivery obligations. */
+export type DeliveryOwner = { kind: "phase"; phaseId: string } | { kind: "audit"; activityId: string };
+/** phaseId remains only on legacy/phase-owned records. Audit origins never fabricate one. */
+export interface DeliveryOwnership { owner?: DeliveryOwner | undefined; phaseId?: string | undefined }
+export function deliveryOwner(value: DeliveryOwnership): DeliveryOwner {
+  if (value.owner?.kind === "phase" && typeof value.owner.phaseId === "string" && value.owner.phaseId && (value.phaseId === undefined || value.phaseId === value.owner.phaseId)) return value.owner;
+  if (value.owner?.kind === "audit" && typeof value.owner.activityId === "string" && value.owner.activityId && value.phaseId === undefined) return value.owner;
+  if (value.owner === undefined && typeof value.phaseId === "string" && value.phaseId) return { kind: "phase", phaseId: value.phaseId };
+  throw new Error("Invalid development-delivery owner.");
+}
+export function ownerKey(owner: DeliveryOwner): string { return owner.kind === "phase" ? `phase:${owner.phaseId}` : `audit:${owner.activityId}`; }
+export function sameOwner(left: DeliveryOwnership, right: DeliveryOwnership): boolean { return ownerKey(deliveryOwner(left)) === ownerKey(deliveryOwner(right)); }
+export function ownerFields(owner: DeliveryOwner): DeliveryOwnership { return { owner, ...(owner.kind === "phase" ? { phaseId: owner.phaseId } : {}) }; }
+export interface DeliveryAssignment { checkpointId: string; requirementId: string; owner: DeliveryOwner; criteria: string[] }
+export interface ActivationRecovery { stoppedPhaseId?: string; stoppedOwner?: DeliveryOwner; phaseIds: string[]; owners?: DeliveryOwner[]; repositoryNames: string[] }
+export function recoveryOwners(recovery: ActivationRecovery): DeliveryOwner[] { return recovery.owners ?? recovery.phaseIds.map(phaseId => ({ kind: "phase", phaseId })); }
+export function recoveryStopKey(recovery: ActivationRecovery): string {
+  const owner = recovery.stoppedOwner ?? deliveryOwner({ phaseId: recovery.stoppedPhaseId });
+  return owner.kind === "phase" ? owner.phaseId : `audit-${owner.activityId}`;
+}
 export interface DevelopmentTarget { repository: string; baseBranch: string; environment: string }
 export interface DevelopmentCandidate { target: DevelopmentTarget; confirmedNonProduction: boolean; confirmedTarget?: DevelopmentTarget }
 export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[]; rememberForPrdRepository?: boolean; useSavedTargetsForThisPrd?: boolean; preferenceRevision?: number }
 export interface DevelopmentAuthorization {
   revision: number; enabled: boolean;
-  activationRecovery?: { stoppedPhaseId: string; phaseIds: string[]; repositoryNames: string[] };
+  activationRecovery?: ActivationRecovery;
   grants: { target: DevelopmentTarget; confirmedAt: string; source: "start" | "needs_you" }[];
 }
 export interface CommandEvidence {
@@ -29,22 +48,23 @@ export interface DeliveryOperation {
   state: "prepared" | "observed" | "unresolved" | "failed"; retryOf?: string; failureEvidencePath?: string; references: EvidenceReference[]; reason?: string;
   pullRequest?: number; synchronized?: { featureHead: string; baseHead: string };
 }
-export interface DeliveryCheckpoint {
-  id: string; executionId: string; phaseId: string; target: DevelopmentTarget; featureBranch: string;
+export interface DeliveryCheckpoint extends DeliveryOwnership {
+  id: string; executionId: string; requirementManifestDigest?: string; target: DevelopmentTarget; featureBranch: string;
   headSha: string; baseSha: string; criteria: string[]; dependsOn: string[];
   workflowSource: { path: string; revision: string }; requirements: EvidenceRequirement[];
   requiredChecks: string[]; requireReview: boolean; createdAt: string;
   references?: EvidenceReference[]; operations: DeliveryOperation[]; merge?: MergeFact; evidence: EvidenceFact[]; evidenceHistory?: EvidenceFact[];
   observedActivity?: { kind: "Deploying" | "Verifying"; at: string }; mergeUnresolvedReason?: string; unresolvedRequirements?: Record<string, string>; verificationProbeAfter?: string; checkedAt?: string; unresolvedReason?: string; supersededBy?: string;
 }
-export interface DeliveryAssessment { phaseId: string; documentsDigest: string; required: boolean; criteria: string[]; reason: string; checkpointIds: string[] }
-export interface SplitAssignment { checkpointId: string; requirementId: string; originPhaseId: string; criteria: string[]; leafIds: string[] }
+export interface DeliveryAssessment extends DeliveryOwnership { requirementManifestDigest?: string; documentsDigest: string; required: boolean; criteria: string[]; reason: string; checkpointIds: string[] }
+export interface SplitAssignment { checkpointId: string; requirementId: string; originPhaseId?: string; originOwner?: DeliveryOwner; criteria: string[]; leafIds: string[] }
 export interface DeliverySplit { phaseId: string; documentsDigest: string; revision: number; assignments: SplitAssignment[] }
 export interface RepositoryDeliveryResult {
   repository: string; state: "unchanged" | "delivered" | "review" | "mixed" | "unresolved";
   deliveredCheckpointIds: string[]; remainingHeadSha?: string; reviewPullRequest?: { number: number; url: string }; reasons: string[];
 }
 export interface DevelopmentLedger {
+  assignments?: DeliveryAssignment[];
   revision: number; assessments: DeliveryAssessment[]; checkpoints: DeliveryCheckpoint[]; splits: DeliverySplit[];
   sourceUnavailable?: boolean; lastReadError?: string; checkedAt?: string; repositoryResults: RepositoryDeliveryResult[]; currentComplete?: boolean;
 }
@@ -59,7 +79,7 @@ export function normalizeTarget(value: unknown): DevelopmentTarget {
 }
 
 /** Reject damaged schema-5 state rather than substituting a history with no obligations. */
-export function assertDevelopmentState(record: { developmentAuthorization?: DevelopmentAuthorization; developmentDelivery?: DevelopmentLedger; startedAt?: string; executionId?: string; settings?: { developmentDeployments?: DevelopmentSettings } }): void {
+export function assertDevelopmentState(record: { developmentAuthorization?: DevelopmentAuthorization; developmentDelivery?: DevelopmentLedger; startedAt?: string; executionId?: string; completionAudits?: { activities: { activityId: string }[] }; settings?: { developmentDeployments?: DevelopmentSettings } }): void {
   const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
   const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
   const texts = (value: unknown): value is string[] => Array.isArray(value) && value.every(text);
@@ -82,13 +102,20 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you"].includes(grant.source), "target grant"); normalizeTarget(grant.target);
   }
   require(!authority.enabled || text(record.executionId) && authority.grants.length > 0, "enabled execution identity/grants");
-  if (authority.activationRecovery) require(authority.enabled && object(authority.activationRecovery) && text(authority.activationRecovery.stoppedPhaseId) && texts(authority.activationRecovery.phaseIds) && authority.activationRecovery.phaseIds.length > 0 && texts(authority.activationRecovery.repositoryNames), "activation recovery scope");
+  const validOwner = (value: unknown) => object(value) && (value.kind === "phase" && text(value.phaseId) && value.activityId === undefined || value.kind === "audit" && text(value.activityId) && value.phaseId === undefined && record.completionAudits?.activities.some(one => one.activityId === value.activityId));
+  const owned = (value: DeliveryOwnership) => { try { return validOwner(deliveryOwner(value)); } catch { return false; } };
+  if (authority.activationRecovery) {
+    const recovery = authority.activationRecovery;
+    require(authority.enabled && object(recovery) && owned({ owner: recovery.stoppedOwner, phaseId: recovery.stoppedPhaseId }) && texts(recovery.phaseIds) && texts(recovery.repositoryNames), "activation recovery scope");
+    require(recovery.owners === undefined || Array.isArray(recovery.owners) && recovery.owners.length > 0 && recovery.owners.every(validOwner), "activation recovery owners");
+    require(recoveryOwners(recovery).length > 0 && recoveryOwners(recovery).every(validOwner), "nonempty recovery scope");
+  }
   const ids = new Set<string>();
   for (const checkpoint of state.checkpoints) {
     require(object(checkpoint), "checkpoint object");
     require(text(checkpoint.id) && !ids.has(checkpoint.id), "unique checkpoint identity"); ids.add(checkpoint.id);
     normalizeTarget(checkpoint.target);
-    require(checkpoint.executionId === record.executionId && text(checkpoint.phaseId) && text(checkpoint.featureBranch) && sha(checkpoint.headSha) && sha(checkpoint.baseSha) && texts(checkpoint.criteria) && checkpoint.criteria.length > 0 && texts(checkpoint.dependsOn) && source(checkpoint.workflowSource) && texts(checkpoint.requiredChecks) && typeof checkpoint.requireReview === "boolean" && timestamp(checkpoint.createdAt), `checkpoint ${checkpoint.id} identity/source/requirements`);
+    require(checkpoint.executionId === record.executionId && owned(checkpoint) && (deliveryOwner(checkpoint).kind !== "audit" || digest(checkpoint.requirementManifestDigest)) && text(checkpoint.featureBranch) && sha(checkpoint.headSha) && sha(checkpoint.baseSha) && texts(checkpoint.criteria) && checkpoint.criteria.length > 0 && texts(checkpoint.dependsOn) && source(checkpoint.workflowSource) && texts(checkpoint.requiredChecks) && typeof checkpoint.requireReview === "boolean" && timestamp(checkpoint.createdAt), `checkpoint ${checkpoint.id} identity/source/requirements`);
     require(Array.isArray(checkpoint.requirements) && checkpoint.requirements.length > 0 && Array.isArray(checkpoint.operations) && Array.isArray(checkpoint.evidence), `checkpoint ${checkpoint.id} collections`);
     const requirements = new Set<string>();
     for (const requirement of checkpoint.requirements) {
@@ -118,10 +145,15 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     require(checkpoint.supersededBy === undefined || ids.has(checkpoint.supersededBy) && checkpoint.supersededBy !== checkpoint.id, "checkpoint replacement");
     for (const operation of checkpoint.operations) require(operation.restorationFor === undefined || operation.kind === "deploy" && ids.has(operation.restorationFor), "prerequisite restoration scope");
   }
-  for (const assessment of state.assessments) require(object(assessment) && text(assessment.phaseId) && digest(assessment.documentsDigest) && typeof assessment.required === "boolean" && texts(assessment.criteria) && text(assessment.reason) && texts(assessment.checkpointIds) && assessment.checkpointIds.every(id => ids.has(id)) && (!assessment.required || assessment.checkpointIds.length > 0), "phase delivery assessment");
+  for (const assessment of state.assessments) require(object(assessment) && owned(assessment) && (deliveryOwner(assessment).kind !== "audit" || digest(assessment.requirementManifestDigest)) && digest(assessment.documentsDigest) && typeof assessment.required === "boolean" && texts(assessment.criteria) && text(assessment.reason) && texts(assessment.checkpointIds) && assessment.checkpointIds.every(id => ids.has(id)) && (!assessment.required || assessment.checkpointIds.length > 0), "phase delivery assessment");
   for (const split of state.splits) {
     require(object(split) && text(split.phaseId) && digest(split.documentsDigest) && Number.isSafeInteger(split.revision) && split.revision <= state.revision && Array.isArray(split.assignments), "split assignment digest/revision");
-    for (const assignment of split.assignments) require(object(assignment) && ids.has(assignment.checkpointId) && text(assignment.requirementId) && text(assignment.originPhaseId) && texts(assignment.criteria) && assignment.criteria.length > 0 && texts(assignment.leafIds) && assignment.leafIds.length > 0, "split obligation assignment");
+    for (const assignment of split.assignments) require(object(assignment) && ids.has(assignment.checkpointId) && text(assignment.requirementId) && owned({ owner: assignment.originOwner, phaseId: assignment.originPhaseId }) && texts(assignment.criteria) && assignment.criteria.length > 0 && texts(assignment.leafIds) && assignment.leafIds.length > 0, "split obligation assignment");
+  }
+  require(state.assignments === undefined || Array.isArray(state.assignments), "retained owner assignments");
+  for (const assignment of state.assignments ?? []) {
+    const checkpoint = state.checkpoints.find(one => one.id === assignment.checkpointId);
+    require(object(assignment) && checkpoint && validOwner(assignment.owner) && text(assignment.requirementId) && (assignment.requirementId === "requiredMerge" || checkpoint.requirements.some(one => one.id === assignment.requirementId)) && texts(assignment.criteria) && assignment.criteria.length > 0 && assignment.criteria.every(one => checkpoint.criteria.includes(one)), "retained obligation owner/criterion");
   }
   require(state.currentComplete === undefined || typeof state.currentComplete === "boolean", "current completion result");
   for (const result of state.repositoryResults) require(object(result) && text(result.repository) && ["unchanged", "delivered", "review", "mixed", "unresolved"].includes(result.state) && texts(result.deliveredCheckpointIds) && result.deliveredCheckpointIds.every(id => ids.has(id)) && texts(result.reasons), "repository delivery result");

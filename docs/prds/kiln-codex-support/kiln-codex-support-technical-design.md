@@ -221,6 +221,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage; 
 
 ## Interfaces and Records
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (audit-specific installed skill resolution and launch), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 ### Local API and snapshot changes
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.
@@ -242,6 +244,8 @@ No new login endpoint or provider credential fields are exposed. Readiness/model
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API, §Snapshot, §Screens (agent-specific fields only).
 
 ### Persisted schema 4
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order and §Recovery and Upgrade (additive audit session kinds, activity-specific storage and schema 6 evidence records, implemented in Phase 1; task-specific skill dispatch remains Phase 2).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Authorization and Persistence (schema 5 execution authority and delivery ledger; existing provider data remains). Restricted execution behavior remains in force.
 

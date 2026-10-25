@@ -22,6 +22,8 @@
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
   const mergedBranches = $derived(snapshot.mergedBranches ?? []);
+  // The latest whole-PRD test assessment owns the current actions; prior rounds are history.
+  const humanActions = $derived(snapshot.activities?.findLast(row => row.kind === "test_audit")?.audit?.remainingAfterDeliveryActions ?? []);
   const histories = $derived(snapshot.deliveryHistory?.repositories.map(history => ({ ...history, ...deliveryGroups(history.events) })) ?? []);
   let expanded = $state<Record<string, boolean>>({});
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
@@ -128,8 +130,16 @@
     {/if}
   </section>
   {/if}
+  {#if humanActions.length}
+    <section class="card human-actions" aria-labelledby="human-actions-heading">
+      <h2 id="human-actions-heading" class="eyebrow">Remaining human actions</h2>
+      <p class="note">These actions remain for a person after Kiln’s delivery. Kiln has not performed them.</p>
+      <ul>{#each humanActions as action}<li>{action}</li>{/each}</ul>
+    </section>
+  {/if}
   <div class="columns-main">
-    <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
+    <div class="column-wide">{#if snapshot.auditHistoryUnavailable}<p class="note">Automatic audit history is unavailable for this historical completion.</p>{/if}
+      <PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
       <section class="card" aria-labelledby="set-h">
         <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="sub">Set before the first phase.</span></div>
@@ -153,6 +163,9 @@
 </main>
 
 <style>
+  .human-actions h2 { margin: 0; }
+  .human-actions ul { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+  .human-actions li + li { margin-top: 8px; }
   .history-repo .pr-title { overflow-wrap: anywhere; }
   .history-repo h3 { margin: 0; }
   .history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }

@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (automatic audit gates before final delivery), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled execution rechecks current work despite historical completion). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Setup at Start (setup is done when every repository's is), §Named after Start (names are added before a phase starts), §The Pull Requests (the engine loop's check before the session, per repository)
@@ -171,6 +173,10 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 - **What Documents found counts (AC-START-04).** PRD: its criteria are the list items that open with a bold label (`- [ ] **AC-<AREA>-<NN>` or `- [x] **…`), leaving out retired labels (the text after the label begins "retired", as `phase-split` writes them) and fully superseded criteria (those with a `Superseded by:` line; `Superseded in part by:` still counts). Kiln shows their count and the first and last in file order. Labels anywhere else aren't counted: another PRD's criteria named in `Replaces:` or `Superseded by:` lines, or labels cited in prose. Technical design: how many of those criteria's labels it cites, counting a range such as `AC-START-01 to 09` or `AC-START-01–09` as every label in it, and bare numbers continuing a label after commas (`AC-CLI-01, 02`) as labels of that label's area, since designs commonly cite criteria that way. Assumptions: entries are `### <ID>.` headings; those not yet confirmed are the entries outside the "Validated Assumptions" table whose heading doesn't carry `✅ VALIDATED` (a transitional marker, per `assumptions-document-writing`), and the total adds that table's rows. Plan: phase document count; every leaf in plan order, in the ordered tree, each marked closed when its document already has a Closed line (a phase done by hand before Start, which the method allows); and the count of leaves to implement, the leaves not closed, with the closed leaves counted beside it, worded as UI-010 item 12 gives.
 
 ## Sessions
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (task-specific audit skill launch and recovery), implemented in Phase 2b. Existing authority and evidence protections remain.
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (additive audit session kinds and `audit-<activityId>` storage, implemented in Phase 1; automatic dispatch remains Phase 2).
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (Codex protected conversations, immutable session settings and recovery; Claude behavior retained).
 
@@ -481,6 +487,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 
 ### Snapshot
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit activities alongside preserved phase details), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 **Running and waiting time (AC-WATCH-01, 02, 06).** Derive timing from saved runs across all sessions belonging to a phase; no schema migration. Count the union of run intervals, capped at interruption or exit, as running. For an unended run not currently executing, use its last recorded output as the known boundary. Everything else from the original start through Done (or now while unfinished) is waiting, including Needs you and usage limits. Feature totals use all runs, from feature start to completion, including pauses between phases. Snapshots carry running/waiting milliseconds, the calculation time and which clock advances; the view ticks only that clock and freezes on disconnect. A running process includes tests and tool waits; this does not claim model compute time.
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (selected agent, catalogue, readiness and selection generation).
@@ -584,6 +592,10 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (execution activity history and preserved legacy completion), implemented in Phase 2b. Existing authority and evidence protections remain.
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade and §Audit Report and Local Interface (schema 6 audit records, stable execution identity and immutable evidence sidecars, implemented in Phase 1; execution-wide upgrade scheduling remains Phase 2).
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Persisted schema 4 (per-agent choices and legacy Claude identities).
 

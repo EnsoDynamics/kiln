@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger } from "./development-delivery.js";
+import { readFileSync } from "node:fs";
+import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger, deliveryOwner, recoveryOwners } from "./development-delivery.js";
 // The PRD record and session records Kiln keeps on disk (technical design, "Kiln's State on
 // Disk"). Git and the phase documents stay the record of what is done; these remember
 // settings, sessions, stops and the facts shown for finished work. Schema 2 keeps every
@@ -10,8 +11,10 @@ import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization
 import type { CodexAudit } from "../session/codex-evidence.js";
 import { dirname, join } from "node:path";
 import { readJson, writeJsonAtomically } from "./state-files.js";
+import type { AuditState } from "../audit/contracts.js";
+import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -229,6 +232,9 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  nextActivityKey?: string;
+  activities?: import("../audit/workflow.js").ExecutionActivity[];
+  completionAudits?: AuditState;
   executionId?: string;
   developmentAuthorization?: DevelopmentAuthorization;
   developmentDelivery?: DevelopmentLedger;
@@ -348,6 +354,7 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
+  activityId?: string;
   codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance; conversationUnavailable?: boolean; resumeError?: string; recoveryObserved?: CodexTurnExecution[]; historyError?: string; usageRecovery?: CodexUsageRecovery };
   /** Codex's persistent identity; the local storage key stays sessionId. */
   conversation?: { threadId?: string; sessionTreeId?: string; codexHome?: string; knownThreadIds?: string[] };
@@ -355,7 +362,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -393,7 +400,17 @@ export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
   if (record && record.schemaVersion > SCHEMA_VERSION) {
     throw new NewerSchemaError(`Kiln's record for this PRD was written by a newer Kiln (schema ${record.schemaVersion}). Update Kiln and run kiln run again.`);
   }
-  try { return record === undefined ? undefined : migrateRecord(record); } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`); }
+  try {
+    if (record && record.schemaVersion < SCHEMA_VERSION) {
+      const original = new AuditStore(stateDirectory).putBytes(readFileSync(path, "utf8"));
+      const migrationPath = join(stateDirectory, "audit-migration.json");
+      const saved = readJson<{ executionId: string; original: string }>(migrationPath);
+      if (saved && (typeof saved.executionId !== "string" || !saved.executionId || typeof saved.original !== "string")) throw new Error("Invalid retained audit migration identity.");
+      record.executionId ??= saved?.executionId ?? randomUUID();
+      if (!saved) writeJsonAtomically(migrationPath, { executionId: record.executionId, original });
+    }
+    return record === undefined ? undefined : migrateRecord(record);
+  } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`); }
 }
 
 /** The default workspace folder: `.worktrees/<PRD folder name>` beside the PRD's repository (AC-SPACE-01). */
@@ -418,8 +435,18 @@ interface SchemaOnePhase {
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
-  if (record.schemaVersion === 5) assertDevelopmentState(record);
+  if (![1, 2, 3, 4, 5, 6, 7].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (record.schemaVersion >= 5) {
+    for (const owned of [...(record.developmentDelivery?.assessments ?? []), ...(record.developmentDelivery?.checkpoints ?? [])]) owned.owner ??= deliveryOwner(owned);
+    const recovery = record.developmentAuthorization?.activationRecovery;
+    if (recovery) { recovery.stoppedOwner ??= deliveryOwner({ phaseId: recovery.stoppedPhaseId }); recovery.owners ??= recoveryOwners(recovery); }
+    assertDevelopmentState(record);
+  }
+  if (record.schemaVersion < 6) {
+    record.executionId ??= randomUUID();
+    record.completionAudits = { revision: 0, policy: record.completedAt ? "legacy_complete" : "required", activities: [], evidence: [] };
+  }
+  if (record.completionAudits && (!record.executionId || !Number.isSafeInteger(record.completionAudits.revision) || !["required", "legacy_complete"].includes(record.completionAudits.policy) || !Array.isArray(record.completionAudits.activities) || !Array.isArray(record.completionAudits.evidence))) throw new Error("Invalid completion audit state.");
   if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
   if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
   assertAgent(record.settings.agentId);
@@ -496,6 +523,14 @@ export function readSessionRecord(stateDirectory: string, phaseKey: string, sess
 
 export function writeSessionRecord(stateDirectory: string, record: SessionRecord): void {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this session.");
-  const phaseKey = record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
+  const phaseKey = sessionStorageKey(record);
   writeJsonAtomically(join(sessionDirectory(stateDirectory, phaseKey, record.sessionId), "session.json"), record);
+}
+
+export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId" | "activityId">): string {
+  if (record.kind === "delivery_audit" || record.kind === "test_audit") {
+    if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Audit session needs a safe activity identity.");
+    return `audit-${record.activityId}`;
+  }
+  return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

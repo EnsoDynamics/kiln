@@ -275,6 +275,16 @@ export function decodeWrapper(callId, program) {
 
 export function decodeRawCall(payload) {
   if (payload.type === 'custom_tool_call' && payload.name === 'exec' && (payload.namespace === undefined || payload.namespace === 'functions')) return decodeWrapper(payload.call_id, payload.input);
+  // Observed native functions.wait (0.162.1) only polls a previously yielded exec
+  // cell. The originating wrapper and all native commands remain independently
+  // decoded/covered; this exact, non-executing envelope cannot dispatch new work.
+  if (payload.type === 'function_call' && payload.name === 'wait' && (payload.namespace === undefined || payload.namespace === 'functions')) {
+    try {
+      const input = JSON.parse(payload.arguments);
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['cell_id', 'yield_time_ms', 'max_tokens'].includes(key)) || typeof input.cell_id !== 'string' || !input.cell_id.length || input.cell_id.length > 128 || input.yield_time_ms !== undefined && (!Number.isSafeInteger(input.yield_time_ms) || input.yield_time_ms < 0) || input.max_tokens !== undefined && (!Number.isSafeInteger(input.max_tokens) || input.max_tokens <= 0)) throw new Error('Unsupported wait envelope');
+      return { callId: payload.call_id, operations: [{ name: 'wait', input }], coverage: 'complete' };
+    } catch { return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: 'Malformed or unsupported wait envelope' }; }
+  }
   const name = payload.name;
   const namespace = ['exec_command', 'write_stdin', 'apply_patch'].includes(name) ? 'functions' : 'collaboration';
   if (!['function_call', 'custom_tool_call'].includes(payload.type) || !TOOLS.has(name) || payload.namespace !== undefined && payload.namespace !== namespace || payload.type === 'custom_tool_call' && name !== 'apply_patch') return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: `Unknown raw tool form ${payload.namespace ?? ''}/${payload.name}` };

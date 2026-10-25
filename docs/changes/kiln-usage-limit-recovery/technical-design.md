@@ -89,6 +89,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Keep-awake
 
 ## Resume
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (check accepted audit evidence before resuming the saved audit task), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved authority and current enabled completion prechecks). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex saved identity, original pair, explicit repair and cleanup reconciliation; Claude behavior retained).

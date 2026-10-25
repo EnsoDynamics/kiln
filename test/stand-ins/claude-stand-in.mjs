@@ -185,12 +185,13 @@ process.on("SIGINT", () => interrupt("sigint"));
 
 const message = JSON.parse((await firstLine) || "{}");
 const prompt = message?.message?.content ?? "";
-const counterPath = `${scenarioPath}.count`;
+const isAudit = /^Run (Delivery audit|Test audit) on the whole governing PRD/.test(prompt) || /Carry on with the assigned (Delivery audit|Test audit),/.test(prompt);
+const counterPath = `${scenarioPath}.${isAudit ? "audit-" : ""}count`;
 const index = existsSync(counterPath) ? Number(readFileSync(counterPath, "utf8")) : 0;
 writeFileSync(counterPath, String(index + 1));
 appendFileSync(`${scenarioPath}.calls.jsonl`, `${JSON.stringify({ args, cwd: process.cwd(), prompt, path: process.env.PATH ?? process.env.Path })}\n`);
 const scenario = JSON.parse(readFileSync(scenarioPath, "utf8"));
-session = scenario.sessions[index] ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
+session = (isAudit ? scenario.auditSessions?.[index] ?? { actions: [{ auditReport: {} }, { result: "Audit recorded." }, { exit: 0 }] } : scenario.sessions[index]) ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
 
 if (session.noInit) {
   const error = `No conversation found with session ID: ${sessionId}`;
@@ -251,6 +252,10 @@ for (const action of session.actions) {
     writeFileSync(action.touch, "");
   } else if (action.sleepFor) {
     await new Promise((resolve) => setTimeout(resolve, action.sleepFor));
+  } else if (action.auditReport) {
+    const {auditReportFixture} = await import('./audit-report-fixture.mjs');
+    const auditPrompt = prompt.includes('Pinned CLI:') ? prompt : readFileSync(`${scenarioPath}.calls.jsonl`, 'utf8').trim().split('\n').map(line=>JSON.parse(line)).find(call=>call.args.includes(sessionId)&&call.prompt.includes('Pinned CLI:')).prompt;
+    await auditReportFixture({prompt:auditPrompt,sessionId,transcriptPath,toolCall,toolResult,behavior:action.auditReport});
   } else if (action.skill) {
     const id = toolCall("Skill", { skill: action.skill });
     toolResult(id, `Launching skill: ${action.skill}`);
@@ -304,7 +309,7 @@ for (const action of session.actions) {
     for (const child of action.split) {
       writeFileSync(
         join(directory, `phase-${child.id}-${child.slug}.md`),
-        `# Phase ${child.id}: ${child.title}\n${child.closed ? "\n**Closed:** 2026-10-17\n" : ""}\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\nNone.\n`,
+        `# Phase ${child.id}: ${child.title}\n${child.closed ? "\n**Closed:** 2026-10-17\n" : ""}\n## Acceptance criteria covered\n${child.criteria ?? "AC-RET-01"}\n\n## Phase dependencies\nNone.\n`,
       );
     }
     toolResult(toolCall("Write", { file_path: path }), `Split phase ${id}.`);

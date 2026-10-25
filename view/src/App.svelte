@@ -42,6 +42,7 @@
   const phaseScreen = $derived.by(() => {
     const route = router.route;
     if (route.screen !== "phase" || !snapshot) return undefined;
+    if (snapshot.activities?.some(row => row.id === route.phaseId && row.details)) return route.phaseId;
     if (snapshot.current?.phaseId === route.phaseId) return route.phaseId;
     if (snapshot.needsYou?.phaseId === route.phaseId && snapshot.needsYou.sessionId) return route.phaseId;
     if (snapshot.waiting?.phaseId === route.phaseId) return route.phaseId;

@@ -1,4 +1,5 @@
 import { runDelivery } from "./delivery-command.js";
+import { runAudit } from "./audit-command.js";
 import { deliveryEnabled } from "./engine/development-delivery.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
@@ -124,6 +125,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   }
   if (command === undefined) return usageError(context);
   if (command === "delivery") return runDelivery(rest, context);
+  if (command === "audit") return runAudit(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
   if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
   if (rest.length === 0) return usageError(context);
@@ -347,6 +349,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
+    case "audit": return formatPhaseLine(event.at, "", `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`, event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":
       return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);

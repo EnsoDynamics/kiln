@@ -9,7 +9,7 @@ import type { Timing } from "../session/timing.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { prdRecordPath, readPrdRecord, type PrdRecord } from "./records.js";
+import { prdRecordPath, readPrdRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -75,6 +75,7 @@ describe("a schema 1 record read by this Kiln", () => {
       // control must use that revision without changing the historical execution view.
       developmentDelivery: after.developmentDelivery,
       feature: { ...before.feature, timing: advanceWaiting(before.feature.timing!, after.feature.timing!) },
+      activities: before.activities!.map((activity, index) => activity.timing ? { ...activity, timing: advanceWaiting(activity.timing, after.activities![index]!.timing!) } : activity),
       phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
       account: after.account,
       needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt },
@@ -92,11 +93,11 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
     await engine.agents.refresh();
-    expect(buildSnapshot(engine)).toEqual({ ...before, account: buildSnapshot(engine).account });
+    expect(buildSnapshot(engine)).toEqual({ ...before, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });
-    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(5);
+    expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {

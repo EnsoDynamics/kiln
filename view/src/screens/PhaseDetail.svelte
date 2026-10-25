@@ -29,16 +29,18 @@
 
   const waiting = $derived(snapshot.waiting?.phaseId === phaseId ? snapshot.waiting : undefined);
   const stopped = $derived(snapshot.needsYou?.phaseId === phaseId ? snapshot.needsYou : waiting);
-  const current = $derived(stopped ? undefined : snapshot.current);
+  const current = $derived(stopped || snapshot.current?.phaseId !== phaseId ? undefined : snapshot.current);
   const isPr = $derived(phaseId === PR_ID);
-  const row = $derived(snapshot.phases.find((phase) => phase.id === phaseId));
+  const row = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === phaseId));
   const live = $derived(current !== undefined && connected);
+  const isAudit = $derived(row?.kind === "delivery_audit" || row?.kind === "test_audit");
   // Both clocks stop when the view loses Kiln; while stopped, only waiting advances.
   const shownNow = $derived(connected ? now : (lastSeenAt ?? now));
   const identity = $derived(stopped ?? current ?? row?.details);
   const session = $derived(
     stopped
       ? { id: stopped.sessionId, model: stopped.model ?? "", effort: stopped.effort, startedAt: stopped.sessionStartedAt, endsAt: stopped.sessionEndedAt ? Date.parse(stopped.sessionEndedAt) : shownNow, steps: stopped.steps ?? [], repositories: stopped.repositories ?? [], total: stopped.outputLineCount ?? 0 }
+      : !current && row?.details ? { id: row.details.sessionId, model: row.details.model, effort: row.details.effort, startedAt: row.details.from, endsAt: row.details.to ? Date.parse(row.details.to) : shownNow, steps: [], repositories: [], total: row.outputLineCount ?? 0 }
       : { id: current?.sessionId, model: current?.model ?? "", effort: current?.effort, startedAt: current?.startedAt, endsAt: shownNow, steps: current?.steps ?? [], repositories: current?.repositories ?? [], total: current?.latestLine?.line ?? 0 },
   );
   const commits = $derived(session.repositories.flatMap((repository) => repository.commits));
@@ -60,25 +62,36 @@
 
 <main class="page-main detail-page">
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId)} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
   <section class="phase">
     <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
-      <PhaseCircle id={phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
+      <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{row?.title ?? ""}</h2>
-      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Interrupted</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>Implementing</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
+      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Interrupted</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">Done</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
-  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={!stopped} total={session.total} {now} />{/key}
+  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} />{/key}
+  {#if row?.audit}
+    <section class="card">
+      <h3>{row.title} · {row.file}</h3>
+      {#if row.audit.outcome}<p>Outcome: {row.audit.outcome}</p>{/if}
+      {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}
+      {#each row.audit.criteria as criterion}<p>{criterion.key}: {criterion.status}</p>{#each criterion.findings as finding}<p>{finding}</p>{/each}{/each}
+      {#each row.audit.checks.filter(c => !c.passed) as check}<p>{check.name}: {check.facts.join(" ")}</p>{/each}
+      {#each row.audit.blockers as blocker}<p>{blocker}</p>{/each}
+      {#each row.audit.pendingActions as action}<p>Human action: {action}</p>{/each}
+    </section>
+  {/if}
   <div class="columns-main">
     {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">
       {#if live && !isPr}
         <div class="pause">
-          <button type="button" class="button wide" disabled={pressing} onclick={togglePause}>{#if snapshot.pause.pending}<Icon name="arrow" size={15} strokeWidth={1.8} />Keep going{:else}<Icon name="pause" size={15} strokeWidth={1.8} />Pause after this phase{/if}</button>
+          <button type="button" class="button wide" disabled={pressing} onclick={togglePause}>{#if snapshot.pause.pending}<Icon name="arrow" size={15} strokeWidth={1.8} />Keep going{:else}<Icon name="pause" size={15} strokeWidth={1.8} />{isAudit ? "Pause after this audit" : "Pause after this phase"}{/if}</button>
           {#if reason}<span class="reason">{reason}</span>{/if}
-          <p class="note">{snapshot.pause.pending ? `Kiln pauses once ${phaseName(phaseId)} is done, including its commit and push. Keep going cancels the pause.` : `${capitalized(phaseName(phaseId))} still finishes its commit and push. Nothing is cut off mid-step.`}</p>
+          <p class="note">{snapshot.pause.pending ? `Kiln pauses once ${phaseName(phaseId, snapshot)} is done, including its commit and push. Keep going cancels the pause.` : `${capitalized(phaseName(phaseId, snapshot))} still finishes its commit and push. Nothing is cut off mid-step.`}</p>
         </div>
       {/if}
       <aside class="card side">
@@ -94,8 +107,10 @@
       {#if !isPr}
         <aside class="card side">
           <span class="eyebrow">Commits</span>
-          {#if commits.length === 0}
-            <p class="commits-none">{stopped ? "None for this phase." : "None for this phase yet. The feature commit comes after test hardening."}</p>
+          {#if !current && !stopped && row?.audit}
+            <p class="commits-none">{row.details?.commitCount === undefined ? "See the saved session output for committed audit work." : `${row.details.commitCount} commits recorded for this audit.`}</p>
+          {:else if commits.length === 0}
+            <p class="commits-none">{stopped ? "None for this phase." : "None for this phase yet. The current activity has not committed changes yet."}</p>
           {:else if grouped}
             <div class="groups">
               {#each grouped as repository (repository.name)}

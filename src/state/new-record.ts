@@ -3,6 +3,7 @@ import { emptyDevelopmentLedger, restrictedAuthorization } from "./development-d
 
 import { SCHEMA_VERSION, agentSettings, type AgentSettings, type PrdRecord, type Settings } from "./records.js";
 import { newToken } from "./state-files.js";
+import { randomUUID } from "node:crypto";
 
 export interface NewRecordInput {
   mainCheckoutPath: string;
@@ -16,6 +17,8 @@ export interface NewRecordInput {
 
 export function newPrdRecord(input: NewRecordInput): PrdRecord {
   return {
+    executionId: randomUUID(),
+    completionAudits: { revision: 0, policy: "required", activities: [], evidence: [] },
     schemaVersion: SCHEMA_VERSION,
     developmentAuthorization: restrictedAuthorization(),
     developmentDelivery: emptyDevelopmentLedger(),

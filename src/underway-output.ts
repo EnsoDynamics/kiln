@@ -8,7 +8,7 @@ import { recordedLeaves } from "./engine/plan-reading.js";
 import { PR_PHASE_KEY } from "./state/records.js";
 import { resetClock, type TerminalColors } from "./terminal-output.js";
 
-const phaseName = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : `phase ${key}`);
+const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : `phase ${key}`);
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
@@ -21,19 +21,19 @@ export function whereItStands(engine: Engine): string {
   if (engine.currentlyComplete) return "complete";
   if (record.completedAt && record.developmentAuthorization?.enabled) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
-  if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting))} is waiting for usage`;
+  if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting), engine)} is waiting for usage`;
   const stopped = engine.stoppedPhaseKey();
-  if (stopped !== undefined) return `${phaseName(engine.judgedId(stopped))} needs you`;
+  if (stopped !== undefined) return `${phaseName(engine.judgedId(stopped), engine)} needs you`;
   for (const [key, facts] of Object.entries(record.phases)) {
     const session = engine.latestSession(key);
     const run = session?.runs.at(-1);
     if (!engine.isPhaseDone(key) && facts.stop === undefined && run && (run.endedAt === undefined || run.interruptedBy !== undefined)) {
-      return `${phaseName(engine.judgedId(key))} was interrupted`;
+      return `${phaseName(engine.judgedId(key), engine)} was interrupted`;
     }
   }
   const next = engine.nextKeyFromRecordedPlan();
-  if (record.pause.activeSince !== undefined) return `paused before ${phaseName(next)}`;
-  return `${phaseName(next)} is next`;
+  if (record.pause.activeSince !== undefined) return `paused before ${phaseName(next, engine)}`;
+  return `${phaseName(next, engine)} is next`;
 }
 
 /** `Customer returns  ·  2 of 5 phases done  ·  phase 2b was interrupted` */
@@ -59,6 +59,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
   const titled = (key: string) => `${phaseName(key)}, ${engine.titleOf(key)}`;
   let text: string;
   switch (decision.kind) {
+    case "start_audit": text = `Starting ${decision.label.toLowerCase()}, round ${decision.round}.`; break;
     case "start_phase":
       text = `Starting ${titled(decision.phaseId)}.`;
       break;
@@ -67,14 +68,14 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     case "needs_you": {
       const judged = engine.judgedId(decision.phaseKey);
-      text = `${capitalized(phaseName(judged))} ${decision.again ? "still needs you" : "needs you"}.`;
+      text = `${capitalized(phaseName(judged, engine))} ${decision.again ? "still needs you" : "needs you"}.`;
       break;
     }
     case "plan_stop":
       text = `${capitalized(phaseName(decision.phaseKey))} hasn’t started: the phase plan doesn’t read.`;
       break;
     case "paused": {
-      const next = decision.beforePhaseKey === PR_PHASE_KEY ? "the pull request" : `phase ${decision.beforePhaseKey}`;
+      const next = phaseName(decision.beforePhaseKey, engine);
       text = `Paused before ${next}. Press Start ${next} to go on.`;
       break;
     }
@@ -87,19 +88,19 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       text =
         decision.phaseKey === PR_PHASE_KEY
           ? `Resuming the pull-request session ${decision.sessionId.slice(0, 8)}.`
-          : `Resuming ${phaseName(engine.judgedId(decision.phaseKey))}’s session ${decision.sessionId.slice(0, 8)}.`;
+          : `Resuming ${phaseName(engine.judgedId(decision.phaseKey), engine)}’s session ${decision.sessionId.slice(0, 8)}.`;
       break;
     case "setup_failed":
       text = decision.error;
       break;
     case "waiting": {
-      const subject = decision.phaseKey === PR_PHASE_KEY ? "The pull-request session" : `Phase ${engine.judgedId(decision.phaseKey)}`;
+      const subject = decision.phaseKey === PR_PHASE_KEY ? "The pull-request session" : capitalized(phaseName(engine.judgedId(decision.phaseKey), engine));
       const reset = decision.limit.resetsAt === undefined ? "" : `, resets ${resetClock(new Date(decision.limit.resetsAt), engine.clock())}`;
       text = `${subject} is waiting for usage (${decision.limit.label}${reset}).`;
       break;
     }
   }
   const doneFirst = "doneFirst" in decision ? decision.doneFirst : undefined;
-  if (doneFirst) text = `${capitalized(phaseName(doneFirst.phaseId))} is done${doneFirst.byPerson ? ", finished by you" : ""}. ${text}`;
+  if (doneFirst) text = `${capitalized(phaseName(doneFirst.phaseId, engine))} is done${doneFirst.byPerson ? ", finished by you" : ""}. ${text}`;
   return `${colors.red("●")} ${text}${openedAddress === undefined ? "" : ` Opened ${colors.red(openedAddress)}`}`;
 }

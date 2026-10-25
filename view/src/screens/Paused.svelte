@@ -21,7 +21,7 @@
   const after = $derived(pausedAfter(snapshot));
   const next = $derived(nextPhase(snapshot));
   const nextIsPr = $derived(next?.id === PR_ID);
-  const nextName = $derived(next ? phaseName(next.id) : "");
+  const nextName = $derived(next ? phaseName(next.id, snapshot) : "");
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
 
@@ -38,10 +38,10 @@
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
   <section class="held" aria-labelledby="now-h">
     <div class="words">
-      <span class="eyebrow">{after ? `Paused after ${phaseName(after.id)}` : "Paused"}</span>
+      <span class="eyebrow">{after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>
       <h2 id="now-h">{#if nextIsPr}Next: the pull request{:else if next}Next: {nextName}, {next.title}{/if}</h2>
       <p>
-        {#if after?.doneAt}{capitalized(phaseName(after.id))}, {after.title}, finished with its commit and push at {clockTime(after.doneAt, new Date(now), { afterWord: true })}.{/if}
+        {#if after?.doneAt}{capitalized(phaseName(after.id, snapshot))}, {after.title}, finished with its commit and push at {clockTime(after.doneAt, new Date(now), { afterWord: true })}.{/if}
         Nothing is running. Change the model or effort first if you want; they apply to {nextIsPr ? "the pull request" : nextName}.
       </p>
       {#if reason}<span class="message">{reason}</span>{/if}

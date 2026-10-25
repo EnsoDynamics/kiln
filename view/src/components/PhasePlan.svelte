@@ -32,15 +32,15 @@
 <section class="plan" aria-labelledby="plan-h">
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>
   <ol>
-    {#each snapshot.phases as row (row.id)}
+    {#each (snapshot.activities ?? snapshot.phases) as row (row.id)}
       {@const state = rowState(row, connected)}
       {@const look = LOOKS[state]}
       {@const facts = rowFacts(row, state, now)}
-      {@const accessible = snapshot.current?.phaseId === row.id || ((snapshot.needsYou?.sessionId || snapshot.waiting?.sessionId) && (snapshot.needsYou?.phaseId === row.id || snapshot.waiting?.phaseId === row.id))}
+      {@const accessible = Boolean(row.details) || snapshot.current?.phaseId === row.id || ((snapshot.needsYou?.sessionId || snapshot.waiting?.sessionId) && (snapshot.needsYou?.phaseId === row.id || snapshot.waiting?.phaseId === row.id))}
       {@const link = phasePath(config.base, row.id)}
       <li data-phase={row.id}>
         <div class="row">
-          <PhaseCircle id={row.id} tone={look.circle} />
+          <PhaseCircle id={row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.id} tone={look.circle} />
           <span class="names">{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}<span class="file mono">{row.file}</span></span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}

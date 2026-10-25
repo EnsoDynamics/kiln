@@ -313,6 +313,8 @@ Wherever v1 resumes an interrupted session after its check fails (Ctrl+C, a clos
 
 ## The Pull Requests
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (audits precede final repository evaluation), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled final repository results; restricted delivery history remains). Restricted execution behavior remains in force.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request check, §The prompts (pull-request session), §Where a Feature Stands (engine loop's check before the session)
@@ -455,6 +457,8 @@ SessionRecord (schema 2): adds workingDirectory, the folder the session was laun
 `baseCommit`, `createdBranch` and the phase's `startCommit`, `pushedSha` and `commitCount` move from the PRD and phase to each repository. **Migration from schema 1**, on read, with no Git call: `settings.baseBranch` and `settings.worktreePath` stay, and `bases` is `{}`. A record with `startedAt` or `createdBranch` gets one `repositories` entry of `kind: prd` from `repository`, `settings.baseBranch`, `settings.worktreePath`, `baseCommit`, `createdBranch` and `setupCompletedAt`; a record with neither gets no entry, and its Start builds the list. Also: each phase's three facts under that repository's name; `pullRequest` as a one-entry `pullRequests`; each check's `fact` as a one-item `facts`; `workspaceFolder` the default; each session's `workingDirectory` the worktree path. The record is written as schema 2 at its next write.
 
 ## Screens (AC-SHOW-01)
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit rows and inspectable findings), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (enabled permission, recovery and completion presentation). Restricted execution behavior remains in force.
 

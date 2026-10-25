@@ -13,8 +13,8 @@ export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
 
 /** "phase 2b", or "the pull request" (AC-PR-05). */
-export function phaseName(id: string): string {
-  return id === PR_ID ? "the pull request" : `phase ${id}`;
+export function phaseName(id: string, snapshot?: Snapshot): string {
+  return id.startsWith("audit-") ? ((snapshot?.activities?.find(r => r.id === id)?.title ?? "This audit").toLowerCase()) : id === PR_ID ? "the pull request" : `phase ${id}`;
 }
 
 /** "Phase 2b", or "The pull request". */
@@ -24,7 +24,7 @@ export function capitalized(text: string): string {
 
 /** "phase 2b of 5", or "the pull request", which isn't counted (AC-PR-05). */
 export function phaseOfTotal(snapshot: Snapshot, id: string): string {
-  return id === PR_ID ? "the pull request" : `phase ${id} of ${snapshot.feature.phasesTotal}`;
+  return id.startsWith("audit-") ? phaseName(id, snapshot) : id === PR_ID ? "the pull request" : `phase ${id} of ${snapshot.feature.phasesTotal}`;
 }
 
 /** "Opus 5.5 · high effort", or the model alone when it takes no effort (UI-011 item 2). */
@@ -51,15 +51,15 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
   switch (feature.state) {
     case "needs_you": {
       const stopped = snapshot.needsYou!;
-      const row = snapshot.phases.find((phase) => phase.id === stopped.phaseId);
-      const which = stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
+      const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === stopped.phaseId);
+      const which = stopped.phaseId.startsWith("audit-") ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
       return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
     }
     case "waiting": {
       if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
       const waiting = snapshot.waiting!;
-      const row = snapshot.phases.find((phase) => phase.id === waiting.phaseId);
-      const which = waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
+      const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === waiting.phaseId);
+      const which = waiting.phaseId.startsWith("audit-") ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
       return { kind: "waiting", label: "Waiting for usage", facts: [`${which} · ${row?.title ?? ""}`, `Waiting since ${limitTime(waiting.since, now)}`] };
     }
     case "paused":
@@ -72,7 +72,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
-      return { kind: "implementing", label: `Implementing ${phaseName(current ?? "")}`, facts: [done] };
+      return { kind: "implementing", label: current?.startsWith("audit-") ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
 }
 
@@ -107,7 +107,7 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
     case "split":
       return `Split into ${(row.splitInto ?? []).join(", ")}`;
     case "implementing":
-      return "Implementing";
+      return row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
     case "interrupted":
       return "Interrupted";
     case "needs_you":
@@ -248,7 +248,7 @@ export function commitsLine(count: number, latest: string | undefined): string {
 
 /** The phase Paused holds after: the Done phase that finished last, when it ran in Kiln. */
 export function pausedAfter(snapshot: Snapshot): PhaseView | undefined {
-  return snapshot.phases
+  return (snapshot.activities ?? snapshot.phases)
     .filter((phase) => phase.id !== PR_ID && phase.state === "done" && phase.doneAt !== undefined)
     .sort((a, b) => Date.parse(a.doneAt!) - Date.parse(b.doneAt!))
     .at(-1);
@@ -256,7 +256,7 @@ export function pausedAfter(snapshot: Snapshot): PhaseView | undefined {
 
 /** The phase Paused starts next: the row in Next. */
 export function nextPhase(snapshot: Snapshot): PhaseView | undefined {
-  return snapshot.phases.find((phase) => phase.state === "next");
+  return (snapshot.activities ?? snapshot.phases).find((phase) => phase.state === "next");
 }
 
 export interface NeedsYouCopy {
@@ -335,7 +335,7 @@ function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside
  */
 export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
-  const name = capitalized(phaseName(stop.phaseId));
+  const name = stop.phaseId.startsWith("audit-") ? "This audit" : capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
     headline: isPr ? developmentDelivery ? "The delivery finalization session ended before it was done." : "The pull-request session ended before it was done." : `${name} ended before it was done.`,
     line: "",
@@ -362,6 +362,9 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
 
+  if (stop.phaseId.startsWith("audit-")) {
+    Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Use the assigned report and current checks. Resolve the affected criteria and evidence in this activity's original conversation.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
+  }
   if (stop.kind === "selection") {
     return {
       ...copy,

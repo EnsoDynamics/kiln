@@ -1,0 +1,46 @@
+# Disposable automatic test remediation proof
+
+Work only in this repository's existing proof branch and LOCAL bare origin. Scoped commits
+and local pushes are authorized; no external repository writes/messages, merges, production
+work, branches, worktrees, clones or successor chats. Keep requirements and code unchanged
+except the method's temporary red-check mutations, which must be restored exactly.
+
+Use the assigned installed audit skill and real independent children. The mechanical helper
+is `node test-remediation-driver.mjs status|snapshot|write-report|submit`.
+The part ID is value; status gives canonical criterion key, exact file references, snapshot,
+and evidence IDs. It supplies no assessment judgment; only write reports the real assessments
+support. Use literal tool arguments and text(result) for Codex command wrappers.
+
+Every activity must classify value.test.mjs as test-only: run exactly `node value.test.mjs`,
+read status, and delegate independent test_classification with the exact test file/blob and
+package.json configuration file/blob. Supply the run evidence ID as verificationEvidenceIds
+and exact file references in testPaths/configurationFiles. Give the child the current
+snapshot, canonical criterion key and part ID value, and require the kiln-assessment envelope.
+Then run `node test-remediation-driver.mjs snapshot`. It requests the real classified snapshot.
+Do not change files after that snapshot except the restored red check and audit records.
+
+Delivery audit: trace value.mjs, delegate independent assessment and review, with actual
+snapshot/criterion/value IDs and envelopes. Write-report, commit assigned JSON, push locally,
+submit. Test evidence quality is the test audit's job.
+
+Test audit continuation 1: the existing typeof check proves only that the export exists.
+Independently assess it honestly against the return-value criterion; it is Weak. This is a
+bounded initial assessment batch: save the precise assertion remediation for the next fresh
+session. Run `node value.test.mjs` TWICE after the classified snapshot as baseline/final.
+Delegate independent assessment and review with those actual command IDs. Write-report saves
+a continue_test result and test-audit.md batch. Commit both, push locally, submit. No red check
+is required for a report with no passing test grade. Do not fix the test in this first batch.
+
+Test audit continuation 2: follow the saved batch. BEFORE the classification/snapshot procedure,
+replace the typeof assertion with assert.equal(value(),42), using native Write/Edit/apply_patch.
+Then classify and snapshot as above. Run `node value.test.mjs` as baseline. Use a separate native
+Write/Edit/apply_patch to set value.mjs to `export function value() { return 0; }` and run
+`node value.test.mjs` TWICE, observing assertion failures. Restore value.mjs exactly to
+`export function value() { return 42; }` plus newline with another native Write/Edit/apply_patch,
+then run `node value.test.mjs` as final. Read status; give ALL post-snapshot run evidence IDs to
+fresh independent assessment, review and regrade children with current snapshot/criterion/value
+IDs and envelopes. Each must assess actual test semantics and mapped runs. Use Adequate when
+supported; no optional Strong work. Write-report, commit test/report/record, push locally, submit.
+
+The first process may be interrupted; resume the same assigned audit task and inspect current
+status before repeating work. Never fabricate observations or waive an unresolved admission.

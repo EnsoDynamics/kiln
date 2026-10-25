@@ -1,3 +1,6 @@
+import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
+import { AuditStore } from "../audit/storage.js";
+import type { WorkSnapshot } from "../audit/contracts.js";
 import { simpleCommands } from "../session/bash-command.js";
 import { deliveryEnabled } from "./development-delivery.js";
 import type { DevelopmentSettings } from "../state/development-delivery.js";
@@ -14,7 +17,7 @@ import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
 import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { auditRecoveryPrompt, codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
@@ -95,6 +98,12 @@ export interface DocumentsFound {
 }
 
 export interface PhaseView {
+  activityId?: string;
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
+  round?: number;
+  continuationIndex?: number;
+  audit?: { outcome?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[] };
+  outputLineCount?: number;
   id: string;
   title: string;
   file: string;
@@ -151,6 +160,8 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  activities?: PhaseView[];
+  auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   savedDevelopmentTargets?: Engine["savedDevelopmentTargets"];
   feature: {
@@ -340,6 +351,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
 
   const views = phaseViews(engine, state);
   const snapshot: Snapshot = {
+    activities: activityViews(engine, state, views),
+    ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
       repositoryName: engine.paths.repositoryName,
@@ -427,10 +440,10 @@ function currentView(engine: Engine): Snapshot["current"] {
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: stepStates([], settings.agentId), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
-  const steps = stepStates(session.steps, session.agentId).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
+  const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
   const latestStep = [...session.steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).at(-1);
   let seen: { text: string; at: string } | undefined;
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
@@ -492,8 +505,10 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
   const withOutside = (prompt: string) => (outside?.note === undefined ? prompt : `${prompt}\n\n${outside.note}`);
+  const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const originalPrompts = (ran: boolean) =>
     withOutside(
+      auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
         ? pullRequestSessionPrompt({
             deliveryAuthority: engine.deliveryAuthority(),
@@ -548,7 +563,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
       freshSessionCommand,
       outputLineCount: lines.length,
       sessionEndedAt: endedAt,
-      steps: stepStates(session.steps, session.agentId),
+      steps: sessionSteps(engine, phaseKey, session),
     };
   }
   // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
@@ -575,7 +590,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
         agentId: session.agentId ?? "claude_code",
         endedOnItsOwn: interrupted === undefined,
         time: interrupted?.at ?? endedAt,
-        ...(isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
+        ...(auditTask ? { auditTask } : isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
         multiRepository: isPr ? engine.pullRequestRepositories().length > 1 : folder !== engine.worktreePath,
         ...(outside?.view?.prompt === undefined ? {} : { outside: outside.view.prompt }),
       }) } : {}),
@@ -584,7 +599,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     freshSessionCommand,
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
-    steps: stepStates(session.steps, session.agentId),
+    steps: sessionSteps(engine, phaseKey, session),
   };
 }
 
@@ -616,7 +631,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
     ...optional("effort", session?.effort),
     ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
     ...optional("sessionEndedAt", run?.endedAt),
-    ...(session ? { steps: stepStates(session.steps, session.agentId) } : {}),
+    ...(session ? { steps: sessionSteps(engine, phaseKey, session) } : {}),
     repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
   };
 }
@@ -799,7 +814,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     return view;
   });
 
-  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed) && (!deliveryEnabled(record) || record.phases[PR_PHASE_KEY]?.sessionIds.length)) {
+  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed) && (record.phases[PR_PHASE_KEY]?.sessionIds.length || record.phases[PR_PHASE_KEY]?.stop || record.nextActivityKey === PR_PHASE_KEY && !engine.currentlyComplete || !deliveryEnabled(record) && (record.completionAudits?.policy === "legacy_complete" || record.completedAt))) {
     const facts = record.phases[PR_PHASE_KEY];
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
@@ -916,4 +931,56 @@ function observedDeliveryActivity(engine: Engine, session: SessionRecord): NonNu
     for (const requirement of checkpoint.requirements) if (requirement.match.kind === "command" && command === requirement.match.invocation.replaceAll("{{mergeRevision}}", checkpoint.merge?.resultSha ?? "{{mergeRevision}}").replaceAll("{{environment}}", checkpoint.target.environment)) return { label: requirement.purpose === "deployment" ? "Deploying" : requirement.purpose === "verification" ? "Verifying" : "Implementing", ...where };
   }
   return { label: "Implementing" };
+}
+
+function sessionSteps(engine: Engine, key: string, session: SessionRecord): StepView[] {
+  const audit = engine.auditActivity(key);
+  if (!audit) return stepStates(session.steps, session.agentId);
+  return [
+    ...(session.lastSkill?.name.endsWith(audit.skill.name) ? [{ name: "Assessment", state: "observed" as const, startedAt: session.lastSkill.at }] : []),
+    ...session.steps.filter(s => s.name === "Commit" || s.name === "Push").map(s => ({ ...s, state: "observed" as const })),
+    ...(audit.acceptedResult ? [{ name: "Audit result recorded", state: "observed" as const }] : []),
+  ];
+}
+
+function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[]): PhaseView[] {
+  const { record } = engine;
+  const rows: PhaseView[] = [];
+  const started = new Set<string>();
+  for (const activity of activityHistory(record, engine.stateDirectory)) {
+    if (activity.kind === "implementation" || activity.kind === "final_delivery") {
+      const parent = phases.find(r => r.id === activity.key && r.state === "split");
+      if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
+      const row = phases.find(r => r.id === engine.judgedId(activity.key));
+      if (row && !started.has(row.id)) { rows.push({ ...row, activityId: activity.activityId, kind: activity.kind }); started.add(row.id); }
+      continue;
+    }
+    const audit = engine.auditActivity(activity.key)!;
+    const facts = record.phases[activity.key]; const session = engine.latestSession(activity.key);
+    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: auditLabel(audit.kind), file: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}`, round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
+    if (session) {
+      const first = facts?.sessionIds[0] ? engine.sessionRecord(activity.key, facts.sessionIds[0]) : undefined;
+      const from = first?.runs[0]?.startedAt;
+      row.outputLineCount = engine.outputLines(session).length;
+      if (from) {
+        row.sessionStartedAt = from; row.timing = timingFor(engine, [activity.key], from, facts?.doneAt)!;
+        row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.worktreePath), branch: record.settings.featureBranch, sessionId: session.sessionId, ...optional("commitCount", facts?.repositories[engine.paths.repositoryName]?.commitCount), ...optional("latestCommit", facts?.repositories[engine.paths.repositoryName]?.pushedSha) };
+      }
+    }
+    try {
+      const accepted = acceptedAudit(engine.stateDirectory, audit);
+      const attempt = accepted?.result ?? (audit.attempts.at(-1) ? new AuditStore(engine.stateDirectory).read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
+      const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
+      const snapshot = audit.snapshots.at(-1) ? new AuditStore(engine.stateDirectory).read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
+      row.audit = { ...optional("outcome", report?.outcome), checks: facts?.stop?.checks ?? attempt?.checks ?? [], criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
+      if (accepted?.report.outcome === "passed" && facts?.doneAt) {
+        row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
+      }
+    } catch (error) { row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
+    rows.push(row); started.add(row.id);
+  }
+  // Closed-at-start phases have no activity history; show their preserved history before audits.
+  const historical = phases.filter(r => !started.has(r.id) && (r.state === "done" || r.state === "split"));
+  const pending = phases.filter(r => !started.has(r.id) && r.state !== "done" && r.state !== "split");
+  return [...historical, ...rows, ...pending];
 }

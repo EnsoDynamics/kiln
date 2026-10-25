@@ -27,7 +27,7 @@
 <main class="page-main">
   <StateHeader {snapshot} {connected} now={shownNow} />
   {#if !connected && lastSeenAt !== undefined}
-    <DisconnectedBanner {lastSeenAt} phaseClause={phaseInView === undefined ? undefined : phaseName(phaseInView)} workKept prdFolder={snapshot.feature.prdFolder} {now} />
+    <DisconnectedBanner {lastSeenAt} phaseClause={phaseInView === undefined ? undefined : phaseName(phaseInView, snapshot)} workKept prdFolder={snapshot.feature.prdFolder} {now} />
   {/if}
   {#if snapshot.current}<CurrentPhase {snapshot} {connected} now={shownNow} />{/if}
   <div class="columns-main">
