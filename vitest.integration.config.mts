@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -12,8 +13,10 @@ export default defineConfig({
     environment: 'node',
     // Each file spawns Git, CLI peers and sometimes Chrome. Eighteen simultaneous
     // files on a large workstation exhausted the existing per-test deadlines.
-    // Keep real process concurrency bounded; use --maxWorkers=1 for serial diagnosis.
-    maxWorkers: 4,
+    // Private Linux/Windows CI runners have two CPUs. Do not schedule four
+    // process-heavy files on them; retain the cap on larger workstations too.
+    // Use --maxWorkers=1 for serial diagnosis.
+    maxWorkers: Math.min(4, availableParallelism()),
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },
