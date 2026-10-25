@@ -44,7 +44,7 @@ The user should see what Kiln knows about the next run's billing without being a
 
 - [ ] **AC-BILL-03 — Paid-overflow information stays factual.** Kiln uses trustworthy status reported for the same subscription account when available. Unknown, missing, stale, or unreadable overflow data never becomes “disabled” and never prevents a confirmed subscription route from running. A known enabled setting has a non-blocking amber notice and a link to Claude's usage settings. Kiln neither changes that setting nor asks the user to accept its risk.
 
-- [ ] **AC-BILL-07 — Existing usage gauges keep their meaning.** The five-hour, weekly, and other account-reported usage gauges remain unchanged where Kiln already displays them. Billing information is text alongside account information, never a new progress or usage bar. Missing billing metadata does not hide independently available usage readings, and no made-up delivery-progress percentage is introduced.
+- [ ] **AC-BILL-07 — Existing usage gauges keep their meaning.** The five-hour, weekly, Weekly · Fable, and any other account-reported usage gauges remain unchanged where Kiln already displays them. Billing information is text alongside account information, never a new progress or usage bar. Missing billing metadata does not hide independently available usage readings, and no made-up delivery-progress percentage is introduced.
 
 - [ ] **AC-BILL-08 — The subscription account is clear beside its billing settings.** For subscription access, the billing summary includes the subscription account's email directly below the subscription label. If the email is unavailable, it says that the account identity is unavailable. The running view uses the account recorded for that launch, as in AC-RUN-05.
 
