@@ -102,7 +102,7 @@ export interface PhaseView {
   kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[] };
+  audit?: { outcome?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[] };
   outputLineCount?: number;
   id: string;
   title: string;
@@ -973,6 +973,9 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[])
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? new AuditStore(engine.stateDirectory).read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       row.audit = { ...optional("outcome", report?.outcome), checks: facts?.stop?.checks ?? attempt?.checks ?? [], criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
+      if (accepted?.report.outcome === "passed" && facts?.doneAt) {
+        row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
+      }
     } catch (error) { row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     rows.push(row); started.add(row.id);
   }

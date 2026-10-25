@@ -1,7 +1,7 @@
 // Automatic routing with real Git, packaged CLI/HTTP, persisted state and scripted provider
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
@@ -34,6 +34,54 @@ async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession
 }
 const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
 describe("automatic completion activities", () => {
+  it.each([
+    { beyondDelivery: true, recordedHumanResult: false },
+    { beyondDelivery: false, recordedHumanResult: false },
+    { beyondDelivery: true, recordedHumanResult: true },
+  ])("keeps human work behind the completion boundary and discloses allowed actions in the browser (%j)", async ({ beyondDelivery, recordedHumanResult }) => {
+    const action = "Approve and perform the separately authorized production release.";
+    const documentFiles = { ...files, "proof-prd.md": files["proof-prd.md"] + "  - Production release is a separate human action after Kiln delivery.\n" };
+    const h = await fixture([auditSession({ humanAction: action, beyondDelivery }), auditSession({ humanAction: action, beyondDelivery, recordedHumanResult })], [pullRequestSession()], documentFiles);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const snapshot = buildSnapshot(h.engine);
+    if (!beyondDelivery) {
+      expect(snapshot.feature.state).toBe("needs_you");
+      expect(h.engine.record.completedAt).toBeUndefined();
+      expect(h.claudeCalls()).toHaveLength(1);
+      expect(snapshot.activities!.find(row => row.audit)?.audit?.remainingAfterDeliveryActions).toBeUndefined();
+      return;
+    }
+    expect(snapshot.feature.state, JSON.stringify(h.engine.record.phases)).toBe("complete");
+    const remaining = recordedHumanResult ? [] : [action];
+    const latest = snapshot.activities!.findLast(row => row.kind === "test_audit")!.audit!;
+    expect(latest.pendingActions).toEqual([action]);
+    expect(latest.remainingAfterDeliveryActions).toEqual(remaining);
+    const chrome = await launchChrome();
+    try {
+      const page = await chrome.open(server!.address);
+      const section = `document.querySelector('[aria-labelledby="human-actions-heading"]')`;
+      await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
+      if (recordedHumanResult) {
+        expect(await page.evaluate(section)).toBeNull();
+        expect(await page.evaluate(`document.body.innerText`)).not.toContain(action);
+      } else {
+        expect(await page.evaluate(`${section}.innerText`)).toContain("Kiln has not performed them.");
+        expect(await page.evaluate(`${section}.querySelectorAll('li').length`)).toBe(1);
+        expect(await page.evaluate(`${section}.querySelector('li').innerText`)).toBe(action);
+        await page.evaluate(`location.reload()`);
+        await page.waitFor(`document.getElementById('human-actions-heading')`);
+        expect(await page.evaluate(`${section}.querySelector('li').innerText`)).toBe(action);
+      }
+      expect(page.problems).toEqual([]);
+      if (process.env.KILN_SCREENSHOTS && !recordedHumanResult) {
+        mkdirSync(process.env.KILN_SCREENSHOTS, { recursive: true });
+        writeFileSync(join(process.env.KILN_SCREENSHOTS, "completion-human-actions.png"), await page.screenshot());
+      }
+    } finally { await chrome.close(); }
+    const again = h.reopenFromDisk(); await again.agents.refresh();
+    expect((await again.decide()).kind).toBe("complete");
+    expect(buildSnapshot(again).activities!.findLast(row => row.kind === "test_audit")!.audit!.remainingAfterDeliveryActions).toEqual(remaining);
+  });
   it("audits a closed-at-start plan through both gates before final delivery without another Start", async () => {
     const h = await fixture();
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();

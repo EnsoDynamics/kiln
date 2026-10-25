@@ -30,6 +30,16 @@ export async function auditReportFixture({prompt,sessionId,transcriptPath,toolCa
  const driver=fileURLToPath(new URL('../../scripts/proof-run/automatic-audit-driver.mjs',import.meta.url));
  execFileSync(process.execPath,[driver,'write-report'],{encoding:'utf8'});
  const report=JSON.parse(readFileSync(s.requiredReportPath,'utf8'));
+ if(behavior.humanAction){
+  const row=report.criteria[0];
+  if(testing)row.testAssessment={status:'person_checked'};else row.deliveryStatus='waiting_human';
+  row.parts[0].humanActionId='later-release';
+  report.pendingHumanActions=[{id:'later-release',criterionKey:c.key,action:behavior.humanAction,requirementQuote:'Production release is a separate human action after Kiln delivery.',beyondDelivery:behavior.beyondDelivery??true}];
+  // A real immutable file reference exercises result admission/projection; this scripted
+  // provider does not prove that a person performed the fixture's release action.
+  if(behavior.recordedHumanResult)report.pendingHumanActions[0].result=row.parts[0].code[0];
+  writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');
+ }
  if(behavior.blocked){report.outcome='blocked';report.blockers=[{id:'permission',criterionKeys:[c.key],problem:'Required evidence is unavailable.',requiredAction:'Restore the named evidence.'}];report.criteria[0].blockerIds=['permission'];writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
  if(behavior.gap){report.outcome='completion_phases';if(testing)report.criteria[0].testAssessment={status:'not_implemented'};else report.criteria[0].deliveryStatus='not_implemented';report.criteria[0].findings=[{partIds:['value'],missing:'Return the required value.',evidenceIds:[]}];report.completionPhases=checked.plan.filter(p=>!initial.plan.some(old=>old.id===p.id)).map(p=>({id:p.id,path:p.file,originKind:s.kind,originActivityId:s.activityId,criterionKeys:[c.key],missingBehavior:'Return the required value.',dependencies:[]}));writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
  if(behavior.continueTest){report.outcome='continue_test';report.criteria[0].testAssessment={grade:'weak'};report.criteria[0].findings=[{partIds:['value'],missing:behavior.findingText??'The remaining value edge needs assertion coverage.',evidenceIds:[]}];report.nextTestBatch={criterionKeys:[c.key],recordPath:directory+'/test-audit.md',nextBatch:'Add the remaining value edge assertion.'};writeFileSync(directory+'/test-audit.md','# Test audit\n'+report.nextTestBatch.nextBatch+'\n');writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
