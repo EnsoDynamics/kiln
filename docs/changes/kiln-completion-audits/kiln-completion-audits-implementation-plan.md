@@ -89,3 +89,8 @@ Phase 2 now has two leaves; its split record owns their ordering and dependencie
 | AC-RUN-03, AC-RUN-05 | `captureSnapshot` / `compareSnapshots` / `auditCurrentness`; audit-owned development commands, `assignAuditObligations`, `ownerDeliveryCheck` and final `evaluateRepositories`. | Implemented |
 
 This audit changes documents only. It neither implements the finding nor grades test evidence; no application suites were rerun. Next: implement the sole completion phase in a fresh chat, then run whole-PRD `test-audit`, retaining Phase 3's verification/environment record and the inherited publication hold. The local audit commit records completion of this audit, not completion of the PRD.
+
+
+## Closing delivery audit after Phase 4 and test remediation — 2026-10-25
+
+The [fresh whole-PRD delivery audit](kiln-completion-audits-delivery-audit.md) checked clean baseline `624eda5` after all planned leaves closed: all 19 criteria Implemented, no delivery gaps or unresolved blocker, and no completion phase added. The prior audit above remains the historical finding that led to Phase 4. The completed whole-PRD test audit and retained Phase 3/4 evidence remain current for this baseline. Doug's current conditional authorization directs normal GitHub integration into current develop after successful PR checks; it replaces the routine duplicate test-audit handoff and overrides the old publication hold only for this feature. Main, releases and production actions remain outside scope.
