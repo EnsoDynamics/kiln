@@ -1,0 +1,124 @@
+{
+  "phase": "Phase 2b \u2014 Automatic audit cycles and progress",
+  "recordedAt": "2026-10-24T23:53:01.646944+00:00",
+  "boundary": "Actual installed-package Engine scheduling, task-specific installed method skills, authenticated audit CLI/local server, provider histories, independent assessment/review, real file mutations and command outcomes, interruption/restart and final completion. Final GitHub read uses the repository-owned captured contract; all Git writes target disposable local bare origins. No external PR or production deployment.",
+  "runs": [
+    {
+      "provider": "claude",
+      "privateRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-auto-audit-claude-jY5ZDy",
+      "packageDistDigest": "bb2c31ccc1e06b15982367c2993a5a2015e5084e8eef7eab618666282f665ba7",
+      "packageNote": "Installed proof build; subsequent cross-platform skill-scope/save-rollback hardening and Codex silent-output fix are covered by final repository gates.",
+      "completedAt": "2026-10-24T23:42:37.668Z",
+      "interrupted": true,
+      "restartDecision": "resume",
+      "recoveredActivityId": "ccd298fa-c100-4fba-8b16-4ff0afb5a35d",
+      "recoveredSessionId": "fae67e3a-4a1d-4d0e-818e-f0d191386ba2",
+      "sameDeliverySession": true,
+      "activities": [
+        {
+          "activityId": "ccd298fa-c100-4fba-8b16-4ff0afb5a35d",
+          "kind": "delivery_audit",
+          "round": 1,
+          "sessionIds": [
+            "fae67e3a-4a1d-4d0e-818e-f0d191386ba2"
+          ],
+          "skill": {
+            "name": "delivery-audit",
+            "path": "<home>/.claude/plugins/cache/enso-method/enso-method/a149e63060f1/skills/delivery-audit/SKILL.md",
+            "digest": "1cec94ba815beaab5e498e559ee944aca42200f63d408dd152f0769571fb473b"
+          },
+          "acceptedResult": "41f685c2105d43507be90fef453543085a0981320828a870d49e96da6fb77d8f",
+          "outcome": "passed",
+          "doneAt": "2026-10-24T23:36:21.602Z",
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ]
+        },
+        {
+          "activityId": "ebed9823-533a-4ec7-b500-5d92827c8822",
+          "kind": "test_audit",
+          "round": 1,
+          "sessionIds": [
+            "ecd8181b-ca63-45ea-b183-43e7747fe010"
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/.claude/plugins/cache/enso-method/enso-method/a149e63060f1/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "af1227e9260b7744163f4ce979fe2f9a7795844e97860dcb6e03710636340b45",
+          "outcome": "passed",
+          "doneAt": "2026-10-24T23:42:35.446Z",
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "privateRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-auto-audit-codex-VrKG8D",
+      "packageDistDigest": "dd54829b7962ed5a83f3421d7b4fda4dffbe8940a89b5a7743e62c2b1cafa1b5",
+      "packageNote": "Installed proof build includes the qualified explicit-null silent-output fix.",
+      "completedAt": "2026-10-24T23:52:30.088Z",
+      "interrupted": true,
+      "restartDecision": "resume",
+      "recoveredActivityId": "120417c4-424f-4416-ab4b-9e83948b67cc",
+      "recoveredSessionId": "ae6bffba-19ff-4737-8ee6-5e766b7cad7f",
+      "sameDeliverySession": true,
+      "activities": [
+        {
+          "activityId": "120417c4-424f-4416-ab4b-9e83948b67cc",
+          "kind": "delivery_audit",
+          "round": 1,
+          "sessionIds": [
+            "ae6bffba-19ff-4737-8ee6-5e766b7cad7f"
+          ],
+          "skill": {
+            "name": "delivery-audit",
+            "path": "<home>/devel/ensodynamics/enso-method/skills/delivery-audit/SKILL.md",
+            "digest": "1cec94ba815beaab5e498e559ee944aca42200f63d408dd152f0769571fb473b"
+          },
+          "acceptedResult": "fae90cacd7afd90dd2fe115a054c78007df59e489a61cd08b6fdf1dc9a990678",
+          "outcome": "passed",
+          "doneAt": "2026-10-24T23:48:06.760Z",
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ]
+        },
+        {
+          "activityId": "cb7dac85-7c1d-46b4-8a3a-6732603ff6f2",
+          "kind": "test_audit",
+          "round": 1,
+          "sessionIds": [
+            "a45dae75-afc1-4a66-8680-3ee3b551d7cc"
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/devel/ensodynamics/enso-method/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "061e3f14bce371fa9288538ad68542c36f9abf23e5fbcd0d0f0b229fb66723fb",
+          "outcome": "passed",
+          "doneAt": "2026-10-24T23:52:26.218Z",
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ]
+        }
+      ]
+    }
+  ],
+  "pathSanitization": "Installed skill paths replace the personal home directory with <home>; exact paths remain in private accepted records."
+}

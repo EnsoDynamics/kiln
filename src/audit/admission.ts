@@ -67,7 +67,7 @@ export async function issueSnapshot(context: AdmissionContext, body: Record<stri
   return { revision: context.record.completionAudits!.revision, snapshotId: snapshot.id, requirements: snapshot.requirements, plan: snapshot.plan, repositories: snapshot.repositories };
 }
 
-async function repositoryChecks(context: AdmissionContext): Promise<CheckResult[]> {
+export async function repositoryChecks(context: AdmissionContext): Promise<CheckResult[]> {
   const committed: string[] = []; const pushed: string[] = [];
   for (const repo of context.record.repositories) {
     const status = await gitText(context.git, repo, ["status", "--porcelain"]);
@@ -155,7 +155,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     checks.push({ name: "Stayed in the workspace", passed: true, facts: ["Assigned provider histories were reconciled."] });
     checks.push(...context.developmentChecks?.() ?? []);
     nextAction = validated.nextAction;
-    if (nextAction === "needs_you") checks.push({ name: "Audit work resolved", passed: false, facts: [...validated.report.blockers.map(b => `${b.problem} ${b.requiredAction}`), ...validated.report.pendingHumanActions.filter(a => !a.beyondDelivery && !a.result).map(a => a.action)] });
+    if (nextAction === "needs_you") checks.push({ name: "Audit work resolved", passed: false, facts: [...validated.report.blockers.map(b => `${b.criterionKeys.join(", ")}: ${b.problem} ${b.requiredAction}`), ...validated.report.pendingHumanActions.filter(a => !a.beyondDelivery && !a.result).map(a => `${a.criterionKey}: ${a.action}`)] });
     if (validated.report.outcome === "continue_test") {
       const previous = state.activities.filter(a => a.kind === "test_audit" && a.round === activity.round && a.continuationIndex < activity.continuationIndex).at(-1);
       if (previous?.acceptedResult) {

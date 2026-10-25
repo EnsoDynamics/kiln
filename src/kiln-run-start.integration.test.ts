@@ -9,7 +9,12 @@ import { Socket } from "node:net";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as auditWorkflow from "./audit/workflow.js";
+// These pre-existing transport/repository tests isolate the already-current audit gate.
+// Audit workflow integration and installed-provider proofs exercise real gates separately.
+beforeEach(() => { vi.spyOn(auditWorkflow, "auditNext").mockResolvedValue("final_delivery"); });
+afterEach(() => { vi.restoreAllMocks(); });
 import type { Snapshot } from "./engine/snapshot.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { readPrdRecord } from "./state/records.js";

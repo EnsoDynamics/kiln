@@ -1,8 +1,14 @@
+import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, acceptedAudit, resolveAuditSkill } from "../audit/workflow.js";
+import { AuditStore } from "../audit/storage.js";
+import { captureSnapshot } from "../audit/snapshots.js";
+import { auditSessionPrompt } from "../session/prompts.js";
+import { assignAuditObligations } from "./development-owners.js";
+import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
 import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
-import { auditStatus, issueSnapshot, submitAudit, type AdmissionContext } from "../audit/admission.js";
+import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeTarget, targetKey, type DevelopmentTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
@@ -130,6 +136,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
+  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
   | {
       kind: "phase";
@@ -246,6 +253,7 @@ export interface RepositoryCommits {
 
 /** What `kiln run` decided for a feature underway: the ● line's subject (UI-010 item 5). */
 export type UnderwayDecision =
+  | { kind: "start_audit"; phaseKey: string; label: string; round: number; doneFirst?: DoneFirst }
   | { kind: "start_phase"; phaseId: string; doneFirst?: DoneFirst }
   | { kind: "start_pull_request"; doneFirst?: DoneFirst }
   | { kind: "needs_you"; phaseKey: string; again: boolean; doneFirst?: DoneFirst }
@@ -355,6 +363,9 @@ export class Engine {
     this.git = { git: options.tools.git, env: options.env, signal: this.abort.signal };
     this.sleepReader = options.sleepReader ?? platformSleepReader();
     ensurePrivateDirectory(options.stateDirectory);
+    const migratingActivities = !this.record.activities;
+    activityHistory(this.record, options.stateDirectory);
+    if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
     this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
     this.offClaude = this.agents.onChange(() => this.modelsChanged());
     this.agents.start();
@@ -899,7 +910,7 @@ export class Engine {
   /** Audits have activity storage keys, never synthetic implementation phase IDs. */
   auditRecoveryTask(key: string, folder: string): AuditRecoveryTask | undefined {
     const activity = this.record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
-    return activity ? { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path } : undefined;
+    return activity ? { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path, instructions: this.auditPrompt(activity) } : undefined;
   }
 
   deliveryOwnerFor(key: string): DeliveryOwner {
@@ -1046,7 +1057,7 @@ export class Engine {
       if (failed.length && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length) {
         // Launch the authorized stopped leaf once its original blocker clears. Its first
         // session supplies the historical assessments; no future leaf can overtake it.
-        if (recoveryStopKey(activation) === PR_PHASE_KEY || judgedPhase(this.record.plan ?? [], recoveryStopKey(activation))) return undefined;
+        if (recoveryStopKey(activation) === PR_PHASE_KEY || this.auditActivity(recoveryStopKey(activation)) || judgedPhase(this.record.plan ?? [], recoveryStopKey(activation))) return undefined;
         this.recordStop(recoveryStopKey(activation), "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: ["The activation-recovery phase is missing from the current plan."] }]); return recoveryStopKey(activation);
       }
       if (failed.length) { this.recordStop(recoveryStopKey(activation), recoveryStopKey(activation) === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return recoveryStopKey(activation); }
@@ -1120,7 +1131,7 @@ export class Engine {
   /** The line a stop prints, for what Kiln is doing as it begins (UI-010 item 3). */
   private describeStop(): StopReport {
     const { record } = this;
-    const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : `phase ${this.judgedId(key)}`);
+    const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : this.auditActivity(key) ? auditLabel(this.auditActivity(key)!.kind).toLowerCase() : `phase ${this.judgedId(key)}`);
     const run = this.current?.session?.runs.at(-1);
     // A live run, or an interrupted session about to be resumed: either way its phase is interrupted.
     const interrupted = this.current?.session && run && run.endedAt === undefined ? this.current.phaseKey : this.interruptedKey;
@@ -1255,6 +1266,7 @@ export class Engine {
   private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed" | "stopped" | "waiting", limit?: { label: string; resetsAt?: string }): void {
     const extra = limit === undefined ? {} : { limit };
     if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event, ...extra });
+    else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, event, limit);
     else {
       const judged = this.judgedId(phaseKey);
       this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event, ...extra });
@@ -1297,13 +1309,15 @@ export class Engine {
     if (deliveryEnabled(record) && record.completedAt) {
       this.readPlan();
       const earlier = await this.unresolvedDeliveryLeaf();
-      if (earlier) return { kind: "needs_you", phaseKey: earlier, again: true };
+      if (earlier) { record.completionAudits!.policy = "required"; this.save(); return { kind: "needs_you", phaseKey: earlier, again: true }; }
       const result = await this.pullRequestCheck(PR_PHASE_KEY);
       if (result.passed) return { kind: "complete" };
+      record.completionAudits!.policy = "required";
       this.recordStop(PR_PHASE_KEY, "pull_request_check", result.checks);
       return { kind: "needs_you", phaseKey: PR_PHASE_KEY, again: true };
     }
     if (this.currentlyComplete) return { kind: "complete" };
+    if (record.completionAudits?.policy === "legacy_complete") { record.completionAudits.policy = "required"; this.save(); }
 
     let doneFirst: DoneFirst | undefined;
     const waiting = this.waitingPhaseKey();
@@ -1364,7 +1378,13 @@ export class Engine {
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
     const unresolved = await this.unresolvedDeliveryLeaf();
     if (unresolved) return withDone({ kind: "needs_you" as const, phaseKey: unresolved, again: true });
-    const leaf = this.nextExecutionLeaf(read.plan);
+    const next = await this.nextActivity(read.plan);
+    if (next.kind === "stopped") return withDone({ kind: "needs_you" as const, phaseKey: next.key, again: true });
+    if (next.kind === "audit") {
+      if (record.pause.requestedAt) { this.activatePause(); return withDone({ kind: "paused" as const, beforePhaseKey: next.key }); }
+      return withDone({ kind: "start_audit" as const, phaseKey: next.key, label: auditLabel(next.activity.kind), round: next.activity.round });
+    }
+    const leaf = next.leaf;
     if (!leaf) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (deliveryEnabled(record) && check.ghError) { this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true }); }
@@ -1432,8 +1452,12 @@ export class Engine {
         return;
       }
       if (await this.unresolvedDeliveryLeaf()) return;
-      const leaf = this.nextExecutionLeaf(read.plan);
-      this.current = { phaseKey: leaf?.id ?? PR_PHASE_KEY, commits: [], processRunning: false };
+      const next = await this.nextActivity(read.plan);
+      if (next.kind === "stopped") return;
+      const audit = next.kind === "audit" ? next.activity : undefined;
+      const leaf = next.kind === "phase" ? next.leaf : undefined;
+      const nextKey = audit ? auditKey(audit) : leaf?.id ?? PR_PHASE_KEY;
+      this.current = { phaseKey: nextKey, commits: [], processRunning: false };
       this.changed();
       // A repository the next phase names that the workspace lacks is added before it starts (multi-repo AC-ADD-04).
       if (leaf) {
@@ -1446,7 +1470,7 @@ export class Engine {
           return;
         }
       }
-      if (!leaf && !this.pullRequestPrecheckDone) {
+      if (!leaf && !audit && !this.pullRequestPrecheckDone) {
         // A gh error here starts the pull-request session without showing it; that session's own check decides.
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (deliveryEnabled(record) && check.ghError) { this.current = undefined; this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return; }
@@ -1466,7 +1490,7 @@ export class Engine {
       if (this.stopping) return;
       if (this.selectionError) {
         this.current = undefined;
-        this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError] }]);
+        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError] }]);
         return;
       }
       if (this.record.settings.agentId === "codex") {
@@ -1475,17 +1499,135 @@ export class Engine {
         catch (error) {
           if (this.stopping) return;
           this.current = undefined;
-          this.recordStop(leaf?.id ?? PR_PHASE_KEY, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
+          this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
           return;
         }
       }
+      if (audit) {
+        if ((await this.runAuditSession(audit)) !== "done") return;
+        continue;
+      }
       if (!leaf) {
-        await this.runPullRequestSession();
+        const verdict = await this.runPullRequestSession();
+        if (verdict.kind === "done") continue;
         return;
       }
       const verdict = await this.runPhaseSession(leaf.id);
       if (verdict !== "done") return;
     }
+  }
+
+  auditActivity(key: string): AuditActivity | undefined { return this.record.completionAudits?.activities.find(a => auditKey(a) === key); }
+
+  private admissionContext(): AdmissionContext {
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    return { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(auditKey(activity), id) };
+  }
+
+  private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
+    await this.deliveryPending;
+    const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
+    if (pending) { this.record.nextActivityKey = auditKey(pending); this.save(); return { kind: "audit", key: auditKey(pending), activity: pending }; }
+    const leaf = this.nextExecutionLeaf(plan);
+    if (leaf) { this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf }; }
+    let kind: Awaited<ReturnType<typeof auditNext>>;
+    try {
+      // Finished audit origins retain their development obligations after a first grant.
+      if (deliveryEnabled(this.record)) for (const activity of this.record.completionAudits?.activities ?? []) {
+        const check = ownerDeliveryCheck(this.deliveryContext(auditKey(activity)), { kind: "audit", activityId: activity.activityId });
+        if (!check.passed) { this.recordStop(auditKey(activity), "done_check", [check]); return { kind: "stopped", key: auditKey(activity) }; }
+      }
+      kind = await auditNext(this.admissionContext());
+      if (kind === "final_delivery") { this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" }; }
+      const activity = await this.allocateAudit(kind);
+      return { kind: "audit", key: auditKey(activity), activity };
+    } catch (error) {
+      const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
+      this.recordStop(key, "selection", [{ name: "Completion audit readiness", passed: false, facts: [(error as Error).message] }]);
+      return { kind: "stopped", key };
+    }
+  }
+
+  private async allocateAudit(kind: AuditKind): Promise<AuditActivity> {
+    const skill = await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+    this.activeCheck = "audit-allocation";
+    const before = structuredClone(this.record);
+    try {
+      const state = this.record.completionAudits!;
+      const id = randomUUID(); const at = this.now().toISOString();
+      const observed = observeActivity(this.record, this.stateDirectory, `audit-${id}`, kind, at, id);
+      const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, skill, snapshots: [], attempts: [] };
+      state.activities.push(activity); this.record.nextActivityKey = auditKey(activity);
+      this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
+      const context = this.admissionContext();
+      const initial = await captureSnapshot({ ...context, activity, evidence: [], now: at }, [], []);
+      activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial)); state.revision++;
+      this.save(); return activity;
+    } catch (error) { for (const key of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[key]; Object.assign(this.record, before); throw error; }
+    finally { this.activeCheck = undefined; }
+  }
+
+  private async runAuditSession(activity: AuditActivity): Promise<"done" | "stopped"> {
+    const key = auditKey(activity);
+    await this.recordStartCommits(key);
+    const prompt = this.auditPrompt(activity);
+    this.emitAudit(activity, "started");
+    await this.launchSession(key, activity.kind, prompt);
+    return (await this.settleSession(key)).kind === "done" ? "done" : "stopped";
+  }
+
+  auditPrompt(activity: AuditActivity): string {
+    const previous = this.record.completionAudits!.activities.filter(a => a.activityId !== activity.activityId && a.acceptedResult).at(-1);
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: activity.skill.name, skillPath: activity.skill.path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous ? { previous: acceptedAudit(this.stateDirectory, previous)!.result.reportBytes } : {}) });
+  }
+
+  private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+    this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: auditLabel(activity.kind), round: activity.round, event, ...(limit ? { limit } : {}) });
+  }
+
+  private async auditDoneCheck(key: string): Promise<DoneCheckOutcome> {
+    await this.deliveryPending; await this.additionChain; this.activeCheck = key;
+    const before = structuredClone(this.record);
+    try {
+      const activity = this.auditActivity(key)!; const context = this.admissionContext();
+      if (deliveryEnabled(this.record)) context.developmentChecks = () => [ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId })];
+      const stayed = await this.readWorkspaceEvidence(key);
+      const plan = this.readPlan(); const checks: CheckResult[] = [];
+      if (!plan.ok) checks.push(planCheck(plan));
+      if (deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext(key));
+      try {
+        if (!activity.acceptedResult) {
+          const result = await submitAudit(context, { executionId: this.record.executionId, activityId: activity.activityId, revision: this.record.completionAudits!.revision, reportPath: activity.reportPath });
+          checks.push(...result.checks);
+        } else {
+          const accepted = acceptedAudit(this.stateDirectory, activity)!;
+          const current = await auditCurrentness(context, activity);
+          checks.push({ name: "Audit result recorded", passed: true, facts: [current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent) ? `Accepted ${activity.reportPath}: ${accepted.report.outcome}.` : "Checked audit work changed; recover the assigned result before continuing."] });
+        }
+      } catch (error) { checks.push({ name: "Audit result recorded", passed: false, facts: [(error as Error).message] }); }
+      checks.push(...await repositoryChecks(context), ...(stayed.passed ? [] : [stayed.check]));
+      if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
+      this.save();
+      return this.withCodexSafety(key, { passed: checks.every(c => c.passed), checks, plan, judgedLeafId: key, stayed });
+    } catch (error) { Object.assign(this.record, before); throw error; }
+    finally { this.activeCheck = undefined; }
+  }
+
+  private finalNeedsAudits(outcome: { checks: CheckResult[] }): boolean {
+    if (!outcome.checks.some(c => c.name === "Current completion audits" && !c.passed) || outcome.checks.some(c => c.name !== "Current completion audits" && !c.passed)) return false;
+    const facts = this.record.phases[PR_PHASE_KEY]; if (facts) { delete facts.stop; delete facts.wait; }
+    if (this.record.completionAudits) this.record.completionAudits.policy = "required";
+    this.save(); return true;
+  }
+
+  private async requireCurrentAudits(outcome: { passed: boolean; checks: CheckResult[] }): Promise<void> {
+    if (this.record.completedAt && this.record.completionAudits?.policy === "legacy_complete") return;
+    try {
+      const next = await auditNext(this.admissionContext());
+      if (next === "final_delivery" && !nextLeaf(this.plan!)) return;
+      outcome.checks.push({ name: "Current completion audits", passed: false, facts: [`${next === "final_delivery" ? "Implementation" : auditLabel(next)} is required before final completion.`] });
+    } catch (error) { outcome.checks.push({ name: "Current completion audits", passed: false, facts: [(error as Error).message] }); }
+    outcome.passed = false;
   }
 
   private async runPhaseSession(leafId: string): Promise<"done" | "stopped"> {
@@ -1503,12 +1645,12 @@ export class Engine {
     return verdict.kind === "done" ? "done" : "stopped";
   }
 
-  private async runPullRequestSession(): Promise<void> {
+  private async runPullRequestSession(): Promise<Verdict> {
     this.record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
     const prompt = pullRequestSessionPrompt(await this.pullRequestPromptValues(this.sessionFolder));
     this.emit({ kind: "pull_request", at: this.now(), event: "started" });
     await this.launchSession(PR_PHASE_KEY, "pull_request", prompt);
-    await this.settleSession(PR_PHASE_KEY);
+    return this.settleSession(PR_PHASE_KEY);
   }
 
   /**
@@ -1517,6 +1659,8 @@ export class Engine {
    */
   private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
+    const audit = this.auditActivity(phaseKey);
+    observeActivity(this.record, this.stateDirectory, phaseKey, audit?.kind ?? (kind === "pull_request" ? "final_delivery" : "implementation"), this.now().toISOString(), audit?.activityId);
     // A session launch waits for an addition under way, so it gets the workspace as it ends.
     await this.additionChain;
     let session = this.latestSession(phaseKey);
@@ -1529,7 +1673,8 @@ export class Engine {
         schemaVersion: SCHEMA_VERSION,
         agentId: this.record.settings.agentId,
         sessionId: randomUUID(),
-        phaseId: phaseKey,
+        phaseId: audit ? "" : phaseKey,
+        ...(audit ? { activityId: audit.activityId } : {}),
         kind,
         createdAt: this.now().toISOString(),
         model,
@@ -1542,6 +1687,7 @@ export class Engine {
       };
       writeSessionRecord(this.options.stateDirectory, session);
       facts.sessionIds.push(session.sessionId);
+      if (audit) audit.sessionIds.push(session.sessionId);
       this.save();
     }
     const cwd = this.workingDirectoryOf(session);
@@ -1862,6 +2008,7 @@ export class Engine {
           this.complete(check.pullRequests!, byPerson, check.mergedBranches);
           return { kind: "complete" };
         }
+        if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
         if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks, check.stayed.passed);
         this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", check.checks);
         this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
@@ -1875,7 +2022,7 @@ export class Engine {
       }
       if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks, outcome.stayed.passed);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
-      this.emit({ kind: "phase", at: this.now(), phaseId: outcome.judgedLeafId, title: this.titleOf(outcome.judgedLeafId), event: "stopped" });
+      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     } finally {
       if (!this.stopping) {
@@ -1894,6 +2041,7 @@ export class Engine {
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return { kind: "stopping" };
+      if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
       if (!check.passed) return check.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
       this.complete(check.pullRequests!, false, check.mergedBranches);
       return { kind: "complete" };
@@ -1917,6 +2065,7 @@ export class Engine {
     const at = recorded ?? (session && run ? (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt) : this.now().toISOString());
     this.recordStop(phaseKey, kind, checks, { at, atIsLastOutput: recorded === undefined });
     if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
+    else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, "stopped");
     else {
       const judged = this.judgedId(phaseKey);
       this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event: "stopped" });
@@ -1939,7 +2088,7 @@ export class Engine {
         return "still_stopped";
       }
       delete facts.stop;
-      if (facts.sessionIds.length === 0) delete this.record.phases[phaseKey];
+      if (facts.sessionIds.length === 0 && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
       this.save();
       return "cleared";
     }
@@ -1960,7 +2109,7 @@ export class Engine {
       }
       // The plan reads again. Nothing ran, so nothing is marked Done; the loop goes round again.
       delete facts.stop;
-      if (facts.sessionIds.length === 0) delete this.record.phases[phaseKey];
+      if (facts.sessionIds.length === 0 && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
       this.save();
       return "cleared";
     }
@@ -1977,6 +2126,7 @@ export class Engine {
         this.complete(check.pullRequests!, true, check.mergedBranches);
         return "complete";
       }
+      if (this.finalNeedsAudits(check)) return "done";
       this.updateStop(phaseKey, check.checks);
       return "still_stopped";
     }
@@ -1986,7 +2136,7 @@ export class Engine {
       this.updateStop(phaseKey, outcome.checks);
       return "still_stopped";
     }
-    delete facts.stop;
+    if (!this.auditActivity(phaseKey)) delete facts.stop;
     await this.recordDone(phaseKey, outcome, true);
     return "done";
   }
@@ -2043,6 +2193,7 @@ export class Engine {
 
   private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome> {
     // A done check that comes while an addition is under way waits for it to end first.
+    if (this.auditActivity(phaseKey)) return this.auditDoneCheck(phaseKey);
     this.activeCheck = phaseKey;
     await this.deliveryPending;
     await this.additionChain;
@@ -2088,7 +2239,7 @@ export class Engine {
         const stayed = failed.length ? { ...finalStayed, passed: false, check: { name: STAYED_CHECK_NAME, passed: false, facts: failed.flatMap(one => one.check.facts) }, changes: failed.flatMap(one => one.changes), transcripts: failed.flatMap(one => one.transcripts) } : finalStayed;
         const check = result.checks[0]!;
         const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed && stayed.passed, check, checks: [...result.checks, ...(stayed.passed ? [] : [stayed.check])], stayed, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
-        ledger(this.record).currentComplete = outcome.passed; this.save(); return outcome;
+        await this.requireCurrentAudits(outcome); ledger(this.record).currentComplete = outcome.passed; this.save(); return outcome;
       }
       const repositories = await this.pullRequestRepositoriesNow();
       const outcome = await runPullRequestChecks(
@@ -2107,6 +2258,7 @@ export class Engine {
         })),
         await this.readWorkspaceEvidence(PR_PHASE_KEY),
       );
+      await this.requireCurrentAudits(outcome);
       return this.withCodexSafety(PR_PHASE_KEY, outcome);
     } finally {
       if (phaseKey !== undefined) this.activeCheck = undefined;
@@ -2116,7 +2268,28 @@ export class Engine {
   private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     // Backfilling development assessments does not rewrite historical completion/push facts.
-    if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery) { this.save(); return; }
+    if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery && !this.auditActivity(phaseKey)) { this.save(); return; }
+    const audit = this.auditActivity(phaseKey);
+    if (audit) {
+      if (facts.doneAt) { const stop = facts.stop; delete facts.stop; try { this.save(); } catch (error) { if (stop) facts.stop = stop; throw error; } return; }
+      const before = structuredClone(this.record);
+      try {
+        const accepted = acceptedAudit(this.stateDirectory, audit)!;
+        if (outcome.plan.ok) this.record.plan = recordedPlan(outcome.plan.plan);
+        for (const phase of accepted.report.completionPhases) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId: phase.id }, phase.criterionKeys);
+        for (const entry of this.setUpRepositories) {
+          const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
+          if (!head) throw new Error(`Cannot record settled audit head for ${entry.name}.`);
+          const repository = facts.repositories[entry.name] ??= { startCommit: head };
+          repository.pushedSha = head;
+          const count = await firstParentCount(this.git, expandHome(entry.worktreePath), repository.startCommit, head);
+          if (count !== undefined) repository.commitCount = count;
+        }
+        facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop;
+        this.save();
+      } catch (error) { Object.assign(this.record, before); throw error; }
+      this.emitAudit(audit, "done"); return;
+    }
     const shas = outcome.pushedShas!;
     facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;
@@ -2386,6 +2559,7 @@ export class Engine {
         this.updateKeepAwake();
         return "complete";
       }
+      if (this.finalNeedsAudits(check)) { delete facts.wait; this.unwatchWait(); return "done"; }
       checks = check.checks;
       stayedPassed = check.stayed.passed;
     } else {
@@ -3099,7 +3273,8 @@ export class Engine {
 
   /** The first leaf not closed in the recorded plan, or `pr` when every leaf there is closed. */
   nextKeyFromRecordedPlan(): string {
-    return recordedLeaves(this.record.plan ?? []).find((phase) => !phase.closed)?.id ?? PR_PHASE_KEY;
+    const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
+    return pending ? auditKey(pending) : recordedLeaves(this.record.plan ?? []).find((phase) => !phase.closed)?.id ?? this.record.nextActivityKey ?? PR_PHASE_KEY;
   }
 
   /** The leaf a launched leaf's session is shown as: its first leaf after a split, else itself. */
@@ -3109,7 +3284,8 @@ export class Engine {
   }
 
   titleOf(phaseId: string): string {
-    return this.record.plan?.find((phase) => phase.id === phaseId)?.title ?? phaseId;
+    const audit = this.auditActivity(phaseId);
+    return audit ? auditLabel(audit.kind) : this.record.plan?.find((phase) => phase.id === phaseId)?.title ?? phaseId;
   }
 
   fileOf(phaseId: string): string | undefined {

@@ -1,5 +1,7 @@
 # Phase 2b: Automatic audit cycles and progress
 
+**Closed:** 2026-10-25
+
 **Parent PRD:** [Kiln automatic completion audits](kiln-completion-audits-prd.md)
 **Technical design:** [Single governing design](kiln-completion-audits-technical-design.md)
 **Plan:** [Implementation plan](kiln-completion-audits-implementation-plan.md)
@@ -48,3 +50,48 @@ Read [Phase 1 verification](phase-1-audit-evidence-interface.md#verification) an
 
 ## Inherited execution limits
 Source: Doug's request in chat `01a16ff4-29de-7bf3-b2a1-d199d3a28766`, carrying chat `01a16fc4-5167-7153-b30c-28e08d04c0d2`: “no push, merge, production action or external message is authorized.” Scoped local commits, reviews and non-production verification are authorized. Carry these limits, with their source, into successor prompts; use the explicitly requested existing worktree. Disposable local-origin test repositories are verification fixtures.
+
+
+## Implementation and verification record
+
+Automatic activity allocation pins installed skill provenance and an initial snapshot before launch. Both providers use task-specific audit prompts and retain the full assigned task/current authority through interruption, usage recovery and manual recovery. All completion entry points require current gates before final repository completion; material final-session changes return immediately to fresh audits. Delivery repairs retain their audit origin, use ordinary implementation checks and follow split descendants before another whole-PRD delivery round.
+
+The unified activity list preserves phase totals, labels audit rounds without phase numbering, shows validated blocked findings/affected criteria and retains inspectable output after completion. Boundary pauses retain the next activity, including final delivery. Migration preserves historical completion timestamps and discloses unavailable audit history; unfinished and reopened execution adopts required audits after its current session settles.
+
+Deliverable review corrected first-grant ownership, empty-session readiness recovery, finalization continuation, blocked-result presentation, pending-final progress, terminal audit labels and historical-detail paging. Test hardening added persisted upgrade/active-session recovery, accepted-audit first-grant checks, terminal ordering, split repair routing and real assignment/save rollback. The rollback check exposed and corrected premature stop removal before audit settlement persisted.
+
+### Criteria evidence
+
+| Criteria | Executed boundary |
+|---|---|
+| AC-AUDIT-01, AC-RUN-07 | Real scheduler begins with a closed plan, runs clean delivery/test gates and final delivery without a confirmation; final-session source changes return through fresh gates. |
+| AC-LOOP-01/02/03 | Two delivery repair rounds, including split children, run ordinary implementation sessions, preserve original Closed phases and trigger whole-PRD delivery reassessment before tests. |
+| AC-LOOP-04 | Normal exit without report stops; valid blocked reports retain affected criteria and required actions; usage recovery keeps the same activity/session. |
+| AC-RUN-01 | Real browser detail/pause controls, finished findings and terminal audit labels/order retain phase totals without numbering audits as phases. Finished-output paging was also checked during deliverable review. |
+| AC-RUN-02/04 | Persisted interruption, skipped-submit report recovery, first-grant authority, empty-session readiness, boundary pause and actual installed-provider interruption/restart exercise the assigned task and report identity. |
+| AC-RUN-06 | Actual migrated records preserve historical completion/timestamps and disclose unavailable audit history; unfinished records run gates, while an active old session retains its model/session before new audit settings apply. |
+| Inherited Phase 1/2a checks | Existing admission/currentness/provider suites remain gates. Real state-save failure proves repair assignments and stop removal roll back together, retaining required merge/deployment/verification obligations. |
+
+The integration suite uses deterministic provider histories at the real scheduler/CLI/server/Git/browser boundaries. Actual provider runs separately prove installed skill loading, independent assessments, native command/file provenance, accepted reports and same-session recovery. Final GitHub reconciliation in those disposable proofs uses the captured read contract; it is not a live GitHub write or a production deployment.
+
+### Installed-provider proof
+
+[Recorded provider artifacts](kiln-automatic-audit-cycle-provider-proof.json) retain package digests, private roots, pinned skills, accepted result hashes and activity/session identities. Both actual providers passed automatic delivery and test audits after an engine interruption/restart in the same delivery-audit conversation, then reached final completion. Accepted sidecar bytes and every recorded admission check were re-read when producing that summary. Raw histories, reports, command evidence and the fixture repositories remain private under those roots.
+
+The Codex proof exposed an authoritative-history compatibility gap: a successful silent native command has explicit null output in 0.162.1 full history. The qualified collector now normalizes that null to empty output while retaining command ownership/status/exit checks; absent output remains unresolved. A sanitized observed item and regression cover it, and a narrow independent review found no provenance regression. The fresh Codex proof then passed both audits and final completion.
+
+### Final commit gate
+
+Final source passed on macOS:
+
+- `npm run audit`: zero blocking high/critical dependency findings.
+- `npm run lint` and `npm run typecheck`: pass; TypeScript/Svelte reported zero errors/warnings.
+- `npm test -- --maxWorkers=3`: 537 tests pass.
+- `npm run test:codex-proof`: all 16 supported provider-contract checks pass.
+- `npm run test:integration -- --maxWorkers=6 --reporter=dot`: all 52 files pass, 623 tests pass and 2 existing host-conditional tests skip (625 total). This rerun includes the final Codex evidence fix and hardened repair/split assertions.
+- `npm run test:package`: all 4 installed-package tests pass.
+- Actual installed Claude Code and Codex proofs above: both accepted delivery/test audits, same-session interruption/restart and final completion pass.
+
+Deliverable review and its narrow final provenance delta have no remaining findings. Test hardening is complete. The earlier full integration attempt included an obsolete split-title assertion and was stopped after its focused correction passed; it is superseded by the complete green final run above. No report/admission check was waived to reach completion.
+
+Only Phase 2b is closed. Phase 3 remains the next planned implementation leaf; its handoff records the continuation/remediation work still required. This session's delivery is a scoped local commit in the user-requested existing worktree; push, merge, production actions and external messages remain unauthorized.

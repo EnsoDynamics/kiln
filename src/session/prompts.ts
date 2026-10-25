@@ -8,10 +8,10 @@ import { AGENT_NAMES, type AgentId } from "../state/records.js";
 const PROMPTS = new URL("../../prompts/", import.meta.url);
 
 /** Invoke the discovered installed Codex skill without changing its published content. */
-export function codexSessionPrompt(prompt: string, skills: { name: string; path: string }[]): string {
-  const skill = skills.find(skill => ["implement-from-requirements", "enso-method:implement-from-requirements"].includes(skill.name));
-  if (!skill) throw new Error("Codex implement-from-requirements skill is unavailable.");
-  return `${fill(template("codex-session.txt"), { skillPath: skill.path })}\n\n${prompt}`;
+export function codexSessionPrompt(prompt: string, skills: { name: string; path: string }[], name = "implement-from-requirements"): string {
+  const skill = skills.find(skill => [name, `enso-method:${name}`].includes(skill.name));
+  if (!skill) throw new Error(`Codex ${name} skill is unavailable.`);
+  return `${fill(template("codex-session.txt"), { skillPath: skill.path, skillName: name, taskName: name === "implement-from-requirements" ? "the phase" : "the assigned audit" })}\n\n${prompt}`;
 }
 
 function template(name: string): string {
@@ -110,9 +110,9 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
 /** The cause in a resumed session's prompt, from the run's `interruptedBy`. */
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
-export interface AuditRecoveryTask { label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string }
+export interface AuditRecoveryTask { instructions?: string; label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string }
 export function auditRecoveryPrompt(task: AuditRecoveryTask, deliveryAuthority?: string): string {
-  return [fill(template("resume-carry-on-audit.txt"), { ...task, round: String(task.round) }), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
+  return [fill(template("resume-carry-on-audit.txt"), { ...task, round: String(task.round) }), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
 }
 
 export interface ResumePromptValues {
@@ -248,4 +248,8 @@ function authorizedPhase(prompt: string, authority?: string): string {
   return prompt.replace("You are not authorized to open a pull request, merge, deploy, or touch any other branch.", "Development delivery is governed by the saved authority below.")
     .replace("or land work on any other branch", "or change another checkout")
     .replace(/(You're finished when[^\n]+)(\n|$)/, "$1 Required development-delivery assessment, merge, deployment, verification and source synchronization must also pass Kiln’s current evidence checks.$2") + "\n\n" + authorityBlock(authority);
+}
+
+export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string }): string {
+  return fill(template("audit-session.txt"), { ...values, round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ?? "No development merge or deployment is authorized.", previous: values.previous ?? "No prior audit result." });
 }

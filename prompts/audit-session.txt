@@ -1,0 +1,55 @@
+Run {{label}} on the whole governing PRD at {{prdFile}} across the assigned repositories.
+Use the installed {{skillName}} skill. Claude Code must invoke its enabled Skill command;
+Codex must read the entire pinned source with the exact command `cat {{skillPath}}`.
+Follow that skill's independent assessment, review and (for tests) remediation/re-grade rules.
+Finish this assigned activity; Kiln starts the next activity automatically. Do not launch a
+successor chat, skip the audit because of an old audit commit, or edit installed skills.
+
+Assigned execution {{executionId}}, activity {{activityId}}, round {{round}}, continuation {{continuationIndex}}.
+The reserved portable report path (relative to the PRD repository) is {{reportPath}}.
+Assigned feature branch: {{branch}}. Repositories:
+{{repositories}}
+Work only in those worktrees. Scoped local commits and pushes of audit records, tests and
+skill-permitted small fixes on the assigned feature branch are authorized. Never merge,
+deploy, publish, open PRs or change other branches without the saved development authority.
+Delivery audits record completion phases for missing existing requirements; do not implement
+your own findings. Preserve original identities/Closed lines. Include the activity ID on each
+`**Added by delivery audit:**` or `**Added by test audit:**` origin line.
+
+Pinned CLI: {{cli}}
+Use `audit status` to read your assigned initial snapshot, revision and paged evidence catalog.
+Use `audit snapshot <file>` after material changes, supplying executionId, activityId, revision,
+testPaths and evidencePaths. Capture the checked snapshot before verification commands.
+Use `audit submit <file>` with executionId, activityId, revision and reportPath after committing
+and pushing the report. Inspect the response; unresolved means correct the concrete checks.
+Do not fabricate evidence IDs, transcripts, observed outcomes or passing grades.
+For Codex functions.exec calls, use literal tool arguments and the qualified wrapper
+`const result = await tools.exec_command({cmd: "literal command"}); text(result);`.
+Do not use store/load, dynamic helper dispatch or hidden commands in wrapper JavaScript.
+
+The report schema is version 1: executionId, activityId, kind (delivery_audit or test_audit),
+round, continuationIndex, scope {repository,path,kind:whole_prd,manifestId,criterionKeys},
+checkedSnapshotId, criteria, methodEvidence, completionPhases, pendingHumanActions, blockers,
+outcome (passed, completion_phases, continue_test, blocked). Cover every manifest key.
+Each criterion row has criterionKey, parts, assessmentEvidenceIds, findings, blockerIds and
+only deliveryStatus or testAssessment. Parts carry id, source quote/startLine/endLine,
+applicability, code file references and tests (exact file/selector/runEvidenceIds/runtime).
+File references are {repository,path,blob}. Current parts need reachable code evidence.
+methodEvidence names skillEvidenceId, assessmentEvidenceIds and reviewEvidenceIds; test audits
+also name baselineRunEvidenceIds, finalRunEvidenceIds, redChecks and regradeEvidenceIds.
+For Claude red-check mutation/restoration evidence use native Write/Edit tools.
+Test mappings require observed successful command evidence; do not infer runs from prose.
+Maintain the method's exact test-audit.md record for test audits.
+
+Give independent child assessors the actual checked snapshot ID, canonical criterion keys
+and stable part IDs. Each child must do the real assessment and return its reasoning plus:
+<kiln-assessment>{"snapshotId":"actual","criterionKeys":["actual"],"partIds":["actual"],"purpose":"assessment","testPaths":[]}</kiln-assessment>
+Use purpose review for independent review, regrade for independent remediation reassessment,
+and test_classification with exact testPaths/configurationFiles for test-only classification.
+These envelopes bind scope; they never substitute for the independent work.
+
+Prior accepted work:
+{{previous}}
+
+Current development authority (does not grant new permission):
+{{deliveryAuthority}}

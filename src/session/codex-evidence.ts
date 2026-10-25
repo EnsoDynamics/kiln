@@ -35,7 +35,7 @@ export interface CodexEvidenceOptions {
   powerShellExecutable?: string;
 }
 interface Metadata { id: string; path: string; status?: { type: string }; source?: { subagent?: { thread_spawn?: { parent_thread_id?: string } } } }
-interface Item { exitCode?: number; aggregatedOutput?: string; id: string; type: string; status?: string; command?: string; cwd?: string; receiverThreadIds?: string[]; agentThreadId?: string; kind?: string; changes?: { path: string; kind: { type: string; move_path?: string } }[] }
+interface Item { exitCode?: number; aggregatedOutput?: string | null; id: string; type: string; status?: string; command?: string; cwd?: string; receiverThreadIds?: string[]; agentThreadId?: string; kind?: string; changes?: { path: string; kind: { type: string; move_path?: string } }[] }
 interface Turn { id: string; status: string; itemsView: string; items: Item[] }
 interface Context { turn_id: string; cwd: string; model?: string; effort?: string }
 interface NativeCommand { startedAtMs?: number; resultAt?: string; id: string; threadId: string; turnId: string; argv: string[]; cwd: string; status: string }
@@ -314,8 +314,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
                 const owners = native.startedAtMs === undefined ? candidates : candidates.filter(one => one.at === latest);
                 if (owners.length !== 1 || owners[0]!.callId !== payload.call_id) continue;
                 const result = index.get<Item>(`expectedCommand:${id}`, native.id);
-                if (result?.status === native.status && typeof result.exitCode === "number" && typeof result.aggregatedOutput === "string" && native.resultAt) {
-                  (report.commands ??= []).push({ source: `${id}/${turnId}`, callId: native.id, command, cwd, calledAt: at, resultAt: native.resultAt, outcome: native.status === "completed" && result.exitCode === 0 ? "success" : "error", exitCode: result.exitCode, output: result.aggregatedOutput });
+                if (result?.status === native.status && typeof result.exitCode === "number" && (typeof result.aggregatedOutput === "string" || result.aggregatedOutput === null) && native.resultAt) {
+                  (report.commands ??= []).push({ source: `${id}/${turnId}`, callId: native.id, command, cwd, calledAt: at, resultAt: native.resultAt, outcome: native.status === "completed" && result.exitCode === 0 ? "success" : "error", exitCode: result.exitCode, // Qualified 0.162.1 full history explicitly uses null for zero output bytes.
+                    // An absent output property is still unresolved, never inferred as empty.
+                    output: result.aggregatedOutput === null ? "" : result.aggregatedOutput });
                 }
               }
               if (powerShell) {

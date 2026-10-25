@@ -129,7 +129,8 @@
   </section>
   {/if}
   <div class="columns-main">
-    <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
+    <div class="column-wide">{#if snapshot.auditHistoryUnavailable}<p class="note">Automatic audit history is unavailable for this historical completion.</p>{/if}
+      <PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
       <section class="card" aria-labelledby="set-h">
         <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="sub">Set before the first phase.</span></div>

@@ -11,7 +11,7 @@
   let { snapshot }: { snapshot: Snapshot } = $props();
   const { config } = viewContext();
   const id = $derived(snapshot.current!.phaseId);
-  const title = $derived(snapshot.phases.find((phase) => phase.id === id)?.title ?? "");
+  const title = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === id)?.title ?? "");
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
 
@@ -26,11 +26,11 @@
 <section class="card" aria-labelledby="pause-h">
   <h2 id="pause-h" class="eyebrow">Pause Kiln</h2>
   {#if snapshot.pause.pending}
-    <p>Kiln pauses once {phaseName(id)}, <span class="title">{title}</span>, is done, including its commit and push. Keep going cancels the pause.</p>
+    <p>Kiln pauses once {phaseName(id, snapshot)}, <span class="title">{title}</span>, is done, including its commit and push. Keep going cancels the pause.</p>
     <button type="button" class="button wide" disabled={pressing} onclick={press}><Icon name="arrow" size={15} strokeWidth={1.8} />Keep going</button>
   {:else}
-    <p>{capitalized(phaseName(id))}, <span class="title">{title}</span>, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start.</p>
-    <button type="button" class="button wide" disabled={pressing} onclick={press}><Icon name="pause" size={15} strokeWidth={1.8} />Pause after this phase</button>
+    <p>{capitalized(phaseName(id, snapshot))}, <span class="title">{title}</span>, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start.</p>
+    <button type="button" class="button wide" disabled={pressing} onclick={press}><Icon name="pause" size={15} strokeWidth={1.8} />{id.startsWith("audit-") ? "Pause after this audit" : "Pause after this phase"}</button>
   {/if}
   {#if reason}<span class="message">{reason}</span>{/if}
 </section>

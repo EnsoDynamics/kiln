@@ -20,7 +20,7 @@
   const { config, router } = viewContext();
 
   const current = $derived(snapshot.current!);
-  const row = $derived(snapshot.phases.find((phase) => phase.id === current.phaseId));
+  const row = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === current.phaseId));
   const isPr = $derived(current.phaseId === PR_ID);
   const nowDate = $derived(new Date(now));
   const link = $derived(phasePath(config.base, current.phaseId));
@@ -45,8 +45,8 @@
 <section class="now" class:lost={!connected} aria-labelledby="now-h">
   <div class="top">
     <div class="name">
-      <PhaseCircle id={current.phaseId} tone={connected ? "implementing" : "amber"} />
-      <div class="words"><span class="eyebrow">{connected ? "Now implementing" : "Last seen"} · {phaseOfTotal(snapshot, current.phaseId)}</span><h2 id="now-h">{row?.title ?? ""}</h2></div>
+      <PhaseCircle id={row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : current.phaseId} tone={connected ? "implementing" : "amber"} />
+      <div class="words"><span class="eyebrow">{connected ? row?.kind?.endsWith("audit") ? "Now auditing" : "Now implementing" : "Last seen"} · {phaseOfTotal(snapshot, current.phaseId)}</span><h2 id="now-h">{row?.title ?? ""}</h2></div>
     </div>
     <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}</span>
   </div>

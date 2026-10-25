@@ -1,0 +1,20 @@
+{
+  "providerVersion": "0.162.1",
+  "observedAt": "2026-10-24T23:43:14Z",
+  "source": "Actual thread/turns/list with itemsView full; assigned path and opaque IDs sanitized.",
+  "item": {
+    "type": "commandExecution",
+    "id": "exec-silent-success",
+    "pluginId": null,
+    "scriptPath": null,
+    "command": "/bin/zsh -lc 'node value.test.mjs'",
+    "cwd": "/assigned/audit-proof",
+    "processId": "26559",
+    "source": "unifiedExecStartup",
+    "status": "completed",
+    "commandActions": [{ "type": "unknown", "command": "node value.test.mjs" }],
+    "aggregatedOutput": null,
+    "exitCode": 0,
+    "durationMs": 0
+  }
+}

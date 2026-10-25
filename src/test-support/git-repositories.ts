@@ -34,7 +34,7 @@ export function createSandbox(): Sandbox {
     // Session transcripts, which the stand-in claude keeps and Stayed in the workspace reads, stay in the sandbox too.
     CLAUDE_CONFIG_DIR: join(root, "claude-config"),
   };
-  const skills = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
+  const skills = ["delivery-audit", "test-audit", "implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
   for (const name of skills) {
     const directory = join(root, "claude-config", "skills", name);
     mkdirSync(directory, { recursive: true });

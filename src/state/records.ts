@@ -232,6 +232,8 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  nextActivityKey?: string;
+  activities?: import("../audit/workflow.js").ExecutionActivity[];
   completionAudits?: AuditState;
   executionId?: string;
   developmentAuthorization?: DevelopmentAuthorization;

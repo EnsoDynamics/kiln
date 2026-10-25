@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+import * as auditWorkflow from "../audit/workflow.js";
 // A feature ready to run through the engine in a test: a real repository whose `origin` is a
 // local bare repository, the fixture PRD pushed to `develop`, the stand-in `claude` and `gh`,
 // and a fresh record, as Documents found would leave it just before Start.
@@ -53,6 +55,9 @@ export interface Harness {
 }
 
 export interface HarnessOptions {
+  /** Existing boundary tests isolate audits as an already-current gate. Audit workflow
+   * tests opt into real routing; installed-provider proofs cover the actual boundary. */
+  auditCycles?: boolean;
   sessions: ScenarioSession[];
   folder?: string;
   files?: Record<string, string>;
@@ -89,6 +94,7 @@ function kilnGitCalls(gitLog: string): string[] {
 }
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
+  const auditGate = options.auditCycles ? undefined : vi.spyOn(auditWorkflow, "auditNext").mockResolvedValue("final_delivery");
   const sandbox = createSandbox();
   const origin = createBareOrigin(sandbox, "acme-shop");
   const repository = createRepository(sandbox, "acme-shop", origin);
@@ -174,7 +180,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     reopenFromDisk: () => { harness.engine.close(); return harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!); },
     engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.agents.refresh(); return engine; },
     kilnGitCalls: () => kilnGitCalls(gitLog),
-    cleanup: () => { for (const engine of engines) engine.close(); harness.engine.close(); return sandbox.cleanup(); },
+    cleanup: () => { auditGate?.mockRestore(); for (const engine of engines) engine.close(); harness.engine.close(); return sandbox.cleanup(); },
   };
   harness.engine = make();
   await harness.engine.agents.refresh();

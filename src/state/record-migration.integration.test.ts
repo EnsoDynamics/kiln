@@ -75,6 +75,7 @@ describe("a schema 1 record read by this Kiln", () => {
       // control must use that revision without changing the historical execution view.
       developmentDelivery: after.developmentDelivery,
       feature: { ...before.feature, timing: advanceWaiting(before.feature.timing!, after.feature.timing!) },
+      activities: before.activities!.map((activity, index) => activity.timing ? { ...activity, timing: advanceWaiting(activity.timing, after.activities![index]!.timing!) } : activity),
       phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
       account: after.account,
       needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt },
@@ -92,7 +93,7 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
     await engine.agents.refresh();
-    expect(buildSnapshot(engine)).toEqual({ ...before, account: buildSnapshot(engine).account });
+    expect(buildSnapshot(engine)).toEqual({ ...before, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });

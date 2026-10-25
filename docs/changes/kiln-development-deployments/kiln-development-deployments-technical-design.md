@@ -43,6 +43,8 @@ The local API is the existing trusted machine-user boundary, not a new claim tha
 
 ### Record contract
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (durable audit allocation and retained assignment decisions), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery and §Recovery and Upgrade (schema 7 phase/audit owners, manifest-bound audit assessments, criterion-scoped retained assignments and ordered first-grant recovery, implemented in Phase 2a; existing grants, evidence and final-reconciliation protections remain).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (schema 6, stable identity for restricted executions, preserved pre-migration bytes and additive audit evidence, implemented in Phase 1; development grants and delivery evidence rules remain unchanged, and audit-owned obligations remain Phase 2).
@@ -132,6 +134,8 @@ A deployment is historical evidence, not a claim that a shared environment stays
 
 ### One evaluator at every transition
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (current audit gates join retained development checks), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 The phase result retains Closed, Committed, Pushed and Stayed in the workspace, and adds **Required development delivery verified** for phases with obligations. Enabled phases also need a current assessment. Keep the first descendant as `judgedLeaf` for the splitting session and existing Closed check; its delivery check evaluates only obligations assigned to that leaf, allowing later descendants to run. A Closed document alone cannot advance past that leaf’s unresolved obligations. Use this same evaluation after sessions, on Check again, before manual/automatic resume, after manual work and during restart reconciliation. Revalidate saved split assignments against the current split documents at each transition. An unresolved earlier phase is considered before the next unclosed document: do not skip it merely because its Closed line was written early.
 
 After the first Needs you grant activates a restricted execution, advancement and final completion require current assessments for all previously completed leaves and the stopped leaf. Check again reconciles evidence but never invents an assessment. Resume or manual recovery supplies missing assessments and resolves required obligations within the activation-recovery scope above, reusing independently verified evidence. Absent historical assessments alone do not reopen implementation or justify repeating confirmed delivery. Retain historical `doneAt`, `completedAt`, session and push facts: backfilling assessments is not a new phase-completion event and must not overwrite them. The enabled evaluator governs current completion despite those historical facts, including after restart.
@@ -159,6 +163,8 @@ Before a second checkpoint, reuse only a suitable open PR whose exact current he
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Design Decisions and §The Pull Requests (original-base changed-repository predicate and one final PR give way to checkpoint coverage and remaining work).
 
 ## Display Contract
+
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (audit activity identity and owner-aware progress), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 The snapshot adds effective authorization, candidate/remembered settings before Start, per-repository results, checkpoints with separate merge/deploy/verification outcomes, missing-target grant requests and last-check/error facts. The view renders these facts; it never computes completion from PR state.
 

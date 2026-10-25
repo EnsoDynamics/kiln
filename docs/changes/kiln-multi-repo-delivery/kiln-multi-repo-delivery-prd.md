@@ -165,6 +165,7 @@ The PRD ends with each changed repository ready for review or already merged int
 Four screens are drawn for this change. The others it touches follow the nearest drawing, so every screen has one governing picture.
 
 - [ ] **AC-SHOW-01 — The changed screens match their drawings.** Documents found, Needs you after work outside the workspace, Complete and the terminal match this change's mockups for layout, copy, colors and type, as v1's screens match theirs. The screens this change alters but doesn't draw follow the nearest drawing:
+  - Superseded in part by: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (added audit rows and labels retain the existing layout and style).
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (older mockup copy for delivery permissions, progress and completion gives way to this change’s outcomes; unaffected layout and visual style remain).
   - Superseded in part by: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (agent-specific information on existing screens).
   - Superseded in part by: AC-AUTO-04, AC-LIMIT-01 and AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Documents found and the settings while Kiln works gain the "Resume after a usage limit" row; Needs you after work outside the workspace, when its session hit a usage limit, gains the limit facts, choices and account; the terminal gains the wait and resume lines)

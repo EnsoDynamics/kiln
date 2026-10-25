@@ -221,6 +221,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage; 
 
 ## Interfaces and Records
 
+Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (audit-specific installed skill resolution and launch), implemented in Phase 2b. Existing authority and evidence protections remain.
+
 ### Local API and snapshot changes
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.

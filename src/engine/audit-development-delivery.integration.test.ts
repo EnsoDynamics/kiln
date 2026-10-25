@@ -1,8 +1,10 @@
+import * as admission from "../audit/admission.js";
+import * as owners from "./development-owners.js";
 // Real assigned Git workspaces, private state and HTTP/CLI; captured GitHub contracts
 // supplement the existing actual-provider provenance proofs, without any remote mutation.
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Engine } from "./engine.js";
 import { documentsDigest, evaluateRepositories, ownerDeliveryCheck, ownerDocuments, phaseDeliveryCheck, prepareOperation, recordAssessment, reconcileDelivery, type DeliveryContext } from "./development-delivery.js";
@@ -284,4 +286,46 @@ describe("audit development owners", () => {
     expect(state.developmentAuthorization).toEqual(f.record.developmentAuthorization);
     expect(engine.authorizeDevelopmentTarget(authority)).toEqual({ ok: true });
   });
+  it("settles audit repair assignments atomically and rolls back a real state-write failure", async () => {
+    const f = await fixture();
+    await recordAssessment(f.context, f.assess()); f.synchronize(); await reconcileDelivery(f.context);
+    expect(ownerDeliveryCheck(f.context, f.owner).passed).toBe(true);
+    acceptRepair(f);
+    git(f.h.sandbox, f.h.engine.worktreePath, "add", "--", `${directory}/phase-2-repair.md`);
+    git(f.h.sandbox, f.h.engine.worktreePath, "commit", "-m", "test(audit): append owned repair fixture");
+    git(f.h.sandbox, f.h.engine.worktreePath, "push", "origin", f.record.settings.featureBranch);
+    f.h.tools.gh = f.context.gh; Object.assign(f.h.env, f.context.env);
+    // Admission/currentness are separately proved from actual provider histories. This
+    // accepted fixture isolates the engine's assignment/persistence boundary, not provenance.
+    const current = vi.spyOn(admission, "auditCurrentness").mockResolvedValue({ deliveryCurrent: true, testsCurrent: true });
+    const originalAssign = owners.assignAuditObligations; let failOnce = true;
+    const path = join(f.h.stateDirectory, "prd.json"); const saved = path + ".held";
+    f.record.pause.requestedAt = new Date().toISOString(); writePrdRecord(f.h.stateDirectory, f.record);
+    const before = structuredClone(f.record.developmentDelivery!);
+    const assign = vi.spyOn(owners, "assignAuditObligations").mockImplementation((...args) => {
+      originalAssign(...args);
+      if (failOnce) { failOnce = false; renameSync(path, saved); mkdirSync(path); }
+    });
+    try {
+      await expect(f.h.engine.checkAgain()).rejects.toThrow();
+      const rolledBack = structuredClone(f.h.engine.record.developmentDelivery!);
+      // Reconciliation legitimately refreshes observation timestamps before assignment.
+      rolledBack.checkedAt = before.checkedAt!;
+      for (const checkpoint of rolledBack.checkpoints) checkpoint.checkedAt = before.checkpoints.find(c => c.id === checkpoint.id)!.checkedAt!;
+      expect(rolledBack).toEqual(before);
+      expect(f.h.engine.record.phases[`audit-${f.activity.activityId}`]!.doneAt).toBeUndefined();
+      expect(f.h.claudeCalls()).toHaveLength(1);
+      rmSync(path, { recursive: true }); renameSync(saved, path);
+      expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.assignments ?? []).toEqual([]);
+      await f.h.engine.checkAgain(); await f.h.engine.settled();
+      const persisted = readPrdRecord(f.h.stateDirectory)!;
+      expect(persisted.developmentDelivery!.assignments!.map(a => [a.requirementId,a.owner,a.criteria])).toEqual(expect.arrayContaining(["requiredMerge","deploy","verify"].map(id => [id,{kind:"phase",phaseId:"2"},[f.criteria[0]!]])));
+      expect(persisted.developmentDelivery!.assignments).toHaveLength(3);
+      expect(persisted.developmentDelivery!.revision).toBe(before.revision + 1);
+      expect(persisted.developmentDelivery!.checkpoints[0]!.owner).toEqual(f.owner);
+      expect(persisted.phases[`audit-${f.activity.activityId}`]!.doneAt).toBeTruthy();
+      expect(f.h.claudeCalls()).toHaveLength(1); // pause prevents repair dispatch until persisted
+    } finally { current.mockRestore(); assign.mockRestore(); if (existsSync(saved)) { rmSync(path,{recursive:true,force:true}); renameSync(saved,path); } }
+  });
+
 });
