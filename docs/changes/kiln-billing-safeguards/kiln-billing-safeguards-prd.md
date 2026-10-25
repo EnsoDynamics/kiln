@@ -46,6 +46,8 @@ The user should see what Kiln knows about the next run's billing without being a
 
 - [ ] **AC-BILL-07 — Existing usage gauges keep their meaning.** The five-hour, weekly, and other account-reported usage gauges remain unchanged where Kiln already displays them. Billing information is text alongside account information, never a new progress or usage bar. Missing billing metadata does not hide independently available usage readings, and no made-up delivery-progress percentage is introduced.
 
+- [ ] **AC-BILL-08 — The subscription account is clear beside its billing settings.** For subscription access, the billing summary includes the subscription account's email directly below the subscription label. If the email is unavailable, it says that the account identity is unavailable. The running view uses the account recorded for that launch, as in AC-RUN-05.
+
 ### Ask Once for Deliberate API Billing
 
 A user intentionally using separately billed access can continue. Approval should be specific enough to prevent an old choice from silently authorizing a different provider or another PRD.
@@ -82,12 +84,12 @@ The interactive [screen gallery](mockups/kiln-billing-safeguards-mockups.html) i
 
 | State | Requirements illustrated |
 |---|---|
-| Subscription ready | AC-BILL-01–03 |
-| Paid overflow enabled | AC-BILL-02–03 |
+| Subscription ready | AC-BILL-01–03, AC-BILL-08 |
+| Paid overflow enabled | AC-BILL-02–03, AC-BILL-08 |
 | API approval required / approved / configured provider override | AC-BILL-04–06 |
 | Additional billing details unavailable / checking settings / sign-in required | AC-BILL-02, AC-RUN-01–02 |
 | Changed billing at Needs you | AC-BILL-05, AC-RUN-02–03 |
-| Running on subscription / running on API / disconnected | AC-BILL-07, AC-RUN-04–05 |
+| Running on subscription / running on API / disconnected | AC-BILL-07–08, AC-RUN-04–05 |
 
 ## Scope and Design Questions
 
