@@ -17,7 +17,7 @@ Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics
 1. After the CI repairs are reviewed and an integration-branch push is authorized, require a passing CI run on that exact candidate. Keep automated macOS/Linux/Windows checks enabled, including the package installation tier; local macOS evidence does not imply the remote runners passed.
 2. Rerun the full and production-only dependency audits on the final candidate. The preparation update to `fast-uri@3.1.9` clears the finding identified in the readiness review.
 3. Apply the confirmed platform policy: macOS is natively validated; Windows and Linux are best effort. Doug waived native Windows/Linux release proofs on 2026-10-25. The PRD, design, PLAT-002, README and prepared website copy reflect that decision; do not claim native Windows/Linux execution was tested.
-4. Review and validate the prepared website source changes covering explicit development delivery, whole-PRD completion audits, the pinned Codex CLI prerequisite and platform policy. Keep the page unlisted and `noindex` until launch is approved.
+4. Review and validate the prepared website source changes covering explicit development delivery, whole-PRD completion audits, the pinned Codex CLI prerequisite and platform policy. Doug authorized deployment of the standalone page on 2026-10-25. Keep it unlisted and `noindex`, with no homepage/navigation links or sitemap entry; package publication does not lift that restriction.
 5. Review the complete repository and all reachable history for credentials, private content and third-party material. Review screenshots and retained provider fixtures as well as text. Regenerate and inspect the exact release tarball. Preserve the bundled library and font notices in `dist/view/kiln-third-party-notices.txt`.
 6. Preserve the publication hold. MIT/public-source intent is confirmed under REL-001; Doug reiterated on 2026-10-25 that publication needs his separate explicit authorization.
 7. Stage and review preparation changes. Commit or push only under the applicable authorization. Record the final candidate SHA and repeat the content and package checks after any further code change.
@@ -60,7 +60,7 @@ Use this setup during step 3 of the release sequence below, after the approved c
    ```
 
    Run that prefix's installed `kiln --help`, verify its browser assets and notices, and confirm npm's provenance links to the approved repository and workflow.
-7. After the package installs and the repository is public, publish the prepared Enso Method site changes: update the product claims and platform limits, remove Kiln's `noindex`, link the page from navigation/homepage and include it in the sitemap. Verify the live installation command and links.
+7. After the package installs and the repository is public, verify the standalone Enso Method Kiln page's installation command and links. Its copy was deployed separately during preparation. Preserve `noindex` and its exclusion from the homepage, navigation and sitemap unless Doug separately authorizes discoverability changes.
 
 ## Replace the initial token with trusted publishing
 

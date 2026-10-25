@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { outsideChanges, gitCommandsIn, gitChange } from '../../dist/session/outside-workspace.js';
-import { realPathOfNearestAncestor } from '../../dist/engine/worktree-setup.js';
+import { comparable, realPathOfNearestAncestor } from '../../dist/engine/worktree-setup.js';
 
 const physical = path => realPathOfNearestAncestor(resolve(path));
 const cwdPath = path => path?.startsWith('file:') ? fileURLToPath(path) : path;
@@ -88,6 +88,6 @@ export function auditEntries(entries, worktrees) {
     if (nativeCommands.some(command => !usedCommands.has(command.id))) problems.push(`${entry.id}: native command not covered by a decoded invocation`);
     for (const write of entry.nativeWrites ?? []) if (!patchPaths.has(`${write.turnId}:${physical(write.path)}`)) problems.push(`${entry.id}: native file change not covered by a decoded invocation`);
   }
-  const findings = outsideChanges({ calls }, worktrees.map(physical));
+  const findings = outsideChanges({ calls }, worktrees.map(path => comparable(physical(path))));
   return { coverage: problems.length ? 'inconclusive' : 'complete', passed: problems.length === 0 && findings.length === 0, findings, problems, inherited, operationsChecked: calls.length };
 }

@@ -119,6 +119,8 @@ it("keeps Codex session facts, next choices and account guidance distinct across
         expect(await held.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
         expect(await held.evaluate(`document.querySelector('.account').textContent`)).not.toContain("claude auth login");
         expect(await held.evaluate(`document.body.textContent`)).toContain("Nothing is running.");
+        // Finish the page's asset loads before deliberately taking its server down.
+        await held.evaluate(`document.fonts.ready.then(() => true)`);
         expect(held.problems).toEqual([]);
         // Ending this fixture's SSE stream deliberately produces a browser network error.
         await server.close(); await held.waitFor(`document.body.textContent.includes('Disconnected from Kiln')`);

@@ -747,6 +747,9 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("LIVE")`);
+      // The snapshot renders before the separately fetched output. Disconnect only
+      // once there is saved output on screen for the disconnected view to retain.
+      await page.waitFor(`document.body.innerText.includes("23 passed in 4.81s")`);
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const text = await words(page);
@@ -758,6 +761,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
     } finally {
       await page.close();
+      await server.close();
     }
   });
 });
