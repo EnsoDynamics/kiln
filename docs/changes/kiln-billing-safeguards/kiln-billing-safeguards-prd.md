@@ -2,13 +2,15 @@
 
 **Status:** Draft for product review; implementation has not started.
 
-**Source:** Doug's public npm launch review and mockup feedback, 2026-10-25. [Mockups](mockups/kiln-billing-safeguards-mockups.html) · [Business assumptions](kiln-billing-safeguards-assumptions.md)
+**Source:** Doug's public npm launch review, mockup feedback, and approval to add Codex billing visibility while retaining its authentication restrictions, 2026-10-25. [Claude mockups](mockups/kiln-billing-safeguards-mockups.html) · [Codex mockups](mockups/kiln-codex-billing-mockups.html) · [Business assumptions](kiln-billing-safeguards-assumptions.md)
 
 ## Summary
 
 Before Kiln starts or resumes AI work, show the billing information Claude makes available and require an explicit choice when Kiln detects API or other separately billed provider access. A subscription account continues normally, including when the user has enabled paid overflow in their own Claude account. When that setting is available, Kiln points it out without asking for another approval. Missing additional billing details alone do not turn a working sign-in into a warning or a blocked run.
 
 This is a bounded safeguard for public npm distribution. Kiln continues using the user's installed CLI and credentials. It does not introduce its own sign-in, billing service, or replacement execution engine.
+
+Codex gains the same clear account-and-billing presentation, with factual credit information when available and no extra confirmation for account-managed paid usage. Its existing requirement for ChatGPT sign-in and the OpenAI provider remains in force: the Claude API-billing approval path does not apply to Codex.
 
 ## Business Context
 
@@ -20,7 +22,11 @@ Billing visibility is not the same as authentication readiness. A missing option
 
 The launch review found no need to replace Kiln's current local CLI architecture. This PRD addresses billing visibility and authorization; it is not a claim that Anthropic requires this particular UI or that the change alone completes all npm release preparation. Official sources and the limits of the investigation are below.
 
+Codex already checks authentication and provider readiness before launching or resuming work. It separately governs automatic recovery after a usage refusal. The Codex addition is billing visibility around those controls. ChatGPT sign-in can coexist with account or workspace credits, so a ChatGPT label must not imply that all subsequent usage is covered by a fixed subscription price.
+
 ## Acceptance Criteria
+
+AC-BILL and AC-RUN define the Claude change. AC-CODEX defines the Codex addition and names the shared rules it uses. Claude metered-billing approval never grants permission for Codex API-key-only operation.
 
 ### Show How Claude Will Be Billed
 
@@ -78,9 +84,38 @@ Billing protection must survive an unattended run and a restart. The screen expl
 
 - [ ] **AC-RUN-07 — Public installation guidance explains the choice.** The npm-facing installation and usage documentation explains subscription access, accidental API/provider overrides, intentional metered approval, paid overflow, and the launch-time boundary in AC-RUN-04. It points users to their provider's own spending settings and describes what to do when the route cannot be established. The [mockups](mockups/kiln-billing-safeguards-mockups.html) show every new billing presentation and approval control in Kiln's existing visual language.
 
+### Show Codex Billing Without Changing Its Authentication Rules
+
+Codex users should be able to see which ChatGPT account the work uses and understand that its existing usage and spending settings apply. Optional credit information should inform them without creating another approval step.
+
+- [ ] **AC-CODEX-01 — The ChatGPT account is identified in the billing summary.** For an otherwise eligible Codex launch or resume, the billing summary says “ChatGPT account,” shows its email directly below that label and its reported plan when available, and says “Billing follows your ChatGPT account settings.” Account or plan details that are unavailable are labelled unavailable, without inventing a paid subscription or a payer identity. The summary links to the [ChatGPT usage dashboard](https://chatgpt.com/codex/settings/usage). It never promises included-only or zero-extra-cost usage.
+  - Replaces in part: AC-USAGE-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (account identity and plan gain an explicit billing summary).
+
+- [ ] **AC-CODEX-02 — Credit information is factual and non-blocking.** When the supported Codex account report supplies credit balance or availability, Kiln shows the reported fact for that same account or workspace alongside the billing summary, clearly identifying workspace-wide credits when that is what was reported. Credit information has no acknowledgement checkbox. The presentation follows these cases; it does not change provider spending controls.
+
+  | Reported credit information | Billing presentation |
+  |---|---|
+  | Credit balance or availability for the selected account/workspace | Show that fact with its reported scope; for example, “Available workspace credits: 50.” Add “Your account's spending settings apply.” |
+  | Credit data absent, unreadable, stale, or not attributable to the current account/workspace | Keep the normal account billing summary, without a warning badge, zero balance, “disabled,” or “unlimited” claim. Retained credit readings, if shown, are explicitly last known and identify the account they belong to. |
+  | Only a balance or availability flag is known | Do not infer that paid usage is enabled, that the current run is consuming credits, that auto-reload is enabled, or that the balance authorizes automatic recovery. |
+
+- [ ] **AC-CODEX-03 — Existing authentication restrictions still decide eligibility.** Kiln continues requiring ChatGPT authentication and the OpenAI provider before every Codex launch and resume, including after restart. Existing version, managed-policy, and execution-readiness checks remain in force. Neither a Claude approval nor missing optional billing details can bypass a failed Codex check.
+
+  | Codex readiness case | User action and launch behavior |
+  |---|---|
+  | Valid ChatGPT sign-in and all existing readiness checks pass | Start and manual resume remain available under their existing rules, with no new billing confirmation |
+  | API-key-only authentication or no sign-in | Explain that Kiln requires ChatGPT sign-in; direct the user to `codex login`, then recheck. Do not offer API-billing approval or “continue anyway.” |
+  | A different model provider is configured | Explain that Kiln requires the OpenAI provider; direct the user to change the provider in Codex settings and recheck. Do not silently rewrite the setting. |
+  | Authentication or required configuration cannot be read | Preserve the specific readiness failure and its next action; do not treat it as optional billing metadata or offer a billing bypass |
+
+- [ ] **AC-CODEX-04 — Billing visibility preserves account readings and recovery.** Existing account refreshes, usage gauges, provider-reported names and window durations remain intact; no Claude-specific Fable row or fixed count of windows is imposed on Codex. Missing optional credit information adds no start or resume blocker. After a usage refusal, the existing Codex recovery rules still govern automatic continuation, including provider permission, credit or administrative blocks, and manual recovery options; the neutral billing message does not override them. Kiln does not purchase credits, change spending preferences, or redeem usage resets as part of this change.
+  - Preserves: AC-USAGE-01–04 and AC-RECOVER-02–03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`, apart from the billing-summary addition in AC-CODEX-01.
+
+- [ ] **AC-CODEX-05 — Billing information stays attached to the correct account and run.** Before Start, the summary follows the selected agent and its latest account reading; switching agents cannot leave the other agent's identity or credits visible as current. During a run it identifies the account recorded at launch; newer account information is labelled for the next run, following AC-RUN-05. Disconnected views label billing and credits as last known and disable run, resume, refresh and approval controls. The credential-protection rules in AC-RUN-06 apply to Codex too. Documentation explains that ChatGPT account billing can include credits, preserves the launch-time and no-spending-cap limits in AC-RUN-04, and distinguishes Codex's existing API restriction from Claude's explicit API approval.
+
 ## Mockups
 
-The interactive [screen gallery](mockups/kiln-billing-safeguards-mockups.html) is a design reference. Its example is an existing Kiln PRD; account identity and readiness values are illustrative. Existing delivery controls are abbreviated to focus on the added billing UI. Scenario navigation is outside the product UI.
+The interactive [Claude gallery](mockups/kiln-billing-safeguards-mockups.html) and [Codex gallery](mockups/kiln-codex-billing-mockups.html) are design references. Their example is an existing Kiln PRD; account identities, readiness values and credit balances are illustrative. Existing delivery controls are abbreviated to focus on the added billing UI. Scenario navigation is outside the product UI.
 
 | State | Requirements illustrated |
 |---|---|
@@ -90,16 +125,22 @@ The interactive [screen gallery](mockups/kiln-billing-safeguards-mockups.html) i
 | Additional billing details unavailable / checking settings / sign-in required | AC-BILL-02, AC-RUN-01–02 |
 | Changed billing at Needs you | AC-BILL-05, AC-RUN-02–03 |
 | Running on subscription / running on API / disconnected | AC-BILL-07–08, AC-RUN-04–05 |
+| Codex ready, optional credit details unavailable | AC-CODEX-01–03 |
+| Codex workspace credits reported | AC-CODEX-01–02 |
+| Codex API sign-in / alternate provider rejected | AC-CODEX-03 |
+| Codex running / disconnected | AC-CODEX-04–05 |
 
 ## Scope and Design Questions
 
-In scope: effective Claude billing classification, scoped approval, checks at every AI launch, recovery behavior, account/billing presentation, and npm-facing guidance. No new billing service, provider support, SDK migration, spending cap, per-request interception, or broad redesign of setup and recovery screens.
+In scope: effective Claude billing classification, scoped Claude approval, Claude launch and recovery safeguards, Codex account/billing visibility that preserves its existing eligibility and recovery rules, and npm-facing guidance. No new billing service, provider support, SDK migration, spending cap, per-request interception, or broad redesign of setup and recovery screens.
 
 The technical design must establish detection of effective billing settings without inference or credential disclosure for supported CLI versions and launch directories. It must cover environment and settings precedence, credential helpers, alternate endpoints/providers, account changes, and observable changes that invalidate approval. Missing metadata must not be inferred as subscription access or erase concrete override evidence. An unsupported provider stays unsupported. Define a bounded inspection timeout and distinguish an authentication failure from optional billing inspection failure. The calm metadata-unavailable case is a deliberate product choice in BILLING-002, not a catch-all excuse to skip implemented detection or hide internal defects.
 
 The frequency of unavailable billing details is not established. A read-only check on 2026-10-25 returned a successful `claude.ai` sign-in, first-party provider, a Max plan, and no API-key source on the local installation. Claude's CLI reference documents authentication-method categories. These observations support checking normal cases directly; they do not establish a failure rate across users or versions.
 
 The design must also validate paid-overflow metadata across supported versions. On 2026-10-25, a non-inference `/usage` check of installed Claude Code 2.1.307 returned `rate_limits.extra_usage.is_enabled` and optional spending fields. This establishes that detection is possible on that installation; it is not a stable-schema promise or proof that every account exposes the fields. Missing overflow metadata follows AC-BILL-03.
+
+For Codex, the design must verify which optional credit fields the supported CLI version actually reports, their account/workspace scope, and how refreshes preserve that attribution. The current supported version is 0.162.1; this change does not require a version upgrade to obtain optional credit information. The public app-server documentation describes optional workspace credit details, but does not establish that every account or the pinned version supplies them. A balance must not be treated as proof of a paid-usage switch. Existing authentication, provider, usage-recovery and permission checks remain authoritative.
 
 ## Source Basis
 
@@ -111,5 +152,7 @@ Official sources checked 2026-10-25; recheck material provider-policy or CLI cha
 - [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference): authentication status distinguishes sign-in success from the reported method and configuration details.
 - [Managing usage credits for paid Claude plans](https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans): account-managed paid usage after subscription limits and spending controls.
 - [Headless Claude Code](https://code.claude.com/docs/en/headless): headless behavior and changing authentication defaults need version-specific verification; this PRD does not require `--bare`.
+- [Codex app-server](https://learn.chatgpt.com/docs/app-server): distinct authentication/account methods and optional account credit information; field availability must be checked against Kiln's supported CLI version.
+- [OpenAI usage and pricing guidance](https://learn.chatgpt.com/docs/pricing): available credits can fund eligible usage beyond included allowances; ChatGPT sign-in is not an included-only spending guarantee.
 
 Local investigation found that Kiln already executes Claude work through the installed CLI, while its account summary discards billing-method fields and its launch environment can retain provider overrides. The change addresses that gap; it does not presume that the existing inference path uses an SDK-managed subscription login.
