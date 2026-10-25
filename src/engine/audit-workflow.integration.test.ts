@@ -1,6 +1,7 @@
 // Automatic routing with real Git, packaged CLI/HTTP, persisted state and scripted provider
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as auditAdmission from "../audit/admission.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
@@ -34,6 +35,73 @@ async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession
 }
 const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
 describe("automatic completion activities", () => {
+  it.each([
+    { entry: "completed", stopping: true },
+    { entry: "completed", stopping: false },
+    { entry: "interrupted", stopping: true },
+    { entry: "stopped", stopping: true },
+    { entry: "waiting", stopping: true },
+  ])("abandons a rejected audit read only during shutdown ($entry, stopping=$stopping)", async ({ entry, stopping }) => {
+    const current = await fixture(entry === "waiting"
+      ? [{ actions: [{ skill: "delivery-audit" }, { refuse: { rateLimitType: "five_hour" } }] }]
+      : [auditSession({ noReport: entry === "stopped" })]);
+    if (entry === "interrupted") {
+      const marker = join(current.sandbox.root, "audit-working");
+      writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [], auditSessions: [{ actions: [{ touch: marker }, { work: "audit verification" }] }] }));
+      await current.engine.start({ refinementConfirmed: true });
+      await waitFor(() => existsSync(marker));
+      await current.engine.stop("sigint");
+      current.reopenFromDisk();
+      await current.engine.agents.refresh();
+    } else if (entry !== "completed") {
+      await current.engine.start({ refinementConfirmed: true });
+      await current.engine.settled();
+      const activity = current.engine.record.completionAudits!.activities.at(-1)!;
+      if (entry === "waiting") expect(current.engine.record.phases[auditKey(activity)]?.wait).toBeDefined();
+      else expect(current.engine.record.phases[auditKey(activity)]?.stop).toBeDefined();
+    }
+    const repositoryChecks = auditAdmission.repositoryChecks;
+    let checking = false;
+    let rejectCheck: ((error: Error) => void) | undefined;
+    // Failure injection is limited to the cancelled/read-error boundary. Audit setup,
+    // provider sessions and ordinary repository checks retain their real Git tree.
+    const probe = vi.spyOn(auditAdmission, "repositoryChecks").mockImplementation(async context => {
+      const activity = current.engine.record.completionAudits?.activities.at(-1);
+      if (!checking && activity && current.engine.latestSession(auditKey(activity))?.runs.at(-1)?.endedAt) {
+        checking = true;
+        await new Promise<void>((_, reject) => {
+          rejectCheck = reject;
+          context.git.signal!.addEventListener("abort", () => reject(new Error("Cancelled audit Git read.")), { once: true });
+        });
+      }
+      return repositoryChecks(context);
+    });
+    try {
+      if (entry === "completed") await current.engine.start({ refinementConfirmed: true });
+      const operation = entry === "interrupted" ? current.engine.decide()
+        : entry === "stopped" ? current.engine.checkAgain()
+        : entry === "waiting" ? current.engine.resume() : current.engine.settled();
+      // Observe rejections before releasing the gate; an ordinary failure must remain
+      // visible and must not turn into a passing or stopping verdict.
+      const observed = operation.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+      await waitFor(() => checking);
+      const activity = current.engine.record.completionAudits!.activities.at(-1)!;
+      const before = structuredClone(current.engine.record.phases[auditKey(activity)]);
+      if (stopping) {
+        await current.engine.stop("sigint");
+        expect(await observed).toEqual({ ok: true });
+        await expect(current.engine.settled()).resolves.toBeUndefined();
+      } else {
+        const error = new Error("Audit repository read failed.");
+        rejectCheck!(error);
+        const result = await observed;
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error).toBe(error);
+      }
+      expect(current.engine.record.phases[auditKey(activity)]).toEqual(before);
+      expect(current.engine.record.completedAt).toBeUndefined();
+    } finally { probe.mockRestore(); }
+  });
   it.each([
     { beyondDelivery: true, recordedHumanResult: false },
     { beyondDelivery: false, recordedHumanResult: false },

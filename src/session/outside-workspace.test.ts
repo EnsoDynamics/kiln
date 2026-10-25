@@ -7,6 +7,8 @@ import { bashPath, gitChange, gitCommandsIn, OUTSIDE_NOTE, stayedInWorkspace, ST
 
 const WINDOWS: PathContext = { platform: "win32", home: "C:\\home\\me" };
 const POSIX: PathContext = { platform: "darwin", home: "/home/me" };
+// Bash fixtures use quoted forward-slash paths on every host, including Git Bash.
+const bashFolder = (path: string) => `'${path.replaceAll("\\", "/").replaceAll("'", "'\\''")}'`;
 
 describe("gitCommandsIn", () => {
   const places = (command: string, cwd = "/w/product", context = POSIX) => gitCommandsIn(command, cwd, context).map((seen) => [seen.subcommand, seen.place]);
@@ -170,9 +172,9 @@ describe("stayedInWorkspace", () => {
       ...lines([{ name: "Edit", input: { file_path: join(workspace, "storefront", "src", "a.ts") }, at: "2026-10-17T17:00:00Z" }], "s1"),
       ...lines([{ name: "Bash", input: { command: "cd storefront && git commit -m x && git push" }, at: "2026-10-17T17:01:00Z" }], "s1"),
       ...lines([{ name: "Edit", input: { file_path: join(workspace, "storefront", "vendor", "ui", "button.ts") }, at: "2026-10-17T17:02:00Z" }], "s1"),
-      ...lines([{ name: "Bash", input: { command: `git -C ${outside} log --oneline && git -C ${outside} status` }, at: "2026-10-17T17:03:00Z" }], "s1"),
+      ...lines([{ name: "Bash", input: { command: `git -C ${bashFolder(outside)} log --oneline && git -C ${bashFolder(outside)} status` }, at: "2026-10-17T17:03:00Z" }], "s1"),
       ...lines([{ name: "Write", input: { file_path: join(outside, ".agent-sessions", "2026-10-17-claude-code-x.log") }, at: "2026-10-17T17:04:00Z" }], "s1"),
-      ...lines([{ name: "Bash", input: { command: `rm -rf ${outside}/src` }, at: "2026-10-17T17:05:00Z" }], "s1"),
+      ...lines([{ name: "Bash", input: { command: `rm -rf ${bashFolder(join(outside, "src"))}` }, at: "2026-10-17T17:05:00Z" }], "s1"),
     ]);
     const outcome = run("s1");
     expect(outcome.passed).toBe(true);
@@ -183,7 +185,7 @@ describe("stayedInWorkspace", () => {
     transcript("s1", [
       ...lines([{ name: "Edit", input: { file_path: join(outside, "src", "tokens", "colors.ts") }, at: "2026-10-17T17:00:00Z" }], "s1"),
       ...lines([{ name: "MultiEdit", input: { file_path: join(outside, "src", "tokens", "colors.ts") }, at: "2026-10-17T17:00:30Z" }], "s1"),
-      ...lines([{ name: "Bash", input: { command: `cd ${outside} && git add -A && git commit -m "fix(tokens): refunded" && npm test` }, at: "2026-10-17T17:01:00Z", result: { text: "[main 6b0d2fa9] fix(tokens): refunded\n 1 file changed\nnpm ERR! 1 failing", isError: true } }], "s1"),
+      ...lines([{ name: "Bash", input: { command: `cd ${bashFolder(outside)} && git add -A && git commit -m "fix(tokens): refunded" && npm test` }, at: "2026-10-17T17:01:00Z", result: { text: "[main 6b0d2fa9] fix(tokens): refunded\n 1 file changed\nnpm ERR! 1 failing", isError: true } }], "s1"),
     ]);
     const outcome = run("s1");
     expect(outcome.check.facts).toEqual([`Edited src/tokens/colors.ts in ${shown()}`, `Ran git add in ${shown()}`, `Committed 6b0d2fa to main in ${shown()}`, OUTSIDE_NOTE]);
@@ -283,7 +285,7 @@ describe("stayedInWorkspace", () => {
     mkdirSync(join(real, "O", ".git"), { recursive: true });
     const project = join(config, "projects", "-private-tmp-kiln-transcript-W-product");
     mkdirSync(join(project, sessionId, "subagents"), { recursive: true });
-    const copy = (from: string, to: string) => writeFileSync(to, readFileSync(new URL(from, fixture), "utf8").replaceAll(recordedRoot, real));
+    const copy = (from: string, to: string) => writeFileSync(to, readFileSync(new URL(from, fixture), "utf8").replaceAll(recordedRoot, real.replaceAll("\\", "/")));
     copy(`${sessionId}.jsonl`, join(project, `${sessionId}.jsonl`));
     copy("subagents/agent-abbbe875e7acee03f.jsonl", join(project, sessionId, "subagents", "agent-abbbe875e7acee03f.jsonl"));
     const outcome = stayedInWorkspace({

@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-18
+**Last Updated**: 2026-10-25
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -320,27 +320,6 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 
 ---
 
-## Release Assumptions
-
-### REL-001. Is Kiln released as open source under the MIT license, from a public GitHub repository? — ⏳ PENDING (Added 2026-10-18 — new question; 70% confidence)
-
-**Assumption**: Kiln is released **under the MIT license**, the Enso Method's license, with the copyright line **"Copyright (c) 2026 Enso Dynamics"**, and **`EnsoDynamics/kiln` is made public before the first release**. The package is published to npm as a **public** package.
-
-**Example**: Today `EnsoDynamics/kiln` is **private** and its `package.json` says `"license": "UNLICENSED"`, while `EnsoDynamics/enso-method` is **public under MIT**. The release build now says `"license": "MIT"` with a `LICENSE` file naming Enso Dynamics, the organization that owns the repository, rather than a person (the Enso Method's own license names its author), and the release steps make the repository public before the first tag.
-
-**Evidence**: The technical design says the release **publishes "with provenance"**, and npm records provenance **only for packages published from a public repository**; a private one makes that publish fail. Every published npm package's code is readable by anyone who installs it, so a private repository hides little. Kiln is the Enso Method's optional companion, and the method itself is MIT.
-
-The alternative was to keep the repository private and the package `UNLICENSED`, publishing without provenance. It lost because it drops the design's provenance and would publish code nobody may legally reuse beside a method everyone may.
-
-**Confirm or Correct**:
-- [ ] Correct — MIT, public repository, public npm package
-- [ ] Wrong — keep the repository private and publish `UNLICENSED`, without provenance
-- [ ] Wrong — a different license or approach: _______________
-
-**Confidence**: 70% | **Impact if Wrong**: 🟡 MEDIUM
-
----
-
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
@@ -353,4 +332,5 @@ The alternative was to keep the repository private and the package `UNLICENSED`,
 | UI-008 | A pause pressed during the last phase holds before the pull-request session | 2026-10-17 | Technical Design, engine loop and Snapshot |
 | UI-009 | Change edits model and effort in place, each choice and keep-awake saved at once | 2026-10-17 | Technical Design, Snapshot (Settings and each phase's model) |
 | PLAT-001 | Outside GNOME on Linux, keep-awake may also block a sleep chosen from the menu; screens keep "Stops idle sleep only" | 2026-10-17 | Technical Design, Keep-awake |
-| PLAT-002 | Windows is in v1, not a later release (decided over the proposed deferral) | 2026-10-17 | PRD AC-INSTALL-03; Technical Design, Windows |
+| PLAT-002 | macOS is natively validated; Linux/Windows ship as best effort, with native issues investigated from user reports and no native-test release gate | 2026-10-25 | Doug corrected the 2026-10-17 ruling: “all we are able to resolve or test on right now is my mac.” PRD AC-INSTALL-03 and AC-PROOF-01; Technical Design, Windows and Testing Approach |
+| REL-001 | MIT license, public Kiln repository and public `@ensodynamics/kiln` package, after separate explicit publication approval | 2026-10-25 | Doug requested public release preparation and MIT licensing, then reiterated “Don't actually publish it yet until I explicitly authorize that.” The intent grants no current visibility, tag or publication authority. |

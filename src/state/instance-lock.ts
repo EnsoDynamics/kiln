@@ -158,7 +158,7 @@ async function withRegistryLock<T>(root: string, work: () => Promise<T>): Promis
       } catch {
         // Released in the meantime.
       }
-      if (Date.now() > deadline) throw new Error(`Couldn't take ${lockPath}; another kiln run is holding it.`);
+      if (Date.now() > deadline) throw new Error(`Couldn't take ${lockPath}; another kiln run is holding it.`, { cause: error });
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
@@ -189,7 +189,7 @@ export function viewAddress(port: number, folderName: string): string {
 export function recordedInstancePort(stateDirectory: string): number | undefined {
   const path = join(stateDirectory, "instance.lock");
   let value: unknown;
-  try { value = readJson<unknown>(path); } catch (error) { throw new Error(`Cannot read instance address ${path}: ${(error as Error).message}`); }
+  try { value = readJson<unknown>(path); } catch (error) { throw new Error(`Cannot read instance address ${path}: ${(error as Error).message}`, { cause: error }); }
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || !Number.isInteger((value as { port?: number }).port) || (value as { port: number }).port < 1 || (value as { port: number }).port > 65535) throw new Error(`Invalid instance address in ${path}.`);
   return (value as { port: number }).port;

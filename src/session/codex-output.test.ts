@@ -3,10 +3,11 @@ import { CodexOutputReader } from "./codex-output.js";
 import { stepStates } from "./session-output.js";
 import type { SessionRecord } from "../state/records.js";
 import { codexResumeCommand } from "../engine/snapshot.js";
+import { resolve } from "node:path";
 
 const at = "2026-10-23T18:00:00Z";
 function session(): SessionRecord {
-  return { schemaVersion: 4, agentId: "codex", sessionId: "local", phaseId: "1", kind: "phase", createdAt: at, model: "gpt-6.1-sol", effort: "high", modelDisplayName: "GPT-6.1-Sol", runs: [], sleeps: [], steps: [], conversation: { threadId: "parent" }, codex: { originalAccount: { at }, launchIntent: { version: "0.162.1", cwd: "/tmp", writableRoots: ["/tmp"], repositories: [{ path: "/tmp", branch: "feature/proof" }], skills: [{ name: "enso-method:deliverable-review", path: "/skills/deliverable-review/SKILL.md" }] } } };
+  return { schemaVersion: 4, agentId: "codex", sessionId: "local", phaseId: "1", kind: "phase", createdAt: at, model: "gpt-6.1-sol", effort: "high", modelDisplayName: "GPT-6.1-Sol", runs: [], sleeps: [], steps: [], conversation: { threadId: "parent" }, codex: { originalAccount: { at }, launchIntent: { version: "0.162.1", cwd: "/tmp", writableRoots: ["/tmp"], repositories: [{ path: "/tmp", branch: "feature/proof" }], skills: [{ name: "enso-method:deliverable-review", path: resolve("/skills/deliverable-review/SKILL.md") }] } } };
 }
 
 it("records only literal activity and never invents completion or fills earlier steps", () => {
@@ -33,7 +34,7 @@ it("deduplicates replay by thread, turn, item and source while separating child 
 
 it("quotes every saved Codex command argument for POSIX and PowerShell", () => {
   const record = session(); record.model = "model'$(echo bad)"; record.effort = "high'quoted";
-  const command = codexResumeCommand("/tmp/a ' folder", record);
+  const command = codexResumeCommand("/tmp/a ' folder", record, "darwin");
   expect(command).toContain("cd '/tmp/a '\\'' folder'");
   expect(command).toContain("'model'\\''$(echo bad)'");
   expect(command).toContain("model_reasoning_effort=");
@@ -67,7 +68,7 @@ it("observes each published method skill without claiming completion of other st
     ["implement-from-requirements", "Build"], ["deliverable-review", "Deliverable review"],
     ["test-hardening", "Test hardening"], ["refactor-pass", "Refactor pass"],
   ] as const;
-  record.codex!.launchIntent.skills = skills.map(([name]) => ({ name: `enso-method:${name}`, path: `/skills/${name}/SKILL.md` }));
+  record.codex!.launchIntent.skills = skills.map(([name]) => ({ name: `enso-method:${name}`, path: resolve(`/skills/${name}/SKILL.md`) }));
   const reader = new CodexOutputReader(record, 0);
   for (const [index, [name, step]] of skills.entries()) {
     reader.read({ method: "item/started", params: { threadId: "parent", turnId: "turn", item: { id: name, type: "commandExecution", cwd: "/tmp", command: `cat /skills/${name}/SKILL.md` } } }, at);

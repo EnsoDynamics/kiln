@@ -396,7 +396,7 @@ export function sessionDirectory(stateDirectory: string, phaseKey: string, sessi
 export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
   const path = prdRecordPath(stateDirectory);
   let record: PrdRecord | undefined;
-  try { record = readJson<PrdRecord>(path); } catch (error) { throw new Error(`Cannot read ${path}: ${(error as Error).message}`); }
+  try { record = readJson<PrdRecord>(path); } catch (error) { throw new Error(`Cannot read ${path}: ${(error as Error).message}`, { cause: error }); }
   if (record && record.schemaVersion > SCHEMA_VERSION) {
     throw new NewerSchemaError(`Kiln's record for this PRD was written by a newer Kiln (schema ${record.schemaVersion}). Update Kiln and run kiln run again.`);
   }
@@ -410,7 +410,7 @@ export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
       if (!saved) writeJsonAtomically(migrationPath, { executionId: record.executionId, original });
     }
     return record === undefined ? undefined : migrateRecord(record);
-  } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`); }
+  } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`, { cause: error }); }
 }
 
 /** The default workspace folder: `.worktrees/<PRD folder name>` beside the PRD's repository (AC-SPACE-01). */

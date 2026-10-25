@@ -2022,7 +2022,7 @@ export class Engine {
         return { kind: "stopped" };
       }
       const outcome = await this.doneCheck(phaseKey);
-      if (this.stopping) return { kind: "stopping" };
+      if (outcome === "stopping" || this.stopping) return { kind: "stopping" };
       if (outcome.passed) {
         await this.recordDone(phaseKey, outcome, byPerson);
         return { kind: "done", judgedId: outcome.judgedLeafId };
@@ -2054,7 +2054,7 @@ export class Engine {
       return { kind: "complete" };
     }
     const outcome = await this.doneCheck(phaseKey);
-    if (this.stopping) return { kind: "stopping" };
+    if (outcome === "stopping" || this.stopping) return { kind: "stopping" };
     if (!outcome.passed) return outcome.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
     await this.recordDone(phaseKey, outcome, false);
     return { kind: "done", judgedId: outcome.judgedLeafId };
@@ -2138,7 +2138,7 @@ export class Engine {
       return "still_stopped";
     }
     const outcome = await this.doneCheck(phaseKey);
-    if (this.stopping) return "still_stopped";
+    if (outcome === "stopping" || this.stopping) return "still_stopped";
     if (!outcome.passed) {
       this.updateStop(phaseKey, outcome.checks);
       return "still_stopped";
@@ -2198,9 +2198,17 @@ export class Engine {
     writeSessionRecord(this.options.stateDirectory, session);
   }
 
-  private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome> {
+  private async doneCheck(phaseKey: string): Promise<DoneCheckOutcome | "stopping"> {
     // A done check that comes while an addition is under way waits for it to end first.
-    if (this.auditActivity(phaseKey)) return this.auditDoneCheck(phaseKey);
+    if (this.auditActivity(phaseKey)) {
+      try { return await this.auditDoneCheck(phaseKey); }
+      catch (error) {
+        // Every entry point uses this boundary: normal completion, interruption,
+        // Check again and usage recovery all abandon only explicitly stopped reads.
+        if (this.stopping) return "stopping";
+        throw error;
+      }
+    }
     this.activeCheck = phaseKey;
     await this.deliveryPending;
     await this.additionChain;
@@ -2571,7 +2579,7 @@ export class Engine {
       stayedPassed = check.stayed.passed;
     } else {
       const outcome = await this.doneCheck(phaseKey);
-      if (this.stopping) return "stopping";
+      if (outcome === "stopping" || this.stopping) return "stopping";
       if (outcome.passed) {
         delete facts.wait;
         this.unwatchWait();

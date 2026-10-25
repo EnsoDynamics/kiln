@@ -60,10 +60,14 @@ describe("remembered targets and grant browser controls", () => {
           await page.evaluate(`(() => { const input = document.querySelector('#base-returns-api'); input.value = '${base}'; input.dispatchEvent(new Event('change', {bubbles:true})); })()`);
           await waitFor(() => engine!.record.settings.bases["returns-api"] === base && engine!.baseCheck === "ok");
           await page.waitFor(`document.querySelector('#base-returns-api').value === '${base}' && !document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].checked`);
+          // The saved base can precede the snapshot that re-enables Start. Clicking a
+          // disabled button does nothing, so wait for the actual browser control.
+          await page.waitFor(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start')?.disabled === false`);
           await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start').click()`);
           await page.waitFor(`document.body.innerText.includes('no longer matches a participating repository')`);
           expect(engine.record.startedAt).toBeUndefined();
           expect(engine.record.developmentAuthorization?.grants).toEqual([]);
+          await page.waitFor(`!document.querySelector('input[aria-label="returns-api development environment"]').matches(':disabled')`);
           await page.evaluate(`document.querySelector('input[aria-label="returns-api development environment"]').closest('fieldset').querySelectorAll('input[type=checkbox]')[1].click()`);
           await waitFor(() => engine!.record.settings.developmentDeployments!.targets[0]?.confirmedTarget?.baseBranch === base);
         }

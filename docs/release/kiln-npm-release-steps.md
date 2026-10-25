@@ -1,80 +1,78 @@
 # Kiln npm release steps
 
-How `@ensodynamics/kiln` gets to npm. The package is ready: `package.json` is at `1.0.0`, `npm publish --dry-run` passes, and CI installs the packed tarball and runs that `kiln` on macOS, Linux and Windows (`npm run test:package`). Publishing is done by [`.github/workflows/release.yml`](../../.github/workflows/release.yml) when a version tag is pushed on `main`, never from a laptop (technical design, "Package and Distribution"). That workflow runs CI's checks on all three operating systems, confirms the tag matches `package.json`'s version and is on `main`, then runs `npm publish --provenance`.
+Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics/kiln`). The package contains the CLI, local browser interface, fonts and prompt templates. The Enso Method skills and website live in separate repositories.
 
-Steps 1 to 4 are one-time setup; 5 to 7 are each release.
+**Release is on hold.** The [public release readiness review](kiln-public-release-readiness-review.md) records the current blockers and evidence. A successful local pack is packaging evidence, not release approval. Do not change visibility, install publishing credentials, push a release tag or publish until Doug explicitly approves the release.
 
-## Before the first release
+## Established setup
 
-These must hold first. Each is a pending human action in the [Kiln v1 PRD](../prds/kiln-v1/kiln-v1-prd.md):
+- Doug confirmed the `ensodynamics` npm organization on 2026-10-25 and supplied an npm account screenshot showing membership. `doug-ensodynamics` is the login; the package scope is `@ensodynamics`.
+- `package.json` names `@ensodynamics/kiln` at `1.0.0`, sets public package access and declares MIT. The root `LICENSE` already contains the MIT license, copyright Enso Dynamics.
+- GitHub repository visibility is still private. The default `main` branch predates the application and its license; release preparation is on `develop`.
+- `.github/workflows/release.yml` publishes from a pushed `v*.*.*` tag only after its three-platform CI jobs pass. It checks that the tag matches the package version and the commit is contained in `main`, then runs `npm publish --provenance`.
+- No public `@ensodynamics/kiln` version was returned by the registry on 2026-10-25. The local npm login returned E401, so authenticated organization permissions remain unverified.
 
-- The proof run (AC-PROOF-01, AC-PROOF-02) held on Windows and on macOS or Linux, and the Windows and Linux checks are recorded: [Kiln proof run steps](../design/kiln-proof-run-steps.md), results in [Kiln proof run results](../design/kiln-proof-run-results.md).
-- Assumption **REL-001** ([assumptions](../prds/kiln-v1/assumptions.md)) is confirmed: Kiln is MIT-licensed and released from a public repository. If it is corrected, change `license` in `package.json` and `LICENSE` to match before tagging, and if the repository stays private, remove `--provenance` from the release workflow's publish step; npm refuses provenance from a private repository.
+## Finish preparation before approving release
 
-## One-time setup
+1. After the CI repairs are reviewed and an integration-branch push is authorized, require a passing CI run on that exact candidate. Keep automated macOS/Linux/Windows checks enabled, including the package installation tier; local macOS evidence does not imply the remote runners passed.
+2. Rerun the full and production-only dependency audits on the final candidate. The preparation update to `fast-uri@3.1.9` clears the finding identified in the readiness review.
+3. Apply the confirmed platform policy: macOS is natively validated; Windows and Linux are best effort. Doug waived native Windows/Linux release proofs on 2026-10-25. The PRD, design, PLAT-002, README and prepared website copy reflect that decision; do not claim native Windows/Linux execution was tested.
+4. Review and validate the prepared website source changes covering explicit development delivery, whole-PRD completion audits, the pinned Codex CLI prerequisite and platform policy. Keep the page unlisted and `noindex` until launch is approved.
+5. Review the complete repository and all reachable history for credentials, private content and third-party material. Review screenshots and retained provider fixtures as well as text. Regenerate and inspect the exact release tarball. Preserve the bundled library and font notices in `dist/view/kiln-third-party-notices.txt`.
+6. Preserve the publication hold. MIT/public-source intent is confirmed under REL-001; Doug reiterated on 2026-10-25 that publication needs his separate explicit authorization.
+7. Stage and review preparation changes. Commit or push only under the applicable authorization. Record the final candidate SHA and repeat the content and package checks after any further code change.
 
-1. **Create the npm organization.** Sign in at npmjs.com with the account that will own Kiln (two-factor authentication on), then Add Organization → name `ensodynamics` → the free plan (public packages). The package name `@ensodynamics/kiln` needs it; the unscoped `kiln` is taken.
+Useful local checks:
 
-2. **Make `EnsoDynamics/kiln` public** (REL-001):
+```sh
+npm ci
+npm run verify
+npm run test:package
+npm pack --json
+npm publish --dry-run
+```
 
-   ```
-   gh repo edit EnsoDynamics/kiln --visibility public --accept-visibility-change-consequences
-   ```
+`npm run test:package` builds, packs, installs into a temporary prefix and runs that installed executable. A publish dry run does not prove npm write access or OIDC configuration. Run build/pack commands sequentially when they share `dist/`.
 
-   A `gitleaks git` scan of the whole history on 2026-10-18 found no secrets: all 1,097 hits were Claude API message IDs (`msg_…`) in the recorded session fixtures under `test/fixtures/`.
+## After explicit release approval: GitHub and initial npm access
 
-3. **Give the workflow a token for the first publish.** npm's trusted publishing can only be set up on a package that already exists, so the first publish uses a token. On npmjs.com: Access Tokens → Generate New Token → Granular Access Token, named `kiln-first-release`, expiring in 7 days, Packages and scopes **Read and write** for the `@ensodynamics` scope (organization `ensodynamics`), and tick "Bypass two-factor authentication": without it the workflow's publish fails asking for a one-time password. The token needs no organization permissions. Then:
+Making a repository public exposes its tracked files, documentation, fixtures and Git history. `.gitignore` does not hide tracked or historical content. npm can publish a public package from private source, but this release's provenance requires a public repository; the MIT/public-source plan also calls for it. See [npm trusted publishing and provenance](https://docs.npmjs.com/trusted-publishers/).
 
-   ```
-   gh secret set NPM_TOKEN --repo EnsoDynamics/kiln
-   ```
+Use this setup during step 3 of the release sequence below, after the approved candidate is on `main`, CI has passed and the public-content review is complete:
 
-   and paste the token when asked.
+1. Make `EnsoDynamics/kiln` public through GitHub settings. Do not make the website repository or disposable proof repositories public.
+2. Sign in to npm as the account that administers `ensodynamics`, with 2FA enabled. Confirm package publishing rights within that organization. No npm password belongs in GitHub Actions or this repository.
+3. The existing workflow uses `NPM_TOKEN` for the first publication, because trusted publisher configuration is attached to an existing package. Immediately before that first release, create a short-lived granular token restricted to the `@ensodynamics` package scope with package read/write access and the 2FA bypass needed for the current unattended publish step. Give it no organization administration permissions. Confirm the current npm token policy when creating it; npm is restricting bypass tokens.
+4. Store the token directly as the repository Actions secret `NPM_TOKEN`, without printing it or writing it into a tracked file. Do not create or store it during preparation.
 
-4. Nothing else: the workflow file is already on `develop` and reaches `main` with step 5.
+## After explicit release approval: release the selected version
 
-## Each release
+1. Integrate only the reviewed release candidate into `main`, using normal repository review and protection rules. Preserve any other session's unmerged work. Push only under the release authorization.
+2. Wait for CI to pass on that exact `main` SHA, including installation of the packed package on all three runners.
+3. Complete the GitHub visibility and initial npm access setup above. Confirm `main` displays the reviewed README and MIT license.
+4. Confirm the npm version is still unpublished and `package.json` has the intended version. Create and push the matching annotated tag (for the current version, `v1.0.0`). A tag push triggers publication; this is the release boundary.
+5. Follow the Release workflow to its final result. It repeats the CI checks and publishes through GitHub Actions, never from a laptop.
+6. In an isolated temporary installation, check the exact published version:
 
-5. **Bring `main` up to `develop`** and let CI pass on it:
-
-   ```
-   git checkout main && git pull --ff-only
-   git merge --ff-only develop
-   git push origin main
-   gh run list --repo EnsoDynamics/kiln --workflow CI --commit "$(git rev-parse HEAD)"
-   gh run watch --repo EnsoDynamics/kiln <the run's ID>
-   ```
-
-   The run is listed a few seconds after the push.
-
-   For a later release, first set the new version on `develop` (`npm version <x.y.z> --no-git-tag-version`, commit, push).
-
-6. **Tag the release on `main`** and watch the release workflow:
-
-   ```
-   git tag -a v1.0.0 -m "Kiln 1.0.0"
-   git push origin v1.0.0
-   gh run list --repo EnsoDynamics/kiln --workflow Release --commit "$(git rev-parse HEAD)"
-   gh run watch --repo EnsoDynamics/kiln <the run's ID>
-   ```
-
-   The tag must be `v` plus `package.json`'s version, or the workflow stops before publishing.
-
-7. **Check it installs:**
-
-   ```
-   npm view @ensodynamics/kiln version
-   npm install -g @ensodynamics/kiln
-   kiln --help
+   ```sh
+   npm view @ensodynamics/kiln@1.0.0 version dist.integrity dist.attestations
+   npm install --global --prefix <temporary-folder> @ensodynamics/kiln@1.0.0
    ```
 
-   npmjs.com's page for the package shows a "Provenance" section linking to the workflow run.
+   Run that prefix's installed `kiln --help`, verify its browser assets and notices, and confirm npm's provenance links to the approved repository and workflow.
+7. After the package installs and the repository is public, publish the prepared Enso Method site changes: update the product claims and platform limits, remove Kiln's `noindex`, link the page from navigation/homepage and include it in the sitemap. Verify the live installation command and links.
 
-## After the first release: switch to trusted publishing
+## Replace the initial token with trusted publishing
 
-A trusted-publisher setup expires unless it publishes within 2 days of being created, so do this just before the second release, not straight after the first:
+[Current npm documentation](https://docs.npmjs.com/trusted-publishers/) requires npm CLI 11.5.1 or later and Node 22.14.0 or higher. The publish job uses Node 24 and npm 11.
 
-1. On npmjs.com, `@ensodynamics/kiln` → Settings → Trusted Publisher → GitHub Actions: organization `EnsoDynamics`, repository `kiln`, workflow `release.yml`, no environment.
-2. `gh secret delete NPM_TOKEN --repo EnsoDynamics/kiln`, and delete the `kiln-first-release` token on npmjs.com if it hasn't expired.
-3. In the package's settings, choose "Require two-factor authentication and disallow tokens".
-4. Release as in steps 5 to 7 within 2 days. The workflow needs no change: with no token, npm authenticates through GitHub's OIDC token, and provenance is recorded automatically.
+Configure the package's trusted publisher immediately before the next release:
+
+- Provider: GitHub Actions.
+- Organization: `EnsoDynamics`.
+- Repository: `kiln`.
+- Workflow filename: `release.yml`.
+- Environment: none, matching the existing workflow.
+- Allow direct `npm publish`, matching the existing workflow.
+
+A newly created trusted publisher must complete its first successful publish within two days or it expires. For the next approved release, remove the first-publish token from npm and the GitHub repository secret, configure token restrictions to require 2FA and disallow traditional tokens, then publish within that window. The workflow already grants `id-token: write` for OIDC. Verify provenance and record the successful OIDC release.

@@ -10,6 +10,10 @@ export default defineConfig({
   test: {
     include: ['src/**/*.integration.test.ts'],
     environment: 'node',
+    // Each file spawns Git, CLI peers and sometimes Chrome. Eighteen simultaneous
+    // files on a large workstation exhausted the existing per-test deadlines.
+    // Keep real process concurrency bounded; use --maxWorkers=1 for serial diagnosis.
+    maxWorkers: 4,
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

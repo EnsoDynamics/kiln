@@ -1,7 +1,7 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { findExecutable, runHelper, STOPPING_FAILURE } from "./helper-process.js";
 
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kiln-helper-")));
@@ -60,6 +60,35 @@ describe("runHelper", () => {
 
 describe("a helper call when Kiln stops", () => {
   const node = process.execPath;
+
+  // POSIX signals permit a real child to delay shutdown. Windows uses taskkill instead.
+  it.skipIf(process.platform === "win32").each(["abort", "timeout"] as const)("waits for actual child closure after %s before releasing its files", async cause => {
+    const ready = join(root, `${cause}-ready`);
+    const finished = join(root, `${cause}-finished`);
+    const stopping = new AbortController();
+    const script = `const fs=require('node:fs');
+      const finish=()=>setTimeout(()=>{ fs.writeFileSync(${JSON.stringify(finished)},'closed'); process.exit(0); },100);
+      process.on('SIGINT',finish); process.on('SIGTERM',finish);
+      fs.writeFileSync(${JSON.stringify(ready)},String(process.pid)); setInterval(()=>{},1000);`;
+    const running = runHelper(node, ["-e", script], { cwd: root, signal: stopping.signal, timeoutMs: cause === "timeout" ? 1000 : 10_000 });
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true));
+    if (cause === "abort") stopping.abort();
+    expect(await running).toMatchObject({ exitCode: null, failure: cause === "abort" ? STOPPING_FAILURE : "timed out after 1 seconds" });
+    expect(readFileSync(finished, "utf8")).toBe("closed");
+    const pid = Number(readFileSync(ready, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it.skipIf(process.platform === "win32")("kills a real child that ignores cancellation before resolving", async () => {
+    const ready = join(root, "stubborn-ready");
+    const stopping = new AbortController();
+    const script = `process.on('SIGINT',()=>{}); process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(ready)},String(process.pid)); setInterval(()=>{},1000);`;
+    const running = runHelper(node, ["-e", script], { cwd: root, signal: stopping.signal });
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true));
+    stopping.abort();
+    expect(await running).toMatchObject({ exitCode: null, failure: STOPPING_FAILURE });
+    expect(() => process.kill(Number(readFileSync(ready, "utf8")), 0)).toThrow();
+  });
 
   it("fails at once when the stop has already begun, and ends a running call, reading as the stop's result", async () => {
     const stopped = new AbortController();

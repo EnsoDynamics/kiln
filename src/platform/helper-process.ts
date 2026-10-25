@@ -85,35 +85,46 @@ export function runHelper(executable: string, args: string[], options: HelperOpt
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let closed = false;
+    let failure: string | undefined;
+    let exitGrace: ReturnType<typeof setTimeout> | undefined;
+    // A cancelled helper must close before its caller can remove files it was using.
+    // Cooperative shutdown gets one second, then its complete process group is killed.
+    const terminate = (reason: string, signal: NodeJS.Signals) => {
+      failure = reason;
+      if (closed) { finish({ exitCode: null, stdout, stderr, failure }); return; }
+      endProcessTree(child.pid, signal);
+      clearTimeout(timer);
+      timer = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); }, 1000);
+    };
     const onAbort = () => {
-      endProcessTree(child.pid, "SIGINT");
-      finish({ exitCode: null, stdout, stderr, failure: STOPPING_FAILURE });
+      terminate(STOPPING_FAILURE, "SIGINT");
     };
     const finish = (result: HelperResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(exitGrace);
       options.signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
 
     const child = spawnDetached(executable, args, { cwd: options.cwd, env, stdin: "ignore" });
-    const timer = setTimeout(() => {
-      endProcessTree(child.pid, "SIGTERM");
-      finish({ exitCode: null, stdout, stderr, failure: `timed out after ${timeoutMs / 1000} seconds` });
-    }, timeoutMs);
+    let timer = setTimeout(() => terminate(`timed out after ${timeoutMs / 1000} seconds`, "SIGTERM"), timeoutMs);
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
     child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
     child.on("error", (error) => finish({ exitCode: null, stdout, stderr, failure: error.message }));
     child.on("close", (code, signal) => {
+      closed = true;
+      if (failure !== undefined) { finish({ exitCode: null, stdout, stderr, failure }); return; }
       const result = code === null ? { exitCode: null, stdout, stderr, failure: `ended by ${signal}` } : { exitCode: code, stdout, stderr };
       // On Windows a Ctrl+C reaches the call as well as Kiln, and the call can end before Kiln's
       // signal handler runs; an abnormal end waits a moment, so the stop is seen first and the
       // call's result reads as the stop's, never as git's or gh's answer.
       const abnormal = code === null || code < 0 || code >= 128;
-      if (process.platform === "win32" && options.signal && abnormal) setTimeout(() => finish(result), WINDOWS_CTRL_C_GRACE_MS);
+      if (process.platform === "win32" && options.signal && abnormal) exitGrace = setTimeout(() => finish(result), WINDOWS_CTRL_C_GRACE_MS);
       else finish(result);
     });
   });

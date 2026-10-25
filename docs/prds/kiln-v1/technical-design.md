@@ -662,14 +662,14 @@ Git and the phase documents stay the record of what is done; Kiln's record remem
 
 ## Package and Distribution
 
-- **Package:** `@ensodynamics/kiln`, providing the `kiln` command; installed with `npm install -g @ensodynamics/kiln` (AC-INSTALL-01). The unscoped name `kiln` is taken on npm. The `ensodynamics` organization doesn't exist on npm yet; creating it before the first publish is a pending human action in the PRD.
+- **Package:** `@ensodynamics/kiln`, providing the `kiln` command; installed with `npm install -g @ensodynamics/kiln` (AC-INSTALL-01). The unscoped name `kiln` is taken on npm. Doug confirmed the `ensodynamics` npm organization on 2026-10-25; publication remains subject to his separate explicit approval.
 - **Contents:** the compiled CLI, engine and server; the built view with its fonts; the prompt templates.
-- **Platforms:** macOS, Linux and Windows (AC-INSTALL-03); Windows specifics in [Windows](#windows).
+- **Platforms:** natively validated on macOS; Linux and Windows are best effort under AC-INSTALL-03. Automated compatibility checks remain enabled; Windows specifics are in [Windows](#windows).
 - **Release:** a GitHub Actions workflow in `EnsoDynamics/kiln` (`release.yml`) publishes to npm with provenance on a version tag on `main`, after CI's checks on all three platforms; nothing is published from a laptop. npm records provenance only from a public repository (REL-001). A trusted publisher (npm's OIDC publishing) can be set up only on a package that already exists, so the first publish authenticates with a granular token in the `NPM_TOKEN` secret and later ones through the trusted publisher; the workflow needs no change between them. Steps: [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
 
 ## Windows
 
-v1 runs on Windows as well as macOS and Linux (AC-INSTALL-03). Every operating-system-specific call lives in one platform module behind one interface, chosen once at startup, so the engine, session runner and server never call a signal name, `/proc`, `sysctl` or a platform tool directly. Its Windows implementation:
+macOS is the natively validated release platform. Windows and Linux remain best-effort targets; native behavior is explicitly untested and is not a release gate (AC-INSTALL-03, Doug's 2026-10-25 correction to PLAT-002). Every operating-system-specific call lives in one platform module behind one interface, chosen once at startup, so the engine, session runner and server never call a signal name, `/proc`, `sysctl` or a platform tool directly. Its Windows implementation:
 
 | Piece | On Windows | Tried |
 |---|---|---|
@@ -683,7 +683,7 @@ v1 runs on Windows as well as macOS and Linux (AC-INSTALL-03). Every operating-s
 | Paths | Separators normalized before any path comparison (the PRD directory's place under `docs/`, the worktree path check, the state key) | No |
 | The resume command | PowerShell form: `cd '<worktree>'; claude --resume <session ID>`, quoted with single quotes, a `'` written `''` | No |
 
-Claude Code runs natively on Windows; Kiln uses the same `claude` flags there. A Windows run of proof gate 1, and of AC-PROOF-01, tries every "No" above before release ([Testing Approach](#testing-approach)); one that doesn't work as written comes back as a product decision (PRD, "Depends On").
+Claude Code runs natively on Windows; Kiln uses the same `claude` flags there. The untried Windows paths above remain compatibility targets. Native issues are investigated from user reports; no Windows host or manual Windows proof is required before release. Automated CI checks remain enabled and do not establish native console, sleep or agent behavior.
 
 ## Control From Outside the Browser
 
@@ -698,6 +698,8 @@ A later version may let another client take every action the browser view offers
 
 ## Testing Approach
 
+Helper cancellation and timeout results resolve only after the real child process closes. Helpers receive the cancellation signal, followed after one second by a process-group kill if necessary. Test harness teardown calls `Engine.stop()` for every created engine and drains those helpers/sessions before deleting its temporary repositories. In-process CLI test helpers stop in `finally` when callbacks fail. A cancelled audit check is abandoned under the existing stopping verdict. Process-heavy integration files run with at most four workers; the existing test deadlines remain unchanged.
+
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Proof gates and tests (new Claude sessions also require catalogue validation).
 
 **Order.** Proof gates 1 and 2 (architecture proposal) come first, before the engine is built: both run by hand with no Kiln code, gate 1 includes the untried behaviors this design relies on, and their recorded stream-json output becomes the test fixtures below. Gate 3 runs once Needs you exists; gate 4 is AC-PROOF-01. A behavior that doesn't hold comes back as a product decision (PRD, "Depends On").
@@ -707,7 +709,7 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 - **Ports (AC-MULTI-02):** against a real `ports.json` and real listeners: a PRD keeps its port across runs, two repositories with the same PRD folder get different ports, a port held by another program stops `kiln run`, and a full range takes the least recently served stopped PRD's port.
 - **Account and usage (AC-WATCH-08, AC-WATCH-09):** unit tests over recorded `claude auth status --json` output (signed in, `loggedIn` false, no plan, unparseable) and a recorded `/usage` report: labels and short labels (a surface-named `weekly_scoped` row included), server order kept, rows left out (an unknown `kind`, a `weekly_scoped` row with no name), an empty list, a missing report with and without a plan, `nearLimit` at 80%, and an unrecognized shape giving `limitsError`.
 - **Keep-awake (AC-KEEP-06, AC-KEEP-07):** against the real `caffeinate`, `gnome-session-inhibit` or `systemd-inhibit` on the running platform: the tool chosen for the session type, held only while a session's process runs and keep-awake is on, released at Needs you, pause, completion and exit, and the error shown when no tool is available.
-- **Keep-awake on Linux desktops (manual check):** on Ubuntu GNOME and on KDE, with automatic suspend at its shortest timeout, a working session keeps the computer awake past the timeout. On GNOME the screen still locks and suspend from the menu still works. Closing the lid suspends on both; on KDE with systemd 257 or newer, record whether suspend from the menu is refused while a session works (PLAT-001).
+- **Keep-awake on Linux desktops (optional compatibility check, not a release gate):** on Ubuntu GNOME and on KDE, with automatic suspend at its shortest timeout, a working session keeps the computer awake past the timeout. On GNOME the screen still locks and suspend from the menu still works. Closing the lid suspends on both; on KDE with systemd 257 or newer, record whether suspend from the menu is refused while a session works (PLAT-001).
 - **Origin and the pull-request check:** unit tests over each origin URL form the [Command line](#command-line-ac-cli-01-ac-cli-02-ac-start-09) accepts and rejects, and over recorded `gh pr list` output with a draft and a fork's pull request; a stand-in `gh` that records its arguments confirms every call carries `--repo`.
 - **Done check, worktree setup, the worktree path check (a relative path, `~`, a path inside the main checkout or another worktree), base check, pushed check, the `kiln run` path rules ([Command line](#command-line-ac-cli-01-ac-cli-02-ac-start-09); a path inside Kiln's worktree reaches the main checkout's record and repository name, and a path in a submodule reaches the submodule's own):** against real temporary Git repositories with a local bare repository as `origin`, never a mocked Git.
 - **Sleep detection:** unit tests over recorded sequences of each operating system's suspend readings (macOS sleep and wake times, Linux uptime against the monotonic clock), including a wall-clock change that isn't a sleep. Interrupted-or-ended classification is unit-tested over a gate 1 recording (`sigint-process-group-mid-bash`) with sleeps placed into it: a session that survived a sleep then hit a usage limit (ended on its own), one a sleep killed mid-Bash and one a sleep killed mid-response (both interrupted). Gate 1's own sleep recordings are optional (waived by Doug on 2026-10-17); what a real session does across a sleep is checked in normal use and in Phase 6's proof run.
@@ -716,9 +718,9 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 - **Server security:** requests with a foreign Host, a foreign Origin or no token are refused.
 - **Pause (AC-VIEW-03):** against the stand-in `claude`: Keep going before the phase is Done lets the next phase start; Keep going once the pause is active returns 409; a pause requested before a Needs you holds after Check again passes.
 - **The view (AC-LOOK, AC-WATCH):** each mockup screen rendered in a real browser from a fixture `Snapshot` carrying that mockup's sample data, and compared with the mockup rendered alongside it, plus the Disconnected and reconnect behavior against a server that stops and returns, and a final message containing raw HTML shown as text (AC-STOP-02).
-- **Windows:** CI runs the unit tests, the Git integration tests and the engine tests with the stand-in `claude` on a Windows runner as well. Before release, a person on Windows runs proof gate 1's session, interrupt, resume and sleep checks, the keep-awake check, and AC-PROOF-01.
+- **Windows:** CI runs unit, Git integration, engine and installed-package tests on Windows. Those checks remain required to pass, but native Claude/Codex, console, interrupt, sleep and keep-awake proofs are best effort and are not release gates (AC-INSTALL-03, 2026-10-25 decision).
 - **The package (AC-INSTALL-01):** `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed `kiln` on a real temporary repository: it prints its usage and serves the view, its scripts, styles and bundled fonts. CI runs it on all three platforms (`npm run test:package`).
-- **The release:** AC-PROOF-01 and AC-PROOF-02, a real three-to-five-phase feature with a real pull request: the proof feature Word tally (`scripts/proof-run/`), run by a person on Windows and on macOS or Linux ([Kiln proof run steps](../../design/kiln-proof-run-steps.md)). Before that, `scripts/exploration/proof-rehearsal-real-feature.mjs` runs the same feature on macOS with the real Claude Code and GitHub stood in for.
+- **The release:** AC-PROOF-01 and AC-PROOF-02, a real three-to-five-phase feature with a real pull request: the proof feature Word tally (`scripts/proof-run/`), run on macOS; native Windows/Linux proof is best effort and is not a release gate ([Kiln proof run steps](../../design/kiln-proof-run-steps.md)). Before that, `scripts/exploration/proof-rehearsal-real-feature.mjs` runs the same feature on macOS with the real Claude Code and GitHub stood in for.
 
 ## Integration Points
 

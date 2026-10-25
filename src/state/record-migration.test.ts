@@ -3,16 +3,17 @@
 // commits sit under it, the pull request becomes a one-entry list and each fact a list.
 
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
 import { migrateRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
 
 function schemaOne(extra: Record<string, unknown>): PrdRecord {
   return {
     schemaVersion: 1,
-    repository: { mainCheckoutPath: "/home/a/acme/acme-shop", name: "acme-shop", github: "acme/acme-shop" },
+    repository: { mainCheckoutPath: join("/home", "a", "acme", "acme-shop"), name: "acme-shop", github: "acme/acme-shop" },
     prdDirectory: "docs/prds/customer-returns",
     featureName: "Customer returns",
     token: "t",
-    settings: { worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop", featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true },
+    settings: { worktreePath: join("/home", "a", "acme", ".worktrees", "customer-returns", "acme-shop"), featureBranch: "feature/customer-returns", baseBranch: "develop", model: "opus", effort: "high", keepAwake: true },
     phases: {},
     pause: {},
     ...extra,
@@ -24,20 +25,20 @@ describe("migrating a schema 1 record", () => {
     const record = migrateRecord(schemaOne({}));
     expect(record.schemaVersion).toBe(SCHEMA_VERSION);
     expect(record.repositories).toEqual([]);
-    expect(record.settings).toMatchObject({ workspaceFolder: "/home/a/acme/.worktrees/customer-returns", bases: {}, worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop", baseBranch: "develop" });
+    expect(record.settings).toMatchObject({ workspaceFolder: join("/home", "a", "acme", ".worktrees", "customer-returns"), bases: {}, worktreePath: join("/home", "a", "acme", ".worktrees", "customer-returns", "acme-shop"), baseBranch: "develop" });
   });
 
   it("a worktree the person put elsewhere: the workspace folder is still the default, beside the PRD's repository (AC-SPACE-03)", () => {
     const record = schemaOne({});
-    record.settings.worktreePath = "/home/a/elsewhere/acme-shop";
-    expect(migrateRecord(record).settings).toMatchObject({ workspaceFolder: "/home/a/acme/.worktrees/customer-returns", worktreePath: "/home/a/elsewhere/acme-shop" });
+    record.settings.worktreePath = join("/home", "a", "elsewhere", "acme-shop");
+    expect(migrateRecord(record).settings).toMatchObject({ workspaceFolder: join("/home", "a", "acme", ".worktrees", "customer-returns"), worktreePath: join("/home", "a", "elsewhere", "acme-shop") });
   });
 
   it("holding only Kiln's branch from a failed Start: one entry keeps it", () => {
     const createdBranch = { name: "feature/customer-returns", commit: "c1", baseBranch: "main" };
     const record = migrateRecord(schemaOne({ createdBranch }));
     expect(record.repositories).toEqual([
-      { name: "acme-shop", kind: "prd", mainCheckoutPath: "/home/a/acme/acme-shop", github: "acme/acme-shop", baseBranch: "main", worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop", createdBranch },
+      { name: "acme-shop", kind: "prd", mainCheckoutPath: join("/home", "a", "acme", "acme-shop"), github: "acme/acme-shop", baseBranch: "main", worktreePath: join("/home", "a", "acme", ".worktrees", "customer-returns", "acme-shop"), createdBranch },
     ]);
     expect(record).not.toHaveProperty("createdBranch");
   });
@@ -56,7 +57,7 @@ describe("migrating a schema 1 record", () => {
       }),
     );
     expect(record.repositories).toEqual([
-      expect.objectContaining({ name: "acme-shop", kind: "prd", baseCommit: "b0", setupCompletedAt: "2026-10-17T13:00:05Z", worktreePath: "/home/a/acme/.worktrees/customer-returns/acme-shop" }),
+      expect.objectContaining({ name: "acme-shop", kind: "prd", baseCommit: "b0", setupCompletedAt: "2026-10-17T13:00:05Z", worktreePath: join("/home", "a", "acme", ".worktrees", "customer-returns", "acme-shop") }),
     ]);
     expect(record.setupCompletedAt).toBe("2026-10-17T13:00:05Z");
     expect(record.phases["1"]).toEqual({ sessionIds: ["s1"], doneAt: "2026-10-17T14:00:00Z", finishedByPerson: false, repositories: { "acme-shop": { startCommit: "b0", pushedSha: "p1", commitCount: 2 } }, outsideConfirmations: [] });

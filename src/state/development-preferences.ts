@@ -23,7 +23,7 @@ function readGroups(path: string): Record<string, DevelopmentPreference> {
       if (new Set(value.targets.map(targetKey)).size !== value.targets.length || value.enabled && !value.targets.length) throw new Error("invalid saved target set");
     }
     return data.groups;
-  } catch (error) { throw new Error(`Cannot read development preferences ${path}: ${(error as Error).message}`); }
+  } catch (error) { throw new Error(`Cannot read development preferences ${path}: ${(error as Error).message}`, { cause: error }); }
 }
 export function readDevelopmentPreference(path: string, group: DevelopmentPreferenceGroup): DevelopmentPreference {
   return readGroups(path)[key(group)] ?? { group, revision: 0, enabled: false, targets: [] };

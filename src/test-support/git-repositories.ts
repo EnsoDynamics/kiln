@@ -58,7 +58,7 @@ export function createSandbox(): Sandbox {
         }
         const list = "Get-CimInstance Win32_Process | Where-Object { @('node.exe','cmd.exe','git.exe','sh.exe','bash.exe','sleep.exe','powershell.exe') -contains $_.Name } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)\" }";
         const processes = spawnSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" });
-        throw new Error(`${(error as Error).message}\nTest process ${process.pid}; processes that may hold it:\n${processes.stdout}`);
+        throw new Error(`${(error as Error).message}\nTest process ${process.pid}; processes that may hold it:\n${processes.stdout}`, { cause: error });
       }
     }
   };

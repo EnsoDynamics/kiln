@@ -289,7 +289,7 @@ Kiln's users already run Claude Code from a terminal, so Kiln installs the way t
 - [ ] **AC-INSTALL-01 — One package, one command.** Kiln installs from npm as a single package with one command. That one install includes the `kiln` command and the browser view.
 - [ ] **AC-INSTALL-02 — Nothing runs outside the person's machine.** Kiln uses only the Claude Code, Git and GitHub access already on the machine; it has no account, credential, server or cloud service of its own. Nothing Kiln handles leaves the person's machine, apart from what Claude Code and Git already send and Kiln's reads from GitHub (AC-PR-02, AC-PR-04).
   - Superseded in part by: AC-AGENT-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex readiness and existing ChatGPT authentication).
-- [ ] **AC-INSTALL-03 — macOS, Linux and Windows.** v1 runs on macOS, Linux and Windows, with the same behavior and screens on each.
+- [ ] **AC-INSTALL-03 — macOS validation, best-effort Linux and Windows.** macOS is the natively validated release platform. Linux and Windows remain available as best-effort targets; their native agent, console, sleep and desktop behavior is not claimed as tested. Automated compatibility checks remain enabled, and reported native issues are investigated when users encounter them. Native Windows/Linux tests are not a release gate (Doug, 2026-10-25, correcting PLAT-002).
 
 ### Look and Read Like the Design
 
@@ -311,7 +311,7 @@ The v1 mockups are the design of record.
 
 The release is accepted in real use, not only on tests of its parts.
 
-- [ ] **AC-PROOF-01 — A small real feature runs end to end.** A real feature of three to five phases runs from `kiln run` to "PR ready for review". It includes one phase that splits itself, one stop that the person finishes through the resume command before continuing with Check again, and one Ctrl+C partway through a phase that `kiln run` then resumes to completion. It runs on Windows as well as on macOS or Linux.
+- [ ] **AC-PROOF-01 — A small real feature runs end to end.** A real feature of three to five phases runs from `kiln run` to "PR ready for review". It includes one phase that splits itself, one stop that the person finishes through the resume command before continuing with Check again, and one Ctrl+C partway through a phase that `kiln run` then resumes to completion. The required native proof runs on macOS. Windows and Linux native proof is best effort and is not a release gate under AC-INSTALL-03 (Doug, 2026-10-25).
 - [ ] **AC-PROOF-02 — Sessions stay on Kiln's branch.** In that test, every session works only on the PRD's worktree and feature branch. This holds even where the person's own instructions or the method's parallel-session rule would otherwise tell it to work elsewhere.
   - Superseded in part by: AC-SPACE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the session works across the workspace, and may ask Kiln for another repository)
 
@@ -331,8 +331,7 @@ None. The [technical design](technical-design.md) settles the architecture propo
 
 ## Pending human actions
 
-- Doug: create the `ensodynamics` organization on npm before Kiln's first publish, so the package can be `@ensodynamics/kiln` (technical design, "Package and Distribution"); step 1 of [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
+- Completed 2026-10-25: Doug confirmed the `ensodynamics` npm organization; the package remains `@ensodynamics/kiln`. The account login is a separate identity.
 - Doug: create the proof repository and run the proof feature on macOS (AC-PROOF-01, AC-PROOF-02), parts A and B of [Kiln proof run steps](../../design/kiln-proof-run-steps.md), recording results in [Kiln proof run results](../../design/kiln-proof-run-results.md).
-- A person on Windows: the proof run and the Windows checks, parts C and D of the same steps.
-- A person on Ubuntu GNOME and on KDE: the keep-awake check, part E of the same steps (PLAT-001).
-- Doug: confirm or correct REL-001 ([assumptions](assumptions.md)), then release: steps 2 to 7 of the release steps, once the proof has held.
+- Native Windows/Linux proof and desktop keep-awake checks are best effort, not pending release actions (Doug, 2026-10-25; AC-INSTALL-03). Automated compatibility checks remain enabled.
+- Doug: explicitly approve publication after the release candidate is reviewed. MIT/public-source intent is confirmed under REL-001; repository visibility, release tags and npm publication remain on hold until that approval. Follow [Kiln npm release steps](../../release/kiln-npm-release-steps.md).

@@ -180,7 +180,13 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     reopenFromDisk: () => { harness.engine.close(); return harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!); },
     engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.agents.refresh(); return engine; },
     kilnGitCalls: () => kilnGitCalls(gitLog),
-    cleanup: () => { auditGate?.mockRestore(); for (const engine of engines) engine.close(); harness.engine.close(); return sandbox.cleanup(); },
+    cleanup: async () => {
+      // close() releases watchers; stop() also drains the sessions and Git helpers that
+      // may still be writing into the sandbox. Remove it only after they have stopped.
+      await Promise.all([...engines].map(engine => engine.stop("sigint")));
+      auditGate?.mockRestore();
+      await sandbox.cleanup();
+    },
   };
   harness.engine = make();
   await harness.engine.agents.refresh();

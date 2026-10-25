@@ -1,10 +1,10 @@
-# Phase 6: Proof on a real feature, the Windows checks, and the npm release
+# Phase 6: macOS proof, best-effort compatibility, and the npm release
 
 **Parent PRD:** docs/prds/kiln-v1/kiln-v1-prd.md
 **Technical design:** docs/prds/kiln-v1/technical-design.md — relevant sections: "Package and Distribution", "Windows", "Testing Approach" ("Keep-awake on Linux desktops", "Windows", "The release")
 
 ## Summary
-Kiln takes a small real feature of three to five phases from `kiln run` to a pull request ready for review, on Windows and on macOS or Linux, through a self-split phase, a stop finished by hand and a Ctrl+C that `kiln run` resumes. The release workflow then publishes it to npm as one package installed with one command.
+Kiln takes a small real feature of three to five phases from `kiln run` to a pull request ready for review, on macOS, through a self-split phase, a stop finished by hand and a Ctrl+C that `kiln run` resumes. The release workflow then publishes it to npm as one package installed with one command.
 
 ## Acceptance criteria covered
 AC-INSTALL-01, AC-PROOF-01, AC-PROOF-02, AC-INSTALL-03 (also applies to this phase's work)
@@ -16,7 +16,9 @@ Anything in docs/design/kiln-after-v1-ideas.md.
 5 (the complete browser view and its controls)
 
 ## Phase-specific notes
-- Human actions this phase needs: Doug creates the `ensodynamics` organization on npm before the first publish (PRD, "Pending human actions"); a person on Windows runs proof gate 1's session, interrupt, resume and sleep checks, the keep-awake check and AC-PROOF-01; the manual keep-awake check on Ubuntu GNOME and KDE, recording PLAT-001.
+- Current release decision, 2026-10-25: macOS is the required native validation platform; Windows/Linux native proof and desktop checks are best effort and do not block release (AC-INSTALL-03 and PLAT-002). The older Windows check instructions below remain reproducibility guidance, not current release gates. Automated CI compatibility jobs remain enabled.
+- The `ensodynamics` npm organization and MIT/public-source intent are confirmed. Publishing, release tags and repository visibility changes remain explicitly unauthorized until Doug approves the final candidate.
+- Human action this phase needs: explicit publication approval after the macOS evidence and final candidate have been reviewed. No Windows/Linux test host is required.
 - Each Windows piece the design marks untried that doesn't hold comes back as a product decision (PRD, "Depends On").
 - State on 2026-10-18: the package, the release workflow and every prepared step are built and pushed, and the macOS rehearsal held ([Kiln proof run results](../../design/kiln-proof-run-results.md)). The three small fixes the delivery audit of phases 1 to 5 carried forward below (from Phases 4 and 5) are built, on develop, ahead of the release's publish step. What remains is the human actions in the PRD's "Pending human actions", and the Windows and macOS checks carried forward from Phase 3, which are part of the proof run. The phase gets its Closed line once the results document records the proof run (parts B to E of [Kiln proof run steps](../../design/kiln-proof-run-steps.md)) as held; anything that didn't hold comes back as a product decision first.
 

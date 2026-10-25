@@ -62,13 +62,19 @@ async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whil
   });
   let ended = false;
   void done.then(() => (ended = true));
-  await waitFor(() => ended || until(withoutKeepAwakeError(stdout)), 40_000);
-  expect(until(withoutKeepAwakeError(stdout)), `kiln run ended before its output showed what the test waits for:\n${stdout}${stderr}`).toBe(true);
-  // What Kiln does next settles before the stop, so the stop's line says where it waits.
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  await whileRunning?.(() => stdout);
-  signals.emit("SIGINT");
-  const exitCode = await done;
+  let exitCode: number;
+  try {
+    await waitFor(() => ended || until(withoutKeepAwakeError(stdout)), 40_000);
+    expect(until(withoutKeepAwakeError(stdout)), `kiln run ended before its output showed what the test waits for:\n${stdout}${stderr}`).toBe(true);
+    // What Kiln does next settles before the stop, so the stop's line says where it waits.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await whileRunning?.(() => stdout);
+  } finally {
+    // An assertion or callback timeout must not leave this separate CLI engine/server
+    // running: the harness owns the original engine, not the one runKilnCommand made.
+    signals.emit("SIGINT");
+    exitCode = await done;
+  }
   return { exitCode, stdout: withoutKeepAwakeError(stdout), stderr, opened };
 }
 
@@ -76,6 +82,21 @@ const time = String.raw`[ \d]\d:\d\d`;
 const opened = String.raw` Opened http://127\.0\.0\.1:\d+/customer-returns`;
 
 describe("kiln run on a feature underway", () => {
+  it("closes its test CLI server even when the browser callback fails", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ result: "Waiting for a decision." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const calls = h.claudeCalls();
+    let address: string | undefined;
+    await expect(kilnRunUntil(h, stdout => / Opened http/.test(stdout), async stdout => {
+      address = /Opened (\S+)/.exec(stdout())![1]!;
+      throw new Error("Browser callback failed.");
+    })).rejects.toThrow("Browser callback failed.");
+    expect(address).toBeDefined();
+    await expect(fetch(address!)).rejects.toThrow();
+    expect(h.claudeCalls()).toEqual(calls);
+  });
   it("checks a stopped phase again, and carries on with the next phase once the person has finished it", async () => {
     harness = await createHarness({
       sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Done." }] }, landingSession("src/b.txt"), { actions: [{ result: "I need a decision on the dashboard's columns." }] }],
