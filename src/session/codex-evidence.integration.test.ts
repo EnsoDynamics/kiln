@@ -24,6 +24,14 @@ describe("authoritative Codex conversation audit", () => {
     expect(result.coverage).toBe(mode === "qualified" ? "complete" : "inconclusive");
     if (mode === "qualified") { expect(result.problems).toEqual([]); expect(result.operationsChecked).toBe(1); }
   });
+  it("qualifies the observed wait without waiving another invocation's input checks", async () => {
+    const f=fixture();
+    const recorded=JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/yielded-exec-wait-0.162.1.json",import.meta.url)),"utf8")) as {raw:{payload:Record<string,unknown>}};
+    f.append("parent",f.record("response_item",{...recorded.raw.payload,internal_chat_message_metadata_passthrough:{turn_id:"parent-turn-0"}}));
+    expect((await auditCodexConversation(f.options)).coverage).toBe("complete");
+    f.append("parent",f.record("response_item",{type:"function_call",name:"exec_command",call_id:"hidden",arguments:JSON.stringify({cmd:"git status",unqualifiedCommand:"hidden"}),internal_chat_message_metadata_passthrough:{turn_id:"parent-turn-0"}}));
+    expect((await auditCodexConversation(f.options)).coverage).toBe("inconclusive");
+  });
   it("exhausts full 100-turn pages through real pipes and binds confirmation to stable source content", async () => {
     const f = fixture(); f.addThread("parent", { count: 205 });
     const result = await auditCodexConversation(f.options);

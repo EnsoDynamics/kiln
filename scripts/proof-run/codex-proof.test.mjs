@@ -119,6 +119,14 @@ test('opaque output cannot hide a later operation inside a display template', ()
   assert.deepEqual(result.operations.map(o => o.input.cmd), ['pwd', 'git push']);
 });
 
+test('observed yielded-exec wait is read-only; extra executable or unqualified forms remain unresolved', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/codex-audit-proof/yielded-exec-wait-0.162.1.json', import.meta.url), 'utf8'));
+  const raw = fixture.raw.payload;
+  assert.deepEqual(decodeRawCall(raw), {callId:raw.call_id, operations:[{name:'wait',input:{cell_id:'38',yield_time_ms:20000,max_tokens:2000}}],coverage:'complete'});
+  for (const change of [{namespace:'unverified_provider'},{type:'custom_tool_call'},{arguments:'{}'},{arguments:'{"cell_id":38}'},{arguments:'{"cell_id":"38","cmd":"git push"}'},{arguments:'{"cell_id":"38","terminate":true}'},{arguments:'{"cell_id":"38","yield_time_ms":-1}'},{arguments:'{"cell_id":"38","max_tokens":0}'}]) assert.equal(decodeRawCall({...raw,...change}).coverage,'inconclusive');
+  assert.equal(decodeRawCall({type:'custom_tool_call',name:'exec',input:'const r=await tools.exec_command({cmd: hiddenCommand}); text(r);'}).coverage,'inconclusive');
+});
+
 test('raw unknown tools and corrupt arguments fail closed', () => {
   assert.equal(decodeRawCall({ type: 'function_call', name: 'unseen_tool', arguments: '{}' }).coverage, 'inconclusive');
   assert.equal(decodeRawCall({ type: 'function_call', name: 'exec_command', arguments: '{' }).coverage, 'inconclusive');

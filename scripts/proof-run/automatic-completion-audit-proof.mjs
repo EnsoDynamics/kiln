@@ -7,6 +7,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, readdirS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+const remediation=process.argv[3]==='remediation';
 const provider=process.argv[2];if(!['claude','codex'].includes(provider))throw new Error('claude | codex');
 const packageRoot=process.env.KILN_PROOF_PACKAGE_ROOT;if(!packageRoot)throw new Error('Set KILN_PROOF_PACKAGE_ROOT to the installed package');
 const digest=createHash('sha256');const walk=folder=>{for(const name of readdirSync(join(packageRoot,folder),{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){const path=folder+'/'+name.name;if(name.isDirectory())walk(path);else{digest.update(path);digest.update(readFileSync(join(packageRoot,path)));}}};walk('dist');const packageDistDigest=digest.digest('hex');
@@ -21,14 +22,16 @@ const git=(cwd,...args)=>execFileSync('git',args,{cwd,env,encoding:'utf8',timeou
 const origin=join(root,'origin.git');git(root,'init','--bare','-b','proof',origin);git(main,'init','-b','proof');git(main,'remote','add','origin',origin);
 const directory='docs/prds/audit-proof';mkdirSync(join(main,directory),{recursive:true});mkdirSync(join(main,'.proof'));
 writeFileSync(join(main,'value.mjs'),'export function value() { return 42; }\n');
-writeFileSync(join(main,'value.test.mjs'),"import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
+writeFileSync(join(main,'package.json'),JSON.stringify({type:'module',scripts:{test:'node value.test.mjs'}}));
+writeFileSync(join(main,'value.test.mjs'),remediation?"import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(typeof value,'function');\n":"import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
 writeFileSync(join(main,'.gitignore'),'.proof/\n.agent-sessions/\n');
-writeFileSync(join(main,'AGENTS.md'),readFileSync(new URL('./automatic-audit-provider-instructions.txt',import.meta.url),'utf8'));
+writeFileSync(join(main,'AGENTS.md'),readFileSync(new URL(remediation?'./test-remediation-provider-instructions.txt':'./automatic-audit-provider-instructions.txt',import.meta.url),'utf8'));
 writeFileSync(join(main,directory,'audit-proof-prd.md'),'# PRD: Audit evidence proof\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Export the value.** The exported value function in value.mjs returns 42 when called.\n');
 writeFileSync(join(main,directory,'technical-design.md'),'# Technical Design\nExport value() from value.mjs. Node imports the function. Verify with node value.test.mjs.\n');
 writeFileSync(join(main,directory,'phase-1-value.md'),'# Phase 1: Export value\n\n**Closed:** 2026-10-24\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n');
 writeFileSync(join(main,'audit-driver.mjs'),readFileSync(new URL('./automatic-audit-driver.mjs',import.meta.url)));
-const files=['value.mjs','value.test.mjs','.gitignore','AGENTS.md','audit-driver.mjs',directory];git(main,'add','--',...files);git(main,'commit','-m','test(audit): seed disposable provider proof');git(main,'push','-u','origin','proof');
+if(remediation)writeFileSync(join(main,'test-remediation-driver.mjs'),readFileSync(new URL('./test-remediation-driver.mjs',import.meta.url)));
+const files=[...(remediation?['test-remediation-driver.mjs']:[]),'package.json','value.mjs','value.test.mjs','.gitignore','AGENTS.md','audit-driver.mjs',directory];git(main,'add','--',...files);git(main,'commit','-m','test(audit): seed disposable provider proof');git(main,'push','-u','origin','proof');
 const agentId=provider==='codex'?'codex':'claude_code';const at=new Date().toISOString();
 let record=newPrdRecord({mainCheckoutPath:main,repositoryName:'audit-proof',github:'example/audit-proof',prdDirectoryFromRoot:directory,featureName:'Audit evidence proof',settings:{workspaceFolder:workspace,worktreePath:main,featureBranch:'proof',baseBranch:'proof',bases:{},model:'sonnet',effort:'high',keepAwake:false,resumeAfterUsageLimit:false}});
 record.startedAt=at;record.setupCompletedAt=at;record.settings.agentId=agentId;record.settings.agentChoices[agentId]={model:provider==='codex'?'gpt-6.1-sol':'sonnet',effort:'high'};
@@ -52,7 +55,7 @@ try {
  console.log(JSON.stringify({decision}));
  let interrupted=false;let interruption;let originalSession;let originalActivity;
  const off=engine.onOutput((_id,lines)=>{
-  if(interrupted||engine.current?.session?.kind!=='delivery_audit'||!lines.some(line=>line.text.includes('delivery-audit')))return;
+  if(interrupted||(remediation?!(engine.current?.session?.kind==='test_audit'&&record.completionAudits.activities.at(-1)?.continuationIndex===2):engine.current?.session?.kind!=='delivery_audit')||!lines.some(line=>line.text.includes(remediation?'test-audit':'delivery-audit')))return;
   interrupted=true;originalSession=engine.current.session.sessionId;originalActivity=engine.current.session.activityId;
   interruption=engine.stop('sigint');
  });
@@ -69,5 +72,5 @@ try {
  const result={interrupted,originalSession,originalActivity,activities,phases:record.phases,completedAt:record.completedAt,stop:engine.stoppedPhaseKey()};
  writeFileSync(join(root,'proof-result.json'),JSON.stringify(result,null,2),{mode:0o600});
  console.log(JSON.stringify({root,activities:activities.map(a=>({kind:a.kind,round:a.round,accepted:!!a.acceptedResult,done:!!record.phases[`audit-${a.activityId}`]?.doneAt})),stop:result.stop,completedAt:result.completedAt}));
- if(!interrupted||!record.completedAt||activities.length!==2||activities.some(a=>!a.acceptedResult||!record.phases[`audit-${a.activityId}`]?.doneAt)||activities[0].sessionIds.length!==1||activities[0].sessionIds[0]!==originalSession)process.exitCode=1;
+ if(!interrupted||!record.completedAt||activities.length!==(remediation?3:2)||activities.some(a=>!a.acceptedResult||!record.phases[`audit-${a.activityId}`]?.doneAt)||activities[remediation?2:0].sessionIds.length!==1||activities[remediation?2:0].sessionIds[0]!==originalSession)process.exitCode=1;
 } finally {await server.close();lock.release();engine.close();}

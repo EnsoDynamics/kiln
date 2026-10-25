@@ -22,6 +22,9 @@ Use `audit snapshot <file>` after material changes, supplying executionId, activ
 testPaths and evidencePaths. Capture the checked snapshot before verification commands.
 Use `audit submit <file>` with executionId, activityId, revision and reportPath after committing
 and pushing the report. Inspect the response; unresolved means correct the concrete checks.
+Finalize test-audit.md and the portable report BEFORE submission. Once disposition is recorded,
+leave both accepted records unchanged; put closing remarks in your final response. Further
+record edits invalidate the accepted result even when implementation and tests are unchanged.
 Do not fabricate evidence IDs, transcripts, observed outcomes or passing grades.
 For Codex functions.exec calls, use literal tool arguments and the qualified wrapper
 `const result = await tools.exec_command({cmd: "literal command"}); text(result);`.
@@ -40,6 +43,15 @@ also name baselineRunEvidenceIds, finalRunEvidenceIds, redChecks and regradeEvid
 For Claude red-check mutation/restoration evidence use native Write/Edit tools.
 Test mappings require observed successful command evidence; do not infer runs from prose.
 Maintain the method's exact test-audit.md record for test audits.
+For continuationIndex > 1, continue the preceding accepted nextTestBatch in this same round
+using a fresh conversation. Save every remaining Missing/Weak criterion and the precise next
+batch in test-audit.md. A continue_test report must show changed evidence/grades, completed
+remediation or newly identified actionable findings; rewording the same batch is no progress.
+Test-only remediation stays audit work. Substantial implementation gaps become completion
+phases; small direct implementation fixes require a fresh delivery audit before completion.
+After that delivery audit, independently reassess all current test rows against the new
+snapshot. Prior grades and immutable reports are context, never a substitute for current
+assessment and observed runs. Whole-test reassessment is deliberately conservative.
 
 Give independent child assessors the actual checked snapshot ID, canonical criterion keys
 and stable part IDs. Each child must do the real assessment and return its reasoning plus:

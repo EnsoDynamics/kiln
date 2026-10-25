@@ -286,6 +286,29 @@ describe("audit development owners", () => {
     expect(state.developmentAuthorization).toEqual(f.record.developmentAuthorization);
     expect(engine.authorizeDevelopmentTarget(authority)).toEqual({ ok: true });
   });
+  it("allocates test continuation identity and retained obligations in one rollback-safe state write", async () => {
+    const f=await fixture();await recordAssessment(f.context,f.assess());
+    f.activity.kind="test_audit";
+    f.activity.acceptedResult=f.store.put({activityId:f.activity.activityId,disposition:"recorded",reportBytes:JSON.stringify({outcome:"continue_test",nextTestBatch:{criterionKeys:[f.criteria[0]!]},completionPhases:[]})});
+    f.record.phases[`audit-${f.activity.activityId}`]!.doneAt=new Date().toISOString();
+    const allocate=f.h.engine as unknown as {allocateAudit(kind:"test_audit",continuation:boolean):Promise<AuditActivity>};
+    const path=join(f.h.stateDirectory,"prd.json"),held=path+".held";
+    writePrdRecord(f.h.stateDirectory,f.record);const before=structuredClone(f.record);
+    const originalAssign=owners.assignAuditObligations;let failOnce=true;
+    const assign=vi.spyOn(owners,"assignAuditObligations").mockImplementation((...args)=>{originalAssign(...args);if(failOnce){failOnce=false;renameSync(path,held);mkdirSync(path);}});
+    try {
+      await expect(allocate.allocateAudit("test_audit",true)).rejects.toThrow();
+      expect(f.h.engine.record).toEqual(before);
+      rmSync(path,{recursive:true});renameSync(held,path);
+      expect(readPrdRecord(f.h.stateDirectory)!.completionAudits!.activities).toHaveLength(1);
+      const next=await allocate.allocateAudit("test_audit",true);const saved=readPrdRecord(f.h.stateDirectory)!;
+      expect(next).toMatchObject({kind:"test_audit",round:1,continuationIndex:2,sessionIds:[]});
+      expect(saved.nextActivityKey).toBe(`audit-${next.activityId}`);expect(saved.completionAudits!.activities).toHaveLength(2);
+      expect(saved.developmentDelivery!.assignments!.map(a=>[a.requirementId,a.owner,a.criteria])).toEqual(expect.arrayContaining(["requiredMerge","deploy","verify"].map(id=>[id,{kind:"audit",activityId:next.activityId},[f.criteria[0]!]])));
+      expect(saved.developmentDelivery!.checkpoints[0]!.owner).toEqual(f.owner);expect(f.h.claudeCalls()).toHaveLength(1);
+    } finally {assign.mockRestore();if(existsSync(held)){rmSync(path,{recursive:true,force:true});renameSync(held,path);}}
+  });
+
   it("settles audit repair assignments atomically and rolls back a real state-write failure", async () => {
     const f = await fixture();
     await recordAssessment(f.context, f.assess()); f.synchronize(); await reconcileDelivery(f.context);

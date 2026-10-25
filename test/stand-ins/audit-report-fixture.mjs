@@ -14,9 +14,10 @@ export async function auditReportFixture({prompt,sessionId,transcriptPath,toolCa
  const skill=s.kind==='delivery_audit'?'delivery-audit':'test-audit';toolResult(toolCall('Skill',{skill}),`Loaded ${skill}`);
  if(behavior.noReport)return;
  mkdirSync('.proof',{recursive:true});
- if(behavior.gap){
-  const id=String(Math.max(...initial.plan.map(p=>Number.parseInt(p.id,10)))+1);const path=`${directory}/phase-${id}-repair.md`;
-  writeFileSync(path,`# Phase ${id}: Repair value\n\n**Added by delivery audit:** ${s.activityId}\n\n## Acceptance criteria covered\n${c.label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');
+ if(behavior.directFix){writeFileSync(codePath,'export function value() { return 42; }\n');toolResult(toolCall('Write',{file_path:join(process.cwd(),codePath)}),'Small implementation fix');}
+ if(behavior.gap||behavior.directFix){
+  if(behavior.gap){const id=String(Math.max(...initial.plan.map(p=>Number.parseInt(p.id,10)))+1);const path=`${directory}/phase-${id}-repair.md`;
+  writeFileSync(path,`# Phase ${id}: Repair value\n\n**Added by ${s.kind==='test_audit'?'test':'delivery'} audit:** ${s.activityId}\n\n## Acceptance criteria covered\n${c.label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');}
   s=status();writeFileSync('.proof/request.json',JSON.stringify({executionId:s.executionId,activityId:s.activityId,revision:s.revision,testPaths:[],evidencePaths:[]}));invoke(['snapshot','.proof/request.json']);checked=status().currentSnapshot;
  }
  const testing=s.kind==='test_audit';
@@ -30,8 +31,9 @@ export async function auditReportFixture({prompt,sessionId,transcriptPath,toolCa
  execFileSync(process.execPath,[driver,'write-report'],{encoding:'utf8'});
  const report=JSON.parse(readFileSync(s.requiredReportPath,'utf8'));
  if(behavior.blocked){report.outcome='blocked';report.blockers=[{id:'permission',criterionKeys:[c.key],problem:'Required evidence is unavailable.',requiredAction:'Restore the named evidence.'}];report.criteria[0].blockerIds=['permission'];writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
- if(behavior.gap){report.outcome='completion_phases';report.criteria[0].deliveryStatus='not_implemented';report.criteria[0].findings=[{partIds:['value'],missing:'Return the required value.',evidenceIds:[]}];report.completionPhases=checked.plan.filter(p=>!initial.plan.some(old=>old.id===p.id)).map(p=>({id:p.id,path:p.file,originKind:s.kind,originActivityId:s.activityId,criterionKeys:[c.key],missingBehavior:'Return the required value.',dependencies:[]}));writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
- command(`git add -- ${s.requiredReportPath}${behavior.gap?' '+report.completionPhases.map(p=>p.path).join(' '):''}${testing?' '+directory+'/test-audit.md':''}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
+ if(behavior.gap){report.outcome='completion_phases';if(testing)report.criteria[0].testAssessment={status:'not_implemented'};else report.criteria[0].deliveryStatus='not_implemented';report.criteria[0].findings=[{partIds:['value'],missing:'Return the required value.',evidenceIds:[]}];report.completionPhases=checked.plan.filter(p=>!initial.plan.some(old=>old.id===p.id)).map(p=>({id:p.id,path:p.file,originKind:s.kind,originActivityId:s.activityId,criterionKeys:[c.key],missingBehavior:'Return the required value.',dependencies:[]}));writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
+ if(behavior.continueTest){report.outcome='continue_test';report.criteria[0].testAssessment={grade:'weak'};report.criteria[0].findings=[{partIds:['value'],missing:behavior.findingText??'The remaining value edge needs assertion coverage.',evidenceIds:[]}];report.nextTestBatch={criterionKeys:[c.key],recordPath:directory+'/test-audit.md',nextBatch:'Add the remaining value edge assertion.'};writeFileSync(directory+'/test-audit.md','# Test audit\n'+report.nextTestBatch.nextBatch+'\n');writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');}
+ command(`git add -- ${s.requiredReportPath}${behavior.gap?' '+report.completionPhases.map(p=>p.path).join(' '):''}${testing?' '+directory+'/test-audit.md':''}${behavior.directFix?' '+codePath:''}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
  if(behavior.beforeSubmitFile){writeFileSync(behavior.beforeSubmitFile,'ready');while(!readFileSync(behavior.beforeSubmitFile,'utf8').includes('continue'))await new Promise(r=>setTimeout(r,20));}
  if(!behavior.skipSubmit){const id=toolCall('Bash',{command:pinned+' audit submit .proof/request.json'});try{toolResult(id,execFileSync(process.execPath,[driver,'submit'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}catch(error){toolResult(id,String(error.stdout)+String(error.stderr),true);}}
 }

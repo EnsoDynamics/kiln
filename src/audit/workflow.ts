@@ -46,7 +46,7 @@ export function observeActivity(record: PrdRecord, stateDirectory: string, key: 
   history.push(activity); return activity;
 }
 /** Reused by every completion entry point and again after repository finalization. */
-export async function auditNext(context: AdmissionContext): Promise<AuditKind | "final_delivery"> {
+export async function auditNext(context: AdmissionContext): Promise<AuditKind | "continue_test" | "final_delivery"> {
   const state = context.record.completionAudits;
   if (!state) throw new AuditRefusal("missing_evidence", "Completion audit policy is missing; reopen with a compatible Kiln.");
   if (state.policy === "legacy_complete" && context.record.completedAt) return "final_delivery";
@@ -58,10 +58,12 @@ export async function auditNext(context: AdmissionContext): Promise<AuditKind | 
   const tests = state.activities.findLast(a => a.kind === "test_audit");
   if (!tests || tests.sequence < delivery.sequence) return "test_audit";
   const testAccepted = acceptedAudit(context.stateDirectory, tests);
-  if (!testAccepted || testAccepted.report.outcome !== "passed" || !context.record.phases[auditKey(tests)]?.doneAt) return "test_audit";
+  if (!testAccepted || !context.record.phases[auditKey(tests)]?.doneAt) return "test_audit";
   const current = await auditCurrentness(context, tests);
   if (!current.deliveryCurrent) return "delivery_audit";
-  return current.testsCurrent ? "final_delivery" : "test_audit";
+  if (!current.testsCurrent) return "test_audit";
+  if (testAccepted.report.outcome === "continue_test") return "continue_test";
+  return testAccepted.report.outcome === "passed" ? "final_delivery" : "test_audit";
 }
 /** Discover enabled skills at the launch directory; ambiguity is a visible refusal. */
 export async function resolveAuditSkill(options: { kind: AuditKind; agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<AuditActivity["skill"]> {

@@ -59,6 +59,100 @@ describe("automatic completion activities", () => {
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
     expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
   });
+  it("continues test-only work in a fresh conversation in the same round and retains both immutable records", async () => {
+    const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
+    const activities = h.engine.record.completionAudits!.activities;
+    expect(activities.map(a => [a.kind, a.round, a.continuationIndex])).toEqual([["delivery_audit",1,1],["test_audit",1,1],["test_audit",1,2]]);
+    expect(new Set(activities.flatMap(a => a.sessionIds)).size).toBe(3);
+    expect(activities.every(a => a.acceptedResult && h.engine.record.phases[auditKey(a)]?.doneAt)).toBe(true);
+    expect(h.claudeCalls()[2]!.prompt).toContain('Add the remaining value edge assertion.');
+    expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => a.file)).toEqual(["Round 1", "Round 1 · Continuation 2"]);
+    expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
+    const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
+    expect(h.claudeCalls()).toHaveLength(4);
+  });
+
+  it.each([undefined, "Reworded missing assertion, with no changed evidence."])("stops unfinished test work without substantive progress (%s)", async findingText => {
+    const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ continueTest: true, findingText })]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const activities = h.engine.record.completionAudits!.activities; const last = activities.at(-1)!;
+    expect(activities.map(a => a.continuationIndex)).toEqual([1,1,2]);
+    expect(last.acceptedResult).toBeUndefined(); expect(h.engine.record.completedAt).toBeUndefined();
+    expect(h.engine.record.phases[auditKey(last)]!.stop!.checks.flatMap(c => c.facts).join(" ")).toContain("no recorded progress");
+    await h.engine.checkAgain(); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(3);
+  });
+
+  it.each(["completion phase", "direct fix"])("returns a test-discovered %s through delivery and whole-test reassessment", async mode => {
+    const h = await fixture([auditSession(), auditSession(mode === "direct fix" ? { directFix: true } : { gap: true }), auditSession(), auditSession()], mode === "direct fix" ? [pullRequestSession()] : [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
+    expect(h.engine.record.completionAudits!.activities.map(a => [a.kind,a.round])).toEqual([["delivery_audit",1],["test_audit",1],["delivery_audit",2],["test_audit",2]]);
+    const calls = h.claudeCalls(); const lastTest = calls.findLast(c => c.prompt.startsWith("Run Test audit"))!;
+    expect(lastTest.prompt).toContain('"kind": "test_audit"');
+    expect(lastTest.prompt).toContain('"kind": "delivery_audit"');
+    expect(readFileSync(join(h.engine.worktreePath,directory,"phase-1-value.md"),"utf8")).toBe(files["phase-1-value.md"]);
+    expect(buildSnapshot(h.engine).feature.phasesTotal).toBe(mode === "direct fix" ? 1 : 2);
+  });
+
+  it("persists the pending continuation across a boundary pause and restart without a duplicate activity", async () => {
+    const h = await fixture([auditSession(),auditSession({ continueTest:true }),auditSession()]); let requested=false;
+    const off=h.engine.onChange(()=>{if(!requested&&h.engine.current?.session?.kind==="test_audit"){requested=true;h.engine.pause();}});
+    await h.engine.start({refinementConfirmed:true});await h.engine.settled();off();
+    const pending=h.engine.record.completionAudits!.activities.at(-1)!;
+    expect(pending).toMatchObject({kind:"test_audit",round:1,continuationIndex:2,sessionIds:[]});
+    expect(h.engine.record.nextActivityKey).toBe(auditKey(pending));expect(h.claudeCalls()).toHaveLength(2);
+    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();
+    server=await startLocalServer({engine:again,port,folderName:"proof",featureName:"Audit value",token:again.record.token});
+    expect((await again.decide()).kind).toBe("paused");await again.start();await again.settled();
+    expect(again.record.completedAt,JSON.stringify(again.record.phases)).toBeTruthy();expect(again.record.completionAudits!.activities).toHaveLength(3);
+    expect(again.record.completionAudits!.activities.at(-1)!.activityId).toBe(pending.activityId);
+  });
+
+  it("shows and opens the fresh test continuation in the real browser", async () => {
+    const h=await fixture();const marker=join(h.sandbox.root,"test-continuation-ready");
+    writeFileSync(h.scenarioPath,JSON.stringify({sessions:[pullRequestSession()],auditSessions:[auditSession(),auditSession({continueTest:true}),auditSession({beforeSubmitFile:marker})]}));
+    const chrome=await launchChrome();
+    try {
+      await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker));
+      const activity=h.engine.record.completionAudits!.activities.at(-1)!;const key=auditKey(activity);
+      expect(activity).toMatchObject({round:1,continuationIndex:2});
+      const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
+      expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Test audit");
+      await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
+      await page.waitFor(`document.body.innerText.includes('Continuation 2') && document.body.innerText.includes('Pause after this audit')`);
+      expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
+      writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
+      await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
+      await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);await page.waitFor(`document.body.innerText.includes('Outcome: passed')`);
+      expect(page.problems).toEqual([]);
+    } finally {writeFileSync(marker,"continue");await chrome.close();}
+  });
+
+  it.each(["open PR", "already merged"])("keeps existing %s evidence behind audits at startup, Check again and Resume", async existing => {
+    const h=await fixture([auditSession({noReport:true}),auditSession(),auditSession()]);
+    const branch=h.engine.record.settings.featureBranch;
+    if(existing==="open PR")h.setPulls([{repo:"acme/acme-shop",number:7,title:"Existing review",url:"https://github.com/acme/acme-shop/pull/7",headRefName:branch,baseRefName:"develop",isDraft:false,isCrossRepository:false,additions:1,deletions:0,commits:[]}]);
+    let integrated="";
+    const off=h.engine.onChange(()=>{
+      if(existing!=="already merged"||!h.engine.record.setupCompletedAt)return;
+      const sha=git(h.sandbox,h.engine.worktreePath,"rev-parse","HEAD").trim();
+      if(sha!==integrated){git(h.sandbox,h.engine.worktreePath,"push","origin",`${branch}:develop`);integrated=sha;}
+    });
+    try {
+      await h.engine.start({refinementConfirmed:true});await h.engine.settled();
+      expect(h.engine.record.completedAt).toBeUndefined();expect(h.claudeCalls()).toHaveLength(1);
+      expect(await h.engine.checkAgain()).toEqual({ok:true});await h.engine.settled();
+      expect(h.engine.record.completedAt).toBeUndefined();expect(h.claudeCalls()).toHaveLength(1);
+      expect(await h.engine.resume()).toEqual({ok:true});await h.engine.settled();
+      expect(h.engine.record.completedAt,JSON.stringify(h.engine.record.phases)).toBeTruthy();
+      expect(h.engine.record.completionAudits!.activities.map(a=>a.kind)).toEqual(["delivery_audit","test_audit"]);
+      expect(h.claudeCalls()).toHaveLength(3);expect(h.claudeCalls().some(c=>c.prompt.includes("Open one pull request"))).toBe(false);
+      if(existing==="open PR")expect(h.engine.record.pullRequests?.[0]?.number).toBe(7);
+    } finally {off();}
+  });
+
   it("stops a normal audit exit without a report and keeps its identity for Check again", async () => {
     const h = await fixture([auditSession({ noReport: true })]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();

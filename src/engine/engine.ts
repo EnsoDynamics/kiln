@@ -136,7 +136,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
-  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
+  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
   | {
       kind: "phase";
@@ -1539,7 +1539,7 @@ export class Engine {
       }
       kind = await auditNext(this.admissionContext());
       if (kind === "final_delivery") { this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" }; }
-      const activity = await this.allocateAudit(kind);
+      const activity = await this.allocateAudit(kind === "continue_test" ? "test_audit" : kind, kind === "continue_test");
       return { kind: "audit", key: auditKey(activity), activity };
     } catch (error) {
       const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
@@ -1548,20 +1548,24 @@ export class Engine {
     }
   }
 
-  private async allocateAudit(kind: AuditKind): Promise<AuditActivity> {
+  private async allocateAudit(kind: AuditKind, continuation = false): Promise<AuditActivity> {
     const skill = await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
     try {
       const state = this.record.completionAudits!;
+      const predecessor = continuation ? state.activities.findLast(a => a.kind === "test_audit") : undefined;
+      if (continuation && (!predecessor || acceptedAudit(this.stateDirectory, predecessor)?.report.outcome !== "continue_test" || !this.record.phases[auditKey(predecessor)]?.doneAt)) throw new Error("A test continuation requires its settled accepted predecessor.");
       const id = randomUUID(); const at = this.now().toISOString();
       const observed = observeActivity(this.record, this.stateDirectory, `audit-${id}`, kind, at, id);
-      const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, skill, snapshots: [], attempts: [] };
+      const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: predecessor?.round ?? Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: predecessor ? predecessor.continuationIndex + 1 : 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, skill, snapshots: [], attempts: [] };
       state.activities.push(activity); this.record.nextActivityKey = auditKey(activity);
       this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
       const context = this.admissionContext();
       const initial = await captureSnapshot({ ...context, activity, evidence: [], now: at }, [], []);
-      activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial)); state.revision++;
+      activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial));
+      if (predecessor) assignAuditObligations(this.deliveryContext(auditKey(activity)), predecessor.activityId, { kind: "audit", activityId: activity.activityId }, acceptedAudit(this.stateDirectory, predecessor)!.report.nextTestBatch!.criterionKeys);
+      state.revision++;
       this.save(); return activity;
     } catch (error) { for (const key of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[key]; Object.assign(this.record, before); throw error; }
     finally { this.activeCheck = undefined; }
@@ -1577,12 +1581,15 @@ export class Engine {
   }
 
   auditPrompt(activity: AuditActivity): string {
-    const previous = this.record.completionAudits!.activities.filter(a => a.activityId !== activity.activityId && a.acceptedResult).at(-1);
-    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: activity.skill.name, skillPath: activity.skill.path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous ? { previous: acceptedAudit(this.stateDirectory, previous)!.result.reportBytes } : {}) });
+    // Include the latest test record even when a delivery reassessment intervened.
+    // Grades remain history: this activity independently reassesses all current rows.
+    const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && a.acceptedResult);
+    const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: activity.skill.name, skillPath: activity.skill.path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => acceptedAudit(this.stateDirectory, a)!.result.reportBytes).join("\n\n") } : {}) });
   }
 
   private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
-    this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: auditLabel(activity.kind), round: activity.round, event, ...(limit ? { limit } : {}) });
+    this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: auditLabel(activity.kind), round: activity.round, continuationIndex: activity.continuationIndex, event, ...(limit ? { limit } : {}) });
   }
 
   private async auditDoneCheck(key: string): Promise<DoneCheckOutcome> {
@@ -1625,7 +1632,7 @@ export class Engine {
     try {
       const next = await auditNext(this.admissionContext());
       if (next === "final_delivery" && !nextLeaf(this.plan!)) return;
-      outcome.checks.push({ name: "Current completion audits", passed: false, facts: [`${next === "final_delivery" ? "Implementation" : auditLabel(next)} is required before final completion.`] });
+      outcome.checks.push({ name: "Current completion audits", passed: false, facts: [`${next === "final_delivery" ? "Implementation" : auditLabel(next === "continue_test" ? "test_audit" : next)} is required before final completion.`] });
     } catch (error) { outcome.checks.push({ name: "Current completion audits", passed: false, facts: [(error as Error).message] }); }
     outcome.passed = false;
   }

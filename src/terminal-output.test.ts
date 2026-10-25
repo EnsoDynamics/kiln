@@ -185,6 +185,7 @@ describe("audit activity terminal names", () => {
       const event={kind:"audit" as const,at,activityId:"opaque-audit-id",label,round:2};
       const started=formatTerminalEvent({...event,event:"started"},record,plain);
       expect(started).toContain(`${label} · Round 2`);expect(started).toContain("started");
+      expect(formatTerminalEvent({...event,continuationIndex:3,event:"started"},record,plain)).toContain(`${label} · Round 2 · Continuation 3`);
       expect(started).not.toContain("opaque-audit-id");expect(started).not.toContain("Phase");
       expect(formatTerminalEvent({...event,event:"waiting",limit:{label:"Weekly"}},record,plain)).toContain("waiting · Weekly");
       expect(formatTerminalEvent({...event,event:"done"},record,plain)).toContain("Audit result recorded");

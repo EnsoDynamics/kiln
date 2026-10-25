@@ -15,7 +15,7 @@ else if(action==='write-report'){
  const code={repository:snap.requirements.repository,path:codePath,blob:snap.repositories[0].files[codePath].blob};
  const test={repository:snap.requirements.repository,path:testPath,blob:snap.repositories[0].files[testPath].blob};
  const owningSession=skill.sessionId;
- const runs=s.evidence.filter(e=>e.sessionId===owningSession&&e.conversationId===skill.conversationId&&e.kind==='command'&&e.command.invocation===`node ${testPath}`);
+ const runs=s.evidence.filter(e=>e.sessionId===owningSession&&e.conversationId===skill.conversationId&&e.kind==='command'&&e.command.invocation===`node ${testPath}`&&e.command.startedAt>=snap.createdAt);
  const green=runs.filter(e=>e.command.outcome==='success');const red=runs.filter(e=>e.command.outcome==='error');
  const mutations=s.evidence.filter(e=>e.sessionId===owningSession&&e.conversationId===skill.conversationId&&e.kind==='mutation'&&e.mutation.paths.some(p=>p.endsWith('/value.mjs')));
  const tests=s.kind==='test_audit';

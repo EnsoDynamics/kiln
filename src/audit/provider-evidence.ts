@@ -31,6 +31,34 @@ function assessment(task: string, response: string, linkedOpaqueTask = false): E
   return { task, response, snapshotId: raw.snapshotId, criterionKeys: raw.criterionKeys as string[], partIds: raw.partIds as string[], purpose: raw.purpose as NonNullable<EvidenceEntry["assessment"]>["purpose"], testPaths: raw.testPaths as NonNullable<EvidenceEntry["assessment"]>["testPaths"], ...(Array.isArray(raw.configurationFiles) ? { configurationFiles: raw.configurationFiles as FileReference[] } : {}), ...(Array.isArray(raw.verificationEvidenceIds) && raw.verificationEvidenceIds.every(id => typeof id === "string") ? { verificationEvidenceIds: raw.verificationEvidenceIds as string[] } : {}) };
 }
 
+/** Resolve only authoritative acknowledgements. Empty follow-up acknowledgements must
+ * retain the receiver established by this parent's earlier successful spawn. */
+export function codexDelegationReceiver(rows: { type: string; payload: Json }[], call: { payload: Json }, ownedTurns: Set<string>): string | undefined {
+  const index = rows.findIndex(r => r.payload === call.payload);
+  const output = rows.find(o => o.type === "response_item" && o.payload.type === "function_call_output" && o.payload.call_id === call.payload.call_id);
+  if (!output) return undefined;
+  const raw = output.payload.output;
+  if (raw !== "") {
+    if (typeof raw !== "string") return undefined;
+    const receiver = object(strictJson(raw))?.task_name;
+    return typeof receiver === "string" ? receiver : undefined;
+  }
+  if (!["followup_task", "send_message"].includes(String(call.payload.name))) return undefined;
+  const target = object(strictJson(String(call.payload.arguments)))?.target;
+  if (typeof target !== "string") return undefined;
+  const receivers = new Set<string>();
+  for (const prior of rows.slice(0, index)) {
+    if (prior.type !== "response_item" || prior.payload.type !== "function_call" || prior.payload.namespace !== "collaboration" || prior.payload.name !== "spawn_agent" || !ownedTurns.has(String(object(prior.payload.internal_chat_message_metadata_passthrough)?.turn_id))) continue;
+    const args = object(strictJson(String(prior.payload.arguments)));
+    const result = rows.slice(0, index).find(o => o.type === "response_item" && o.payload.type === "function_call_output" && o.payload.call_id === prior.payload.call_id);
+    if (!result || typeof result.payload.output !== "string" || !result.payload.output) continue;
+    const receiver = object(strictJson(result.payload.output))?.task_name;
+    if (typeof receiver === "string" && (args?.task_name === target || receiver === target)) receivers.add(receiver);
+  }
+  requireAudit(receivers.size <= 1, "Ambiguous Codex follow-up receiver.", "missing_evidence");
+  return [...receivers][0];
+}
+
 export async function collectProviderEvidence(context: ProviderEvidenceContext): Promise<EvidenceEntry[]> {
   const { session, activity, signal } = context; const store = new AuditStore(context.stateDirectory);
   const result: EvidenceEntry[] = []; const capturedAt = new Date().toISOString();
@@ -78,8 +106,7 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
             if (r.type !== "response_item" || r.payload.type !== "function_call" || r.payload.namespace !== "collaboration" || !["spawn_agent", "followup_task", "send_message"].includes(String(r.payload.name))) return false;
             const args = object(JSON.parse(String(r.payload.arguments)));
             const callTurn = object(r.payload.internal_chat_message_metadata_passthrough)?.turn_id;
-            const output = parentRows.find(o => o.type === "response_item" && o.payload.type === "function_call_output" && o.payload.call_id === r.payload.call_id);
-            const receiver = output && object(JSON.parse(String(output.payload.output)))?.task_name;
+            const receiver = codexDelegationReceiver(parentRows, r, parentTurns);
             return parentTurns.has(String(callTurn)) && typeof childPath === "string" && receiver === childPath && typeof encrypted === "string" && args?.message === encrypted;
           });
           if (call) { task = JSON.stringify({ parentThreadId: frontier.parentThreadId, callId: call.payload.call_id, arguments: call.payload.arguments }); taskTurn = turn; linkedOpaqueTask = true; }

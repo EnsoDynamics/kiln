@@ -115,7 +115,7 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
         }
         if (["waiting_human", "person_checked"].includes(status ?? "")) {
           const action = report.pendingHumanActions.find(a => a.id === part.humanActionId && a.criterionKey === row.criterionKey); requireAudit(action, `Part ${part.id} has no recorded human evidence/action.`);
-          if (status === "person_checked") { requireAudit(action.result, "Person-checked evidence needs a recorded result."); file(action.result); }
+          if (status === "person_checked") { requireAudit(action.result || action.beyondDelivery, "Person-checked evidence needs a recorded result unless the requirement places the action after delivery."); if (action.result) file(action.result); }
           else if (!action.beyondDelivery) unresolved = true;
         }
         if (status === "not_built_yet") { requireAudit(current.plan.some(p => p.id === part.openPhaseId && !p.closed), `Part ${part.id} has no owning open phase.`); gaps.add(row.criterionKey); }
@@ -194,7 +194,7 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
   if (report.outcome === "completion_phases") requireAudit(report.completionPhases.length && [...gaps].every(key => report.completionPhases.some(p => p.criterionKeys.includes(key))), "Every implementation gap must route to a matching completion phase.");
   if (report.outcome === "continue_test") requireAudit(activity.kind === "test_audit" && report.nextTestBatch && strings(report.nextTestBatch.criterionKeys) && report.nextTestBatch.criterionKeys.length && report.nextTestBatch.criterionKeys.every(k => keys.includes(k)) && report.nextTestBatch.recordPath === `${record.prdDirectory}/test-audit.md` && nonempty(report.nextTestBatch.nextBatch) && !gaps.size && !open.length, "Test continuation needs a saved actionable test-only batch.");
   if (report.nextTestBatch) {
-    requireAudit(report.outcome === "continue_test" && report.nextTestBatch.criterionKeys.every(k => failingTestKeys.has(k)), "Next batch must name remaining Missing/Weak criteria.");
+    requireAudit(report.outcome === "continue_test" && new Set(report.nextTestBatch.criterionKeys).size === report.nextTestBatch.criterionKeys.length && hashValue([...report.nextTestBatch.criterionKeys].sort()) === hashValue([...failingTestKeys].sort()), "Next batch must name remaining Missing/Weak criteria.");
     const path = report.nextTestBatch.recordPath;
     const recordFile = current.repositories.find(r => r.repository === record.repository.name)?.files[path];
     requireAudit(recordFile && readFileSync(assignedPath(repositoryFor(record, record.repository.name), path), "utf8").includes(report.nextTestBatch.nextBatch), "Test continuation record is missing or disagrees with its next batch.", "missing_evidence");

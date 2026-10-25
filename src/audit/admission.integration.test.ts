@@ -172,8 +172,8 @@ describe("audit evidence admission", () => {
 });
 
 /** Actual Node executions support the deterministic transcript boundary fixture. */
-async function testAuditFixture() {
-  const f = await fixture("test_audit");
+async function testAuditFixture(source?: string) {
+  const f = await fixture("test_audit", source ? { source } : {});
   writeFileSync(join(f.root, `${directory}/test-audit.md`), "# Test audit\nAC-PROOF-01: Strong; two assertion failures then restored pass.\n");
   const run = async (id: string) => {
     const at = new Date().toISOString(); let output: string; let failed = false;
@@ -205,6 +205,32 @@ describe("typed test-audit evidence", () => {
     expect(result.checks.filter(c => !c.passed)).toEqual([]); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("final_delivery");
     writeFileSync(join(f.root, `${directory}/test-audit.md`), "Changed accepted method record"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
     await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "stale_snapshot" });
+  });
+  it.each(["omitted", "duplicated", "complete"])("accounts for every remaining Weak criterion in a continuation (%s)", async mode => {
+    const f=await testAuditFixture(prd+"- [ ] **AC-PROOF-02 — Check another call.** The next function call also returns 42.\n");
+    const sources=f.checked.requirements.criteria;const keys=sources.map(c=>c.key);const row=f.report.criteria[0]!;
+    row.testAssessment={grade:"weak"};row.findings=[{partIds:["value"],missing:"An assertion is still needed.",evidenceIds:[]}];
+    const second=structuredClone(row);second.criterionKey=keys[1]!;second.parts[0]!.id="next-call";second.parts[0]!.quote=sources[1]!.content;second.parts[0]!.startLine=sources[1]!.startLine;second.parts[0]!.endLine=sources[1]!.endLine;second.findings[0]!.partIds=["next-call"];
+    f.report.criteria.push(second);f.report.scope.criterionKeys=keys;
+    const runs=f.report.methodEvidence.baselineRunEvidenceIds!.concat(f.report.methodEvidence.finalRunEvidenceIds!,f.report.methodEvidence.redChecks![0]!.failingRunEvidenceIds);
+    const scope={criterionKeys:keys,partIds:["value","next-call"]};
+    for(const purpose of ["assessment","review","regrade"] as const)f.assess(purpose,"batch-"+purpose,runs,scope);
+    const evidence=await refreshAuditEvidence(f.context);const id=(purpose:string)=>evidence.find(e=>e.locator==="batch-"+purpose)!.evidenceId;
+    f.report.methodEvidence.assessmentEvidenceIds=[id("assessment")];f.report.methodEvidence.reviewEvidenceIds=[id("review")];f.report.methodEvidence.regradeEvidenceIds=[id("regrade")];f.report.criteria.forEach(r=>r.assessmentEvidenceIds=[id("assessment")]);
+    const nextBatch="Add assertions for both remaining call cases.";f.report.outcome="continue_test";f.report.nextTestBatch={criterionKeys:mode==="omitted"?[keys[0]!]:mode==="duplicated"?[...keys,keys[0]!]:keys,recordPath:`${directory}/test-audit.md`,nextBatch};
+    writeFileSync(join(f.root,`${directory}/test-audit.md`),"# Test audit\n"+nextBatch+"\n");commit(f.sandbox,f.root,[`${directory}/test-audit.md`]);f.saveReport();
+    const result=await submitAudit(f.context,{...f.body(),reportPath:f.activity.reportPath});
+    expect(result.disposition,result.refusal?.reason).toBe(mode==="complete"?"recorded":"unresolved");
+    if(mode!=="complete")expect(result.refusal?.reason).toContain("Next batch must name remaining Missing/Weak criteria");
+  });
+  it.each([true, false])("permits a pending human action only beyond the delivery boundary (%s)", async beyondDelivery => {
+    const f = await testAuditFixture(prd + "  - Production release is a separate human action after Kiln delivery.\n"); const row = f.report.criteria[0]!;
+    row.testAssessment = { status: "person_checked" }; row.parts[0]!.humanActionId = "later-release";
+    f.report.pendingHumanActions = [{ id: "later-release", criterionKey: row.criterionKey, action: "Perform the separately authorized later release.", requirementQuote: "Production release is a separate human action after Kiln delivery.", beyondDelivery }];
+    f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe(beyondDelivery ? "recorded" : "unresolved");
+    if (beyondDelivery) expect(result.nextAction).toBe("final_delivery");
+    else expect(result.checks.some(c => !c.passed)).toBe(true);
   });
   it.each(["missing red checks", "missing regrade", "wrong runtime", "reused red run", "unrelated final command", "mutation after passing run"])("refuses %s", async mode => {
     const f = await testAuditFixture();

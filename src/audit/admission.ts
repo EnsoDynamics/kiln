@@ -160,7 +160,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
       const previous = state.activities.filter(a => a.kind === "test_audit" && a.round === activity.round && a.continuationIndex < activity.continuationIndex).at(-1);
       if (previous?.acceptedResult) {
         const previousReport = JSON.parse(store.read<AuditResult>(previous.acceptedResult).reportBytes) as typeof validated.report;
-        const progress = (report: typeof validated.report) => report.criteria.map(row => ({ key: row.criterionKey, testAssessment: row.testAssessment, code: row.parts.flatMap(p => p.code).map(f => `${f.repository}:${f.path}:${f.blob}`).sort(), tests: row.parts.flatMap(p => p.tests).map(t => `${t.file.repository}:${t.file.path}:${t.file.blob}:${t.selector}`).sort() })).sort((a, b) => a.key.localeCompare(b.key));
+        const progress = (report: typeof validated.report) => report.criteria.map(row => ({ key: row.criterionKey, testAssessment: row.testAssessment, uncoveredParts: row.parts.filter(p => row.findings.some(f => f.partIds.includes(p.id))).map(p => `${p.startLine}:${p.endLine}:${p.quote}`).sort(), code: row.parts.flatMap(p => p.code).map(f => `${f.repository}:${f.path}:${f.blob}`).sort(), tests: row.parts.flatMap(p => p.tests).map(t => `${t.file.repository}:${t.file.path}:${t.file.blob}:${t.selector}`).sort() })).sort((a, b) => a.key.localeCompare(b.key));
         requireAudit(hashValue(progress(previousReport)) !== hashValue(progress(validated.report)), "Test continuation made no recorded progress.");
       }
     }
