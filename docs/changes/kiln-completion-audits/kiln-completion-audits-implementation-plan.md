@@ -14,6 +14,7 @@ Implement one phase at a time, in this order. Each linked document is one implem
 | [1 Audit evidence interface](phase-1-audit-evidence-interface.md) | Accept or refuse whole-PRD audit reports through the packaged CLI and local server, using retained provider evidence and current repository content. | None |
 | [2 Automatic delivery-audit cycles](phase-2-delivery-audit-cycles.md) | Split into 2a audit development delivery and 2b automatic cycles/progress. | 1 (report admission, snapshots, evidence catalog and durable audit records) |
 | [3 Automatic test remediation](phase-3-test-audit-remediation.md) | Continue test remediation automatically and return test-discovered implementation changes through delivery audits before allowing final completion. | 1 (typed test reports and evidence/currentness checks); 2 (activity dispatch, repair loop, recovery, progress and development obligations) |
+| [4 Show remaining human actions at completion](phase-4-completion-human-actions.md) | Added by delivery audit: disclose allowed remaining human actions on the completed-execution screen. | 3 (permitted human-action conclusions); 2b (completion activity projection and screen) |
 
 ## Sizing and independently verifiable boundaries
 
@@ -70,3 +71,21 @@ Each phase runs appropriate focused checks while iterating and full repository v
 ## Phase 2 sizing update
 
 Phase 2 now has two leaves; its split record owns their ordering and dependencies. Criterion AC-RUN-05 is owned by 2a; the other Phase 2 criteria are owned by 2b. Original Phases 1 and 3 and all PRD criteria remain unchanged. Phase 2a proves the development interface with assigned audit activities; Phase 2b proves the full automatic workflow, both actual providers and browser progress.
+
+## Whole-PRD delivery audit — 2026-10-25
+
+**Checked baseline:** `03a5f16e9bddb298ec99430455b8fe9205771219`, clean assigned worktree. All original planned leaves (1, 2a, 2b, 3) were closed. Scope was all 19 current PRD criteria; none is superseded or excluded. Three independent assessors derived required behavior from the governing requirements before tracing production entry points. Phase 3's closing handoff, verification record and retained provider proof were read as context, not substitutes for code tracing.
+
+**Result:** 18 Implemented; AC-TEST-04 Partly implemented. The confirmed missing part and conflict-check evidence live in [Phase 4](phase-4-completion-human-actions.md#what-the-audit-found-missing). No criterion was classified as Changed outside the requirements, Waiting on a human action or Not built yet at this baseline. Original ownership and Closed lines remain unchanged.
+
+| Criteria checked | Reachable production path | Status at baseline |
+|---|---|---|
+| AC-AUDIT-01, AC-AUDIT-04, AC-LOOP-02, AC-LOOP-03 | `Engine.decideQuietly` / `drive` / recovery → `nextActivity` → `auditNext`; normal phase sessions and repeated delivery/test gates; `pullRequestCheck` → `requireCurrentAudits`. | Implemented |
+| AC-AUDIT-02, AC-AUDIT-03, AC-LOOP-01, AC-LOOP-04 | Packaged audit CLI → authenticated local server → serialized `Engine.auditCommand` → `submitAudit` / `validateReport`; whole-manifest source/evidence checks, append-only completion phases, immutable `AuditStore` records and concrete stopped checks. | Implemented |
+| AC-TEST-01, AC-TEST-02, AC-TEST-03 | `auditNext` → `allocateAudit` / `auditPrompt` / provider launch; `validateReport` observed runs/red checks/re-grading and exact remaining batches; `submitAudit` progress checks; repairs/source changes return through delivery currentness. | Implemented |
+| AC-TEST-04 | `validateReport` / `submitAudit` / final currentness gates and `activityViews` → audit detail; completion-screen disclosure remains Phase 4's gap. | Partly implemented |
+| AC-RUN-01, AC-RUN-07 | `activityHistory` / `activityViews` → familiar browser rows/detail and terminal audit events; serialized `drive` proceeds directly after each successful activity. | Implemented |
+| AC-RUN-02, AC-RUN-04, AC-RUN-06 | Persisted allocation/session identity, completion-first recovery and boundary pauses; `resolveAuditSkill` and both provider launch/history collectors; `migrateRecord` / legacy-complete reconciliation. | Implemented |
+| AC-RUN-03, AC-RUN-05 | `captureSnapshot` / `compareSnapshots` / `auditCurrentness`; audit-owned development commands, `assignAuditObligations`, `ownerDeliveryCheck` and final `evaluateRepositories`. | Implemented |
+
+This audit changes documents only. It neither implements the finding nor grades test evidence; no application suites were rerun. Next: implement the sole completion phase in a fresh chat, then run whole-PRD `test-audit`, retaining Phase 3's verification/environment record and the inherited publication hold. The local audit commit records completion of this audit, not completion of the PRD.
