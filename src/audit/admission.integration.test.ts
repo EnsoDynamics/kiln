@@ -24,10 +24,15 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(f => f())); });
 const directory = "docs/prds/proof";
 const prd = "# PRD: Audit proof\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return the value.** The function returns 42.\n  - The exported function is reachable.\n";
-async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit", options: { source?: string; companion?: boolean } = {}) {
+async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit", options: { source?: string; companion?: boolean; openPhase?: boolean } = {}) {
   const sandbox = createSandbox(); cleanups.push(() => sandbox.cleanup());
   const origin = createBareOrigin(sandbox, "proof"); const root = createRepository(sandbox, "proof", origin);
   commitFiles(sandbox, root, directory, { "proof-prd.md": options.source ?? prd, "technical-design.md": "# Design\nExport value from value.mjs.\n", "phase-1-value.md": "# Phase 1: Return value\n\n**Closed:** 2026-10-24\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n" });
+  if (options.openPhase) {
+    const path = join(root, directory, "phase-1-value.md");
+    writeFileSync(path, readFileSync(path, "utf8").replace("**Closed:** 2026-10-24\n", ""));
+    commit(sandbox, root, [`${directory}/phase-1-value.md`]);
+  }
   writeFileSync(join(root, "value.mjs"), "export const value = () => 42;\n");
   writeFileSync(join(root, "value.test.mjs"), "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
   writeFileSync(join(root, "package.json"), '{"type":"module","scripts":{"test":"node value.test.mjs"}}');
@@ -172,8 +177,8 @@ describe("audit evidence admission", () => {
 });
 
 /** Actual Node executions support the deterministic transcript boundary fixture. */
-async function testAuditFixture(source?: string) {
-  const f = await fixture("test_audit", source ? { source } : {});
+async function testAuditFixture(source?: string, openPhase = false) {
+  const f = await fixture("test_audit", { ...(source ? { source } : {}), openPhase });
   writeFileSync(join(f.root, `${directory}/test-audit.md`), "# Test audit\nAC-PROOF-01: Strong; two assertion failures then restored pass.\n");
   const run = async (id: string) => {
     const at = new Date().toISOString(); let output: string; let failed = false;
@@ -200,6 +205,42 @@ async function testAuditFixture(source?: string) {
   return f;
 }
 describe("typed test-audit evidence", () => {
+  it.each(["missing", "weak", "unowned open phase", "owned open phase"])("refuses a passed test audit with unresolved work: %s (AC-TEST-04)", async mode => {
+    const f = await testAuditFixture(undefined, mode === "owned open phase");
+    const row = f.report.criteria[0]!;
+    if (mode === "missing" || mode === "weak") {
+      row.testAssessment = { grade: mode };
+      row.findings = [{ partIds: ["value"], missing: "Required assertion still absent.", evidenceIds: [] }];
+    } else {
+      row.testAssessment = { status: "not_built_yet" };
+      row.parts[0]!.openPhaseId = mode === "owned open phase" ? "1" : "99";
+    }
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe("unresolved");
+    expect(result.nextAction).toBe("needs_you");
+    expect(f.activity.acceptedResult).toBeUndefined();
+    expect(result.refusal?.reason).toContain(mode === "unowned open phase" ? "no owning open phase" : "passing audit still has unresolved work");
+  });
+
+  it.each(["parent regrader", "writer regrader", "missing affected part", "same reviewer"])("refuses non-independent or incomplete assessment: %s (AC-TEST-01)", async mode => {
+    const f = await testAuditFixture();
+    const evidence = await refreshAuditEvidence(f.context);
+    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
+    const context = { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence };
+    // Establish that the otherwise identical real-node red/restore evidence is admissible.
+    expect(validateReport(f.report, context).nextAction).toBe("final_delivery");
+    const regrade = evidence.find(entry => entry.evidenceId === f.report.methodEvidence.regradeEvidenceIds![0])!;
+    if (mode === "parent regrader") regrade.conversationId = evidence.find(entry => entry.kind === "skill")!.conversationId;
+    if (mode === "writer regrader") {
+      const writer = evidence.find(entry => entry.kind === "mutation")!;
+      writer.conversationId = "separate-writer"; regrade.conversationId = writer.conversationId;
+    }
+    if (mode === "missing affected part") regrade.assessment!.partIds = [];
+    if (mode === "same reviewer") evidence.find(entry => entry.evidenceId === f.report.methodEvidence.reviewEvidenceIds[0])!.conversationId = evidence.find(entry => entry.evidenceId === f.report.methodEvidence.assessmentEvidenceIds[0])!.conversationId;
+    expect(() => validateReport(f.report, context)).toThrow(mode === "missing affected part" ? "does not cover every potentially affected part" : mode === "same reviewer" ? "distinct assessor conversation" : "independent of its writer");
+  });
+
   it("admits actual failing mapped runs followed by restoration, passing suite and independent regrade", async () => {
     const f = await testAuditFixture(); f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
     expect(result.checks.filter(c => !c.passed)).toEqual([]); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("final_delivery");
@@ -249,6 +290,52 @@ describe("typed test-audit evidence", () => {
     f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath }); expect(result.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
     if (mode === "unrelated final command") expect(result.refusal?.reason).toContain("Final suite must rerun each baseline command");
     if (mode === "mutation after passing run") expect(result.refusal?.code).toBe("stale_snapshot");
+  });
+});
+
+describe("completion phase admission (AC-LOOP-01)", () => {
+  it.each(["valid", "original closure", "original scope", "foreign origin", "wrong audit kind", "missing origin marker", "missing criterion", "new criterion", "no implementation gap", "dependency mismatch", "forward dependency", "unreported phase"])("admits only matching append-only completion work: %s", async mode => {
+    const f = await fixture();
+    const phase = (id: string, dependencies: string) => `# Phase ${id}: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n${dependencies}\n`;
+    const second = `${directory}/phase-2-repair.md`; const third = `${directory}/phase-3-repair.md`;
+    writeFileSync(join(f.root, second), phase("2", "1")); writeFileSync(join(f.root, third), phase("3", "2"));
+    const paths = [second, third];
+    const row = f.report.criteria[0]!;
+    row.deliveryStatus = "partly_implemented";
+    row.findings = [{ partIds: ["value"], missing: "The existing required return value needs repair.", evidenceIds: [] }];
+    f.report.outcome = "completion_phases";
+    f.report.completionPhases = [{ id: "2", path: second, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Restore the required return value.", dependencies: ["1"] }, { id: "3", path: third, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Complete the same existing return-value requirement.", dependencies: ["2"] }];
+    let reason = "";
+    if (mode === "original closure" || mode === "original scope") {
+      const path = `${directory}/phase-1-value.md`; paths.push(path);
+      const text = readFileSync(join(f.root, path), "utf8");
+      writeFileSync(join(f.root, path), mode === "original closure" ? text.replace("**Closed:** 2026-10-24\n", "") : text.replace("AC-PROOF-01", "AC-PROOF-01\nAdded unrelated scope."));
+      reason = "changed original plan";
+    }
+    if (mode === "foreign origin") { f.report.completionPhases[0]!.originActivityId = "another-audit"; reason = "disagrees with the plan"; }
+    if (mode === "wrong audit kind") { f.report.completionPhases[0]!.originKind = "test_audit"; reason = "disagrees with the plan"; }
+    if (mode === "missing origin marker") { writeFileSync(join(f.root, second), phase("2", "1").replace("**Added by delivery audit:**", "Added by someone:")); reason = "lacks method origin"; }
+    if (mode === "missing criterion") { writeFileSync(join(f.root, second), phase("2", "1").replace("AC-PROOF-01", "No affected criterion named.")); reason = "lacks method origin"; }
+    if (mode === "new criterion") { f.report.completionPhases[0]!.criterionKeys = ["proof:new-scope#AC-NEW-01"]; reason = "disagrees with the plan"; }
+    if (mode === "no implementation gap") { row.deliveryStatus = "implemented"; row.findings = []; reason = "without implementation gaps"; }
+    if (mode === "dependency mismatch") { f.report.completionPhases[0]!.dependencies = []; reason = "dependencies disagree"; }
+    if (mode === "forward dependency") { f.report.completionPhases[0]!.dependencies = ["3"]; writeFileSync(join(f.root, second), phase("2", "3")); reason = "dependencies disagree"; }
+    if (mode === "unreported phase") { const path = `${directory}/phase-4-unreported.md`; paths.push(path); writeFileSync(join(f.root, path), phase("4", "3")); reason = "exactly the appended plan entries"; }
+    commit(f.sandbox, f.root, paths);
+    const snapshot = await issueSnapshot(f.context, { ...f.body(), testPaths: [], evidencePaths: [] });
+    f.report.checkedSnapshotId = snapshot.snapshotId;
+    f.assess("assessment", "repair-assessor", [], { snapshotId: snapshot.snapshotId });
+    f.assess("review", "repair-reviewer", [], { snapshotId: snapshot.snapshotId });
+    const evidence = await refreshAuditEvidence(f.context);
+    row.assessmentEvidenceIds = [evidence.find(entry => entry.locator === "repair-assessor")!.evidenceId];
+    f.report.methodEvidence.assessmentEvidenceIds = row.assessmentEvidenceIds;
+    f.report.methodEvidence.reviewEvidenceIds = [evidence.find(entry => entry.locator === "repair-reviewer")!.evidenceId];
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition, result.refusal?.reason).toBe(mode === "valid" ? "recorded" : "unresolved");
+    expect(result.nextAction).toBe(mode === "valid" ? "implementation" : "needs_you");
+    if (mode !== "valid") { expect(result.refusal?.code).toBe("inconsistent_plan"); expect(result.refusal?.reason).toContain(reason); expect(f.activity.acceptedResult).toBeUndefined(); }
+    else expect(readFileSync(join(f.root, directory, "phase-1-value.md"), "utf8")).toContain("**Closed:** 2026-10-24");
   });
 });
 

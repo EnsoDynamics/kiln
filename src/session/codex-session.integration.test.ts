@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { once } from "node:events";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
-import { readSessionRecord, writeSessionRecord } from "../state/records.js";
+import { readSessionRecord, sessionDirectory, sessionStorageKey, writeSessionRecord } from "../state/records.js";
 import { runCodexSession, reconcileCodexAttempt } from "./codex-session.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
@@ -14,6 +15,29 @@ afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.
 
 // Real CLI pipes, records and processes. Live inference/protection is proved separately.
 describe("durable protected Codex attempts", () => {
+  it.each(["delivery_audit", "test_audit"] as const)("dispatches the pinned %s skill and task with the selected protected profile (AC-TEST-01, AC-RUN-04)", async kind => {
+    const f = fixture();
+    const skillName = kind === "delivery_audit" ? "delivery-audit" : "test-audit";
+    f.record.kind = kind; f.record.activityId = "assigned-audit"; f.record.phaseId = "";
+    const key = sessionStorageKey(f.record);
+    f.set({ additionalSkills: [skillName], recordPath: join(sessionDirectory(f.options.stateDirectory, key, f.record.sessionId), "session.json") });
+    const skillPath = (JSON.parse(readFileSync(f.file, "utf8")) as { skill: string }).skill;
+    const task = `Run ${skillName} on the whole governing PRD; retain activity assigned-audit and its report path.`;
+    const run = await runCodexSession({ ...f.options, prompt: task });
+    expect(run.codex?.failure).toBeUndefined();
+    expect(run.codex?.terminal?.status).toBe("completed");
+    const dispatches = f.calls().filter(call => call.method === "turn/start");
+    expect(dispatches).toHaveLength(1);
+    const input = dispatches[0]!.params!.input as { type: string; text: string }[];
+    expect(input).toHaveLength(1); expect(input[0]!.type).toBe("text");
+    expect(input[0]!.text.startsWith(`Read and use the installed ${skillName} skill at \`${skillPath}\` for the assigned audit below.`)).toBe(true);
+    expect(input[0]!.text.endsWith(task)).toBe(true);
+    expect(dispatches[0]!.params).toMatchObject({ threadId: f.record.conversation!.threadId, model: "gpt-6.1-sol" });
+    expect(f.calls().find(call => call.method === "thread/start")!.params).toMatchObject({ cwd: f.root, model: "gpt-6.1-sol", approvalPolicy: "on-request", approvalsReviewer: "auto_review", config: { model_reasoning_effort: "high", sandbox_workspace_write: { writable_roots: [f.root] } } });
+    const saved = readSessionRecord(f.options.stateDirectory, key, f.record.sessionId)!;
+    expect(saved).toMatchObject({ kind, activityId: "assigned-audit", phaseId: "", model: "gpt-6.1-sol", effort: "high", codex: { launchIntent: { cwd: f.root, writableRoots: [f.root] } } });
+  });
+
   it("persists identity before dispatch, separates configured and observed facts, and resumes the same original pair", async () => {
     const f = fixture();
     const run = await runCodexSession(f.options);

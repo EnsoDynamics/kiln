@@ -289,6 +289,38 @@ describe("automatic completion activities", () => {
     expect(h.claudeCalls()).toHaveLength(3);
   });
 
+  it("requires fresh audits when development reconciliation reopens a historical completion (AC-RUN-06)", async () => {
+    const h = await fixture([auditSession({ noReport: true }), auditSession({ noReport: true })]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    git(h.sandbox, h.engine.worktreePath, "push", "-u", "origin", h.engine.record.settings.featureBranch);
+    const historicalAt = "2026-10-01T12:00:00Z";
+    const old = structuredClone(h.engine.record);
+    old.schemaVersion = 5; old.completedAt = historicalAt;
+    old.phases = { "1": old.phases["1"]! };
+    delete old.completionAudits; delete old.activities; delete old.nextActivityKey;
+    old.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" }, confirmedAt: historicalAt, source: "start" }] };
+    writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(old));
+    const port = Number(new URL(server!.address).port); await server!.close();
+    const again = h.reopenFromDisk(); await again.agents.refresh();
+    server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
+    expect(again.record.completionAudits!.policy).toBe("legacy_complete");
+    expect(await again.decide()).toMatchObject({ kind: "needs_you", phaseKey: "1" });
+    expect(again.currentlyComplete).toBe(false);
+    expect(again.record.completedAt).toBe(historicalAt);
+    expect(again.record.completionAudits!.policy).toBe("required");
+    expect(JSON.parse(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).completionAudits.policy).toBe("required");
+    const context: DeliveryContext = { record: again.record, stateDirectory: h.stateDirectory, prdWorktree: again.worktreePath, prdDirectory: directory, git: { git: h.tools.git, env: h.env }, gh: h.tools.gh, env: h.env, phaseId: "1", now: () => new Date().toISOString(), commands: async () => [] };
+    expect(await again.deliveryCommand("assessment", { executionId: again.record.executionId, revision: again.record.developmentDelivery!.revision, phaseId: "1", ...ownerDocuments(context, { kind: "phase", phaseId: "1" }), required: false, criteria: ["AC-PROOF-01"], reason: "The fixture's original phase needs no development deployment.", checkpoints: [] })).toMatchObject({ ok: true });
+    await again.checkAgain(); await again.settled();
+    expect(again.record.completionAudits!.activities.map(activity => activity.kind), JSON.stringify(buildSnapshot(again).needsYou?.checks)).toEqual(["delivery_audit"]);
+    const audit = again.record.completionAudits!.activities[0]!;
+    expect(again.stoppedPhaseKey()).toBe(auditKey(audit));
+    expect(again.currentlyComplete).toBe(false);
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(h.claudeCalls().at(-1)!.prompt).toContain("Run Delivery audit");
+    expect(again.record.completedAt).toBe(historicalAt);
+  });
+
   it("resumes usage-limited audit work in its original activity and conversation with current task and user note", async () => {
     const h = await fixture([{ actions: [{ skill: "delivery-audit" }, { refuse: { rateLimitType: "five_hour" } }] }, auditSession()]);
     h.engine.record.settings.resumeAfterUsageLimit = false;
