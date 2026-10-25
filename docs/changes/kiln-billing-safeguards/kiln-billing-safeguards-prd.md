@@ -51,6 +51,7 @@ The user should see what Kiln knows about the next run's billing without being a
   | Route or provider already unsupported by Kiln | Existing compatibility explanation | Billing approval does not make it supported |
 
 - [ ] **AC-BILL-03 — Paid-overflow information stays factual.** Kiln uses trustworthy status reported for the same subscription account when available. Unknown, missing, stale, or unreadable overflow data never becomes “disabled” and never prevents a confirmed subscription route from running. A known enabled setting has a non-blocking amber notice and a link to Claude's usage settings. Kiln neither changes that setting nor asks the user to accept its risk.
+  - Replaces in part: AC-LOOK-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (amber also marks a factual paid-overflow notice that requires no action).
 
 - [ ] **AC-BILL-07 — Existing usage gauges keep their meaning.** The five-hour, weekly, Weekly · Fable, and any other account-reported usage gauges remain unchanged where Kiln already displays them. Billing information is text alongside account information, never a new progress or usage bar. Missing billing metadata does not hide independently available usage readings, and no made-up delivery-progress percentage is introduced.
 
@@ -77,6 +78,7 @@ Billing protection must survive an unattended run and a restart. The screen expl
 
 - [ ] **AC-RUN-03 — Recovery applies the same billing rules.** Usage-limit recovery, wake-from-sleep recovery, manual Resume, and Resume now all obey AC-RUN-01 and the cases in AC-BILL-02. Automatic recovery cannot bypass an unapproved detected override, but missing additional billing details alone do not prevent it. A newly signed-in subscription account needs no billing confirmation without evidence of a metered override. Existing percentage-used warnings remain advisory.
   - Replaces in part: AC-AUTO-02 and AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Claude resumes require billing eligibility even when the usage reset permits recovery).
+  - Replaces in part: AC-KEEP-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (interrupted Claude sessions also require current billing eligibility before automatic resumption).
 
 - [ ] **AC-RUN-04 — The safeguard has a clear boundary.** These are launch-time checks for detected overrides, not proof that every custom billing arrangement is understood, a per-request billing firewall, or a Kiln spending cap. A configuration change while a CLI session is already running does not automatically interrupt that session under this change; the next launch requires a fresh check. Purely local completion checks remain available and need no billing approval, but any AI work they would cause must pass AC-RUN-01. User-facing documentation describes this boundary and makes no zero-cost guarantee.
 
@@ -85,6 +87,7 @@ Billing protection must survive an unattended run and a restart. The screen expl
 - [ ] **AC-RUN-06 — Billing checks do not collect credentials or broaden support.** Screens, logs, saved approval records, and diagnostic output contain no raw API keys, OAuth tokens, helper output containing secrets, or credential-store contents. Kiln continues invoking the user's unmodified installed CLI and does not implement its own Claude OAuth flow. Existing Codex ChatGPT-only eligibility and provider restrictions remain unchanged; this PRD does not authorize Codex API billing.
 
 - [ ] **AC-RUN-07 — Public installation guidance explains the choice.** The npm-facing installation and usage documentation explains subscription access, accidental API/provider overrides, intentional metered approval, paid overflow, and the launch-time boundary in AC-RUN-04. It points users to their provider's own spending settings and describes what to do when the route cannot be established. The [mockups](mockups/kiln-billing-safeguards-mockups.html) show every new billing presentation and approval control in Kiln's existing visual language.
+  - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (billing summaries, notices and approval controls replace the corresponding older screen details; unaffected layout and visual style remain).
 
 ### Show Codex Billing Without Changing Its Authentication Rules
 
@@ -114,6 +117,7 @@ Codex users should be able to see which ChatGPT account the work uses and unders
   - Preserves: AC-USAGE-01–04 and AC-RECOVER-02–03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`, apart from the billing-summary addition in AC-CODEX-01.
 
 - [ ] **AC-CODEX-05 — Billing information stays attached to the correct account and run.** Before Start, the summary follows the selected agent and its latest account reading; switching agents cannot leave the other agent's identity or credits visible as current. During a run it identifies the account recorded at launch; newer account information is labelled for the next run, following AC-RUN-05. Disconnected views label billing and credits as last known and disable run, resume, refresh and approval controls. The credential-protection rules in AC-RUN-06 apply to Codex too. Documentation explains that ChatGPT account billing can include credits, preserves the launch-time and no-spending-cap limits in AC-RUN-04, and distinguishes Codex's existing API restriction from Claude's explicit API approval.
+  - Replaces in part: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (account areas gain Codex billing and credit information; existing screen purposes and visual style remain).
 
 ## Mockups
 
