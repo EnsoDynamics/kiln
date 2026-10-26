@@ -6,7 +6,7 @@
 
 **Roadmap:** [Kiln roadmap](../../kiln-roadmap.md). Develops the [More terminal commands idea](../../design/kiln-after-v1-ideas.md#more-terminal-commands).
 
-**Depends on:** Existing Kiln run controls, Claude Code and Codex support, and [Clear handoffs on Kiln’s Needs you page](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md). Doug specified that the handoff change will be implemented first; this PRD assumes its completed behavior for both agents, although that change is currently a draft. No dependency on whole-roadmap execution. The separate billing-safeguards change governs billing whenever it is delivered; this feature cannot bypass it.
+**Depends on:** Existing Kiln run controls, Claude Code and Codex support, and [Clear handoffs on Kiln’s Needs you page](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md). The handoff change is implemented and validated at `7e7b7c8`; this PRD relies on its completed behavior for both agents, as Doug specified. No dependency on whole-roadmap execution. The separate billing-safeguards change governs billing whenever it is delivered; this feature cannot bypass it.
 
 **Review alongside:** [Command-line mockup](kiln-bot-control-command-mockup.md) · [Business assumptions](kiln-bot-control-assumptions.md) · [Investigation and design questions](kiln-bot-control-investigation.md).
 
