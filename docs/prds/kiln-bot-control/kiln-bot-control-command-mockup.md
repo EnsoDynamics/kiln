@@ -90,6 +90,7 @@ Covers AC-SEE-04 and AC-ACT-01. `--detail full` adds the complete phase/activity
 
 ```console
 $ kiln status --run run_labels
+Checked 2026-10-26 13:00:05 UTC
 Shipping labels · run_labels · Needs you
 Phase 2 · Carrier selection · 1/4 executable phases complete
 Agent: Codex · session sess_labels_2
@@ -112,7 +113,7 @@ Controls (context ctl_labels_7):
 kiln reply --run run_labels --context ctl_labels_7 --request-id <unique-id> --file <note-file>
 ```
 
-The equivalent JSON carries `stop.final_message`, `stop.message_complete: true`, `stop.failed_checks`, `session_id`, `control_context` and `controls` with availability, reasons and required inputs. A text message never supplies executable authority.
+The equivalent JSON carries `observed_at`, `stop.final_message`, `stop.message_complete: true`, `stop.failed_checks`, `session_id`, `control_context` and `controls` with availability, reasons and required inputs. A text message never supplies executable authority.
 
 ## Send the reply and resume
 
@@ -143,6 +144,7 @@ $ kiln reply --run run_labels --context ctl_labels_7 --request-id req_labels_rep
 
 ```console
 $ kiln operation --run run_labels --request-id req_labels_reply_1
+Checked 2026-10-26 13:01:00 UTC
 op_reply_1 · Completed · Session resumed · note delivered
 ```
 
@@ -160,6 +162,7 @@ $ kiln reply --run run_labels --context ctl_labels_7 --request-id req_labels_rep
 {
   "schema_version": "1",
   "ok": false,
+  "operation": {"id": "op_reply_2", "state": "refused"},
   "error": {
     "code": "stale_control_context",
     "message": "Shipping labels is no longer waiting at the stop you read. Nothing was sent.",
@@ -176,16 +179,16 @@ Covers AC-ACT-03. Each changing command below requires `--context <current-conte
 
 | Command after `kiln` | Text result |
 |---|---|
-| `pause --run run_returns` | Pause requested after phase 3. The current session continues. |
-| `pause --run run_returns --cancel` | Pending pause cancelled. Kiln will keep going. |
-| `continue --run run_returns` | Accepted: continue this paused run. Operation op_continue_1. |
-| `check-again --run run_labels` | Completion checks failed. Still Needs you; the response includes the failed checks. |
-| `settings --run run_labels --resume-after-usage-limit off` | Resume after a usage limit: off. |
-| `settings --run run_returns --keep-awake on` | Keep awake: on. |
-| `outside-confirmation --run run_labels --resolved` | Confirmation recorded for the outside-workspace facts you reviewed. No work started. |
-| `outside-confirmation --run run_labels --clear` | Confirmation cleared. |
+| `pause --run run_returns` | op_pause_1 · Completed. Pause requested after phase 3. The current session continues. |
+| `pause --run run_returns --cancel` | op_pause_cancel_1 · Completed. Pending pause cancelled. Kiln will keep going. |
+| `continue --run run_returns` | op_continue_1 · Accepted. Continue this paused run. |
+| `check-again --run run_labels` | op_check_1 · Completed. Completion checks failed. Still Needs you; the response includes the failed checks. |
+| `settings --run run_labels --resume-after-usage-limit off` | op_settings_1 · Completed. Resume after a usage limit: off. |
+| `settings --run run_returns --keep-awake on` | op_settings_2 · Completed. Keep awake: on. |
+| `outside-confirmation --run run_labels --resolved` | op_outside_1 · Completed. Confirmation recorded for the outside-workspace facts you reviewed. No work started. |
+| `outside-confirmation --run run_labels --clear` | op_outside_2 · Completed. Confirmation cleared. |
 
-Unavailable commands return a reason, with no effect. `kiln settings --run <RUN>` reads current runtime settings without changing them. A check that succeeds can advance work, so Check again is a changing command.
+Unavailable commands return an identified, refused operation and a reason, with no effect. `kiln settings --run <RUN>` reads current runtime settings without changing them. A check that succeeds can advance work, so Check again is a changing command.
 
 ## Read output or obtain the terminal hand-back
 
@@ -193,12 +196,14 @@ Covers AC-SEE-05. Commands below are read-only.
 
 ```console
 $ kiln logs --run run_returns --session current --limit 50
+Checked 2026-10-26 13:00:06 UTC
 Session sess_returns_3 · lines 201–250 of 250
 2026-10-26 12:59:42 UTC  Running the returns dashboard integration checks.
 [49 further lines in this illustrative page]
 Earlier: kiln logs --run run_returns --session sess_returns_3 --before 201 --limit 50
 
 $ kiln handoff --run run_labels
+Checked 2026-10-26 13:00:07 UTC
 Agent: Codex
 Session: sess_labels_2
 Working directory: ~/devel/acme-shipping-kiln/shipping-labels
@@ -218,6 +223,7 @@ Covers AC-ACCOUNT-01. This is a later scenario with two Claude runs sharing one 
 
 ```console
 $ kiln account --run run_returns --refresh
+Checked 2026-10-26 14:00:00 UTC
 Customer returns · Claude Code · Waiting for usage
 Last attempt: primary@example.invalid · Max plan
 Authenticated for next attempt: primary@example.invalid · Max plan
@@ -228,6 +234,7 @@ Resume after usage limit: on
 Login context: login_claude_default
 
 $ kiln account --run run_returns --login-preview
+Checked 2026-10-26 14:00:01 UTC
 Switching this sign-in affects the next attempt of:
   run_returns · Customer returns · waiting
   run_labels  · Shipping labels · needs_you
@@ -236,7 +243,7 @@ Both Kiln sessions are idle. Login can begin.
 Scope context: login_scope_4
 ```
 
-If an affected session is active, preview says login is unavailable and identifies it. The caller can request its normal pause, then refresh the preview once it has stopped. There is no hidden interruption.
+If an affected session is active, preview says login is unavailable and identifies it; a login request is refused, not queued. The caller can request its normal pause, then refresh the preview once it has stopped. There is no hidden interruption.
 
 ## Begin login and finish it on the phone
 
@@ -274,26 +281,28 @@ If the provider asks for a one-time completion response, Kiln's explicit login o
 
 ```console
 $ kiln account login complete --operation op_login_1 --stdin --request-id req_login_complete_1
-Authorization response received. Checking the actual account.
+op_login_1 · In progress. Authorization response received. Checking the actual account.
 
 $ kiln account login status --operation op_login_1
-Login completed and account verified: alternate@example.invalid · Max plan
+Checked 2026-10-26 14:02:00 UTC
+op_login_1 · Completed. Account verified: alternate@example.invalid · Max plan
 Refreshed affected runs: run_returns, run_labels
 Both runs remain held. No coding session was resumed.
 
 $ kiln status --run run_returns
+Checked 2026-10-26 14:02:01 UTC
 Customer returns · Waiting for usage · account-change hold
 Next account: alternate@example.invalid · Max plan · current
 Controls (context ctl_returns_12): resume available
 
 $ kiln resume --run run_returns --context ctl_returns_12 --request-id req_resume_1
-Same session resumed using alternate@example.invalid.
+op_resume_1 · Completed. Same session resumed using alternate@example.invalid.
 Shipping labels remains held.
 ```
 
 When the provider completes authorization without a returned response, skip `complete` and query `status`. A Codex run uses the same Kiln commands, with a provider-issued device URL/code when the supported flow provides one. Kiln does not substitute an API key for ChatGPT login.
 
-`kiln account login cancel --operation op_login_1 --request-id <unique-id>` cancels a pending login. Status explicitly reports `expired`, `cancelled`, `failed`, `account_mismatch`, or `local_interaction_required` when applicable; it never calls those success. A request for alternate@example.invalid that verifies primary@example.invalid is `account_mismatch`; neither run resumes. Subsequent commands use the freshly observed account state.
+While login is pending, `kiln account login cancel --operation op_login_1 --request-id <unique-id>` returns `op_login_1 · Cancelled. Login cancelled; affected runs remain held.` Complete and cancel act only on that operation's original login scope. Kiln rejects a new completion/cancellation request when ownership or current eligibility fails; it never selects another login. Status explicitly reports `expired`, `cancelled`, `failed`, `account_mismatch`, or `local_interaction_required` when applicable; it never calls those success. A request for alternate@example.invalid that verifies primary@example.invalid is `account_mismatch`; neither run resumes. Subsequent commands use the freshly observed account state.
 
 ## Other answers the bot can give
 
@@ -315,7 +324,7 @@ Covers AC-SEE-02 to 03 and AC-CLI-01.
 These proposed conventions make the examples reviewable; the technical design supplies the complete field schema.
 
 - `kiln --help` and `kiln <command> --help` describe inputs and output fields; all commands support `--json`.
-- Reads return facts only. Changing commands return operation receipts; account login commands use the operation's own scope after the initial scope preview.
+- Reads return facts only. Changing commands return operation receipts. Run controls target a run and control context; beginning login targets a run and login scope context. Login completion/cancellation target the existing operation, with its ownership and current eligibility checked under AC-ACT-04.
 - A run control context changes when relevant controls or their target change, not whenever another output line arrives. Login scope context changes when the affected runs or their eligibility change.
 - Operation lookup uses a run/request ID for ordinary controls or a login operation ID for login. A replay is checked before applying the old control context, so a successfully completed request can return its old receipt.
 - Login status is the explicit place to retrieve still-valid authorization instructions. Ordinary operation receipts, output and logs omit transient login secrets.
