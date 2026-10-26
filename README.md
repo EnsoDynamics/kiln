@@ -57,7 +57,15 @@ When authentication works but additional billing details cannot be established a
 
 These checks run before each model-consuming launch or resume, including recovery, audits and final delivery. They inspect settings without making a model request and preserve local completion checks. They detect observable overrides; they are not a per-request billing firewall or a spending cap. A running CLI may reread settings or rotate credentials, and a helper can rotate its secret without Kiln observing it. Kiln does not interrupt an active session over a later settings change and makes no zero-cost guarantee. Set spending limits with [Anthropic](https://console.anthropic.com/settings/limits), [Claude](https://claude.ai/settings/usage), or the configured provider.
 
-Codex continues requiring ChatGPT sign-in and the OpenAI provider. Claude billing approval never authorizes Codex API-key access. Your account's existing spending settings still apply.
+## Codex billing
+
+Kiln shows **ChatGPT account**, the reported account email and plan, and “Billing follows your ChatGPT account settings.” Check your [ChatGPT usage and spending settings](https://chatgpt.com/codex/settings/usage). ChatGPT sign-in does not guarantee included-only or zero-extra-cost usage: eligible work may use account or workspace credits under those settings.
+
+When Codex reports attributable workspace credits, Kiln shows each reported bucket separately, as a balance or availability fact. A balance is not a dollar amount or proof that paid usage or auto-reload is enabled, and it does not mean this run is using credits. Missing, stale or unattributable optional credits add no warning or confirmation and do not prevent Start or Resume. Existing usage gauges and Codex's recovery permission, credit and administrative restrictions still apply. Kiln never buys credits, changes spending preferences or redeems usage resets.
+
+Running screens retain the account and credit facts recorded at launch; a different fresh reading is labelled for the next run. Older runs with no saved billing remain unavailable. Disconnected views mark their information last known and disable launch, resume and refresh controls. The launch-time checks and no-spending-cap boundary above apply to Codex too.
+
+Codex requires ChatGPT sign-in and the OpenAI provider before every launch and resume, including after restart. API-key-only or missing authentication requires `codex login`, then refresh Codex information. A different provider requires changing the provider in Codex settings and refreshing; Kiln never rewrites it. Required authentication/configuration errors remain blockers. Claude billing approval never authorizes Codex API-key access.
 
 ## Requirements
 

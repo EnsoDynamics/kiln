@@ -110,7 +110,7 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
-  if (snapshot.billing?.pending) return { enabled: false, note: "Checking Claude settings…" };
+  if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };
   if (snapshot.billing && !snapshot.billing.canLaunch) return { enabled: false, note: snapshot.billing.next?.readinessError ?? "Review billing before starting." };
   if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };

@@ -9,7 +9,7 @@ export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
 export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
 interface Window { usedPercent?: number | null; windowDurationMins?: number | null; resetsAt?: number | null }
-interface Bucket { limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
+interface Bucket { credits?: { balance?: string | null; hasCredits?: boolean; unlimited?: boolean } | null; limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
 export interface CodexLimits { accountId?: string; ordinaryUsageAllowed?: boolean | null; rateLimitsByLimitId?: Record<string, Bucket> | null; rateLimits?: Bucket | null }
 interface Skill { name: string; path: string; enabled: boolean }
 export interface CodexMetadata { models?: ModelEntry[]; modelListError?: string; account: AgentAccount; blockers: string[]; version?: string; skills: { cwd: string; entries: Skill[] }[] }
@@ -60,6 +60,26 @@ export function codexAccount(account: AccountResult, usage: CodexLimits | undefi
   return result;
 }
 
+/** Optional workspace facts, qualified against the pinned schema and live metadata-only reads.
+ * Credits never participate in ordinary-usage permission or recovery authorization. */
+export function codexCredits(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult, observedAt: string): NonNullable<AgentAccount["credits"]> {
+  const accountId = usage?.accountId;
+  if (!usage || typeof accountId !== "string" || !accountId.trim() || before.account?.type !== "chatgpt" || after.account?.type !== "chatgpt") return [];
+  if (before.account.email !== after.account.email || before.account.planType !== after.account.planType) return [];
+  const routes = [before.workspaceRouting?.chatgptAccountId, after.workspaceRouting?.chatgptAccountId];
+  if (routes.some(route => route !== undefined && route !== accountId)) return [];
+  if (!before.account.email && !routes.every(route => route === accountId)) return [];
+  const buckets = usage.rateLimitsByLimitId != null ? Object.entries(usage.rateLimitsByLimitId) : usage.rateLimits ? [["legacy", usage.rateLimits] as const] : [];
+  return buckets.flatMap(([bucketId, bucket]) => {
+    const credits = bucket?.credits;
+    if (!credits || typeof credits !== "object") return [];
+    const balance = typeof credits.balance === "string" && credits.balance.length <= 128 && /^\d+(?:\.\d+)?$/.test(credits.balance) ? credits.balance : undefined;
+    const hasCredits = typeof credits.hasCredits === "boolean" ? credits.hasCredits : undefined;
+    if (balance === undefined && hasCredits === undefined) return [];
+    return [{ bucketId, accountId, observedAt, scope: "workspace" as const, ...(balance === undefined ? {} : { balance }), ...(hasCredits === undefined ? {} : { hasCredits }) }];
+  });
+}
+
 /** The pinned schema supplies account-wide permission, never model scope via normalModelSlug. */
 export function codexUsagePermission(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult): NonNullable<AgentAccount["codexUsage"]> {
   const unknown = (reason: string) => ({ state: "unknown" as const, reason });
@@ -105,6 +125,8 @@ export async function readCodexMetadata(options: { executable: string | undefine
       const after = await rpc.call<AccountResult>("account/read", { refreshToken: false });
       const account = codexAccount(after, usage, startedAt);
       account.codexUsage = codexUsagePermission(before, usage, after);
+      const credits = codexCredits(before, usage, after, account.updatedAt);
+      if (credits.length) account.credits = credits;
       if (!usage) account.limitsError = "Could not refresh Codex usage. Allowance is unknown.";
       return account;
     };
@@ -133,7 +155,7 @@ export async function readCodexMetadata(options: { executable: string | undefine
     else {
       // In the pinned profile, unset/null uses built-in OpenAI (also verified by gate-1 effective settings).
       const provider = configuration.value.config.model_provider;
-      if (provider !== null && provider !== "openai") result.blockers.push("Kiln's Codex candidate requires the OpenAI provider and existing ChatGPT sign-in.");
+      if (provider !== null && provider !== "openai") result.blockers.push("Kiln's Codex candidate requires the OpenAI provider and existing ChatGPT sign-in. Change the model provider in Codex settings to OpenAI, then refresh Codex information.");
       const hooks = configuration.value.config.hooks;
       if (hooks !== undefined && hooks !== null && (typeof hooks !== "object" || Object.keys(hooks).length > 0)) result.blockers.push("This Codex hook configuration has not been qualified for unattended work. Resolve interactive hook or trust requirements in a terminal; Kiln will not bypass them.");
     }

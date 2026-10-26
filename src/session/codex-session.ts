@@ -1,4 +1,6 @@
 // Protected durable Codex attempts. The engine's Git/document checks still decide delivery.
+import { codexBillingSummary } from "../billing/codex.js";
+import type { BillingSummary } from "../billing/inspection.js";
 import { appendFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -30,6 +32,7 @@ export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> 
   /** Engine checks current authorization immediately before durable attempt allocation. */
   beforeStart?(): void;
   onRecordChange?(): void;
+  onBilling?(summary: BillingSummary): void;
   /** Kiln guidance, separate from provider-native events. Wire to terminal/browser in 3b2. */
   onWarning?(text: string): void;
   stopWaitMs?: number;
@@ -84,7 +87,9 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const now = () => new Date().toISOString();
   const facts: CodexRunFacts = { intentAt: now(), requested: prepared.choice, account: prepared.account, profile: prepared.profile, humanRequests: [], modelActivityAt: [], processOwner: randomUUID(), cleanupWarning: CODEX_NATIVE_CLEANUP_WARNING };
   if (automaticRelease) facts.automaticUsageEvidence = consumeCodexUsage(record, automaticRelease);
-  const run: SessionRun = { startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
+  const billing = codexBillingSummary(prepared.usage);
+  options.onBilling?.(billing); // PRD history must be durable before any work process exists.
+  const run: SessionRun = { billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
   record.runs.push(run); save(); // No child exists until this durable intent succeeds.
   const terminals = new Map<string, Turn>();
   const terminalTimes = new Map<string, string>();

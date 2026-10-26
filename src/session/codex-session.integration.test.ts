@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -79,6 +79,25 @@ describe("durable protected Codex attempts", () => {
     const f = fixture(); f.set({ signedOut: true });
     await expect(runCodexSession(f.options)).rejects.toThrow(/sign in/i);
     expect(f.record.runs).toHaveLength(0); expect(f.calls().some(call => call.method === "thread/start")).toBe(false);
+  });
+  it("starts no work when the required billing snapshot cannot be persisted", async () => {
+    const f = fixture();
+    // Real filesystem failure at the injected PRD persistence checkpoint; not a provider mock.
+    let checkpoint = false;
+    await expect(runCodexSession({ ...f.options, onBilling: summary => {
+      checkpoint = true;
+      expect(summary).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account" });
+      writeFileSync(f.root, JSON.stringify(summary)); // A directory cannot be overwritten by the atomic record's file data.
+    } })).rejects.toThrow();
+    expect(checkpoint).toBe(true); expect(f.record.runs).toEqual([]);
+    expect(f.calls().some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
+    expect(readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)).toBeUndefined();
+  });
+  it("preserves an unreadable required provider configuration as a preflight failure", async () => {
+    const f = fixture(); f.set({ configError: true });
+    await expect(runCodexSession(f.options)).rejects.toThrow("Could not inspect Codex provider and hooks");
+    expect(f.record.runs).toEqual([]);
+    expect(f.calls().some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
   });
   it("does not confuse an early terminal notification with an active turn", async () => {
     const f = fixture(); f.set({ earlyTerminal: true }); const run = await runCodexSession(f.options);

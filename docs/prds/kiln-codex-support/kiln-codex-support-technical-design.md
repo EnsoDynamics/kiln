@@ -27,6 +27,8 @@ This design chooses the bounded raw-wrapper decoder and recorded-frontier candid
 
 ### Agent boundary
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Architecture and Decisions (additive Codex billing metadata; authentication and dispatch authority are unchanged).
+
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Architecture and Decisions (Claude billing safeguards and additive private billing state only).
 
 The engine selects an installed agent adapter from the PRD/session record, never from a global default during recovery. The adapter contract has five responsibilities:
@@ -199,6 +201,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Output and progress
 
 ### Readings and identity
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Codex Account and Credit Contract (additive attributed workspace-credit observations; recovery permission is unchanged).
+
 Call `account/read` and `account/rateLimits/read` without a model turn. Use a freshly started bounded metadata process when refreshing to observe terminal login changes; never assume a session server's cached credentials reflect them. Each snapshot carries agent, reading start/finish times, known account identity, field-level unknowns and errors. Keep a last successful reading only with its original timestamp and stale indication. A fresh session records the account before work; each resume attempt records its own account without rewriting the session's original account.
 
 Prefer `rateLimitsByLimitId`; use the legacy single-bucket payload only when the map is absent and identify it explicitly. Flatten every reported bucket/window into a collection keyed by reported limit ID plus window role. Store reported label/ID, duration, percent used, reset time and available model scope. Primary/secondary are identifiers, not names for fixed durations. Missing windows/percent/reset/account fields remain unknown, including an empty map. Warn at 80% for known percentages. Do not show credit balances as usage percentages or assume paid credits authorize automatic spending.
@@ -226,6 +230,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage; 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (audit-specific installed skill resolution and launch), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 ### Local API and snapshot changes
+
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces and §Codex Account and Credit Contract (Codex billing summaries, optional workspace credits and historical launch attribution).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
 

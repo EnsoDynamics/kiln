@@ -1970,6 +1970,10 @@ export class Engine {
           if (this.stopping || started?.() === false) throw new CodexLaunchCancelled("Codex launch authorization was withdrawn.");
           if (started) this.save();
         },
+        onBilling: summary => {
+          this.record.billing!.lastLaunch = structuredClone(summary);
+          this.save();
+        },
         onSpawned: control => { this.control = control; },
         onWarning: text => { this.emit({ kind: "message", text }); save([reader.line("out", text, this.now().toISOString())]); },
         onStderr: (text, at) => save([reader.line("stderr", text, at)]),

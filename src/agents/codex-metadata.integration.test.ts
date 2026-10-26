@@ -3,6 +3,7 @@ import { createSandbox, type Sandbox } from "../test-support/git-repositories.js
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
 import { readCodexMetadata } from "./codex-metadata.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
+import { codexBillingSummary } from "../billing/codex.js";
 import { AgentInfo } from "./metadata.js";
 import { waitFor } from "../test-support/engine-harness.js";
 let sandbox: Sandbox;
@@ -51,6 +52,30 @@ describe("Codex metadata over real process pipes", () => {
     expect(optionalRouting.account.limits).toEqual([]); // Empty windows do not negate explicit account-wide permission.
     expect(f.calls().every(call => !/^(thread|turn)\//.test(call.method))).toBe(true);
   });
+  it("attributes workspace credits through real account/usage/account pipes and clears them on failed refreshes", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
+    const usage = { accountId: "fixture-account", ordinaryUsageAllowed: false, rateLimitsByLimitId: { codex: { credits: { balance: "50", hasCredits: true, unlimited: false }, primary: { usedPercent: 31, windowDurationMins: 1440 } }, other: { credits: { balance: "10", hasCredits: false, unlimited: true } } } };
+    f.set({ usage });
+    info = new AgentInfo({ agentId: "codex", executable: { claude: "unused", codex: f.executable }, cwd: sandbox.root, claudeCwd: sandbox.root, env: f.env });
+    await info.refresh();
+    expect(info.state.account?.credits).toMatchObject([{ balance: "50", scope: "workspace", bucketId: "codex", accountId: "fixture-account" }, { balance: "10", bucketId: "other" }]);
+    expect(info.state.account?.codexUsage?.state).toBe("blocked");
+    expect(info.state.account?.limits[0]).toMatchObject({ percent: 31, durationMinutes: 1440 });
+    f.set({ usage: { ...usage, rateLimitsByLimitId: { codex: { credits: { balance: "75", hasCredits: true, unlimited: false } } } } }); await info.refresh();
+    expect(info.state.account?.stale).toBe(true);
+    expect(codexBillingSummary(info.state.account)).toMatchObject({ email: "fixture@example.test", credits: [{ balance: "75" }] });
+    f.set({ usage }); await info.refresh(); // Begin the refresh-failure case with a successful gauge read.
+    f.set({ usageError: true }); await info.refresh();
+    expect(info.state.account?.credits).toBeUndefined();
+    expect(info.state.account?.limits[0]?.percent).toBe(31); // Existing stale gauges remain independent.
+    f.set({ usage }); await info.refresh(); expect(info.state.account?.credits).toHaveLength(2);
+    f.set({ apiKey: true }); await info.refresh();
+    expect(info.state.account?.credits).toBeUndefined(); expect(info.state.blockers.join(" ")).toContain("codex login");
+    const account = { account: { type: "chatgpt", email: "same@example.test", planType: "business" } };
+    f.set({ usage, accounts: [{ ...account, workspaceRouting: { chatgptAccountId: "other" } }, { ...account, workspaceRouting: { chatgptAccountId: "fixture-account" } }] });
+    await info.refresh(); expect(info.state.account?.credits).toBeUndefined();
+    expect(f.calls().every(call => !/^(thread|turn)\//.test(call.method))).toBe(true);
+  });
   it("settles failed metadata process creation without leaving close waiting for a nonexistent exit", async () => {
     sandbox = createSandbox();
     const rpc = new CodexMetadataRpc("/nonexistent/kiln-codex", sandbox.root, sandbox.env);
@@ -59,7 +84,7 @@ describe("Codex metadata over real process pipes", () => {
   });
   it("reports real adapter version, authentication, disabled-skill and policy failures without starting a turn", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
-    for (const [fixture, message] of [[{ version: "99.0.0" }, "incompatible"], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
+    for (const [fixture, message] of [[{ version: "99.0.0" }, "incompatible"], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ configError: true }, "Could not inspect Codex provider and hooks"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
       f.set(fixture); const r = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
       expect(r.blockers.join(" ")).toContain(message);
     }

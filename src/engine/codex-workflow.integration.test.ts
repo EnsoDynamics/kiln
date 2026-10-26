@@ -40,7 +40,8 @@ async function setup(value: Record<string, unknown> = {}, engineOptions: Partial
 const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
 
 it("starts with only Codex, streams/saves native output, fixes the agent, and resumes the original pair after restart", async () => {
-  await setup({ deltas: true });
+  const usage = { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimitsByLimitId: { codex: { credits: { balance: "50", hasCredits: true, unlimited: false } } } };
+  await setup({ deltas: true, usage });
   const partials: string[] = [];
   h.engine.onPartial((_id, partial) => partials.push(partial.text));
   expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
@@ -56,13 +57,22 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(h.claudeCalls()).toEqual([]);
   expect(await h.engine.changeSettings({ agentId: "claude_code" })).toMatchObject({ ok: false });
   await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  expect(session.runs[0]?.billing).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account", credits: [{ balance: "50", scope: "workspace" }] });
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(session.runs[0]?.billing);
+  set({ email: "next@example.test", accountId: "next-workspace" });
   h.reopenFromDisk(); await h.engine.agents.refresh();
+  expect(buildSnapshot(h.engine).billing?.lastLaunch?.email).toBe("proof@example.invalid");
+  expect(buildSnapshot(h.engine).billing?.next?.email).toBe("next@example.test");
   expect((await h.engine.decide()).kind).toBe("needs_you");
   expect(await h.engine.resume({ note: "Keep the saved context." })).toEqual({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
   expect(resumed.sessionId).toBe(session.sessionId);
   expect(resumed.conversation?.threadId).toBe(session.conversation?.threadId);
   expect(resumed.runs).toHaveLength(2);
+  expect(resumed.runs[0]?.billing?.email).toBe("proof@example.invalid");
+  expect(resumed.runs[1]?.billing).toMatchObject({ email: "next@example.test", accountId: "next-workspace" });
+  expect(resumed.runs[1]?.billing?.credits).toBeUndefined();
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(resumed.runs[1]?.billing);
   expect(resumed.runs[1]?.codex?.requested).toEqual({ model: session.model, effort: "high" });
   const dispatches = f.calls().filter(call => call.method === "turn/start");
   expect(JSON.stringify(dispatches[1]?.params?.input)).toMatch(/Keep the saved context.*carry on/is);

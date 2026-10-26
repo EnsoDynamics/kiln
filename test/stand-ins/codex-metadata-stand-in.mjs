@@ -24,7 +24,7 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'account/rateLimits/read':
       if (fixture.usageError) break;
       result = fixture.usage ?? { accountId: fixture.accountId ?? 'fixture-account', ordinaryUsageAllowed: true, rateLimits: { primary: { usedPercent: 0 } }, rateLimitsByLimitId: fixture.emptyUsage ? {} : { codex: { limitId: 'codex', primary: { usedPercent: fixture.percent ?? 82, windowDurationMins: 10080, resetsAt: 1793000000 }, secondary: { windowDurationMins: 60 } }, other: { limitName: 'Another allowance', primary: { usedPercent: 4 } } } }; break;
-    case 'config/read': result = { config: { model_provider: fixture.provider ?? null, hooks: fixture.hooks ?? null } }; break;
+    case 'config/read': if (fixture.configError) break; result = { config: { model_provider: fixture.provider ?? null, hooks: fixture.hooks ?? null } }; break;
     case 'configRequirements/read': result = { requirements: fixture.requirements ?? null }; break;
     case 'skills/list': result = { data: message.params.cwds.map(cwd => ({ cwd, errors: [], skills: ['implement-from-requirements', 'deliverable-review', 'test-hardening', 'refactor-pass', 'implementation-lifecycle', 'engineering-principles', 'pre-commit-validation', 'continuation-prompt', 'phase-split', ...(fixture.additionalSkills ?? [])].map(name => ({ name: `enso-method:${name}`, path: fixture.skillPath, enabled: name !== fixture.disabledSkill })).concat(fixture.skillEntries ?? []) })) }; break;
     default: throw new Error(`Forbidden metadata method: ${message.method}`);

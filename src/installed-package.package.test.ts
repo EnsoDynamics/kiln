@@ -85,7 +85,7 @@ describe("the installed package", () => {
     expect(existsSync(kilnCommand)).toBe(true);
     // AC-RUN-07: public npm users receive the billing boundary, and the passive worker ships.
     const guidance = readFileSync(join(installedPackage, "README.md"), "utf8");
-    for (const text of ["Use API billing for this PRD", "paid overflow", "per-request billing firewall", "no zero-cost guarantee", "Codex continues requiring ChatGPT sign-in"]) expect(guidance).toContain(text);
+    for (const text of ["Use API billing for this PRD", "paid overflow", "per-request billing firewall", "no zero-cost guarantee", "Codex requires ChatGPT sign-in", "ChatGPT account", "workspace credits", "https://chatgpt.com/codex/settings/usage", "never buys credits"]) expect(guidance).toContain(text);
     expect(packedFiles).toContain("dist/billing/settings-worker.js");
     expect(packedFiles.some(path => /(?:fixtures|agent-sessions|prd\.json|session\.json)/.test(path))).toBe(false);
     const passive = spawnSync(process.execPath, [join(installedPackage, "dist/billing/settings-worker.js")], { cwd: sandbox.root, env: sandbox.env, encoding: "utf8", timeout: 30_000 });

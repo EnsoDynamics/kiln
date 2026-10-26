@@ -1,0 +1,61 @@
+{
+  "version": "codex-cli 0.162.1",
+  "platform": "darwin",
+  "observedAt": "2026-10-26T18:54:17.147Z",
+  "source": "https://learn.chatgpt.com/docs/app-server#account-rate-limits",
+  "creditsScope": "workspace (official account-rate-limit field notes)",
+  "schema": {
+    "CreditsSnapshot": {
+      "properties": {
+        "balance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasCredits": {
+          "type": "boolean"
+        },
+        "unlimited": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hasCredits",
+        "unlimited"
+      ],
+      "type": "object"
+    },
+    "creditsProperty": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/CreditsSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "live": {
+    "chatgptBeforeAndAfter": true,
+    "stableUsageIdentity": true,
+    "routingCorroborated": true,
+    "accountMetadataConsistent": true,
+    "bucketCount": 1,
+    "attributedCreditObservations": 1,
+    "creditShapes": [
+      {
+        "present": true,
+        "balanceType": "string",
+        "hasCreditsType": "boolean",
+        "unlimitedType": "boolean"
+      }
+    ]
+  },
+  "unproved": [
+    "Actual spendable balance and paid-use behavior",
+    "Exhausted-account conditions",
+    "Native Windows and Linux metadata parity"
+  ]
+}

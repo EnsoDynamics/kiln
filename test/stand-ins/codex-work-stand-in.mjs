@@ -50,7 +50,7 @@ createInterface({ input: process.stdin }).on('line', async line => {
       if (fixture.usageError) { send({ id: message.id, error: { code: -32603, message: 'Fixture usage unavailable' } }); return; }
       result = fixture.usage ?? { accountId: fixture.accountId ?? 'proof-account', ordinaryUsageAllowed: fixture.ordinaryUsageAllowed ?? null, rateLimits: {}, rateLimitsByLimitId: {} }; break;
     case 'configRequirements/read': result = { requirements: fixture.requirements ?? null }; break;
-    case 'config/read': result = { config: { model_provider: null, hooks: null } }; break;
+    case 'config/read': if (fixture.configError) break; result = { config: { model_provider: null, hooks: null } }; break;
     case 'skills/list': result = { data: params.cwds.map(cwd => ({ cwd, skills: ['implement-from-requirements','deliverable-review','test-hardening','refactor-pass','implementation-lifecycle','engineering-principles','pre-commit-validation','continuation-prompt','phase-split', ...(fixture.additionalSkills ?? [])].map(name => ({ name: 'enso-method:' + name, path: fixture.skill, enabled: true })) })) }; break;
     case 'windowsSandbox/readiness': result = { status: fixture.windowsReadiness ?? 'ready' }; break;
     case 'thread/start': case 'thread/resume': {

@@ -1,3 +1,4 @@
+import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
@@ -406,7 +407,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     phases: views,
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
-    ...(record.settings.agentId === "claude_code" ? { billing: engine.billing.view } : {}),
+    billing: record.settings.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch),
     ...optional("pullRequests", record.pullRequests),
     ...optional("mergedBranches", record.mergedBranches),
     ...optional("deliveryHistory", record.deliveryHistory),

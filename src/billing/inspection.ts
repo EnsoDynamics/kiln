@@ -5,6 +5,14 @@ import { fileURLToPath } from "node:url";
 import { BILLING_CONTRACT, BILLING_KEYS, emptyInventory, ordinaryProfile, type Inventory } from "./contract.js";
 import { boundedRead } from "./bounded-process.js";
 import type { AccountStatus } from "../account/claude-account.js";
+export interface WorkspaceCredits {
+  bucketId: string;
+  accountId: string;
+  observedAt: string;
+  scope: "workspace";
+  balance?: string;
+  hasCredits?: boolean;
+}
 export interface BillingSummary {
   agentId: "claude_code" | "codex";
   route: "subscription" | "metered" | "settings";
@@ -12,6 +20,8 @@ export interface BillingSummary {
   sources: string[];
   email?: string;
   orgId?: string;
+  accountId?: string;
+  credits?: WorkspaceCredits[];
   plan?: string;
   observedAt: string;
   diagnostics: string[];

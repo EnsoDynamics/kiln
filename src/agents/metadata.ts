@@ -7,6 +7,7 @@ import { type AgentId } from "../state/records.js";
 import { METHOD_SKILLS, readCodexMetadata } from "./codex-metadata.js";
 
 export interface AgentAccount extends Omit<AccountView, "limits"> {
+  credits?: import("../billing/inspection.js").WorkspaceCredits[];
   codexUsage?: { state: "allowed" | "blocked" | "unknown"; reason: string; administrative?: boolean };
   agentId?: AgentId;
   accountId?: string;
@@ -99,11 +100,14 @@ export class AgentInfo {
           }
         }
       }
-      if (state.account?.error && previous && !previous.error) state.account = { ...previous, stale: true, lastSuccessfulAt: previous.updatedAt, error: state.account.error };
+      if (state.account?.error && previous && !previous.error) {
+        state.account = { ...previous, stale: true, lastSuccessfulAt: previous.updatedAt, error: state.account.error };
+        delete state.account.credits;
+      }
       else if (state.account?.limitsError && previous && !previous.limitsError && sameAccountContext(previous, state.account)) state.account = { ...state.account, limits: previous.limits, updatedAt: previous.updatedAt, stale: true, lastSuccessfulAt: previous.lastSuccessfulAt ?? previous.updatedAt };
     };
     const pending = read().catch(() => {
-      if (this.state === state) { state.models = undefined; state.modelListError = "Could not refresh agent metadata."; state.blockers = ["Could not refresh agent readiness. Check the selected agent in a terminal."]; }
+      if (this.state === state) { if (state.account) { delete state.account.credits; state.account.stale = true; } state.models = undefined; state.modelListError = "Could not refresh agent metadata."; state.blockers = ["Could not refresh agent readiness. Check the selected agent in a terminal."]; }
     }).finally(() => {
       if (this.state === state && !this.abort.signal.aborted) { state.pending = false; this.reading = undefined; this.changed(); }
     });
