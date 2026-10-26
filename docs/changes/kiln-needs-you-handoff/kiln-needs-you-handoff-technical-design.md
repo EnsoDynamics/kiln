@@ -2,11 +2,19 @@
 
 **PRD:** [Clear handoffs on Kiln’s Needs you page](kiln-needs-you-handoff-prd.md) · **Arrangement and wording:** [interactive mockup](mockups/kiln-needs-you-handoff.html), [editable source](mockups/kiln-needs-you-handoff-fragment.html).
 
-**Status:** Independent technical-design review complete; not implemented. Autonomous design refinement is on hold at Doug’s direction. Next step: size the work and split into phases only if needed. One whole PRD; no phase split yet.
+**Status:** Independent technical-design review and implementation sizing complete; not implemented. Autonomous design refinement is on hold at Doug’s direction. Implement the whole PRD in one session; no phase split is needed.
 
 ## Overview
 
 Keep the change inside Kiln’s existing local TypeScript engine, loopback HTTP API and Svelte view. Separate **evaluating phase completion** from **accepting it**: manual Resume checks without accepting; Verify and the explicit advance choice check and accept. Both agents use this shared decision boundary and their existing conversation adapters. No new service, database, process, provider protocol or background check is needed.
+
+## Implementation Sizing
+
+Sized with `phase-split` on 2026-10-26: **keep the PRD whole**. All 14 acceptance criteria form one coherent manual implementation-phase recovery capability for Claude Code and Codex, including one- and multi-repository work. The engine evaluation/acceptance boundary, target-bound HTTP/snapshot contracts and browser choices/draft lifetime can be built and verified together in one implementation session. Splitting by agent would duplicate the shared contracts; splitting by layer would leave the changed manual flow incomplete. No phase documents are created.
+
+The walkthrough covered the existing Resume/recheck/dispatch paths, completion checks, stop snapshot, local routes, Needs you screen and application screen lifetime, together with the existing real-Git, HTTP, browser and provider-proof harnesses. The work adds no separate deployable or new provider protocol, and needs no earlier release or product decision before another part can be built. Validation belongs to the same implementation session: every boundary in **Validation and Delivery**, including actual assembled Claude and Codex handoffs, failure/race cases and the full verification suite, remains required. Unavailable real-agent proof must be reported as specified there; sizing does not waive it. Keep earlier planned-replacement pointers unchanged until implementation makes them true.
+
+The independent review is recorded in `a2b1909`, with the sizing handoff pushed through `309732f`. In source chat `01a17a0d-846d-7f13-9810-f58c0427667a`, Doug said, “I think I'm going to hold off on the autonomous design refinement.” He explicitly directed this sizing chat to proceed without another design review or refinement. The next activity is `implement-from-requirements` on the unsplit PRD and this single design.
 
 ## Existing Code
 
