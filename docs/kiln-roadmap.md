@@ -2,6 +2,8 @@
 
 What Kiln does next, in order. Each item gets its own PRD when its turn comes. Ideas with no place in the order yet are in [Kiln ideas after v1](design/kiln-after-v1-ideas.md).
 
+**PRD written, implementation order not yet assigned:** [Control Kiln from a phone-driven bot](prds/kiln-bot-control/kiln-bot-control-prd.md), with a [command-line mockup](prds/kiln-bot-control/kiln-bot-control-command-mockup.md). Exposes existing-run status and controls plus subscription login through `kiln`, for a bot that already has terminal access to the Mac.
+
 ## Now: release v1
 
 Phase 6 of the [Kiln v1 PRD](prds/kiln-v1/kiln-v1-prd.md): the proof run and the first npm release. Then the PRD's own close out, run by hand: `delivery-audit`, any completion phases it adds, then `test-audit`. That run is also the first real use of the two audits, and what it shows shapes the next item.

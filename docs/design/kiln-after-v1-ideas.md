@@ -75,6 +75,8 @@ A screen that lists a repository's PRDs, or accepts a dropped PRD folder, as a w
 
 ## More terminal commands
 
+**PRD written:** [Kiln control from a phone-driven bot](../prds/kiln-bot-control/kiln-bot-control-prd.md), with [commands and example responses](../prds/kiln-bot-control/kiln-bot-control-command-mockup.md). It defines the first post-start control surface and subscription-login workflow; implementation has not started.
+
 `kiln status`, `kiln logs`, `kiln open` and `kiln pause`. In v1 the browser view does all of these, and `kiln run` is the only command.
 
 Business feedback (2026-10-17) widens this: any action the browser view offers should later be possible from outside it, including from a chat bot the person drives from a phone. The v1 technical design keeps that open ("Control From Outside the Browser"); reaching Kiln from off the machine needs its own design.
