@@ -26,6 +26,26 @@ function recordedRun(): SavedEvent[] {
 }
 
 describe("recognizing a usage limit from a run's events (AC-AUTO-01)", () => {
+  it("keeps the weekly refusal when subagents drain buffered responses and then report their own refusals", () => {
+    // Projected from the real 2026-10-26 delivery-audit stream: only consumed fields,
+    // anonymous parent/message IDs, original event order and arrival timestamps retained.
+    const events = readFileSync(new URL("../../test/fixtures/usage-limit/weekly-refusal-with-subagents.jsonl", import.meta.url), "utf8")
+      .trim().split("\n").map(line => JSON.parse(line) as SavedEvent);
+    expect(usageLimitRefusal(events)).toEqual({ rateLimitType: "seven_day", label: "Weekly", resetsAt: "2026-10-28T12:00:00.000Z", at: "2026-10-26T08:30:31.274Z" });
+    expect(usageLimitRefusal([...events, assistant("2026-10-26T08:31:00.000Z")])).toBeUndefined();
+  });
+
+  it("recognizes a tagged synthetic refusal without a rate report, but never guesses reset facts from its words", () => {
+    expect(usageLimitRefusal([synthetic("2026-10-22T19:00:01.000Z")])).toEqual({ label: "A usage limit", at: "2026-10-22T19:00:01.000Z" });
+    expect(usageLimitRefusal([synthetic("2026-10-22T19:00:01.000Z"), assistant("2026-10-22T19:00:30.000Z")])).toBeUndefined();
+  });
+
+  it.each([undefined, "authentication_failed"])("does not infer a refusal from synthetic limit prose with error %s", error => {
+    const saved = synthetic("2026-10-22T19:00:01.000Z");
+    saved.event.error = error;
+    expect(usageLimitRefusal([saved])).toBeUndefined();
+  });
+
   it("is a limit when the run's last rate_limit_event is rejected and no model response follows it", () => {
     const events = [assistant("2026-10-22T19:00:00.000Z"), rateLimit("2026-10-22T19:00:01.000Z", "rejected"), synthetic("2026-10-22T19:00:01.100Z"), result("2026-10-22T19:00:01.200Z")];
     expect(usageLimitRefusal(events)).toEqual({ rateLimitType: "five_hour", label: "5-hour window", resetsAt: "2026-10-22T20:00:00.000Z", at: "2026-10-22T19:00:01.000Z" });

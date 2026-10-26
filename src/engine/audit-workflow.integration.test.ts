@@ -14,6 +14,8 @@ import { writePrdRecord } from "../state/records.js";
 import { ownerDocuments, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 import { auditKey } from "../audit/workflow.js";
+import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
+import type { EngineOptions } from "./engine.js";
 
 let h: Harness | undefined; let server: LocalServer | undefined; let release: (() => void) | undefined;
 afterEach(async () => { await server?.close(); server = undefined; release?.(); release = undefined; await h?.cleanup(); h = undefined; });
@@ -25,8 +27,8 @@ const files = {
   "value.mjs": "export const value = () => 42;\n",
   "value.test.mjs": "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n",
 };
-async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession()], documentFiles = files) {
-  h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true });
+async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession()], documentFiles = files, engineOptions: Partial<EngineOptions> = {}) {
+  h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true, engineOptions });
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
   if (auditSessions) writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions }));
   const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); release = lock.release;
@@ -401,6 +403,50 @@ describe("automatic completion activities", () => {
     const calls = h.claudeCalls(); expect(calls[1]!.args).toContain("--resume"); expect(calls[1]!.args).toContain(original.sessionIds[0]);
     expect(calls[1]!.prompt.indexOf("Check the value")).toBeLessThan(calls[1]!.prompt.indexOf("Carry on with the assigned Delivery audit"));
     expect(calls[1]!.prompt).toContain(original.reportPath);
+  });
+
+  it.each(["automatic", "Resume now"])("recovers the recorded weekly refusal through %s after switching accounts, with no reply required", async mode => {
+    const started = Date.now();
+    const now = () => new Date(Date.parse("2026-10-26T09:30:00Z") + Date.now() - started);
+    const claude = new ScriptedClaude(now);
+    const full = signedIn([usageRow("weekly_all", 100, "2026-10-28T12:00:00Z")]);
+    claude.queue(full, full);
+    const h = await fixture([{ actions: [{ skill: "delivery-audit" }, { replay: "usage-limit/weekly-refusal-with-subagents.jsonl" }, { exit: 1 }] }, auditSession(), auditSession()], [pullRequestSession()], files, { claude, now });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const original = h.engine.record.completionAudits!.activities[0]!;
+    const key = auditKey(original);
+    expect(h.engine.waitingPhaseKey()).toBe(key);
+    claude.deliver(full);
+    await waitFor(() => buildSnapshot(h.engine).waiting?.limit.account?.percent === 100);
+    expect(buildSnapshot(h.engine).waiting?.limit).toMatchObject({ label: "Weekly", resetsAt: "2026-10-28T12:00:00.000Z" });
+    expect(h.claudeCalls()).toHaveLength(1);
+    const fresh = signedIn([usageRow("weekly_all", 5)], { email: "fresh@example.test", orgId: "org-fresh" });
+    const chrome = await launchChrome();
+    try {
+      const page = await chrome.open(server!.address, { clock: Date.parse("2026-10-26T09:30:00Z"), timeZone: "America/New_York" });
+      await page.waitFor(`document.body.innerText.includes('This audit is waiting for the weekly usage limit to reset.')`);
+      const words = await page.evaluate<string>("document.body.innerText");
+      expect(words).toContain("Resets Wed 8:00 AM, in 2d 2h");
+      expect(words).toContain("Kiln resumes this session by itself");
+      expect(words).not.toContain("Check again");
+      expect(words).not.toContain("Phase audit-");
+      if (process.env.KILN_SCREENSHOTS) {
+        mkdirSync(process.env.KILN_SCREENSHOTS, { recursive: true });
+        writeFileSync(join(process.env.KILN_SCREENSHOTS, `weekly-limit-${mode === "automatic" ? "automatic" : "manual"}.png`), await page.screenshot());
+      }
+      claude.queue(...Array.from({ length: 8 }, () => fresh));
+      if (mode === "automatic") await claude.refreshAccount();
+      else await page.evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Resume now')).click()`);
+      await waitFor(() => !!h.engine.record.completedAt); await h.engine.settled();
+      const calls = h.claudeCalls();
+      expect(calls[1]!.args).toContain("--resume");
+      expect(calls[1]!.args).toContain(original.sessionIds[0]);
+      expect(calls[1]!.prompt).toContain("the weekly usage limit");
+      expect(calls[1]!.prompt).toContain("Carry on with the assigned Delivery audit");
+      expect(h.engine.latestSession(key)!.runs[1]).toMatchObject({ cause: mode === "automatic" ? "limit_resume" : "person_resume", account: { email: "fresh@example.test" } });
+      expect(h.engine.record.completionAudits!.activities.filter(a => a.kind === "delivery_audit")).toHaveLength(1);
+      expect(page.problems).toEqual([]);
+    } finally { await chrome.close(); }
   });
 
   it("automatically reaudits material finalization changes and reuses the existing final pull request", async () => {

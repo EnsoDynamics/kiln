@@ -48,7 +48,7 @@ export function atLimitLine(limit: LimitView, now: Date): string | undefined {
 
 /** "Phase 2b", or "The pull-request session". */
 function sessionName(phaseId: string): string {
-  return phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
+  return phaseId.startsWith("audit-") ? "This audit" : phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
 }
 
 export interface WaitingCopy {

@@ -264,7 +264,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     }
     appendJsonLine(files.events, { at, event });
     if (isModelResponse(event)) modelResponses.push(at);
-    if (event.type === "rate_limit_event" || isModelResponse(event)) limitEvents.push({ at, event });
+    if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 
     const stepsBefore = reader.steps.length;
     const skillBefore = reader.lastSkill;

@@ -363,7 +363,7 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   };
 
   if (stop.phaseId.startsWith("audit-")) {
-    Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Use the assigned report and current checks. Resolve the affected criteria and evidence in this activity's original conversation.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
+    Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Use the assigned report and current checks. Resolve the affected criteria and evidence in this activity's original conversation.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: stop.resumeOffered ? "Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional." : "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
   }
   if (stop.kind === "selection") {
     return {

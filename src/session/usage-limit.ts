@@ -1,6 +1,6 @@
 // Claude usage limits (usage-limit recovery technical design, "Recognizing a Usage Limit",
 // "Design Decisions"): whether a run was refused by one, judged only from Claude Code's
-// `rate_limit_event`, never from the session's words; the limit's label; and whether a usage
+// structured rate reports and tagged synthetic errors, never from the session's words; the limit's label; and whether a usage
 // reading taken after the refusal shows the signed-in account has usage left.
 
 import type { AccountView, UsageLimit } from "../account/claude-account.js";
@@ -40,33 +40,40 @@ interface RateLimitInfo {
 }
 
 /**
- * The refusal that ended a run, from its saved events: its last `rate_limit_event` has
- * `status: "rejected"` and no model response arrived after it in the run. `resetsAt` is Unix
+ * The unresolved structured refusal at the end of a run. Tagged synthetic errors establish
+ * refusal again after buffered subagent responses, preserving the latest rejected report's
+ * type/reset. A later allowed report or model response clears it. `resetsAt` is Unix
  * seconds in the event and ISO here; `at` is the event's arrival, by Kiln's clock.
  *
  *   usageLimitRefusal([{ at: "2026-10-22T19:00:01.000Z", event: { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1792699200, rateLimitType: "five_hour" } } }])
  *   // { rateLimitType: "five_hour", label: "5-hour window", resetsAt: "2026-10-22T20:00:00.000Z", at: "2026-10-22T19:00:01.000Z" }
  */
 export function usageLimitRefusal(events: SavedEvent[]): LimitRefusal | undefined {
-  let lastIndex = -1;
-  for (let index = events.length - 1; index >= 0; index--) {
-    if (events[index]!.event.type === "rate_limit_event") {
-      lastIndex = index;
-      break;
+  let report: LimitRefusal | undefined;
+  let refusal: LimitRefusal | undefined;
+  for (const saved of events) {
+    const event = saved.event;
+    if (event.type === "rate_limit_event") {
+      const info = (event.rate_limit_info ?? {}) as RateLimitInfo;
+      report = info.status === "rejected" ? reportRefusal(info, saved.at) : undefined;
+      refusal = report;
+    } else if (event.type === "assistant" && event.message?.model === "<synthetic>" && event.error === "rate_limit") {
+      refusal = report ?? { label: UNKNOWN_LIMIT_LABEL, at: saved.at };
+    } else if (isModelResponse(event)) {
+      refusal = undefined;
     }
   }
-  if (lastIndex === -1) return undefined;
-  const saved = events[lastIndex]!;
-  const info = (saved.event.rate_limit_info ?? {}) as RateLimitInfo;
-  if (info.status !== "rejected") return undefined;
-  if (events.slice(lastIndex + 1).some((later) => isModelResponse(later.event))) return undefined;
+  return refusal;
+}
+
+function reportRefusal(info: RateLimitInfo, at: string): LimitRefusal {
   const rateLimitType = typeof info.rateLimitType === "string" && info.rateLimitType !== "" ? info.rateLimitType : undefined;
   const resetsAt = typeof info.resetsAt === "number" && Number.isFinite(info.resetsAt) ? new Date(info.resetsAt * 1000).toISOString() : undefined;
   return {
     ...(rateLimitType === undefined ? {} : { rateLimitType }),
     label: labelForType(rateLimitType),
     ...(resetsAt === undefined ? {} : { resetsAt }),
-    at: saved.at,
+    at,
   };
 }
 

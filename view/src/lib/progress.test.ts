@@ -127,6 +127,11 @@ describe("the Needs you screen's copy", () => {
     });
   });
 
+  it("distinguishes checking audit completion from resuming unfinished work without a reply", () => {
+    expect(copyOf({ phaseId: "audit-proof", resumeOffered: true }).footnote).toBe("Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional.");
+    expect(copyOf({ phaseId: "audit-proof", resumeOffered: false }).footnote).toBe("A successful process exit does not establish an audit result.");
+  });
+
   it("uses UI-007 item 2's lines for a session that can't be resumed: no facts row, the fresh session as step 1, no link", () => {
     expect(copyOf({ kind: "not_resumable", stoppedAt: "2026-10-17T15:30:00Z" })).toMatchObject({
       headline: "Phase 2b ended before it was done.",
