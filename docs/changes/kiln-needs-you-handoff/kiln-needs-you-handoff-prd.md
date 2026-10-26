@@ -1,6 +1,6 @@
 # PRD: Clear handoffs on Kiln’s Needs you page
 
-**Status:** Draft; not implemented. Autonomous PRD refinement and a substitute review round are both on hold pending Doug’s decision.
+**Status:** Draft; not implemented. One full review round completed with its findings fixed, under Doug’s one-round limit; no independent follow-up review was run.
 
 **Source:** Doug’s approved mockup and discussion on 2026-10-26, Codex chat `01a17999-12d9-7b91-92d3-bb9b908390af`. Doug requested a change PRD, links from the earlier requirements, and the mockup alongside the requirements; no stakeholder package.
 
@@ -106,4 +106,4 @@ The `Replaces in part:` lines identify the requirements this change will replace
 - Changing completion evidence, automatically committing or pushing on the person’s behalf, or granting additional merge/deployment authority.
 - A new embedded interactive chat, terminal launcher, account-switching flow, or automatic detection that a terminal conversation is finished.
 - Redesigning automatic usage waits, audit/final-delivery recovery, broken-plan repair, or application screens outside the affected Needs you phase flow.
-- A stakeholder review package, technical design, implementation, or any PRD refinement run in this drafting task.
+- A stakeholder review package, technical design, implementation, or additional PRD review rounds beyond the one full round completed with its findings fixed.

@@ -1914,8 +1914,9 @@ if(!globalThis.Tweak){
   }
   if(options.outcome===&#x27;complete&#x27;){
    result(&#x27;Ready for the next step&#x27;,&#x27;Phase 4b is already complete.&#x27;,&#x27;The completion checks passed. Choose whether to advance; no conversation has been resumed.&#x27;);
-   q(&#x27;kp-unsent&#x27;).hidden=!withReply;q(&#x27;kp-advance&#x27;).hidden=false;
-   q(&#x27;kp-advance&#x27;).textContent=withReply?&#x27;Advance without sending reply&#x27;:&#x27;Advance to the next step&#x27;;return;
+   const hasDraft=Boolean(q(&#x27;kp-reply&#x27;).value.trim());
+   q(&#x27;kp-unsent&#x27;).hidden=!hasDraft;q(&#x27;kp-advance&#x27;).hidden=false;
+   q(&#x27;kp-advance&#x27;).textContent=hasDraft?&#x27;Advance without sending reply&#x27;:&#x27;Advance to the next step&#x27;;return;
   }
   result(&#x27;Working · Kiln has control&#x27;,&#x27;Kiln is finishing Phase 4b.&#x27;,withReply?&#x27;Your reply was sent to the same Claude conversation. Kiln is finishing the remaining work, then will follow the plan.&#x27;:&#x27;The same Claude conversation has resumed, including your terminal discussion. Kiln is finishing the remaining work, then will follow the plan.&#x27;);
  }

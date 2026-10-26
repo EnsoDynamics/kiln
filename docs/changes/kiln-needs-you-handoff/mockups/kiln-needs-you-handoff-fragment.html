@@ -126,8 +126,9 @@ if(!globalThis.Tweak){
   }
   if(options.outcome==='complete'){
    result('Ready for the next step','Phase 4b is already complete.','The completion checks passed. Choose whether to advance; no conversation has been resumed.');
-   q('kp-unsent').hidden=!withReply;q('kp-advance').hidden=false;
-   q('kp-advance').textContent=withReply?'Advance without sending reply':'Advance to the next step';return;
+   const hasDraft=Boolean(q('kp-reply').value.trim());
+   q('kp-unsent').hidden=!hasDraft;q('kp-advance').hidden=false;
+   q('kp-advance').textContent=hasDraft?'Advance without sending reply':'Advance to the next step';return;
   }
   result('Working · Kiln has control','Kiln is finishing Phase 4b.',withReply?'Your reply was sent to the same Claude conversation. Kiln is finishing the remaining work, then will follow the plan.':'The same Claude conversation has resumed, including your terminal discussion. Kiln is finishing the remaining work, then will follow the plan.');
  }
