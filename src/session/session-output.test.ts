@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isPartialDelta, lastResultLine, SessionOutputReader, stepStates, type OutputLine, type StreamEvent } from "./session-output.js";
+import { isPartialDelta, toolResultText, SessionOutputReader, stepStates, type OutputLine, type StreamEvent } from "./session-output.js";
 
 function replay(fixture: string): { reader: SessionOutputReader; lines: OutputLine[] } {
   const reader = new SessionOutputReader();
@@ -70,8 +70,8 @@ describe("SessionOutputReader", () => {
       at,
     );
     expect(results.map((line) => [line.source, line.text])).toEqual([
-      ["stderr", "fatal: bad"],
-      ["out", "2\t  pass"],
+      ["stderr", "On branch x\n\nfatal: bad"],
+      ["out", "1\tclass Return:\n2\t  pass"],
     ]);
   });
 
@@ -122,14 +122,15 @@ describe("SessionOutputReader", () => {
   });
 });
 
-describe("lastResultLine", () => {
+describe("toolResultText", () => {
   it.each([
-    ["one\ntwo\n", "two"],
+    ["one\ntwo\n", "one\ntwo"],
     ["Exit code 2\n", ""],
-    [[{ type: "text", text: "a" }, { type: "image" }, { type: "text", text: "b\n" }], "b"],
+    ["Exit code 0\r\n\r\n  first\r\n\r\n  second\r\n\r\n", "  first\n\n  second"],
+    [[{ type: "text", text: "a" }, { type: "image" }, { type: "text", text: "b\n" }], "a\nb"],
     [undefined, ""],
   ])("reads %j", (content, expected) => {
-    expect(lastResultLine(content)).toBe(expected);
+    expect(toolResultText(content)).toBe(expected);
   });
 });
 

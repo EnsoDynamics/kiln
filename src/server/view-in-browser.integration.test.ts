@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
-import type { OutputLine } from "../session/session-output.js";
+import { SessionOutputReader, type OutputLine } from "../session/session-output.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { git } from "../test-support/git-repositories.js";
@@ -871,6 +871,31 @@ describe("the bounded terminal viewer", () => {
       expect(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h2')).fontSize)`)).toBeGreaterThan(await page.evaluate<number>(`parseFloat(getComputedStyle(document.querySelector('h1')).fontSize)`));
       await page.evaluate(`document.querySelector('.back').click()`);
       await page.waitFor(`location.pathname === '/customer-returns'`);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it.each([1280, 390])("previews multiline Claude results from the beginning and expands the full result at %ipx", async (width) => {
+    const snapshot = runningSnapshot();
+    const result = "Saved audit files:\ns001.json\ns002.json\ns003.json\ns120.json";
+    const lines = new SessionOutputReader().readEvent({
+      type: "user", message: { content: [{ type: "tool_result", content: `Exit code 0\n${result}\n` }] },
+    }, "2026-10-17T15:46:58Z");
+    snapshot.current!.latestLine = lines[0]!;
+    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot, output: lines });
+    const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW, timeZone: TIME_ZONE });
+    try {
+      await page.waitFor(`document.querySelector('.latest .result')`);
+      const preview = await page.evaluate<string>(`document.querySelector('.latest .text').textContent`);
+      expect(preview).toBe("Saved audit files:\ns001.json\ns002.json…");
+      expect(await page.evaluate<boolean>(`(() => { const text = document.querySelector('.latest .entry-text').getBoundingClientRect(); const pane = document.querySelector('.latest').getBoundingClientRect(); return text.top >= pane.top && text.bottom <= pane.bottom + 1; })()`)).toBe(true);
+      expect(await page.evaluate<boolean>(`document.documentElement.scrollWidth <= innerWidth`)).toBe(true);
+      if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, `main-multiline-result-${width}.png`), await page.screenshot());
+      await page.evaluate(`document.querySelector('.watch').click()`);
+      await page.waitFor(`document.querySelector('[data-output-entry="1"] .expand')`);
+      await page.evaluate(`document.querySelector('[data-output-entry="1"] .expand').click()`);
+      await page.waitFor(`document.querySelector('[data-output-entry="1"] .text').textContent.includes('s120.json')`);
+      expect(await page.evaluate<string>(`document.querySelector('[data-output-entry="1"] .text').textContent`)).toBe(result);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });

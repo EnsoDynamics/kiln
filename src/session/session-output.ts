@@ -144,7 +144,7 @@ export class SessionOutputReader {
           this.openReviewerCalls.delete(block.tool_use_id);
           if (this.skillCalls.has(block.tool_use_id)) continue;
         }
-        add(block.is_error ? "stderr" : "out", lastResultLine(block.content));
+        add(block.is_error ? "stderr" : "out", toolResultText(block.content));
       }
     }
     return lines;
@@ -224,19 +224,21 @@ export function toolLineText(block: { name?: string; input?: Record<string, unkn
   return main ? `${block.name ?? "tool"} ${main}` : (block.name ?? "tool");
 }
 
-/** A tool result's last non-empty line, after dropping Claude Code's leading `Exit code <n>` line. */
-export function lastResultLine(content: unknown): string {
+/** Preserve tool output for the viewer; only strip the exit-code wrapper and outer blank lines. */
+export function toolResultText(content: unknown): string {
   let text: string;
   if (typeof content === "string") text = content;
   else if (Array.isArray(content)) {
     text = content
-      .map((part: { type?: string; text?: string }) => (part.type === "text" && typeof part.text === "string" ? part.text : ""))
+      .flatMap((part: { type?: string; text?: string }) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
       .join("\n");
   } else text = "";
   const lines = text.split(/\r?\n/);
   if (/^Exit code -?\d+\s*$/.test(lines[0] ?? "")) lines.shift();
-  const nonEmpty = lines.filter((line) => line.trim() !== "");
-  return nonEmpty[nonEmpty.length - 1] ?? "";
+  const first = lines.findIndex((line) => line.trim() !== "");
+  if (first === -1) return "";
+  const last = lines.findLastIndex((line) => line.trim() !== "");
+  return lines.slice(first, last + 1).join("\n");
 }
 
 /** True for an event that only feeds the live view and isn't saved: a partial-message delta. */
