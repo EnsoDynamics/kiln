@@ -1,3 +1,4 @@
+import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
 import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, acceptedAudit, resolveAuditSkill } from "../audit/workflow.js";
@@ -167,8 +168,8 @@ export type TerminalEvent =
   | { kind: "message"; text: string };
 
 export type CommandResult =
-  | { ok: true; noteSkipped?: true }
-  | { ok: false; status: 400 | 409 | 422; reason: string; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
+  | { ok: true; noteSkipped?: true; outcome?: PhaseRecoveryOutcome; target?: PhaseRecoveryTarget }
+  | { ok: false; status: 400 | 409 | 422 | 500 | 503; reason: string; code?: PhaseRecoveryCode; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
 
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 export type AddRepositoryResult =
@@ -278,6 +279,7 @@ export class Engine {
   settingUp = false;
   /** True while Check again's check runs. */
   checking = false;
+  private phaseCheckError: { target: PhaseRecoveryTarget; reason: string; attemptedAt: string } | undefined;
   private announcedDelivery = new Set<string>();
   private deliveryBusy = false;
   private deliveryPending: Promise<void> | undefined;
@@ -691,8 +693,87 @@ export class Engine {
     return { ok: true };
   }
 
+  phaseRecoveryTarget(): PhaseRecoveryTarget | undefined {
+    const phaseKey = this.stoppedPhaseKey();
+    if (!phaseKey || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey)) return undefined;
+    const facts = this.record.phases[phaseKey];
+    const hold = this.record.billing?.hold?.phaseKey === phaseKey ? this.record.billing.hold : undefined;
+    if (!hold && facts?.stop?.kind !== "done_check" && facts?.stop?.kind !== "not_resumable") return undefined;
+    const session = this.latestSession(phaseKey);
+    if (!session || session.kind !== "phase" || !session.runs.some(run => run.pid !== undefined)) return undefined;
+    return { executionId: this.record.executionId!, phaseKey, sessionId: session.sessionId, stoppedAt: hold?.at ?? facts!.stop!.at };
+  }
+
+  phaseRecoveryView(): PhaseRecoveryView | undefined {
+    const target = this.phaseRecoveryTarget();
+    if (!target) return undefined;
+    const error = sameRecoveryTarget(target, this.phaseCheckError?.target) ? this.phaseCheckError : undefined;
+    const stop = this.record.phases[target.phaseKey]?.stop;
+    const attemptStartedAt = this.latestSession(target.phaseKey)?.runs.at(-1)?.startedAt;
+    return { target, ...(attemptStartedAt ? { attemptStartedAt } : {}), completion: error || !stop?.checks.length ? "unknown" : stop.checks.every(check => check.passed) ? "complete" : "incomplete", ...(error ? { checkError: { reason: error.reason, attemptedAt: error.attemptedAt } } : {}) };
+  }
+
+  private async recoverPhase(action: "resume" | "verify", body: Record<string, unknown>): Promise<CommandResult> {
+    const fail = (code: PhaseRecoveryCode, reason: string, status: 400 | 409 | 500 | 503 = 409): CommandResult => ({ ok: false, code, reason, status });
+    const allowed = action === "resume" ? ["target", "note"] : ["target", "intent"];
+    if (Object.keys(body).some(key => !allowed.includes(key)) || (body.target !== undefined && !validRecoveryTarget(body.target))) return fail("invalid_request", "Submit a valid recovery target and only the fields for this action.", 400);
+    if (action === "verify" && body.intent !== undefined && body.intent !== "verify" && body.intent !== "advance") return fail("invalid_request", "Choose verify or advance.", 400);
+    if (body.note !== undefined && typeof body.note !== "string") return fail("invalid_request", "The note must be text.", 400);
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    if (note.length > NOTE_LIMIT) return fail("invalid_request", `The note can be at most ${NOTE_LIMIT.toLocaleString("en-US")} characters.`, 400);
+    const target = this.phaseRecoveryTarget();
+    if (!validRecoveryTarget(body.target) || !sameRecoveryTarget(target, body.target)) return fail("stale_target", "This stopped conversation has changed. Reload the current state before trying again.");
+    if (action === "verify" && body.intent === undefined) return fail("invalid_request", "Choose verify or advance.", 400);
+    if (this.billing.busy || this.deliveryBusy || this.checking || this.driving || this.settingUp || this.current || this.stopping) return fail("busy", "Kiln is already checking or starting work.");
+    const key = target!.phaseKey;
+    if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation cannot be resumed. Use the available terminal recovery instructions.");
+    this.checking = true;
+    this.changed();
+    let queued = false;
+    try {
+      const latest = this.latestSession(key)!;
+      if (latest.agentId === "codex") await this.stopLiveProcess(latest);
+      const outcome = await this.doneCheck(key);
+      if (outcome === "stopping" || this.stopping) throw new CompletionCheckUnavailable("The completion check was interrupted. No work was started.");
+      if (outcome.unavailable) throw new CompletionCheckUnavailable(outcome.unavailable);
+      // A hold may precede a normal stop. Save actual completion evidence separately from billing.
+      const facts = this.record.phases[key]!;
+      const previousStop = structuredClone(facts.stop);
+      if (!facts.stop) facts.stop = { kind: "done_check", at: target!.stoppedAt, checks: [], checkedAt: this.now().toISOString() };
+      try { this.updateStop(key, outcome.checks); }
+      catch (error) { if (previousStop) facts.stop = previousStop; else delete facts.stop; throw error; }
+      this.phaseCheckError = undefined;
+      if (outcome.passed) {
+        if (action === "resume") return { ok: true, outcome: "already_complete", target: target! };
+        // No completion state is observable before its atomic write succeeds.
+        const before = structuredClone(this.record);
+        try {
+          await this.recordDone(key, outcome, true, true);
+        } catch (error) {
+          Object.assign(this.record, before);
+          throw error;
+        }
+        return { ok: true, outcome: "advanced", target: target! };
+      }
+      if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
+      if (!this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
+      this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note ? { note } : {}) };
+      queued = true;
+      return { ok: true, outcome: "resume_requested", target: target! };
+    } catch (error) {
+      const reason = (error as Error).message;
+      this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
+      return fail(error instanceof RecoveryStateWriteFailed ? "state_write_failed" : "check_unavailable", reason, error instanceof RecoveryStateWriteFailed ? 500 : 503);
+    } finally {
+      if (!queued || this.stopping) this.checking = false;
+      this.changed();
+      if (queued || this.record.phases[key]?.doneAt && !this.record.phases[key]?.stop && !this.record.billing?.hold) this.kick();
+    }
+  }
+
   /** Check again: runs the stopped phase's check, or reads the plan again at a `plan` stop (AC-STOP-07). */
-  async checkAgain(): Promise<CommandResult> {
+  async checkAgain(body: Record<string, unknown> = {}): Promise<CommandResult> {
+    if (this.phaseRecoveryTarget() || "target" in body || "intent" in body) return this.recoverPhase("verify", body);
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
@@ -720,7 +801,8 @@ export class Engine {
    * During a wait it is Resume now (AC-LIMIT-02), which takes no note: the wait's check first,
    * then the same session on whichever account is signed in, without waiting for a reading.
    */
-  async resume(body: { note?: unknown } = {}): Promise<CommandResult> {
+  async resume(body: Record<string, unknown> = {}): Promise<CommandResult> {
+    if (this.phaseRecoveryTarget() || "target" in body) return this.recoverPhase("resume", body);
     const waiting = this.record.billing?.hold ? undefined : this.waitingPhaseKey();
     if (waiting !== undefined) {
       // An empty note counts as none.
@@ -802,6 +884,7 @@ export class Engine {
    * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
    */
   async changeSettings(change: Partial<Settings>): Promise<CommandResult> {
+    if (this.checking && this.phaseRecoveryTarget()) return refuse("Kiln is checking or resuming this phase. Wait before changing settings.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
     const fixedFields = (["workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"] as const).filter((field) => change[field] !== undefined);
@@ -2328,6 +2411,7 @@ export class Engine {
       });
       if (deliveryEnabled(this.record)) {
         await reconcileDelivery(this.deliveryContext(phaseKey));
+        if (ledger(this.record).sourceUnavailable) outcome.unavailable = "Required development-delivery evidence is unavailable. Retry when the source can be read.";
         const delivery = phaseDeliveryCheck(this.deliveryContext(phaseKey), outcome.judgedLeafId);
         outcome.checks.push(delivery, ...this.activationChecks().filter(check => !check.passed)); outcome.passed = outcome.passed && outcome.checks.every(check => check.passed); this.save(); this.announceDelivery();
       }
@@ -2380,10 +2464,16 @@ export class Engine {
     }
   }
 
-  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean): Promise<void> {
+  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
+    const clearManualStop = () => {
+      if (!acceptManual) return;
+      delete facts.stop;
+      delete facts.wait;
+      if (this.record.billing?.hold?.phaseKey === phaseKey) delete this.record.billing.hold;
+    };
     // Backfilling development assessments does not rewrite historical completion/push facts.
-    if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery && !this.auditActivity(phaseKey)) { this.save(); return; }
+    if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery && !this.auditActivity(phaseKey)) { clearManualStop(); this.save(); return; }
     const audit = this.auditActivity(phaseKey);
     if (audit) {
       if (facts.doneAt) { const stop = facts.stop; delete facts.stop; try { this.save(); } catch (error) { if (stop) facts.stop = stop; throw error; } return; }
@@ -2406,18 +2496,22 @@ export class Engine {
       this.emitAudit(audit, "done"); return;
     }
     const shas = outcome.pushedShas!;
-    facts.doneAt ??= this.now().toISOString();
-    facts.finishedByPerson = byPerson;
+    const repositories = structuredClone(facts.repositories);
     const pushes: { name: string; sha: string }[] = [];
     for (const entry of this.setUpRepositories) {
       const sha = shas[entry.name];
       if (sha === undefined) continue;
-      const repository = (facts.repositories[entry.name] ??= { startCommit: sha });
+      const repository = (repositories[entry.name] ??= { startCommit: sha });
       repository.pushedSha = sha;
       const count = await firstParentCount(this.git, expandHome(entry.worktreePath), repository.startCommit, sha);
       if (count !== undefined) repository.commitCount = count;
       if (repository.startCommit !== sha) pushes.push({ name: entry.name, sha });
     }
+    if (this.stopping) throw new CompletionCheckUnavailable("Completion acceptance was interrupted.");
+    facts.repositories = repositories;
+    facts.doneAt ??= this.now().toISOString();
+    facts.finishedByPerson = byPerson;
+    clearManualStop();
     this.save();
     const prdSha = shas[this.paths.repositoryName]!;
     // The done line lists the code repositories in list order, then the PRD's repository.
@@ -2971,6 +3065,7 @@ export class Engine {
    *   // { ok: true, name: "notifications", worktreePath: "/home/a/acme/.worktrees/customer-returns/notifications", … }
    */
   addRepository(name: string): Promise<AddRepositoryResult> {
+    if (this.checking) return Promise.resolve({ ok: false, status: 409, reason: "Kiln is checking or resuming. Add the repository after this action settles." });
     const phaseKey = this.current?.session !== undefined ? this.current.phaseKey : this.stoppedPhaseKey();
     const refused = { ok: false as const, status: 409 as const, reason: "Kiln adds a repository only while a phase is running or stopped at Needs you." };
     if (!this.isUnderway || this.currentlyComplete || phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.stopping) return Promise.resolve(refused);
@@ -3441,7 +3536,8 @@ export class Engine {
   private save(): void {
     // Once a stop begins, nothing is judged: the next `kiln run` judges from the record.
     if (this.stopping) return;
-    writePrdRecord(this.options.stateDirectory, this.record);
+    try { writePrdRecord(this.options.stateDirectory, this.record); }
+    catch (error) { throw new RecoveryStateWriteFailed(`Kiln could not save execution state: ${(error as Error).message}`); }
     this.changed();
   }
 

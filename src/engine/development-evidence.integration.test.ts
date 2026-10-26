@@ -79,6 +79,18 @@ describe("independent delivery evidence and continuation", () => {
     const f=await setup();f.synchronize();await reconcileDelivery(f.context);const prior=structuredClone(f.checkpoint.evidence);
     f.responses["repos/acme/acme-shop/deployments/11/statuses?per_page=100&page=1"]={error:"temporary provider outage"};f.save();
     await reconcileDelivery(f.context);expect(f.checkpoint.evidence).toEqual(prior);expect(f.h.engine.record.developmentDelivery!.sourceUnavailable).toBe(true);expect(phaseDeliveryCheck(f.context,"1").passed).toBe(false);
+    // Manual handoff must distinguish an unavailable required source from unfinished work.
+    f.h.tools.gh = f.context.gh;
+    f.h.env.KILN_DELIVERY_GH_RESPONSES = f.context.env.KILN_DELIVERY_GH_RESPONSES;
+    const stopped = structuredClone(f.h.engine.record.phases["1"]!.stop);
+    const target = f.h.engine.phaseRecoveryTarget()!;
+    const calls = f.h.claudeCalls().length;
+    for (const action of ["resume", "verify"] as const) {
+      const answer = action === "resume" ? await f.h.engine.resume({ target, note: "must remain unsent" }) : await f.h.engine.checkAgain({ target, intent: "verify" });
+      expect(answer).toMatchObject({ ok: false, status: 503, code: "check_unavailable" });
+      expect(f.h.engine.record.phases["1"]!.stop).toEqual(stopped);
+      expect(f.h.claudeCalls()).toHaveLength(calls);
+    }
     const status=f.h.engine.deliveryStatus();
     expect(await f.h.engine.deliveryCommand("assessment",{executionId:status.executionId,revision:status.revision,phaseId:"1",documentsDigest:status.documentsDigest,required:true,criteria:f.checkpoint.criteria,reason:"Retain the required delivery while its current source is unavailable",checkpoints:[]})).toMatchObject({ok:true});
     expect(f.h.events.filter(one=>one.kind==="delivery"&&one.stage==="Deployment").at(-1)).toMatchObject({outcome:expect.stringMatching(/^unresolved/)});

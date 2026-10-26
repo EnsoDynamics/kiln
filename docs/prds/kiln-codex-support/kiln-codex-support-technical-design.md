@@ -231,6 +231,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 
 ### Local API and snapshot changes
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase requests, outcomes and snapshot; see also §Manual Phase Recovery and §Needs you Layout).
+
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces and §Codex Account and Credit Contract (Codex billing summaries, optional workspace credits and historical launch attribution).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).

@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Real engine/Git/disk/process boundaries; verified protocol failure injection is not quota proof.
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -151,7 +152,7 @@ it("retains manual Resume now and setting-off behavior and rejects usage recover
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   await h.engine.changeSettings({ resumeAfterUsageLimit: true }); await refresh({ ordinaryUsageAllowed: true });
   expect(dispatches()).toHaveLength(1); // Turning the setting on never launches from Needs you.
-  set({ ordinaryUsageAllowed: false }); await h.engine.resume({ note: "Keep the original settings." }); await h.engine.settled();
+  set({ ordinaryUsageAllowed: false }); await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original settings." }); await h.engine.settled();
   await h.engine.agents.refresh();
   expect(dispatches()).toHaveLength(2);
   const manualPrompt = JSON.stringify(dispatches()[1]?.params?.input);

@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Automatic routing with real Git, packaged CLI/HTTP, persisted state and scripted provider
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -81,8 +82,8 @@ describe("automatic completion activities", () => {
     try {
       if (entry === "completed") await current.engine.start({ refinementConfirmed: true });
       const operation = entry === "interrupted" ? current.engine.decide()
-        : entry === "stopped" ? current.engine.checkAgain()
-        : entry === "waiting" ? current.engine.resume() : current.engine.settled();
+        : entry === "stopped" ? current.engine.checkAgain(recoveryRequest(current.engine, "verify"))
+        : entry === "waiting" ? current.engine.resume(recoveryRequest(current.engine)) : current.engine.settled();
       // Observe rejections before releasing the gate; an ordinary failure must remain
       // visible and must not turn into a passing or stopping verdict.
       const observed = operation.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
@@ -199,7 +200,7 @@ describe("automatic completion activities", () => {
     expect(activities.map(a => a.continuationIndex)).toEqual([1,1,2]);
     expect(last.acceptedResult).toBeUndefined(); expect(h.engine.record.completedAt).toBeUndefined();
     expect(h.engine.record.phases[auditKey(last)]!.stop!.checks.flatMap(c => c.facts).join(" ")).toContain("no recorded progress");
-    await h.engine.checkAgain(); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(3);
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(3);
   });
 
   it.each(["completion phase", "direct fix"])("returns a test-discovered %s through delivery and whole-test reassessment", async mode => {
@@ -261,9 +262,9 @@ describe("automatic completion activities", () => {
     try {
       await h.engine.start({refinementConfirmed:true});await h.engine.settled();
       expect(h.engine.record.completedAt).toBeUndefined();expect(h.claudeCalls()).toHaveLength(1);
-      expect(await h.engine.checkAgain()).toEqual({ok:true});await h.engine.settled();
+      expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ok:true});await h.engine.settled();
       expect(h.engine.record.completedAt).toBeUndefined();expect(h.claudeCalls()).toHaveLength(1);
-      expect(await h.engine.resume()).toEqual({ok:true});await h.engine.settled();
+      expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ok:true});await h.engine.settled();
       expect(h.engine.record.completedAt,JSON.stringify(h.engine.record.phases)).toBeTruthy();
       expect(h.engine.record.completionAudits!.activities.map(a=>a.kind)).toEqual(["delivery_audit","test_audit"]);
       expect(h.claudeCalls()).toHaveLength(3);expect(h.claudeCalls().some(c=>c.prompt.includes("Open one pull request"))).toBe(false);
@@ -276,7 +277,7 @@ describe("automatic completion activities", () => {
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const activity = h.engine.record.completionAudits!.activities[0]!; const key = auditKey(activity);
     expect(h.engine.stoppedPhaseKey()).toBe(key); expect(h.engine.record.phases[key]!.stop!.checks.some(c => c.name === "missing_evidence" && !c.passed)).toBe(true);
-    await h.engine.checkAgain(); await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.completionAudits!.activities).toHaveLength(1); expect(h.engine.record.completedAt).toBeUndefined();
   });
   it("recovers a committed report without submission and pauses at the audit boundary", async () => {
@@ -381,7 +382,7 @@ describe("automatic completion activities", () => {
     expect(JSON.parse(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).completionAudits.policy).toBe("required");
     const context: DeliveryContext = { record: again.record, stateDirectory: h.stateDirectory, prdWorktree: again.worktreePath, prdDirectory: directory, git: { git: h.tools.git, env: h.env }, gh: h.tools.gh, env: h.env, phaseId: "1", now: () => new Date().toISOString(), commands: async () => [] };
     expect(await again.deliveryCommand("assessment", { executionId: again.record.executionId, revision: again.record.developmentDelivery!.revision, phaseId: "1", ...ownerDocuments(context, { kind: "phase", phaseId: "1" }), required: false, criteria: ["AC-PROOF-01"], reason: "The fixture's original phase needs no development deployment.", checkpoints: [] })).toMatchObject({ ok: true });
-    await again.checkAgain(); await again.settled();
+    await again.checkAgain(recoveryRequest(again, "verify")); await again.settled();
     expect(again.record.completionAudits!.activities.map(activity => activity.kind), JSON.stringify(buildSnapshot(again).needsYou?.checks)).toEqual(["delivery_audit"]);
     const audit = again.record.completionAudits!.activities[0]!;
     expect(again.stoppedPhaseKey()).toBe(auditKey(audit));
@@ -397,7 +398,7 @@ describe("automatic completion activities", () => {
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const original = h.engine.record.completionAudits!.activities[0]!; const key = auditKey(original);
     expect(h.engine.record.phases[key]!.stop?.limit).toBeTruthy();
-    expect(await h.engine.resume({ note: "Check the value before continuing." })).toEqual({ ok: true }); await h.engine.settled();
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Check the value before continuing." })).toMatchObject({ ok: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities[0]!.activityId).toBe(original.activityId);
     const calls = h.claudeCalls(); expect(calls[1]!.args).toContain("--resume"); expect(calls[1]!.args).toContain(original.sessionIds[0]);
@@ -488,7 +489,7 @@ describe("automatic completion activities", () => {
     const at=new Date().toISOString();h.engine.record.phases[key]!.stop={kind:"done_check",at,checkedAt:at,checks:[]};writePrdRecord(h.stateDirectory,h.engine.record);
     const target={repository:"github.com/acme/acme-shop",baseBranch:"develop",environment:"audit-fixture-dev"};
     expect(h.engine.authorizeDevelopmentTarget({executionId:h.engine.record.executionId,authorizationRevision:h.engine.record.developmentAuthorization!.revision,target,confirmedNonProduction:true})).toEqual({ok:true});
-    await h.engine.checkAgain();await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe(key);expect(h.engine.record.phases[key]!.stop!.checks.some(c=>c.name==="Required development delivery verified"&&!c.passed)).toBe(true);
     expect(buildSnapshot(h.engine).needsYou!.resumePrompt).toContain("audit-fixture-dev");
     const context:DeliveryContext={record:h.engine.record,stateDirectory:h.stateDirectory,prdWorktree:h.engine.worktreePath,prdDirectory:directory,git:{git:h.tools.git,env:h.env},gh:h.tools.gh,env:h.env,owner:{kind:"audit",activityId:audit.activityId},now:()=>new Date().toISOString(),commands:async()=>[]};
@@ -497,7 +498,7 @@ describe("automatic completion activities", () => {
       const body={executionId:h.engine.record.executionId,revision:h.engine.record.developmentDelivery!.revision,...(owner.kind==="phase"?{phaseId:owner.phaseId}:{owner}),...binding,required:false,criteria:owner.kind==="audit"?[`acme-shop:${directory}/proof-prd.md#AC-PROOF-01`]:[],reason:"The fixture needs no development delivery.",checkpoints:[]};
       expect(await h.engine.deliveryCommand("assessment",body)).toMatchObject({ok:true});
     }
-    await h.engine.checkAgain();await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBeUndefined();expect(h.engine.record.pause.activeSince).toBeTruthy();
     expect(audit.acceptedResult).toBe(accepted);expect(h.claudeCalls()).toHaveLength(1);
     expect(h.engine.record.completionAudits!.activities[0]!.sessionIds).toEqual(audit.sessionIds);
@@ -510,7 +511,7 @@ describe("automatic completion activities", () => {
     const audit=h.engine.record.completionAudits!.activities[0]!;const key=auditKey(audit);
     expect(h.engine.record.phases[key]!.stop!.kind).toBe("selection");expect(audit.sessionIds).toEqual([]);expect(h.claudeCalls()).toEqual([]);
     expect(await h.engine.changeSettings({agentId:h.engine.record.settings.agentId,selectionGeneration:h.engine.record.settings.selectionGeneration??0,model:original.model,effort:original.effort!})).toEqual({ok:true});
-    await h.engine.checkAgain();await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));await h.engine.settled();
     expect(h.engine.record.completedAt).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities[0]!.activityId).toBe(audit.activityId);
     expect(h.engine.record.completionAudits!.activities).toHaveLength(2);

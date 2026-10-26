@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Resume at Needs you (usage-limit recovery PRD AC-RESUME-01 to 04, with multi-repo AC-OUTSIDE-04's
 // part of them), through the engine against real Git with the stand-in claude: Kiln checks
 // first, then picks the same session back up with the person's note, and carries on through
@@ -52,7 +53,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     const session = h.engine.latestSession("1")!;
     const endedAt = session.runs[0]!.endedAt!;
 
-    expect(await h.engine.resume({ note: "  Use the fields in the returns form mockup.\n" })).toEqual({ ok: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "  Use the fields in the returns form mockup.\n" })).toMatchObject({ ok: true });
     await h.engine.settled();
 
     // The same session, resumed with its own concrete model, its note first, in the person's words, trimmed.
@@ -71,14 +72,18 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
-  it("counts a phase the person finished by hand as Done when Resume's check passes, resuming nothing and dropping the note", async () => {
+  it("keeps a completed phase stopped until explicit advance, without sending the note", async () => {
     harness = await createHarness({ sessions: [askingSession(), landingSession("src/credit.txt")] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     finishByHand(h, h.engine);
 
-    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true, noteSkipped: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Never sent." })).toMatchObject({ ok: true, outcome: "already_complete" });
+    expect(h.engine.record.phases["1"]!.stop).toBeDefined();
+    expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "advanced" });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
@@ -105,13 +110,13 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
       if (shown !== undefined && shown.checking !== true) unheld++;
     });
     // A whitespace note counts as none.
-    const pressed = h.engine.resume({ note: "   " });
+    const pressed = h.engine.resume({ ...recoveryRequest(h.engine), note: "   " });
     expect(buildSnapshot(h.engine).needsYou!.checking).toBe(true);
-    expect(await h.engine.checkAgain()).toEqual({ ok: false, status: 409, reason: "Kiln is already checking." });
-    expect(await h.engine.resume()).toEqual({ ok: false, status: 409, reason: "Kiln is already checking." });
-    expect(await pressed).toEqual({ ok: true });
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, status: 409, code: "busy", reason: "Kiln is already checking or starting work." });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409, code: "busy", reason: "Kiln is already checking or starting work." });
+    expect(await pressed).toMatchObject({ ok: true, outcome: "resume_requested" });
     // The check has failed; until the run starts Check again is refused, and after it there is no stop to check.
-    expect(await h.engine.checkAgain()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, status: 409 });
 
     await waitFor(() => existsSync(running));
     offChange();
@@ -141,7 +146,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
     expect(buildSnapshot(engine).needsYou!.resumeOffered).toBe(true);
-    expect(await engine.resume()).toEqual({ ok: true });
+    expect(await engine.resume(recoveryRequest(engine))).toMatchObject({ ok: true });
     await engine.settled();
     expect(engine.latestSession("1")!.runs[1]!.cause).toBe("person_resume");
     expect(engine.record.phases["1"]!.doneAt).toBeDefined();
@@ -150,11 +155,11 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
   it("refuses a note that isn't text or is longer than 4,000 characters, and Resume where nothing is stopped", async () => {
     harness = await createHarness({ sessions: [askingSession()] });
     const h = harness;
-    expect(await h.engine.resume()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409 });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(await h.engine.resume({ note: 42 })).toEqual({ ok: false, status: 400, reason: "The note must be text." });
-    expect(await h.engine.resume({ note: "x".repeat(4_001) })).toEqual({ ok: false, status: 400, reason: "The note can be at most 4,000 characters." });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: 42 })).toMatchObject({ ok: false, status: 400, reason: "The note must be text." });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "x".repeat(4_001) })).toMatchObject({ ok: false, status: 400, reason: "The note can be at most 4,000 characters." });
     expect(h.claudeCalls()).toHaveLength(1);
     expect(h.engine.checking).toBe(false);
   });
@@ -175,7 +180,7 @@ describe("where Resume isn't offered (AC-RESUME-01)", () => {
     expect(h.engine.latestSession("1")!.runs).toHaveLength(0);
     expect(h.engine.record.billing?.hold?.reason).toContain("authentication");
     expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(false);
-    expect(await h.engine.resume()).toEqual({ ok: false, status: 409, reason: "Resume isn't offered here." });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409, reason: "Resume isn't offered here." });
   });
 
   it("isn't offered at a broken-plan stop", async () => {
@@ -185,7 +190,7 @@ describe("where Resume isn't offered (AC-RESUME-01)", () => {
     await h.engine.settled();
     h.engine.record.phases["1"]!.stop!.kind = "plan";
     expect(h.engine.resumeOffered("1")).toBe(false);
-    expect(await h.engine.resume()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409 });
   });
 
   it("isn't offered when Claude Code holds no transcript for the session (multi-repo AC-OUTSIDE-01)", async () => {
@@ -197,7 +202,7 @@ describe("where Resume isn't offered (AC-RESUME-01)", () => {
     const needsYou = buildSnapshot(h.engine).needsYou!;
     expect(needsYou.resumeCommand).toBeUndefined();
     expect(needsYou.resumeOffered).toBe(false);
-    expect(await h.engine.resume()).toEqual({ ok: false, status: 409, reason: "Resume isn't offered here." });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409, code: "recovery_unavailable" });
   });
 });
 
@@ -207,7 +212,7 @@ describe("a session that can't be picked up (AC-RESUME-04)", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(await h.engine.resume({ note: "Carry on." })).toEqual({ ok: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Carry on." })).toMatchObject({ ok: true });
     await h.engine.settled();
 
     expect(h.engine.record.phases["1"]!.stop!.kind).toBe("not_resumable");
@@ -219,7 +224,7 @@ describe("a session that can't be picked up (AC-RESUME-04)", () => {
     expect(needsYou.lastLines!.map((line) => line.text)).toContain(`No conversation found with session ID: ${h.engine.latestSession("1")!.sessionId}`);
     expect(needsYou.freshSessionPrompt).toContain("A previous session stopped partway through this phase");
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 stopped", "1 resumed", "1 stopped"]);
-    expect(await h.engine.resume()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409 });
   });
 });
 
@@ -235,7 +240,7 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(true);
     const session = h.engine.latestSession("pr")!;
 
-    expect(await h.engine.resume()).toEqual({ ok: true });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
     await h.engine.settled();
     const call = h.claudeCalls()[4]!;
     expect(call.args).toEqual(expect.arrayContaining(["--resume", session.sessionId]));
@@ -263,7 +268,7 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     const opened = { repo, number: 219, title: "Customer returns", url: `https://github.com/${repo}/pull/219`, isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 120, deletions: 4, commits: [{ oid: "a" }] };
     writeFileSync(h.ghStatePath, JSON.stringify({ pulls: [opened] }));
 
-    expect(await h.engine.resume({ note: "I opened it myself." })).toEqual({ ok: true, noteSkipped: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "I opened it myself." })).toEqual({ ok: true, noteSkipped: true });
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.engine.latestSession("pr")!.runs).toHaveLength(1);
@@ -290,7 +295,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     expect(needsYou.resumeOffered).toBe(true);
     const endedAt = h.engine.latestSession("1")!.runs[0]!.endedAt!;
 
-    expect(await h.engine.resume({ note: "Copy the token into storefront instead." })).toEqual({ ok: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Copy the token into storefront instead." })).toMatchObject({ ok: true });
     await h.engine.settled();
     expect(h.claudeCalls()[1]!.prompt.split("\n\nThis session runs unattended.")[0]).toBe(
       [
@@ -324,7 +329,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     expect(h.engine.setOutsideConfirmation(true)).toEqual({ ok: true });
     const endedAt = h.engine.latestSession("1")!.runs[0]!.endedAt!;
 
-    expect(await h.engine.resume()).toEqual({ ok: true });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
     await h.engine.settled();
     expect(h.claudeCalls()[1]!.prompt).toBe(`${stoppedOpening(endedAt)} ${CARRY_ON}`);
   });
@@ -339,7 +344,11 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     await h.engine.settled();
     expect(h.engine.setOutsideConfirmation(true)).toEqual({ ok: true });
 
-    expect(await h.engine.resume({ note: "Never sent." })).toEqual({ ok: true, noteSkipped: true });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Never sent." })).toMatchObject({ ok: true, outcome: "already_complete" });
+    expect(h.engine.record.phases["1"]!.stop).toBeDefined();
+    expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "advanced" });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
@@ -364,7 +373,7 @@ describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: false });
     expect(buildSnapshot(engine).needsYou).toMatchObject({ interrupted: { at: interruptedAt }, resumeOffered: true });
 
-    expect(await engine.resume()).toEqual({ ok: true });
+    expect(await engine.resume(recoveryRequest(engine))).toMatchObject({ ok: true });
     await engine.settled();
     const prompt = h.claudeCalls()[1]!.prompt;
     expect(prompt.startsWith("While working on phase 1, you changed a checkout outside the Kiln workspace")).toBe(true);
@@ -392,7 +401,7 @@ describe("manual follow-up after an overnight stop", () => {
     const engine = h.reopenFromDisk();
     await engine.prepare();
     await engine.decide();
-    await engine.resume({ note: "Why is a merge necessary? Explain before doing it." });
+    await engine.resume({ ...recoveryRequest(engine), note: "Why is a merge necessary? Explain before doing it." });
     await waitFor(() => existsSync(running));
     const snapshot = buildSnapshot(engine);
     expect(snapshot.current?.followUp).toBe(true);
@@ -422,7 +431,7 @@ describe("manual follow-up after an overnight stop", () => {
     await engine.settled();
     expect(buildSnapshot(engine).needsYou?.finalMessage).toContain("Waiting for your decision");
     expect(buildSnapshot(engine).needsYou?.resumeOffered).toBe(true);
-    await engine.resume({ note: "Proceed with the authorized work." });
+    await engine.resume({ ...recoveryRequest(engine), note: "Proceed with the authorized work." });
     await engine.settled();
     expect(engine.latestSession("1")!.sessionId).toBe(session.sessionId);
     expect(engine.latestSession("1")!.runs).toHaveLength(3);

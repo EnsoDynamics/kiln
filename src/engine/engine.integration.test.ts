@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import { modelEntries } from "../account/model-list.js";
 // The engine against real Git: a local bare repository as origin, the stand-in claude doing
 // real commits and pushes in Kiln's worktree, and the stand-in gh answering pull-request
@@ -325,7 +326,7 @@ describe("a phase that doesn't land", () => {
 
     // The person finishes it outside Kiln (AC-RUN-07); Check again finds it done, finished by them (AC-STOP-07).
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
-    expect(await h.engine.checkAgain()).toEqual({ ok: true });
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, repositories: { "acme-shop": { pushedSha: expect.stringMatching(/^[0-9a-f]{40}$/) } } });
     expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
@@ -376,7 +377,7 @@ describe("a phase that doesn't land", () => {
     });
     const before = workState();
     expect(before.status.split("\n").filter(Boolean).sort()).toEqual([" M README.md", "?? a.txt", "?? b/c.txt", "A  staged.txt"]);
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     const reopened = h.reopen();
     await reopened.prepare();
     expect(await reopened.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
@@ -389,12 +390,12 @@ describe("a phase that doesn't land", () => {
     git(h.sandbox, worktree, "commit", "-q", "-m", "wip");
     git(h.sandbox, worktree, "push", "-q", "origin", "HEAD:feature/customer-returns");
     git(h.sandbox, worktree, "commit", "-q", "--allow-empty", "-m", "local only");
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     const local = git(h.sandbox, worktree, "rev-parse", "--short=7", "HEAD").trim();
     expect(checks()[2]!.facts[0]).toBe(`${local} isn't on origin yet`);
 
     git(h.sandbox, worktree, "switch", "-q", "-c", "elsewhere");
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     expect(checks()[2]!.facts[0]).toBe("The worktree is on elsewhere, not feature/customer-returns");
     expect(h.claudeCalls()).toHaveLength(1);
   });
@@ -640,7 +641,7 @@ describe("pausing between phases", () => {
     await h.engine.settled();
     expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     await h.engine.settled();
     expect(buildSnapshot(h.engine).feature.state).toBe("paused");
     expect(h.claudeCalls()).toHaveLength(1);
@@ -678,7 +679,7 @@ describe("a plan that breaks after Start", () => {
     // AC-STOP-07: until the plan reads, Check again and kiln run read it again and the stop stays, starting nothing.
     const firstCheckedAt = stop.checkedAt;
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     await h.engine.settled();
     expect(h.engine.record.phases["2b"]!.stop).toMatchObject({ kind: "plan", checks: [{ passed: false, facts: ["phase-2-refunds.md lists 2b, which has no file."] }] });
     expect(h.engine.record.phases["2b"]!.stop!.checkedAt > firstCheckedAt).toBe(true);
@@ -720,7 +721,7 @@ describe("a plan that breaks after Start", () => {
     expect(await engine.decide()).toEqual({ kind: "plan_stop", phaseKey: "2b" });
 
     writeFileSync(join(prdDirectory, "phase-2b-store-credit.md"), removed);
-    await engine.checkAgain();
+    await engine.checkAgain(recoveryRequest(engine, "verify"));
     await engine.settled();
     expect(buildSnapshot(engine).feature.state).toBe("paused");
     expect(engine.record.phases["2b"]?.doneAt).toBeUndefined();
@@ -760,7 +761,7 @@ describe("the pull request", () => {
     const state = JSON.parse(readFileSync(h.ghStatePath, "utf8")) as { pulls: { isDraft: boolean }[] };
     state.pulls[0]!.isDraft = false;
     writeFileSync(h.ghStatePath, JSON.stringify(state));
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.engine.record.phases.pr).toMatchObject({ finishedByPerson: true });
   });
@@ -938,9 +939,9 @@ describe("the done check's facts", () => {
     const worktree = h.engine.worktreePath;
     git(h.sandbox, other, "push", "-q", "-f", "origin", "develop:feature/customer-returns");
     const facts = await (async () => {
-      h.engine.record.phases["1"]!.stop = { kind: "done_check", at: "", checks: [], checkedAt: "" };
+      h.engine.record.phases["1"]!.stop = { kind: "done_check", at: new Date().toISOString(), checks: [], checkedAt: new Date().toISOString() };
       delete h.engine.record.phases["1"]!.doneAt;
-      await h.engine.checkAgain();
+      await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
       return h.engine.record.phases["1"]!.stop!.checks;
     })();
     const local = git(h.sandbox, worktree, "rev-parse", "--short=7", "HEAD").trim();
@@ -951,11 +952,12 @@ describe("the done check's facts", () => {
     const text = readFileSync(join(prdDirectory, "phase-1-return-intake.md"), "utf8");
     rmSync(join(prdDirectory, "phase-1-return-intake.md"));
     writeFileSync(join(prdDirectory, "phase-4-return-intake.md"), text.replace("Phase 1:", "Phase 4:"));
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const after = structuredClone(h.engine.record.phases["1"]!.stop!);
+    expect(after.checks[0]!.facts[0]).toBe("Phase 1 is no longer in the plan");
     git(h.sandbox, worktree, "remote", "set-url", "origin", join(h.sandbox.root, "missing.git"));
-    await h.engine.checkAgain();
-    const after = h.engine.record.phases["1"]!.stop!.checks;
-    expect(after[0]!.facts[0]).toBe("Phase 1 is no longer in the plan");
-    expect(after[2]!.facts[0]).toMatch(/^Couldn't reach origin: /);
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable", reason: expect.stringMatching(/^Couldn't reach origin: /) });
+    expect(h.engine.record.phases["1"]!.stop).toEqual(after);
   });
 
   it("saves every event as received with its arrival time, leaving out partial-message deltas", async () => {

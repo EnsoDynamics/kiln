@@ -11,6 +11,8 @@
   import { setViewContext } from "./lib/view-context.js";
   import Complete from "./screens/Complete.svelte";
   import DocumentsFound from "./screens/DocumentsFound.svelte";
+  import PhaseHandoff from "./screens/PhaseHandoff.svelte";
+  import type { PhaseRecoveryPage } from "./lib/phase-recovery-page.js";
   import NeedsYou from "./screens/NeedsYou.svelte";
   import Paused from "./screens/Paused.svelte";
   import PhaseDetail from "./screens/PhaseDetail.svelte";
@@ -29,7 +31,20 @@
   let ticker: ReturnType<typeof setInterval> | undefined;
   let stopRouting: (() => void) | undefined;
 
+  let recoveryPage = $state<PhaseRecoveryPage>({ key: "", draft: "", choice: false, unsent: false });
   const snapshot = $derived(connection.snapshot);
+  $effect(() => {
+    const recovery = snapshot?.needsYou?.phaseRecovery;
+    const target = recovery?.target;
+    const key = target ? JSON.stringify(target) : undefined;
+    const attemptKey = target && recovery?.attemptStartedAt ? JSON.stringify([target.executionId, target.phaseKey, target.sessionId, recovery.attemptStartedAt]) : undefined;
+    if (key && key !== recoveryPage.key) {
+      // A deferred refusal creates a new stop/hold, but did not deliver the reply or start a turn.
+      // Rebind that exact attempt's draft only; another turn/session always starts empty.
+      const draft = attemptKey && attemptKey === recoveryPage.attemptKey ? recoveryPage.draft : "";
+      recoveryPage = { key, attemptKey, draft, choice: false, unsent: !!draft };
+    }
+  });
   const connected = $derived(connection.connected);
   const lastSeenAt = $derived(connection.lastEventAt);
 
@@ -74,7 +89,7 @@
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
     {:else if snapshot.feature.state === "needs_you" && connected}
-      <NeedsYou {snapshot} {now} />
+      {#if snapshot.needsYou?.phaseRecovery}<PhaseHandoff {snapshot} {now} page={recoveryPage} />{:else}<NeedsYou {snapshot} {now} />{/if}
     {:else if snapshot.feature.state === "waiting" && connected}
       <Waiting {snapshot} {now} />
     {:else if snapshot.feature.state === "paused"}

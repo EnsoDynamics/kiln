@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Ctrl+C, a closed terminal, a sleep and resume, against real Git with the stand-in claude, which
 // honors the interrupt request and SIGINT the way proof gate 1 recorded the real one doing
 // (technical design, "Testing Approach": engine, signals and resume; keep-awake).
@@ -297,7 +298,7 @@ describe("resuming", () => {
     git(h.sandbox, worktree, "add", "-A");
     git(h.sandbox, worktree, "commit", "-q", "-m", "feat: intake, finished by hand");
     git(h.sandbox, worktree, "push", "-q", "-u", "origin", "feature/customer-returns");
-    expect(await engine.checkAgain()).toEqual({ ok: true });
+    expect(await engine.checkAgain(recoveryRequest(engine, "verify"))).toMatchObject({ ok: true });
     await engine.settled();
     expect(engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, doneAt: expect.any(String) });
     expect(engine.record.phases["1"]!.stop).toBeUndefined();

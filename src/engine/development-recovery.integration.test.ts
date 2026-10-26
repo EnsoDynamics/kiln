@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Real synchronized Git work plus the captured GitHub contract; live provider/browser
 // handoff proofs cover the external conversation and artifact boundaries separately.
 import { afterEach, expect, it } from "vitest";
@@ -26,14 +27,14 @@ it("resumes only description repair after every source change is delivered, then
   Object.assign(f.h.env, f.context.env);
   writeFileSync(f.h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [] }, { actions: [] }] }));
   const engine = f.h.reopen(); await engine.agents.refresh();
-  await engine.checkAgain(); await engine.settled();
+  await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.stoppedPhaseKey()).toBe("pr");
   const session = engine.latestSession("pr")!;
   const stop = buildSnapshot(engine).needsYou!;
   expect(stop.checks.filter(check => !check.passed).flatMap(check => check.facts)).toEqual(["acme-shop: unresolved — acme-shop #1: add the PRD reference to the description."]);
   expect(stop.resumePrompt).toContain("description links");
   const historicalMerge = structuredClone(engine.record.developmentDelivery!.checkpoints[0]!.merge);
-  expect(await engine.resume({ note: "Repair the missing description reference." })).toEqual({ ok: true });
+  expect(await engine.resume({ ...recoveryRequest(engine), note: "Repair the missing description reference." })).toMatchObject({ ok: true });
   await engine.settled();
   const calls = f.h.claudeCalls();
   expect(calls.at(-1)!.args).toContain(session.sessionId);
@@ -43,7 +44,7 @@ it("resumes only description repair after every source change is delivered, then
   expect(engine.record.completedAt).toBeUndefined();
   expect(engine.record.developmentDelivery!.checkpoints[0]!.merge).toEqual(historicalMerge);
   f.pull.body = `PRD: ${f.context.prdDirectory}/customer-returns-prd.md`; f.save();
-  await engine.checkAgain(); await engine.settled();
+  await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.record.completedAt).toBeDefined();
   expect(f.h.claudeCalls()).toHaveLength(calls.length);
   expect(engine.record.pullRequests ?? []).toEqual([]);
@@ -69,7 +70,7 @@ it("resumes only description repair after every source change is delivered, then
   expect(reopened.record.developmentDelivery!.checkpoints[0]!.merge).toEqual(historicalMerge);
   expect(f.h.claudeCalls()).toHaveLength(calls.length);
   writeFileSync(f.h.scenarioPath, JSON.stringify({sessions:[landingSession(),{actions:[]},{actions:[]},{actions:[]}]}));
-  expect(await reopened.resume({note:"Keep this reply: include the later review work."})).toEqual({ok:true});
+  expect(await reopened.resume({ ...recoveryRequest(reopened),note:"Keep this reply: include the later review work."})).toMatchObject({ok:true});
   await reopened.settled();
   const resumed=f.h.claudeCalls();
   expect(resumed).toHaveLength(calls.length+1);
@@ -77,7 +78,7 @@ it("resumes only description repair after every source change is delivered, then
   expect(resumed.at(-1)!.prompt).toContain("Keep this reply: include the later review work.");
   expect(reopened.currentlyComplete).toBe(false);
   review.head.sha=currentHead; f.save();
-  await reopened.checkAgain(); await reopened.settled();
+  await reopened.checkAgain(recoveryRequest(reopened, "verify")); await reopened.settled();
   expect(reopened.currentlyComplete).toBe(true);
   expect(reopened.record.completedAt).toBe(completedAt);
   expect(f.h.claudeCalls()).toHaveLength(resumed.length);
@@ -89,7 +90,7 @@ it("completes delivered work without inventing a finalization session or row", a
   f.h.tools.gh=f.context.gh; Object.assign(f.h.env,f.context.env);
   const engine=f.h.reopen(); await engine.agents.refresh();
   const calls=f.h.claudeCalls().length;
-  await engine.checkAgain(); await engine.settled();
+  await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.currentlyComplete).toBe(true);
   expect(engine.latestSession("pr")).toBeUndefined();
   expect(buildSnapshot(engine).phases.some(phase=>phase.id==="pr")).toBe(false);

@@ -562,14 +562,14 @@ describe("kiln run on a PRD across repositories", () => {
     git(f.sandbox, join(workspace, "product"), "commit", "-q", "-am", "plan: 2b changes storefront");
     git(f.sandbox, join(workspace, "product"), "push", "-q", "-u", "origin", BRANCH);
     git(f.sandbox, f.code.storefront!.checkout, "branch", BRANCH);
-    expect(await api(address, token, "POST", "/api/check-again")).toMatchObject({ status: 200 });
+    expect(await api(address, token, "POST", "/api/check-again", (await snapshotOf(address, token)).needsYou?.phaseRecovery ? { target: (await snapshotOf(address, token)).needsYou!.phaseRecovery!.target, intent: "verify" } : undefined)).toMatchObject({ status: 200 });
     await waitFor(async () => (await snapshotOf(address, token)).needsYou?.kind === "plan", 30_000);
     snapshot = await snapshotOf(address, token);
     expect(snapshot.needsYou).toMatchObject({ phaseId: "2b", kind: "plan" });
     expect(snapshot.needsYou!.checks[0]!.facts[0]).toMatch(/^storefront: That branch already exists in storefront\./);
     // With the branch gone, Check again adds it and the phase starts.
     git(f.sandbox, f.code.storefront!.checkout, "branch", "-D", BRANCH);
-    expect(await api(address, token, "POST", "/api/check-again")).toMatchObject({ status: 200 });
+    expect(await api(address, token, "POST", "/api/check-again", (await snapshotOf(address, token)).needsYou?.phaseRecovery ? { target: (await snapshotOf(address, token)).needsYou!.phaseRecovery!.target, intent: "verify" } : undefined)).toMatchObject({ status: 200 });
     await waitFor(() => recordOf(f).repositories.some((entry) => entry.name === "storefront" && entry.setupCompletedAt !== undefined), 30_000);
     expect(recordOf(f).repositories.find((entry) => entry.name === "storefront")).toMatchObject({ kind: "added", addedInPhase: "2b" });
     kiln.signals.emit("SIGINT");
@@ -645,7 +645,7 @@ describe("kiln run on a PRD across repositories", () => {
     ]);
     expect(recordOf(f).phases["1"]!.doneAt).toBeUndefined();
     git(f.sandbox, worktree, "push", "-q", "origin", BRANCH);
-    expect(await api(address, token, "POST", "/api/check-again")).toMatchObject({ status: 200 });
+    expect(await api(address, token, "POST", "/api/check-again", (await snapshotOf(address, token)).needsYou?.phaseRecovery ? { target: (await snapshotOf(address, token)).needsYou!.phaseRecovery!.target, intent: "verify" } : undefined)).toMatchObject({ status: 200 });
     await waitFor(() => recordOf(f).phases["1"]!.doneAt !== undefined, 30_000);
     kiln.signals.emit("SIGINT");
     await kiln.done;

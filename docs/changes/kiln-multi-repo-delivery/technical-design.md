@@ -249,6 +249,8 @@ and the authorization and finished lines name every repository: "commit to `<bra
 
 ## The Done Check
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Completion Evidence and Errors (manual phase evaluation/acceptance and unavailable-check display; completion predicates remain).
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled delivery assessment and retained checkpoint obligations). Restricted execution behavior remains in force.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check)
@@ -365,6 +367,8 @@ Superseded in part by: `docs/changes/kiln-development-deployments/kiln-developme
 
 ### HTTP API
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase requests and outcomes).
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (agent-specific session recovery; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API
@@ -382,6 +386,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase evidence and recovery target).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (target scope, checkpoint activity and mixed results). Restricted execution behavior remains in force.
 
@@ -457,6 +463,8 @@ SessionRecord (schema 2): adds workingDirectory, the folder the session was laun
 `baseCommit`, `createdBranch` and the phase's `startCommit`, `pushedSha` and `commitCount` move from the PRD and phase to each repository. **Migration from schema 1**, on read, with no Git call: `settings.baseBranch` and `settings.worktreePath` stay, and `bases` is `{}`. A record with `startedAt` or `createdBranch` gets one `repositories` entry of `kind: prd` from `repository`, `settings.baseBranch`, `settings.worktreePath`, `baseCommit`, `createdBranch` and `setupCompletedAt`; a record with neither gets no entry, and its Start builds the list. Also: each phase's three facts under that repository's name; `pullRequest` as a one-entry `pullRequests`; each check's `fact` as a one-item `facts`; `workspaceFolder` the default; each session's `workingDirectory` the worktree path. The record is written as schema 2 at its next write.
 
 ## Screens (AC-SHOW-01)
+
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Needs you Layout (implementation-phase Needs you arrangement).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit rows and inspectable findings), implemented in Phase 2b. Existing authority and evidence protections remain.
 

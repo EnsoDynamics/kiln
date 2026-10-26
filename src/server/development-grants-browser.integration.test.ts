@@ -78,7 +78,7 @@ describe("remembered targets and grant browser controls", () => {
     expect(h.claudeCalls()).toHaveLength(calls); expect(engine.record.phases["1"]?.stop).toBeDefined();
     await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"]').innerText.includes('Authorized for this run')`);
     expect(await page.evaluate(`document.querySelector('.delivery input[type=text]') === null && !document.querySelector('.delivery').innerText.includes('non-production')`)).toBe(true);
-    const handoff = await page.evaluate<string>(`document.querySelector('.pick pre.prompt').textContent`);
+    const handoff = await page.evaluate<string>(`document.querySelector('.handoff details pre').textContent`);
     expect(handoff).toContain("replaces earlier blanket restrictions");
     expect(handoff).toContain("repository and baseBranch");
     expect(handoff).toContain("Never bypass protections");

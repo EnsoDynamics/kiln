@@ -241,12 +241,17 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/pause", (c) => answer(c, engine.pause()));
   app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
-  app.post("/api/check-again", async (c) => answer(c, await engine.checkAgain()));
+  app.post("/api/check-again", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
+    return answer(c, await engine.checkAgain(body));
+  });
   // Resume at Needs you, with an optional note, or Resume now while waiting, with none (usage-limit
   // recovery AC-RESUME-01 to 03, AC-LIMIT-02); answered once its check has run.
   app.post("/api/resume", async (c) => {
-    const body = (await jsonBody(c)) ?? {};
-    return answer(c, await engine.resume(body.note === undefined ? {} : { note: body.note }));
+    const body = await recoveryBody(c);
+    if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
+    return answer(c, await engine.resume(body));
   });
   // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
   app.post("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(true)));
@@ -311,13 +316,22 @@ function refuse(c: Context, status: 400 | 403 | 404 | 409, reason: string) {
 
 function commandRefused(c: Context, result: Extract<CommandResult, { ok: false }>) {
   return c.json(
-    { ok: false, reason: result.reason, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}) },
+    { ok: false, reason: result.reason, ...(result.code ? { code: result.code } : {}), ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}) },
     result.status,
   );
 }
 
 function answer(c: Context, result: CommandResult) {
   return result.ok ? c.json(result) : commandRefused(c, result);
+}
+
+async function recoveryBody(c: Context): Promise<Record<string, unknown> | undefined> {
+  const raw = await c.req.text();
+  if (raw === "") return {};
+  try {
+    const body: unknown = JSON.parse(raw);
+    return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : undefined;
+  } catch { return undefined; }
 }
 
 async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined> {

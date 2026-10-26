@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import * as admission from "../audit/admission.js";
 import * as owners from "./development-owners.js";
 // Real assigned Git workspaces, private state and HTTP/CLI; captured GitHub contracts
@@ -328,7 +329,7 @@ describe("audit development owners", () => {
       if (failOnce) { failOnce = false; renameSync(path, saved); mkdirSync(path); }
     });
     try {
-      await expect(f.h.engine.checkAgain()).rejects.toThrow();
+      await expect(f.h.engine.checkAgain(recoveryRequest(f.h.engine, "verify"))).rejects.toThrow();
       const rolledBack = structuredClone(f.h.engine.record.developmentDelivery!);
       // Reconciliation legitimately refreshes observation timestamps before assignment.
       rolledBack.checkedAt = before.checkedAt!;
@@ -338,7 +339,7 @@ describe("audit development owners", () => {
       expect(f.h.claudeCalls()).toHaveLength(1);
       rmSync(path, { recursive: true }); renameSync(saved, path);
       expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.assignments ?? []).toEqual([]);
-      await f.h.engine.checkAgain(); await f.h.engine.settled();
+      await f.h.engine.checkAgain(recoveryRequest(f.h.engine, "verify")); await f.h.engine.settled();
       const persisted = readPrdRecord(f.h.stateDirectory)!;
       expect(persisted.developmentDelivery!.assignments!.map(a => [a.requirementId,a.owner,a.criteria])).toEqual(expect.arrayContaining(["requiredMerge","deploy","verify"].map(id => [id,{kind:"phase",phaseId:"2"},[f.criteria[0]!]])));
       expect(persisted.developmentDelivery!.assignments).toHaveLength(3);

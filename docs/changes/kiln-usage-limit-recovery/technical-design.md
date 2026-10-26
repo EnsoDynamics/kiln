@@ -93,6 +93,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Keep-awake
 
 ## Resume
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Manual Phase Recovery (manual implementation-phase passing precheck and unsent replies; automatic recovery remains).
+
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (check accepted audit evidence before resuming the saved audit task), implemented in Phase 2b. Existing authority and evidence protections remain.
@@ -144,6 +146,8 @@ Two terminal lines join v1's phase event lines ([Command line](../../prds/kiln-v
 
 ### HTTP API
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase requests and outcomes).
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (Codex manual recovery; Claude behavior retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API
@@ -156,6 +160,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API; `docs/cha
 Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase evidence and recovery target).
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (Codex session facts; Claude behavior retained).
 
@@ -206,6 +212,8 @@ SessionRecord (schema 3):
 `wait.run` is the index of the refused run. The account shown on both screens is never stored: it is the reading Kiln holds in memory, so a reading from before a restart is never shown as current. **Migration from schema 2**, on read: `resumeAfterUsageLimit: true`; nothing else, since no record before this change holds a wait or a refusal. A v1 record is migrated to 2, then to 3.
 
 ## Screens
+
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Needs you Layout (implementation-phase Needs you arrangement).
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (agent-specific output and recovery information; Claude behavior retained).
 

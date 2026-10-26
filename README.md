@@ -37,7 +37,7 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 1. Kiln checks the documents and opens its browser view on what it found: the phase documents, the base branch and the feature branch it will use.
 2. Confirm the PRD has been refined, choose the agent, model and effort, and press **Start**.
 3. Kiln runs one session per phase and checks in Git that each phase landed. Work can span several repositories, with a pull request for each. Whole-PRD delivery and test audits run before completion. Keep its terminal open; Ctrl+C interrupts the current session.
-4. When a phase doesn't land, the view shows **Needs you** with what's missing and a command that reopens that exact session. Finish the phase there or any other way, then press **Check again** and Kiln carries on.
+4. When a phase doesn't land, **Needs you** shows the session’s message and what remains. Send a reply to let Kiln finish, or copy the command to discuss it in that same conversation in your terminal. Exit the terminal session, then resume in Kiln without repeating the answer. If you finished the entire phase yourself, use **Verify Phase … & advance**. A Resume that finds the phase already complete asks before advancing and preserves any unsent reply.
 
 `kiln run` again, after Ctrl+C or a restart, picks the feature up wherever it stopped.
 

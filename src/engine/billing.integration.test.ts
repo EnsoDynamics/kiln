@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Dispatch proofs use real temporary Git and scripted model processes; passive-boundary.integration
 // separately proves the real provider SDK/auth contract. No paid inference is used here.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -37,19 +38,22 @@ describe("Claude billing at the common dispatch boundary", () => {
     h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
     expect((await h.engine.decide()).kind).toBe("needs_you"); expect(h.claudeCalls()).toHaveLength(0);
     await h.engine.billingCommand("approval", approval(h)); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(0);
-    expect(await h.engine.checkAgain()).toEqual({ ok: true }); await h.engine.settled(); expect(h.claudeCalls().length).toBeGreaterThan(0);
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true }); await h.engine.settled(); expect(h.claudeCalls().length).toBeGreaterThan(0);
   });
   it("preserves the stopped conversation and checks, holds a changed credential on manual Resume, then resumes explicitly", async () => {
     h = await createHarness({ sessions: [{ actions: [{ write: { path: "partial", content: "saved" } }, { result: "Please finish the mapping." }] }, landingSession()] }); await ready();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const session = h.engine.latestSession("1")!; const checks = structuredClone(h.engine.record.phases["1"]!.stop!.checks);
+    const attempt = buildSnapshot(h.engine).needsYou!.phaseRecovery!;
     h.env.ANTHROPIC_AUTH_TOKEN = "changed-credential-canary";
-    await h.engine.resume(); await h.engine.settled();
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
     expect(h.engine.record.phases["1"]!.stop!.checks).toEqual(checks); expect(h.engine.record.billing!.hold?.sessionId).toBe(session.sessionId);
+    expect(buildSnapshot(h.engine).needsYou!.phaseRecovery!.attemptStartedAt).toBe(attempt.attemptStartedAt);
+    expect(buildSnapshot(h.engine).needsYou!.phaseRecovery!.target.stoppedAt).not.toBe(attempt.target.stoppedAt);
     expect(existsSync(join(h.engine.worktreePath, "partial"))).toBe(true);
     await h.engine.billingCommand("approval", approval(h)); expect(h.claudeCalls()).toHaveLength(1);
-    await h.engine.resume(); await h.engine.settled();
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toContain("--resume"); expect(h.engine.latestSession("1")!.sessionId).toBe(session.sessionId); expect(h.engine.latestSession("1")!.runs[1]!.billing?.approved).toBe(true);
   });
   it("serializes approval against Start/clear and prevents stale credential replacement from inheriting a click", async () => {
@@ -77,7 +81,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     await h.engine.billingCommand("approval", approval(h)); claude.queue(signedIn([usageRow("session", 1)]));
     await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(1);
     expect(h.engine.record.billing!.hold).toBeDefined();
-    claude.queue(signedIn([usageRow("session", 10)])); await h.engine.resume(); await h.engine.settled();
+    claude.queue(signedIn([usageRow("session", 10)])); await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.engine.latestSession("1")!.runs[1]).toMatchObject({ cause: "person_resume", billing: { route: "metered", approved: true } });
   });
 
@@ -90,7 +94,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     writeFileSync(file, JSON.stringify({ models: catalogue.models.filter((m: { value: string }) => m.value !== "sonnet") })); h.env.KILN_STANDIN_MODELS = file;
     await h.engine.agents.refresh(); await h.engine.refreshBilling();
     expect(h.engine.selectionError).toContain("sonnet"); expect(h.engine.billing.view.canLaunch).toBe(true);
-    await h.engine.resume(); await h.engine.settled();
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toEqual(expect.arrayContaining(["--resume", original.sessionId, "--model", "claude-opus-5-5"]));
     expect(h.engine.latestSession("1")!.runs).toHaveLength(2); expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
     expect(h.engine.record.phases["2b"]!.stop?.kind).toBe("selection");

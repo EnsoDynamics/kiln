@@ -1525,7 +1525,7 @@ describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
 });
 
 describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)", () => {
-  it("keeps a not-sent reply notice visible after completion advances the screen", async () => {
+  it("requires explicit advancement after a complete reply precheck and carries acceptance across the screen change", async () => {
     const harness = await createHarness({ sessions: [] });
     const release = join(harness.sandbox.root, "release-next-phase");
     writeFileSync(harness.scenarioPath, JSON.stringify({ sessions: [
@@ -1545,12 +1545,19 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       git(harness.sandbox, harness.engine.worktreePath, "commit", "-qm", "test: finish phase by hand");
       git(harness.sandbox, harness.engine.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
       await page.evaluate(`(() => { const box = document.querySelector("textarea"); box.value = "Explain before continuing."; box.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
-      await page.waitFor(`document.body.innerText.includes("Send and resume")`);
-      await click(page, "Send and resume");
-      await page.waitFor(`document.querySelector('[role="status"]')?.textContent.includes("Your reply was not sent")`);
+      await click(page, "Send reply & resume Phase 1");
+      await page.waitFor(`document.body.innerText.includes("Phase 1 is already complete")`);
+      expect(harness.engine.record.phases["1"]!.doneAt).toBeUndefined();
+      expect(harness.claudeCalls()).toHaveLength(1);
+      expect(await words(page)).toContain(flat("Your reply has not been sent"));
+      await click(page, "Back to recovery page");
+      expect(await page.evaluate(`document.querySelector("textarea").value`)).toBe("Explain before continuing.");
+      await click(page, "Resume Phase 1 in Kiln");
+      await page.waitFor(`document.body.innerText.includes("Phase 1 is already complete")`);
+      await click(page, "Advance without sending reply");
       await page.waitFor(`document.body.innerText.includes("Implementing phase 2b") && !document.querySelector("textarea")`);
       expect(harness.engine.latestSession("1")!.runs).toHaveLength(1);
-      expect(await words(page)).toContain(flat("Your reply was not sent"));
+      expect(await words(page)).toContain(flat("Phase 1 verified and accepted"));
       expect(page.problems).toEqual([]);
       await click(page, "Dismiss");
       await page.waitFor(`!document.querySelector('[role="status"]')`);

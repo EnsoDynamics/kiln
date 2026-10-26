@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Waiting out a usage limit (usage-limit recovery PRD AC-AUTO-01 to 05, AC-LIMIT-01 to 05),
 // through the engine against real Git with the stand-in claude replaying a refusal as the Agent
 // SDK types it, a scripted account reader and a clock the test moves: Kiln waits instead of
@@ -418,15 +419,15 @@ describe("Resume now (AC-LIMIT-02, AC-RESUME-02)", () => {
     const { h, claude } = s;
     await startToWait(s);
     claude.deliver(signedIn([usageRow("session", 100)]));
-    expect(await h.engine.resume({ note: "Go on." })).toEqual({ ok: false, status: 409, reason: "Resume now takes no note." });
+    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Go on." })).toMatchObject({ ok: false, status: 409, reason: "Resume now takes no note." });
     // A pause can't be asked for during a wait, and Check again isn't offered.
     expect(h.engine.pause()).toMatchObject({ ok: false, status: 409 });
-    expect(await h.engine.checkAgain()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, status: 409 });
 
     // An empty note counts as none.
-    const pressed = h.engine.resume({ note: "" });
+    const pressed = h.engine.resume({ ...recoveryRequest(h.engine), note: "" });
     expect(buildSnapshot(h.engine).waiting!.checking).toBe(true);
-    expect(await h.engine.resume()).toEqual({ ok: false, status: 409, reason: "Kiln is already checking." });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409, reason: "Kiln is already checking." });
     // The account read just before resuming is still at 100%: Resume now goes ahead anyway.
     claude.queue(signedIn([usageRow("session", 100)]));
     expect(await pressed).toEqual({ ok: true });
@@ -450,7 +451,7 @@ describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02,
     // A reading for the account read before a resume, so a resume that wrongly went ahead would run.
     claude.queue(signedIn([usageRow("session", 100)]));
 
-    expect(await h.engine.resume()).toEqual({ ok: true });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
     await untilSettled(h.engine, () => h.claudeCalls().length === 2);
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
     expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
@@ -484,8 +485,8 @@ describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02,
     // The check has failed; Kiln is reading the account before resuming.
     await waitFor(() => claude.waiting);
     expect(buildSnapshot(h.engine).waiting!.checking).toBe(true);
-    expect(await h.engine.resume()).toMatchObject({ ok: false, status: 409 });
-    expect(await h.engine.checkAgain()).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409 });
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, status: 409 });
     expect(h.claudeCalls()).toHaveLength(1);
 
     claude.deliver(signedIn([usageRow("session", 2)]));
@@ -501,7 +502,7 @@ describe("Resume now and the setting (AC-AUTO-04)", () => {
     const { h, claude } = s;
     await startToWait(s);
     claude.deliver(signedIn([usageRow("session", 100)]));
-    const pressed = h.engine.resume();
+    const pressed = h.engine.resume(recoveryRequest(h.engine));
     expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.waitingPhaseKey()).toBe("1");
     claude.queue(signedIn([usageRow("session", 100)]));
@@ -533,7 +534,7 @@ describe("the setting (AC-AUTO-04)", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     // Resume at Needs you after a usage limit tells the session so.
     claude.queue(signedIn([usageRow("session", 0)]), signedIn([usageRow("session", 0)]));
-    expect(await h.engine.resume()).toEqual({ ok: true });
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
     await h.engine.settled();
     const runs = h.engine.latestSession("1")!.runs;
     expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}`);

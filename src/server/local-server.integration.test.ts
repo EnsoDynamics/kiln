@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // The local server against a real engine and the built view: reachable only from this machine
 // and closed to other web pages (PRD AC-VIEW-01, AC-VIEW-06), one address per PRD
 // (AC-MULTI-02), and the HTTP API reaching the engine only through its commands.
@@ -292,7 +293,7 @@ describe("the local server", () => {
     await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
-    expect(await send("POST", "/api/check-again")).toBe(200);
+    expect(await send("POST", "/api/check-again", recoveryRequest(h.engine, "verify"))).toBe(200);
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toMatchObject({ finishedByPerson: true, doneAt: expect.any(String) });
     // The pause pressed before the stop holds once the phase is Done; Start with no body carries on.
@@ -314,9 +315,9 @@ describe("the local server", () => {
     expect(await post()).toEqual({ status: 409, body: { ok: false, reason: "Resume isn't offered here." } });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(await post({ note: ["not", "text"] })).toEqual({ status: 400, body: { ok: false, reason: "The note must be text." } });
-    expect(await post({ note: "x".repeat(4_001) })).toMatchObject({ status: 400 });
-    expect(await post({ note: "Use the mockup's fields." })).toEqual({ status: 200, body: { ok: true } });
+    expect(await post({ ...recoveryRequest(h.engine), note: ["not", "text"] })).toMatchObject({ status: 400, body: { ok: false, reason: "The note must be text." } });
+    expect(await post({ ...recoveryRequest(h.engine), note: "x".repeat(4_001) })).toMatchObject({ status: 400 });
+    expect(await post({ ...recoveryRequest(h.engine), note: "Use the mockup's fields." })).toMatchObject({ status: 200, body: { ok: true, outcome: "resume_requested" } });
     await h.engine.settled();
     expect(h.claudeCalls()[1]!.prompt.startsWith("The person running Kiln says:\n\nUse the mockup's fields.\n\n")).toBe(true);
     expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();

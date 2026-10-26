@@ -8,7 +8,7 @@ import { isAncestorOf, isPhaseFileName } from "../plan/phase-ids.js";
 import { leavesOf, readPhasePlan, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import type { RecordedPlanPhase } from "../state/records.js";
 
-export type PlanRead = { ok: true; plan: PhasePlan } | { ok: false; problem: string };
+export type PlanRead = { ok: true; plan: PhasePlan } | { ok: false; problem: string; unavailable?: true };
 
 /**
  * Reads the plan in a PRD directory. A missing worktree or directory, no phase documents, an
@@ -18,7 +18,7 @@ export type PlanRead = { ok: true; plan: PhasePlan } | { ok: false; problem: str
 export function readPlanAt(worktreePath: string, prdDirectoryFromRoot: string): PlanRead {
   const prdDirectory = join(worktreePath, ...prdDirectoryFromRoot.split("/"));
   for (const path of [worktreePath, prdDirectory]) {
-    if (!existsSync(path)) return { ok: false, problem: `Couldn't read the phase plan: ${path} doesn't exist` };
+    if (!existsSync(path)) return { ok: false, unavailable: true, problem: `Couldn't read the phase plan: ${path} doesn't exist` };
   }
   try {
     const fileNames = readdirSync(prdDirectory).filter(isPhaseFileName);
@@ -27,7 +27,7 @@ export function readPlanAt(worktreePath: string, prdDirectoryFromRoot: string): 
     if (plan.problems.length > 0) return { ok: false, problem: plan.problems.join(" ") };
     return { ok: true, plan };
   } catch (error) {
-    return { ok: false, problem: (error as Error).message };
+    return { ok: false, unavailable: true, problem: (error as Error).message };
   }
 }
 

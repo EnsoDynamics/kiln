@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Codex-specific evidence drives the existing phase/PR verdict and persisted confirmation.
 import { appendFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -39,13 +40,13 @@ it("persists full evidence and exact confirmation, but rejects later manual work
   const reads = f.calls().filter(call => call.method === "thread/read").length;
   appendFileSync(f.state.threads.parent!.metadata.path, f.record("event_msg", { type: "agent_message", message: "Manual terminal work, same old timestamp" }));
   // No cache refresh before the user action: doneCheck itself must read the provider again.
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(f.calls().filter(call => call.method === "thread/read").length).toBeGreaterThan(reads);
   expect(h.engine.record.phases["1"]!.codexAudits![id]!.fingerprint).not.toBe(fingerprint);
   expect(h.engine.record.phases["1"]!.stop!.checks.find(check => check.name === "Stayed in the workspace")?.passed).toBe(false);
   expect(buildSnapshot(h.engine).needsYou!.outside!.confirmation.ticked).toBe(false);
   rmSync(f.state.threads.parent!.metadata.path);
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(h.engine.latestStayed("1").transcripts).toHaveLength(1);
   expect(h.engine.setOutsideConfirmation(true).ok).toBe(false);
   expect(buildSnapshot(h.engine).needsYou!.outside!.confirmation.offered).toBe(false);
@@ -70,7 +71,7 @@ it("pull-request Check again reads new authoritative evidence before it can fini
   const reads = f.calls().filter(call => call.method === "thread/read").length;
   h.setPulls([{ repo: "acme/acme-shop", number: 218, title: "Customer returns", url: "https://github.com/acme/acme-shop/pull/218", isDraft: false, isCrossRepository: false, headRefName: h.engine.record.settings.featureBranch, baseRefName: "develop", additions: 4, deletions: 0, commits: [{ oid: "a" }] }]);
   appendFileSync(f.state.threads.parent!.metadata.path, f.record("event_msg", { type: "agent_message", message: "Later terminal record" }));
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(f.calls().filter(call => call.method === "thread/read").length).toBeGreaterThan(reads);
   expect(facts.codexAudits![id]!.fingerprint).not.toBe(fingerprint);
   expect(h.engine.record.completedAt).toBeUndefined();

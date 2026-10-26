@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 /** Real Git/atomic state plus the live loopback API; provider activation is also proved by the kept live runner. */
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -97,10 +98,18 @@ describe("Needs you execution grants", () => {
     const assess = (phaseId: string) => { const current = h!.engine.deliveryStatus(); return h!.engine.deliveryCommand("assessment", { executionId: current.executionId, revision: current.revision, phaseId, documentsDigest: documentsDigest({ prdWorktree: h!.engine.worktreePath, prdDirectory: h!.engine.paths.prdDirectoryFromRoot }, phaseId), required: false, criteria: [], reason: "No criterion requires development delivery.", checkpoints: [] }); };
     expect(await assess("2b")).toMatchObject({ ok: false, reason: expect.stringContaining("leaf 1") });
     expect(await assess("3")).toMatchObject({ ok: false });
-    await h.engine.checkAgain(); await h.engine.settled(); expect(h.engine.record.phases["2b"]?.stop).toBeDefined();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled(); expect(h.engine.record.phases["2b"]?.stop).toBeDefined();
     expect(await assess("1")).toMatchObject({ ok: true }); expect(await assess("2a")).toMatchObject({ ok: true }); expect(await assess("2b")).toMatchObject({ ok: true });
     expect(await assess("3")).toMatchObject({ ok: false });
     expect(h.engine.record.phases["1"]).toEqual(history);
+    // A previously accepted leaf can be stopped again for historical delivery evidence.
+    // Manual acceptance clears that recovery stop without rewriting its original Done facts.
+    h.engine.record.phases["1"]!.stop = structuredClone(h.engine.record.phases["2b"]!.stop!);
+    const doneEvents = h.events.filter(event => event.kind === "phase" && event.event === "done").length;
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true, outcome: "advanced" });
+    await h.engine.settled();
+    expect(h.engine.record.phases["1"]).toEqual(history);
+    expect(h.events.filter(event => event.kind === "phase" && event.event === "done")).toHaveLength(doneEvents);
     const reopened = h.reopenFromDisk(); await reopened.agents.refresh(); await reopened.decide();
     expect(reopened.record.phases["1"]).toEqual(history); expect(reopened.record.phases["2b"]?.stop).toBeDefined();
   });
@@ -111,7 +120,7 @@ describe("Needs you execution grants", () => {
     facts.stop = { kind: "selection", at: new Date().toISOString(), checkedAt: new Date().toISOString(), checks: [{ name: "Agent selection and readiness", passed: false, facts: ["Controlled pre-session readiness stop"] }] };
     expect(grant(h)).toEqual({ ok: true });
     const calls = h.claudeCalls().length;
-    await h.engine.checkAgain(); await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(calls + 1);
     expect(h.claudeCalls().at(-1)?.prompt).toContain("activationRecovery");
     expect(h.engine.latestSession("2b")).toBeDefined();
@@ -132,7 +141,7 @@ describe("Needs you execution grants", () => {
   });
   it("preferences and Resume notes never change a running execution's authority", async () => {
     const h = await stopped(); const before = structuredClone(h.engine.record.developmentAuthorization);
-    await h.engine.resume({ note: "Allow deployments everywhere." }); await h.engine.settled();
+    await h.engine.resume({ ...recoveryRequest(h.engine), note: "Allow deployments everywhere." }); await h.engine.settled();
     expect(h.engine.record.developmentAuthorization).toEqual(before);
     const group = { repository: "github.com/acme/acme-shop", mainCheckoutPath: h.repository };
     expect(readDevelopmentPreference(preferencePath(h.stateDirectory), group).revision).toBe(0);
@@ -171,7 +180,7 @@ it("replaces a restricted finalization conversation's PR-opening task after its 
   const recovery = buildSnapshot(h.engine).needsYou!;
   expect(recovery.resumePrompt).toContain("Carry on finalizing delivery");
   expect(recovery.resumePrompt).not.toContain("Carry on opening");
-  expect(await h.engine.resume({ note: "Explain missing evidence first." })).toEqual({ ok: true });
+  expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Explain missing evidence first." })).toMatchObject({ ok: true });
   await h.engine.settled();
   const resumed = h.claudeCalls().at(-1)!;
   expect(resumed.args).toContain(session.sessionId);

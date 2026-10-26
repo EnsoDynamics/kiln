@@ -36,6 +36,8 @@ export async function serveViewFixture(options: {
   heartbeatMs?: number;
   /** Commands refused with a 409 and this reason, keyed `METHOD /path`. */
   refuse?: Record<string, string>;
+  /** Controlled response for browser workflow tests; production HTTP behavior is tested separately. */
+  respond?: (command: string, body: string) => Promise<{ status: number; body: unknown }>;
 }): Promise<ViewFixtureServer> {
   if (!existsSync(join(VIEW, "index.html"))) throw new Error("The view isn't built; run npm run build first.");
   let snapshot = options.snapshot;
@@ -70,9 +72,13 @@ export async function serveViewFixture(options: {
     if (url.pathname.startsWith("/api/")) {
       let body = "";
       request.setEncoding("utf8").on("data", (chunk: string) => (body += chunk));
-      request.on("end", () => {
+      request.on("end", async () => {
         const command = `${request.method} ${url.pathname}`;
         commands.push(body ? `${command} ${body}` : command);
+        if (options.respond) {
+          const answer = await options.respond(command, body);
+          response.writeHead(answer.status, headers("application/json")); response.end(JSON.stringify(answer.body)); return;
+        }
         const refused = options.refuse?.[command];
         response.writeHead(refused ? 409 : 200, headers("application/json"));
         response.end(JSON.stringify(refused ? { ok: false, reason: refused } : { ok: true }));

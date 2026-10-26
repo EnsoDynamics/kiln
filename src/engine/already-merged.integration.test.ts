@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Real Git ancestry and bare origins prove the completion boundary. The gh stand-in
 // reproduces the compare response contract checked against live GitHub, without inference.
 import { writeFileSync, rmSync, mkdirSync } from "node:fs";
@@ -132,7 +133,7 @@ describe("completion after independently merged work", () => {
     git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "--no-edit", BRANCH);
     git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
     const calls = h.claudeCalls().length;
-    await h.engine.checkAgain(); await h.engine.settled();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     const snapshot = buildSnapshot(h.engine);
     expect(snapshot.feature.state).toBe("needs_you");
     expect(snapshot.needsYou?.checks.flatMap(check => check.facts).join(" ")).toContain(`extra: No open pull request`);
@@ -154,8 +155,8 @@ describe("completion after independently merged work", () => {
       expect(decision.kind).toBe("complete");
       expect(formatDecisionLine(decision, engine, terminalColors({ isTTY: false }, {}))).toContain("Already merged: acme-shop into develop");
       await engine.continue(); }
-    else if (route === "resume") await engine.resume({ note: "Already merged" });
-    else await engine.checkAgain();
+    else if (route === "resume") await engine.resume({ ...recoveryRequest(engine), note: "Already merged" });
+    else await engine.checkAgain(recoveryRequest(engine, "verify"));
     await engine.settled();
     expect(h.claudeCalls()).toHaveLength(calls);
     expect(buildSnapshot(engine).feature.state).toBe("complete");

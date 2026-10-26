@@ -2,7 +2,7 @@
 
 **PRD:** [Clear handoffs on Kiln’s Needs you page](kiln-needs-you-handoff-prd.md) · **Arrangement and wording:** [interactive mockup](mockups/kiln-needs-you-handoff.html), [editable source](mockups/kiln-needs-you-handoff-fragment.html).
 
-**Status:** Independent technical-design review and implementation sizing complete; not implemented. Autonomous design refinement is on hold at Doug’s direction. Implement the whole PRD in one session; no phase split is needed.
+**Status:** Whole-PRD implementation and validation complete. No phase split or additional design refinement. See [implementation validation](kiln-needs-you-handoff-validation.md).
 
 ## Overview
 
@@ -14,7 +14,7 @@ Sized with `phase-split` on 2026-10-26: **keep the PRD whole**. All 14 acceptanc
 
 The walkthrough covered the existing Resume/recheck/dispatch paths, completion checks, stop snapshot, local routes, Needs you screen and application screen lifetime, together with the existing real-Git, HTTP, browser and provider-proof harnesses. The work adds no separate deployable or new provider protocol, and needs no earlier release or product decision before another part can be built. Validation belongs to the same implementation session: every boundary in **Validation and Delivery**, including actual assembled Claude and Codex handoffs, failure/race cases and the full verification suite, remains required. Unavailable real-agent proof must be reported as specified there; sizing does not waive it. Keep earlier planned-replacement pointers unchanged until implementation makes them true.
 
-The independent review is recorded in `a2b1909`, with the sizing handoff pushed through `309732f`. In source chat `01a17a0d-846d-7f13-9810-f58c0427667a`, Doug said, “I think I'm going to hold off on the autonomous design refinement.” He explicitly directed this sizing chat to proceed without another design review or refinement. The next activity is `implement-from-requirements` on the unsplit PRD and this single design.
+The independent review is recorded in `a2b1909`, with the sizing handoff pushed through `309732f`. In source chat `01a17a0d-846d-7f13-9810-f58c0427667a`, Doug said, “I think I'm going to hold off on the autonomous design refinement.” He explicitly directed this sizing chat to proceed without another design review or refinement. The implementation used `implement-from-requirements` on the unsplit PRD and this single design, following that direction.
 
 ## Existing Code
 
@@ -83,6 +83,7 @@ Preserve the existing note’s text and trimming policy; do not paraphrase it. A
 Extend affected `needsYou` with:
 
 - `phaseRecovery: { target, completion: "complete" | "incomplete" | "unknown", checkError?: { reason, attemptedAt } }`.
+- `attemptStartedAt` identifies the latest recorded provider run. Browser draft retention combines it with execution, launched phase and local session identity: a deferred refusal may change the stop target without starting a turn, so that exact attempt keeps its unsent draft. A newly started turn or another session never inherits it.
 - Keep `checks`, `checkedAt`, `checking`, `resumeOffered`, session facts and terminal/fresh-session instructions as authoritative existing fields. For this affected flow, `checks` and `checkedAt` project the last completed phase evaluation from the retained stop, including when a billing hold owns the stop; the hold's time is not a completion-check time. Show launch-only billing approval separately through the existing billing view, outside the completion rows/count. A phase can therefore be complete while launching another model turn remains prohibited. Completion is unknown after an unsuccessful refresh, even if retained older rows passed. With no prior completed evaluation, show unknown/not yet checked and omit `checkedAt` in this affected projection rather than fabricating a completion time.
 
 HTTP outcomes and SSE snapshots refer to the same target. A delayed response cannot overwrite a newer target’s state. Publish busy before checking and the settled result before releasing the lock; after a refused deferred launch, publish its reason and available actions. A lost response is not automatically resubmitted: reconnect/read the snapshot and output before offering another explicit action. Do not say a reply was delivered merely because HTTP accepted the request.
@@ -125,7 +126,7 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 
 ## Validation and Delivery
 
-This design stage changes documents only: validate relative links, complete acceptance-criterion coverage and the scoped diff. The mockup/export and source were inspected statically; local-file browser preview was blocked by browser URL policy, so no visual-preview claim is made.
+Implementation evidence is recorded in [handoff validation](kiln-needs-you-handoff-validation.md). The built page is exercised in real Chrome at desktop and narrow widths for both providers.
 
 Implementation evidence must cover these boundaries:
 

@@ -1,3 +1,4 @@
+import type { PhaseRecoveryTarget } from "../../../src/engine/phase-recovery.js";
 // How the view talks to Kiln: the token the server wrote into the page, sent with every API
 // request (technical design, "Local security"), and the engine's commands as plain requests.
 
@@ -56,3 +57,7 @@ export async function outputPage(config: PageConfig, sessionId: string, before?:
 export const authorizeDevelopmentTarget = (config: PageConfig, body: { executionId: string; authorizationRevision: number; target: import("../../../src/state/development-delivery.js").MergeTarget }) => send(config, "POST", "/api/development-authorization", body);
 
 export const billingApproval = (config: PageConfig, action: "approval" | "clear", body: { executionId: string; selectionGeneration: number; readingId: string; approved?: true }) => send(config, "POST", `/api/billing/${action}`, body);
+
+/** Target-bound manual implementation recovery. Only reply supplies note. */
+export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => send(config, "POST", "/api/resume", { target, ...(note === undefined ? {} : { note }) });
+export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => send(config, "POST", "/api/check-again", { target, intent });

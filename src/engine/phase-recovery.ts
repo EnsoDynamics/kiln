@@ -1,0 +1,31 @@
+/** Identity of one stopped implementation attempt; provider IDs never cross this boundary. */
+export interface PhaseRecoveryTarget {
+  executionId: string;
+  phaseKey: string;
+  sessionId: string;
+  stoppedAt: string;
+}
+
+export type PhaseRecoveryOutcome = "resume_requested" | "already_complete" | "advanced" | "still_stopped";
+export type PhaseRecoveryCode = "invalid_request" | "stale_target" | "busy" | "recovery_unavailable" | "check_unavailable" | "state_write_failed";
+export interface PhaseRecoveryView {
+  target: PhaseRecoveryTarget;
+  /** Identifies the last actual turn; a refused launch can change the stop without a new turn. */
+  attemptStartedAt?: string;
+  completion: "complete" | "incomplete" | "unknown";
+  checkError?: { reason: string; attemptedAt: string };
+}
+
+export function sameRecoveryTarget(a: PhaseRecoveryTarget | undefined, b: PhaseRecoveryTarget | undefined): boolean {
+  return !!a && !!b && a.executionId === b.executionId && a.phaseKey === b.phaseKey && a.sessionId === b.sessionId && a.stoppedAt === b.stoppedAt;
+}
+
+export function validRecoveryTarget(value: unknown): value is PhaseRecoveryTarget {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const fields = ["executionId", "phaseKey", "sessionId", "stoppedAt"];
+  return Object.keys(value).length === fields.length && fields.every(key => typeof (value as Record<string, unknown>)[key] === "string" && (value as Record<string, string>)[key]!.trim() !== "");
+}
+
+/** A source read failed, as distinct from a completed check reporting unfinished work. */
+export class CompletionCheckUnavailable extends Error {}
+export class RecoveryStateWriteFailed extends Error {}

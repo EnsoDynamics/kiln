@@ -127,6 +127,8 @@ This is a launch-time observation. Claude may reread settings or rotate credenti
 
 ### Holds and recovery
 
+Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Manual Phase Recovery (manual phase Resume requires an explicit already-complete choice; Verify acceptance still needs no billing approval).
+
 A durable billing hold belongs to the existing execution and activity/session being continued. It records the pending action (`launch` or `resume`), activity identity, optional saved session ID, safe reason and observed billing summary. It does not replace failed completion checks, refusal facts, pause state or saved notes. A held initial launch has no fabricated started run. A held resume retains the same conversation and original model/effort.
 
 Use the existing Needs you presentation, with a billing-specific reason. After approval or changing settings and rechecking, an explicit continuation action is required; use Resume for an existing resumable conversation and the existing retry/check control when no run exists. Reconstruct that action from the activity/session record after restart, not a saved closure or prompt. Completion checks run first and can finish work without billing approval; any new AI work they cause returns through the gate. Other failed preconditions still prevent continuation.

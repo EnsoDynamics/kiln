@@ -1,3 +1,4 @@
+import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
@@ -247,7 +248,8 @@ export interface Snapshot {
     lastSkill?: { name: string; at: string };
     lastLines?: OutputLine[];
     checks: CheckResult[];
-    checkedAt: string;
+    checkedAt?: string;
+    phaseRecovery?: PhaseRecoveryView;
     checking?: true;
     /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
     resumeOffered: boolean;
@@ -492,6 +494,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const hold = record.billing?.hold?.phaseKey === phaseKey ? record.billing.hold : undefined;
   const retainedStop = record.phases[phaseKey]?.stop;
   const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.at, checks: [...(retainedStop?.checks ?? record.phases[phaseKey]?.wait?.checks ?? []), { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
+  const phaseRecovery = engine.phaseRecoveryView();
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
@@ -499,8 +502,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const base = {
     phaseId: judged,
     kind: stop.kind,
-    checks: stop.checks,
-    checkedAt: stop.checkedAt,
+    checks: phaseRecovery ? retainedStop?.checks ?? [] : stop.checks,
+    ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("outside", outside?.view),

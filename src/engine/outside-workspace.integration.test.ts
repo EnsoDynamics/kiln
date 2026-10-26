@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Stayed in the workspace through the engine (multi-repo PRD AC-OUTSIDE-01 to 04, AC-PRS-06,
 // AC-SPACE-03), against real Git with the stand-in claude, which keeps a transcript the way
 // Claude Code does: a session that changes a checkout outside the workspace stops at Needs you,
@@ -85,7 +86,7 @@ describe("a session that changes a checkout outside the workspace", () => {
     expect(needsYou.freshSessionPrompt).toContain(`The previous session also changed a checkout outside the worktree, and Kiln changed nothing there:\n- Wrote src/tokens/colors.ts in ${shown}`);
 
     // Check again with nothing ticked: still stopped, nothing resumed.
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop!.checks[3]!.passed).toBe(false);
 
@@ -118,7 +119,7 @@ describe("a session that changes a checkout outside the workspace", () => {
     await h.engine.settled();
 
     h.engine.setOutsideConfirmation(true);
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     const checks = h.engine.record.phases["1"]!.stop!.checks;
     expect(checks.find((check) => check.name === "Pushed")!.passed).toBe(false);
     expect(checks.at(-1)).toEqual({ name: STAYED, passed: true, facts: ["The changes outside the workspace have been dealt with"] });
@@ -133,7 +134,7 @@ describe("a session that changes a checkout outside the workspace", () => {
       `${JSON.stringify({ type: "assistant", sessionId: session1.sessionId, timestamp: later, cwd: outside.path, message: { content: [{ type: "tool_use", id: "manual_1", name: "Bash", input: { command: "git stash" } }] } })}\n`,
       { flag: "a" },
     );
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     const again = h.engine.record.phases["1"]!.stop!.checks.at(-1)!;
     expect(again).toEqual({ name: STAYED, passed: false, facts: [`Ran git stash in ${displayPath(outside.path)}`, NOTE] });
     expect(buildSnapshot(h.engine).needsYou!.outside!.confirmation).toEqual({ offered: true, ticked: false });
@@ -159,7 +160,7 @@ describe("a session that changes a checkout outside the workspace", () => {
     expect(needsYou.outside!.prompt).toBeUndefined();
 
     h.engine.setOutsideConfirmation(true);
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
     // A tick covers that session only: the next phase's session kept its transcript and passes.
@@ -198,7 +199,7 @@ describe("an interrupted session that worked outside the workspace (AC-OUTSIDE-0
     expect(needsYou.outside!.prompt).toContain(`- Ran git checkout in ${displayPath(outside.path)}`);
 
     // Check again and the next kiln run judge it again, keep it interrupted, and never resume it.
-    await engine.checkAgain();
+    await engine.checkAgain(recoveryRequest(engine, "verify"));
     await engine.settled();
     expect(engine.record.phases["1"]!.stop!.interrupted).toBeDefined();
     const next = h.reopenFromDisk();
@@ -304,7 +305,7 @@ describe("the confirmation while a check runs (AC-OUTSIDE-03)", () => {
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingOutside(outside.path)] }));
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    const checking = h.engine.checkAgain();
+    const checking = h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     expect(h.engine.setOutsideConfirmation(true)).toMatchObject({ ok: false, status: 409, reason: "Kiln is checking. Tick it once the check ends." });
     await checking;
     await h.engine.settled();
@@ -343,7 +344,7 @@ describe("the pull-request session's check (AC-PRS-06)", () => {
     expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(true);
 
     h.engine.setOutsideConfirmation(true);
-    await h.engine.checkAgain();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.engine.record.pullRequests?.[0]?.number).toBe(218);
   });
@@ -392,7 +393,7 @@ describe("more interruptions (AC-OUTSIDE-04)", () => {
     expect(needsYou.outside).toMatchObject({ changes: [], missingTranscripts: [expect.stringMatching(/^No transcript found for session /)] });
     // No transcript, no Resume, after an interruption too (AC-OUTSIDE-01, usage-limit recovery AC-RESUME-01).
     expect(needsYou.resumeOffered).toBe(false);
-    expect(await engine.resume()).toMatchObject({ ok: false, status: 409 });
+    expect(await engine.resume(recoveryRequest(engine))).toMatchObject({ ok: false, status: 409 });
   });
 });
 

@@ -1,3 +1,4 @@
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Real engine, private process pipes, saved provider-shaped history, Git and browser.
 // The deterministic peer covers failures beside the separate real Codex workflow proof.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -64,7 +65,7 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(buildSnapshot(h.engine).billing?.lastLaunch?.email).toBe("proof@example.invalid");
   expect(buildSnapshot(h.engine).billing?.next?.email).toBe("next@example.test");
   expect((await h.engine.decide()).kind).toBe("needs_you");
-  expect(await h.engine.resume({ note: "Keep the saved context." })).toEqual({ ok: true }); await h.engine.settled();
+  expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the saved context." })).toMatchObject({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
   expect(resumed.sessionId).toBe(session.sessionId);
   expect(resumed.conversation?.threadId).toBe(session.conversation?.threadId);
@@ -85,11 +86,11 @@ it("permits explicit repair with incomplete evidence without clearing the origin
   const session = h.engine.latestSession("1")!;
   const raw = join(f.home, "sessions", `${session.conversation!.threadId}.jsonl`);
   writeFileSync(raw, readFileSync(raw, "utf8") + "{broken}\n");
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(h.engine.latestStayed("1").passed).toBe(false);
   expect(buildSnapshot(h.engine).needsYou?.resumeOffered).toBe(true);
   expect(h.engine.setOutsideConfirmation(true).ok).toBe(false);
-  await h.engine.resume({ note: "Repair the recorded work." }); await h.engine.settled();
+  await h.engine.resume({ ...recoveryRequest(h.engine), note: "Repair the recorded work." }); await h.engine.settled();
   expect(h.engine.latestSession("1")?.runs).toHaveLength(2);
   expect(h.engine.latestStayed("1").passed).toBe(false);
   const input = JSON.stringify(f.calls().filter(call => call.method === "turn/start").at(-1)?.params?.input);
@@ -109,12 +110,12 @@ it("refreshes terminal recovery messages and separate observed settings on Check
   raw("event_msg", { type: "task_started", turn_id: "manual-turn" });
   raw("turn_context", { turn_id: "manual-turn", model: "manual-model", effort: "low", cwd: h.engine.worktreePath });
   raw("event_msg", { type: "task_complete", turn_id: "manual-turn" });
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ requested: { effort: "high" }, recoveryObserved: [{ turnId: "manual-turn", model: "manual-model", effort: "low" }] });
   expect(session.runs).toHaveLength(1);
   const recovered = h.engine.outputLines(session).filter(line => line.itemId === "manual-message");
   expect(recovered).toEqual([expect.objectContaining({ source: "codex", threadId, turnId: "manual-turn", timestampSource: "turn", text: "Manual recovery work is saved." })]);
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(h.engine.outputLines(session).filter(line => line.itemId === "manual-message")).toHaveLength(1);
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
   const output = h.engine.outputLines(session);
@@ -151,7 +152,7 @@ it("shows independent work and cleanup failures in the browser and blocks contin
     expect(await page.evaluate(`document.documentElement.scrollWidth <= window.innerWidth`)).toBe(true);
     expect(page.problems).toEqual([]); await page.close();
   }
-  set({}); await h.engine.checkAgain(); await h.engine.settled();
+  set({}); await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(buildSnapshot(h.engine).needsYou?.cleanupFailure).toBeUndefined();
   expect(buildSnapshot(h.engine).needsYou?.resumeOffered).toBe(true);
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
@@ -159,7 +160,7 @@ it("shows independent work and cleanup failures in the browser and blocks contin
 
 it("removes resume actions for unavailable conversations while retaining the fresh prompt and failed evidence", async () => {
   await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  set({ missingThread: true }); await h.engine.checkAgain(); await h.engine.settled();
+  set({ missingThread: true }); await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ resumeOffered: false, freshSessionCommand: expect.stringContaining("codex"), resumeError: expect.stringContaining("cannot be opened") });
   expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toBeUndefined();
   expect(h.engine.latestStayed("1").passed).toBe(false);
@@ -258,7 +259,7 @@ it("shows model access refusal without substituting a model or conversation on l
   expect(h.engine.outputLines(original).some(line => line.source === "exit" && line.text.includes(error.message))).toBe(true);
   await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
   h.reopenFromDisk(); await h.engine.agents.refresh();
-  expect(await h.engine.resume({ note: "Keep the original requested model." })).toEqual({ ok: true }); await h.engine.settled();
+  expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original requested model." })).toMatchObject({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   expect(resumed.sessionId).toBe(original.sessionId);
@@ -370,7 +371,7 @@ it("finishes already-merged Codex work before a final conversation, but never ex
   git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "--no-edit", h.engine.record.settings.featureBranch);
   git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
   expect(h.engine.latestSession("pr")).toBeUndefined();
-  await h.engine.checkAgain(); await h.engine.settled();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(buildSnapshot(h.engine).feature.state).toBe("complete");
   expect(h.engine.record.mergedBranches?.[0]?.repository).toBe("acme-shop");
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(count);

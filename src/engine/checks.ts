@@ -49,6 +49,7 @@ export interface DoneCheckInput {
 }
 
 export interface DoneCheckOutcome {
+  unavailable?: string;
   passed: boolean;
   checks: CheckResult[];
   /** The plan as this check read it; a successful read is written to the record. */
@@ -87,6 +88,7 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
   };
   const checks = [closed.check, committedCheckResult, pushedCheckResult, ...(input.stayed.passed ? [] : [input.stayed.check])];
   return {
+    ...(!plan.ok && plan.unavailable ? { unavailable: plan.problem } : committed.some(one => one.unavailable) || pushed.some(one => one.unavailable) ? { unavailable: [...committed, ...pushed].filter(one => one.unavailable).map(one => one.fact).join(" ") } : {}),
     passed: checks.every((check) => check.passed),
     checks,
     plan,
@@ -112,17 +114,18 @@ function worktreeGit(input: { git: GitContext }, repository: CheckedRepository, 
 }
 
 interface RepositoryCommitted {
+  unavailable?: true;
   passed: boolean;
   fact: string;
 }
 
 async function committedCheck(input: DoneCheckInput, repository: CheckedRepository): Promise<RepositoryCommitted> {
   const status = await worktreeGit(input, repository, ["status", "--porcelain", "--untracked-files=all"]);
-  if (status.exitCode !== 0) return { passed: false, fact: gitError(status) };
+  if (status.exitCode !== 0) return { passed: false, unavailable: true, fact: gitError(status) };
   const count = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").length;
   if (count > 0) return { passed: false, fact: `${count} ${count === 1 ? "file" : "files"} changed, not committed` };
   const head = await worktreeGit(input, repository, ["rev-parse", "HEAD"]);
-  if (head.exitCode !== 0) return { passed: true, fact: "Tree clean" };
+  if (head.exitCode !== 0) return { passed: false, unavailable: true, fact: gitError(head) };
   return { passed: true, fact: `Latest commit ${shortSha(head.stdout.trim())}, tree clean` };
 }
 
@@ -136,6 +139,7 @@ function combineCommitted(results: RepositoryCommitted[], repositories: CheckedR
 }
 
 interface RepositoryPushed {
+  unavailable?: true;
   name: string;
   passed: boolean;
   fact: string;
@@ -146,7 +150,7 @@ async function pushedCheck(input: DoneCheckInput, repository: CheckedRepository)
   const { name } = repository;
   const fail = (fact: string): RepositoryPushed => ({ name, passed: false, fact });
   const branch = await worktreeGit(input, repository, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  if (branch.exitCode !== 0 && branch.exitCode !== 1) return fail(gitError(branch));
+  if (branch.exitCode !== 0 && branch.exitCode !== 1) return { ...fail(gitError(branch)), unavailable: true };
   const onBranch = branch.exitCode === 0 ? branch.stdout.trim() : undefined;
   if (onBranch !== input.branch) {
     return fail(onBranch === undefined ? `The worktree is on a detached HEAD, not ${input.branch}` : `The worktree is on ${onBranch}, not ${input.branch}`);
@@ -157,7 +161,7 @@ async function pushedCheck(input: DoneCheckInput, repository: CheckedRepository)
   if (input.repositories.length > 1 && local === repository.baseCommit) return { name, passed: true, fact: "no commits yet", sha: local };
 
   const origin = await readOriginWithRetry(input, repository);
-  if (!origin.ok) return fail(`Couldn't reach origin: ${origin.error}`);
+  if (!origin.ok) return { ...fail(`Couldn't reach origin: ${origin.error}`), unavailable: true };
   if (origin.commit === undefined) return fail(`${input.branch} isn't on origin yet`);
   if (origin.commit === local) return { name, passed: true, fact: input.repositories.length > 1 ? `${shortSha(local)} on origin` : `Matches origin at ${shortSha(local)}`, sha: local };
   if (await isAncestor(input.git, repository.worktreePath, origin.commit, local)) return fail(`${shortSha(local)} isn't on origin yet`);
