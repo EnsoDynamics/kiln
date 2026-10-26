@@ -61,4 +61,6 @@ The [technical design](kiln-bot-control-technical-design.md) resolves the interf
 
 **Accepted caller:** Doug confirmed in technical-design chat `01a17a7d-36f1-7f10-a812-5f95eec308a2` that local **Grok Bot** on his Mac is equivalent to using it from his phone. AC-CLI-04 now records that decision. The dedicated **Kiln login proof** Grok Bot conversation confirmed normal Mac terminal access, the same installed provider versions, and initiated both isolated login flows. No real Kiln instance was controlled.
 
+**Design review:** Independent `review-technical-design` completed at `160678d`: architecture retained, with recovery, history ownership, partial-write reconciliation, snapshot integrity and capacity contracts corrected. The review report is in that commit’s body. The PRD/mockup now make account-held next-activity Continue explicit.
+
 **Pre-completion gate:** Complete provider authorization through those remote-capable flows; verify the actual requested account and a new metadata process's effective authentication. Record results here without URLs, codes, raw provider output or credential contents. A provider limitation that prevents completion requires the PRD's product decision before implementation.

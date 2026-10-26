@@ -75,7 +75,7 @@ The command interface supports the common controls used after work starts. Each 
   |---|---|
   | Pause after this phase | `kiln request-pause` records the existing deferred pause request; reports that current work continues until the existing pause boundary is reached |
   | Keep going | `kiln cancel-pause` cancels only a pending pause; does not resume an already paused run. Neither command toggles state |
-  | Continue a paused run | Starts the next eligible activity using existing settings and authority |
+  | Continue a paused run, or release its own account-change hold after the next activity is ready | Starts the next eligible activity using existing settings and authority; leaves other affected runs held under ACCOUNT-001 |
   | Recheck a repaired plan or another dedicated recovery state | `kiln check-again` retains the corresponding browser action where offered; phase completion uses `verify-and-advance` from AC-ACT-02 |
   | Change runtime preferences | Sets keep-awake or resume-after-usage-limit, showing the resulting value |
   | Confirm specific changes outside Kiln’s worktrees were dealt with | Only where the browser offers its workspace confirmation, records or clears that same confirmation against the reviewed evidence. Does not fix files, establish phase completion, resume work or advance the plan |

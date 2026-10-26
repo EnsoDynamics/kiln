@@ -416,7 +416,7 @@ kiln cancel-pause "$returns_prd" \
 
 **Result:** `op_cancel_pause_1 · Completed` — Pending pause cancelled.
 
-### Continue a paused run
+### Continue a paused or account-held next activity
 
 **You say:** “Customer returns is paused; continue it.”
 
@@ -427,6 +427,8 @@ kiln continue "$returns_prd" \
 ```
 
 **Result:** `op_continue_1 · Accepted` — The next eligible activity will start.
+
+After login, `continue` can also release this run’s own account-change hold when its next activity is ready, including after a successful held Verify or dedicated Check again. It does not release other runs’ holds. An unfinished stopped conversation instead uses its offered reply or resume action. The current status token and available controls identify the applicable choice.
 
 ### Hand unfinished work back after a terminal discussion
 

@@ -2,7 +2,7 @@
 
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md) · **Interface examples:** [command mockup](kiln-bot-control-command-mockup.md) · **Business choices:** [assumptions](kiln-bot-control-assumptions.md) · **Evidence:** [investigation](kiln-bot-control-investigation.md).
 
-**Status:** Draft design; provider authorization completion remains a pre-completion gate in Open Questions. No implementation or phase planning is included.
+**Status:** Reviewed draft design; provider authorization completion remains a pre-completion gate in Open Questions. No implementation or phase planning is included.
 
 ## Overview
 
