@@ -11,7 +11,7 @@ These are the proposed choices where Doug's request left a product boundary open
 
 ## SCOPE-001. Which browser controls should the first release expose?
 
-**Assumption:** Cover **runs already started**: inspect status/output, reply and resume, pause/continue, check again, change keep-awake and automatic usage recovery, confirm outside-workspace handling, and initiate subscription login. **New-run setup and new spending/deployment authority stay in the browser.**
+**Assumption:** Cover **runs already started**: inspect status/output, reply and resume, request/cancel pause, continue, verify finished phases and recheck other recovery states, change keep-awake and automatic usage recovery, confirm outside-workspace handling, and initiate subscription login. **New-run setup and new spending/deployment authority stay in the browser.**
 
 **Evidence:** Doug said “once I have it started” and narrowed “anything” to the main actions that keep work moving. The older idea mentions every browser action, but the current request favors this bounded workflow. Including initial setup would add document selection and authority choices the errands example does not need.
 

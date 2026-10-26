@@ -18,6 +18,12 @@ Checked 2026-10-26 against Kiln checkout `44525bb`. This is evidence for the [PR
 
 Doug explicitly confirmed in this chat that Grokpod or any other caller already has access to execute terminal commands anywhere on the Mac. The feature therefore requires no transport service or vendor-specific bot SDK.
 
+## Required baseline for this feature
+
+Doug's 2026-10-26 follow-up explicitly places [Clear handoffs on Kiln’s Needs you page](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) before bot control. Checked that draft at `7abc382`; it is not implemented yet. Its AC-RETURN-02 prevents a manual phase reply/resume from automatically advancing a completed phase. AC-RETURN-01 resumes unfinished work after a terminal discussion without another message, and AC-VERIFY-01 replaces phase “Check again” with Verify and advance. The bot PRD and mockup assume those behaviors rather than the older API semantics in the baseline table.
+
+Outside-workspace confirmation remains required where applicable: the handoff change explicitly retains it in AC-VERIFY-02 and AC-COMPAT-01. Its meaning comes from AC-OUTSIDE-03 in [multi-repository delivery](../../changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), with Codex's narrower evidence rules in AC-WORK-04 of [Codex support](../kiln-codex-support/kiln-codex-support-prd.md). It acknowledges identified work outside the PRD's worktrees; it is not the ordinary act of finishing a phase in a terminal. A missing or unreadable Codex transcript cannot be cleared merely by asserting that work was handled. The CLI must expose the browser's actual eligibility and reviewed evidence, never a generic bypass.
+
 ## Login evidence and limits
 
 Local `claude auth login --help` exposes subscription login and an `--email` option that **pre-populates** the provider login page. That does not prove the resulting account matches the requested email, or that authorization from a phone completes on the Mac. Anthropic's [authentication troubleshooting](https://support.claude.com/en/articles/14552646-troubleshoot-claude-code-installation-and-authentication) discusses remote environments where localhost callbacks prevent completion.

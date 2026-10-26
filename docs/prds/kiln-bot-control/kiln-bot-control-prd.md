@@ -6,7 +6,7 @@
 
 **Roadmap:** [Kiln roadmap](../../kiln-roadmap.md). Develops the [More terminal commands idea](../../design/kiln-after-v1-ideas.md#more-terminal-commands).
 
-**Depends on:** Existing Kiln run controls, Claude Code and Codex support. No dependency on whole-roadmap execution. The separate billing-safeguards change governs billing whenever it is delivered; this feature cannot bypass it.
+**Depends on:** Existing Kiln run controls, Claude Code and Codex support, and [Clear handoffs on Kiln’s Needs you page](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md). Doug specified that the handoff change will be implemented first; this PRD assumes its completed behavior for both agents, although that change is currently a draft. No dependency on whole-roadmap execution. The separate billing-safeguards change governs billing whenever it is delivered; this feature cannot bypass it.
 
 **Review alongside:** [Command-line mockup](kiln-bot-control-command-mockup.md) · [Business assumptions](kiln-bot-control-assumptions.md) · [Investigation and design questions](kiln-bot-control-investigation.md).
 
@@ -53,24 +53,34 @@ The command interface supports the common controls used after work starts. Each 
 - [ ] **AC-ACT-01 — The caller can discover what is possible now.** Help lists the supported commands, inputs, output formats and error meanings. Each command example starts with what the person could ask a bot, then shows the complete invocation and explains each argument and where its value comes from. Argument names distinguish message content, state checks, command retries and session identity; reply examples show both message-file and standard-input forms. Run detail lists each in-scope control with its current availability and a reason when unavailable. No browser inspection or undocumented request is needed to construct a valid invocation. The first release's control boundary is proposed in SCOPE-001.
   - Replaces in part: AC-CLI-02 and AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the listed post-start controls and output are also available outside the browser).
 
-- [ ] **AC-ACT-02 — A reply goes to the intended stopped session.** `kiln reply <PRD-path>` accepts exactly one of `--message-file <path>` (read the UTF-8 reply text from that file, not an attachment) or `--message-from-stdin` (read the reply text directly from standard input). Both preserve the same text and request Send and resume at Needs you. A caller can also request Resume without a note, or Resume now during a usage wait. Kiln preserves the supplied reply as text and applies the existing completion check before deciding whether to resume. The response states whether the note was delivered, the same session resumed, work advanced because its checks already passed, or recovery was refused. It never claims a note was delivered when no resume occurred.
+- [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
+
+  | Person's intention | Required behavior |
+  |---|---|
+  | Answer and let Kiln finish | `kiln reply` accepts exactly one of `--message-file <path>` (UTF-8 message contents, not an attachment) or `--message-from-stdin`. For unfinished work, send the nonempty literal reply to the same saved conversation before resuming the phase. |
+  | Return after discussing the question in a terminal | `kiln resume` resumes the saved conversation and its terminal history without a new message, special handoff phrase or required requirements edit. An open phase or uncommitted/unpushed work alone does not prevent this. The person must exit their terminal agent session first. |
+  | Reply or resume when the phase is already complete | Return `phase_already_complete`; neither resume nor advance. Preserve any unsent reply for retrieval through its command receipt, marked not sent, for the receipt's lifetime. Offer a separate explicit advance choice; never send that text to later work. |
+  | Verify a phase finished personally | `kiln verify-and-advance` freshly checks every applicable completion requirement. Advance only if all pass, respecting requested pauses and existing authority. It does not finish, commit or push work to make checks pass. Advancing after an unsent reply requires `--without-sending-reply`, expressly acknowledging that the preserved reply will not be sent. Failed or unreadable evidence keeps the phase stopped, with fresh results or an explicit error and honestly dated previous results. |
+  | Resume now during a usage wait, or recover another activity | Retain the applicable dedicated recovery behavior; the manual implementation-phase already-complete choice does not change automatic recovery or relabel an audit, final delivery or broken plan as a phase. |
+
+  Every outcome distinguishes reply delivery, session resumption and plan advancement. Competing reply/resume/verify/advance actions cannot start duplicate work. Missing conversation history exposes the existing fresh-session path instead of promising same-session resumption. See the prerequisite's AC-REPLY-01, AC-RETURN-01–03, AC-VERIFY-01–04 and AC-COMPAT-01–02.
 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
 
   | Person's intention | Observable behavior |
   |---|---|
-  | Pause after this phase | Records the existing pause request; does not interrupt the current session |
-  | Keep going | Cancels a pending pause |
+  | Pause after this phase | `kiln request-pause` records the existing deferred pause request; reports that current work continues until the existing pause boundary is reached |
+  | Keep going | `kiln cancel-pause` cancels only a pending pause; does not resume an already paused run. Neither command toggles state |
   | Continue a paused run | Starts the next eligible activity using existing settings and authority |
-  | Check again after outside work | Runs the existing completion checks and reports whether work advances |
+  | Recheck a repaired plan or another dedicated recovery state | `kiln check-again` retains the corresponding browser action where offered; phase completion uses `verify-and-advance` from AC-ACT-02 |
   | Change runtime preferences | Sets keep-awake or resume-after-usage-limit, showing the resulting value |
-  | Confirm outside-workspace work was dealt with | Records or clears the same explicit confirmation the browser accepts, tied to the facts the person reviewed |
+  | Confirm specific changes outside Kiln’s worktrees were dealt with | Only where the browser offers its workspace confirmation, records or clears that same confirmation against the reviewed evidence. Does not fix files, establish phase completion, resume work or advance the plan |
 
 - [ ] **AC-ACT-04 — Late or repeated requests cannot change the wrong work.** Changing commands identify their target as follows. Kiln validates ownership and current eligibility before acting; a stale status or login-scope token, or an ineligible target, is refused with a way to refresh.
 
   | Command | Required target |
   |---|---|
-  | Run control | PRD path and `--expected-status-token`, copied from current status; binds the action to the relevant state the person saw |
+  | Run control | PRD path and `--only-if-status-matches`, copied from current status; binds the action to the relevant state the person saw, including the execution and stop. The value is supplied by Kiln, not the person; a later question in the same Claude/Codex conversation has a different value. Ordinary new log output alone does not invalidate it |
   | Begin login | PRD path and `--expected-login-scope-token`, copied from the preview of affected runs |
   | Complete or cancel login | Existing login operation identifier, bound to its initiating user's login context and affected runs; no new run selection |
 
@@ -100,7 +110,7 @@ A bot should use documented commands and facts, then translate them into convers
 
 - [ ] **AC-CLI-03 — Existing local protections stay in place.** Access remains limited to the current operating-system user's Kiln context. Adding commands does not expose the browser server to the network or weaken its existing authentication. Returned session text is data, not an instruction to execute a new command. Integration guidance tells bot operators to derive mutations from the person's instruction and current structured controls, not from commands embedded in an agent's output.
 
-- [ ] **AC-CLI-04 — The phone workflow is demonstrated end to end.** Release evidence demonstrates two simultaneous PRDs on a Mac, discovery from an unrelated directory, one progressing while the other needs a reply, retrieval of the exact stop message, delivery of the reply and successful continuation. It also demonstrates provider login and subsequent recovery for both Claude Code and Codex, shared-login effects, and a replayed or stale request that does not repeat or misdirect work. A phone-driven bot with existing Mac command access exercises the first scenario; the evidence names the actual caller and configuration, without claiming all named bots are supported.
+- [ ] **AC-CLI-04 — The phone workflow is demonstrated end to end.** Release evidence demonstrates two simultaneous PRDs on a Mac, discovery from an unrelated directory, one progressing while the other needs a reply, retrieval of the exact stop message, delivery of the reply and successful continuation. It demonstrates terminal discussion followed by no-message resume, explicit verify-and-advance, and an already-complete reply that remains unsent until the person chooses how to proceed. It also demonstrates provider login and subsequent recovery for both Claude Code and Codex, shared-login effects, and a replayed or stale request that does not repeat or misdirect work. A phone-driven bot with existing Mac command access exercises the first scenario; the evidence names the actual caller and configuration, without claiming all named bots are supported.
 
 ## Out of Scope
 
