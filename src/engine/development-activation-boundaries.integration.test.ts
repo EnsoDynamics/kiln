@@ -45,8 +45,9 @@ it("allows only historical activation checkpoint preparation at a finalization s
   expect(phaseDeliveryCheck(context, "1").passed).toBe(true);
   await expect(prepareOperation(context, { checkpointId: checkpoint.id, operation: { kind: "merge" } })).rejects.toThrow("Finalization does not authorize");
 });
-it("retains required checks and human review for an unmerged historical checkpoint recovered from finalization", async () => {
+it.each(["legacy environment", "repository branch"])("retains required checks and human review for %s authority on a recovered checkpoint", async scope => {
   f = await deliveryFixture("none"); const { context, checkpoint, h } = f;
+  if (scope === "repository branch") h.engine.record.developmentAuthorization!.grants[0]!.target = { repository: checkpoint.target.repository, baseBranch: checkpoint.target.baseBranch };
   h.engine.record.developmentDelivery!.assessments = [];
   h.engine.record.developmentAuthorization!.activationRecovery = { stoppedPhaseId: "pr", phaseIds: ["1"], repositoryNames: ["acme-shop"] }; context.phaseId = "pr";
   f.pull.state = "open"; f.pull.merged_at = null; f.pull.merge_commit_sha = "";

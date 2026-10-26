@@ -332,7 +332,7 @@ describe("development finalization recovery task", () => {
       for (const cause of [{}, { cause: "sleep" as const }, { cause: "sigint" as const }, { usageLimit: "usage limit" }, { endedOnItsOwn: true }]) {
         const prompt = resumePrompt({ ...cause, agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: JSON.stringify({ grants: [{ repository: "github.com/acme/api", baseBranch: "develop", environment: "api-dev" }], confirmedMerges: [{ url: "https://github.com/acme/api/pull/1" }] }), note: "Answer my question first.", outside: "Repair assigned workspace evidence first." });
         expect(prompt.indexOf("Answer my question first.")).toBeLessThan(prompt.indexOf("Repair assigned workspace evidence first."));
-        expect(prompt.indexOf("Repair assigned workspace evidence first.")).toBeLessThan(prompt.indexOf("saved development-delivery authority"));
+        expect(prompt.indexOf("Repair assigned workspace evidence first.")).toBeLessThan(prompt.indexOf("saved early-merge authority"));
         expect(prompt).toContain("outstanding evidence, assigned-branch synchronization, remaining review PRs and description links");
         expect(prompt).toContain("create no empty or duplicate final PR");
         expect(prompt).toContain("does not authorize merging remaining review work");

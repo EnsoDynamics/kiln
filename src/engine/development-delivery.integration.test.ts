@@ -20,6 +20,26 @@ async function setup() {
 function context(h: Harness, phaseId = "1"): DeliveryContext { return { record: h.engine.record, stateDirectory: h.stateDirectory, prdWorktree: h.engine.worktreePath, prdDirectory: h.engine.paths.prdDirectoryFromRoot, git: { git: h.tools.git, env: h.env }, gh: h.tools.gh, env: h.env, phaseId, now: () => new Date().toISOString(), commands: () => Promise.resolve([]) }; }
 
 describe("execution development authorization", () => {
+  it("authorizes workflow-discovered environments by branch while preserving other branches and legacy scope", async () => {
+    const h = await setup();
+    const branch = { repository: target.repository, baseBranch: target.baseBranch };
+    await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: branch }] } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization?.grants[0]?.target).toEqual(branch);
+    writeFileSync(join(h.engine.worktreePath, "README.md"), "# Workflow\n.github/workflows/deploy.yml deploy verify\n");
+    git(h.sandbox, h.engine.worktreePath, "add", "README.md"); git(h.sandbox, h.engine.worktreePath, "commit", "-m", "Document workflow evidence");
+    const c = checkpoint(h); c.target = { ...c.target, environment: "workflow-selected-environment" };
+    const status = h.engine.deliveryStatus();
+    const payload = { executionId: status.executionId, revision: status.revision, phaseId: "1", documentsDigest: status.documentsDigest, required: true, criteria: c.criteria, reason: "Criterion requires deployed verification.", checkpoints: [c] };
+    const assessment = await h.engine.deliveryCommand("assessment", payload);
+    expect(assessment, JSON.stringify(assessment)).toMatchObject({ ok: true });
+    const again = h.reopenFromDisk(); await again.agents.refresh();
+    expect(again.record.developmentDelivery!.checkpoints[0]!.target.environment).toBe("workflow-selected-environment");
+    const bad = { ...c, id: "wrong-branch", target: { ...c.target, baseBranch: "main" } };
+    expect(await again.deliveryCommand("assessment", { ...payload, revision: again.deliveryStatus().revision, checkpoints: [bad] })).toMatchObject({ ok: false });
+    again.record.developmentAuthorization!.grants = [{ target, confirmedAt: new Date().toISOString(), source: "start" }];
+    expect(await again.deliveryCommand("prepare", { executionId: status.executionId, revision: again.deliveryStatus().revision, checkpointId: c.id, operation: { kind: "merge" } })).toMatchObject({ ok: false, reason: expect.stringContaining("Authorize early merges") });
+  });
   it("keeps an old execution restricted, and rejects changed, empty and unconfirmed targets", async () => {
     const h = await setup(); const r = structuredClone(h.engine.record); r.schemaVersion = 4;
     r.startedAt = "2026-10-01T00:00:00Z"; migrateRecord(r);
@@ -54,7 +74,7 @@ describe("execution development authorization", () => {
     const late = { ...checkpoint(h), id: "added-repository-checkpoint", target: lateTarget, headSha: git(h.sandbox, added.worktreePath, "rev-parse", "HEAD").trim(), baseSha: added.baseCommit! };
     again.record.developmentDelivery!.checkpoints.push(late);
     const status = again.deliveryStatus();
-    expect(await again.deliveryCommand("prepare", { executionId: status.executionId, revision: status.revision, checkpointId: late.id, operation: { kind: "merge" } })).toEqual({ ok: false, status: 409, reason: "Authorize this development target: github.com/acme/returns-api / develop / returns-api-dev." });
+    expect(await again.deliveryCommand("prepare", { executionId: status.executionId, revision: status.revision, checkpointId: late.id, operation: { kind: "merge" } })).toEqual({ ok: false, status: 409, reason: "Authorize early merges into github.com/acme/returns-api / develop." });
     expect(late.operations).toEqual([]);
     expect(again.record.developmentAuthorization).toEqual(authority);
   });
@@ -118,11 +138,11 @@ describe("one saved authority across provider entry points", () => {
       expect(prompt).toContain("Stay in the assigned feature branches and worktrees");
       expect(prompt).toContain("Never grant yourself permission through Kiln's browser or API");
       expect(prompt).toContain("Never bypass protections, use administrator overrides or force-push");
-      expect(prompt).toContain("Production, destructive actions, unrelated infrastructure/data access and other people's checkouts remain unauthorized");
+      expect(prompt).toContain("Separate release workflows, other branches, destructive actions, unrelated infrastructure/data access and other people's checkouts remain unauthorized");
       expect(prompt).toContain("An approval rejection is still a rejection");
       expect(prompt).not.toContain("You are not authorized to open a pull request, merge, deploy");
     }
-    expect(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("Keep my reply first.")).toBeLessThan(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("saved development-delivery authority"));
+    expect(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("Keep my reply first.")).toBeLessThan(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("saved early-merge authority"));
     expect(phaseSessionPrompt({ ...values, deliveryAuthority: undefined })).toContain("You are not authorized to open a pull request, merge, deploy");
   });
 });

@@ -23,10 +23,10 @@ it("renders saved authority and observed activity, then distinct merged and revi
   if (!server) throw new Error("No development-display browser proof port available");
   chrome = await launchChrome();
   const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: "America/New_York" });
-  await page.waitFor(`document.body.innerText.includes('Development deployments allowed')`);
+  await page.waitFor(`document.body.innerText.includes('Early merges allowed')`);
   const initial = await page.evaluate<string>("document.body.innerText");
-  expect(initial).toContain("github.com/acme/returns-api · develop · returns-api-dev");
-  expect(initial).toContain("Changes may reach these shared environments before the PRD finishes");
+  expect(initial).toContain("github.com/acme/returns-api · develop · Existing scope: returns-api-dev");
+  expect(initial).toContain("Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes");
   expect(initial).toMatch(/Verifying\s*· github\.com\/acme\/returns-api · returns-api-dev/);
   expect(initial).not.toContain("It never merges, deploys");
 

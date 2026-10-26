@@ -18,13 +18,15 @@ export function recoveryStopKey(recovery: ActivationRecovery): string {
   const owner = recovery.stoppedOwner ?? deliveryOwner({ phaseId: recovery.stoppedPhaseId });
   return owner.kind === "phase" ? owner.phaseId : `audit-${owner.activityId}`;
 }
-export interface DevelopmentTarget { repository: string; baseBranch: string; environment: string }
-export interface DevelopmentCandidate { target: DevelopmentTarget; confirmedNonProduction: boolean; confirmedTarget?: DevelopmentTarget }
+/** Environment is present only on retained, narrower grants from older executions. */
+export interface MergeTarget { repository: string; baseBranch: string; environment?: string }
+export interface DevelopmentTarget extends MergeTarget { environment: string }
+export interface DevelopmentCandidate { target: MergeTarget; confirmedNonProduction?: boolean; confirmedTarget?: MergeTarget }
 export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[]; rememberForPrdRepository?: boolean; useSavedTargetsForThisPrd?: boolean; preferenceRevision?: number }
 export interface DevelopmentAuthorization {
   revision: number; enabled: boolean;
   activationRecovery?: ActivationRecovery;
-  grants: { target: DevelopmentTarget; confirmedAt: string; source: "start" | "needs_you" }[];
+  grants: { target: MergeTarget; confirmedAt: string; source: "start" | "needs_you" }[];
 }
 export interface CommandEvidence {
   source: string; callId: string; command: string; cwd: string; calledAt: string;
@@ -71,6 +73,18 @@ export interface DevelopmentLedger {
 export const restrictedAuthorization = (): DevelopmentAuthorization => ({ revision: 0, enabled: false, grants: [] });
 export const emptyDevelopmentLedger = (): DevelopmentLedger => ({ revision: 0, assessments: [], checkpoints: [], splits: [], repositoryResults: [] });
 export function targetKey(target: DevelopmentTarget): string { return JSON.stringify([target.repository.toLowerCase(), target.baseBranch, target.environment.trim()]); }
+export function mergeTargetKey(target: MergeTarget): string { return JSON.stringify([target.repository.toLowerCase(), target.baseBranch]); }
+export function authorizationTargetKey(target: MergeTarget): string { return JSON.stringify([mergeTargetKey(target), target.environment ?? null]); }
+export function permitsTarget(grant: MergeTarget, target: DevelopmentTarget): boolean {
+  return mergeTargetKey(grant) === mergeTargetKey(target) && (grant.environment === undefined || grant.environment === target.environment);
+}
+export function normalizeMergeTarget(value: unknown): MergeTarget {
+  if (!value || typeof value !== "object") throw new Error("Select a repository and base branch for early merges.");
+  const target = value as MergeTarget;
+  if (typeof target.repository !== "string" || !/^github\.com\/[\w.-]+\/[\w.-]+$/i.test(target.repository) || typeof target.baseBranch !== "string" || !target.baseBranch.trim()) throw new Error("Select a concrete GitHub repository and base branch for early merges.");
+  if (target.environment !== undefined) return normalizeTarget(value);
+  return { repository: target.repository.toLowerCase(), baseBranch: target.baseBranch };
+}
 export function normalizeTarget(value: unknown): DevelopmentTarget {
   if (!value || typeof value !== "object") throw new Error("Name a repository, base branch and development environment.");
   const target = value as DevelopmentTarget;
@@ -92,14 +106,14 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
   if (candidates !== undefined) {
     require(object(candidates) && typeof candidates.enabled === "boolean" && Array.isArray(candidates.targets), "before-Start development settings");
     require([candidates.rememberForPrdRepository, candidates.useSavedTargetsForThisPrd].every(value => value === undefined || typeof value === "boolean") && (candidates.preferenceRevision === undefined || Number.isSafeInteger(candidates.preferenceRevision) && candidates.preferenceRevision >= 0), "preference choice/revision");
-    for (const candidate of candidates.targets) { require(object(candidate) && typeof candidate.confirmedNonProduction === "boolean", "candidate target confirmation"); normalizeTarget(candidate.target); if (candidate.confirmedTarget !== undefined) normalizeTarget(candidate.confirmedTarget); }
+    for (const candidate of candidates.targets) { require(object(candidate), "selected merge target"); normalizeMergeTarget(candidate.target); if (candidate.target.environment !== undefined) require(typeof candidate.confirmedNonProduction === "boolean", "legacy target confirmation"); if (candidate.confirmedTarget !== undefined) normalizeMergeTarget(candidate.confirmedTarget); }
   }
   const authority = record.developmentAuthorization; const state = record.developmentDelivery;
   require(object(authority) && Number.isSafeInteger(authority.revision) && authority.revision >= 0 && typeof authority.enabled === "boolean" && Array.isArray(authority.grants), "authorization");
   require(object(state) && Number.isSafeInteger(state.revision) && state.revision >= 0 && Array.isArray(state.assessments) && Array.isArray(state.checkpoints) && Array.isArray(state.splits) && Array.isArray(state.repositoryResults), "delivery ledger");
   if (!authority || !state) return; // The guards above always throw; narrows optional types.
   for (const grant of authority.grants) {
-    require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you"].includes(grant.source), "target grant"); normalizeTarget(grant.target);
+    require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you"].includes(grant.source), "target grant"); normalizeMergeTarget(grant.target);
   }
   require(!authority.enabled || text(record.executionId) && authority.grants.length > 0, "enabled execution identity/grants");
   const validOwner = (value: unknown) => object(value) && (value.kind === "phase" && text(value.phaseId) && value.activityId === undefined || value.kind === "audit" && text(value.activityId) && value.phaseId === undefined && record.completionAudits?.activities.some(one => one.activityId === value.activityId));

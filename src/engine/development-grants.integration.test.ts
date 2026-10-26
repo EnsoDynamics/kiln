@@ -64,9 +64,9 @@ describe("explicit saved target reuse", () => {
   });
 });
 describe("Needs you execution grants", () => {
-  it("requires exact explicit confirmation, persists before acknowledgement, and is idempotent across restart", async () => {
+  it("requires an explicit branch grant, persists before acknowledgement, and is idempotent across restart", async () => {
     const h = await stopped(); const before = structuredClone(h.engine.record.developmentAuthorization);
-    expect(grant(h, { confirmedNonProduction: false })).toMatchObject({ ok: false, status: 400 });
+    expect(grant(h, { target: { repository: target.repository } })).toMatchObject({ ok: false, status: 400 });
     expect(grant(h, { executionId: "other" })).toMatchObject({ ok: false, status: 409 });
     expect(grant(h, { authorizationRevision: 22 })).toMatchObject({ ok: false, status: 409 });
     expect(grant(h, { target: { ...target, baseBranch: "main" } })).toMatchObject({ ok: false, status: 422 });
@@ -179,6 +179,33 @@ it("replaces a restricted finalization conversation's PR-opening task after its 
   expect(resumed.prompt).toContain("description links");
   expect(resumed.prompt).toContain("does not authorize merging remaining review work");
   expect(resumed.prompt).not.toContain("Carry on opening");
-  expect(resumed.prompt.indexOf("Explain missing evidence first.")).toBeLessThan(resumed.prompt.indexOf("saved development-delivery authority"));
+  expect(resumed.prompt.indexOf("Explain missing evidence first.")).toBeLessThan(resumed.prompt.indexOf("saved early-merge authority"));
   expect(h.engine.record.completedAt).toBeUndefined();
+});
+
+
+it("grants a branch without environment or attestation, survives restart, and retains narrower legacy grants on upgrade", async () => {
+  const h = await stopped();
+  const branch = { repository: target.repository, baseBranch: target.baseBranch };
+  const original = { ...structuredClone(h.engine.record), schemaVersion: 8 };
+  original.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target, confirmedAt: new Date().toISOString(), source: "needs_you" }] };
+  writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(original));
+  const corrupt = structuredClone(original); delete corrupt.developmentAuthorization!.grants[0]!.target.environment;
+  writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(corrupt));
+  expect(() => readPrdRecord(h.stateDirectory)).toThrow("development environment");
+  writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(original));
+  const upgraded = readPrdRecord(h.stateDirectory)!;
+  expect(upgraded.schemaVersion).toBe(9);
+  expect(upgraded.developmentAuthorization).toEqual(original.developmentAuthorization);
+  expect(upgraded.developmentDelivery).toEqual(original.developmentDelivery);
+  expect(upgraded.phases).toEqual(original.phases);
+  const again = h.reopenFromDisk(); await again.agents.refresh();
+  const request = { executionId: again.record.executionId, authorizationRevision: 1, target: branch };
+  expect(again.authorizeDevelopmentTarget(request)).toEqual({ ok: true });
+  expect(again.authorizeDevelopmentTarget(request)).toEqual({ ok: true });
+  expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization?.grants.map(one => one.target)).toEqual([target, branch]);
+  expect(again.record.phases).toEqual(original.phases);
+  const restarted = h.reopenFromDisk(); await restarted.agents.refresh();
+  expect(restarted.record.developmentAuthorization).toEqual(again.record.developmentAuthorization);
+  expect(JSON.parse(restarted.deliveryAuthority()!).grants).toEqual([target, branch]);
 });

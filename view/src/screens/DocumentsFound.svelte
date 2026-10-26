@@ -310,12 +310,12 @@
       <ul class="allowed">
         {#if multi}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
-          <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Required checkpoint delivery may happen on approved targets; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
+          <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
           <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
-          <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Required checkpoint delivery may happen on approved targets; remaining work stays open for review{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
+          <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
-        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Required development delivery only on the exact approved targets; no production or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
+        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
       </ul>
     </div>
 

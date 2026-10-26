@@ -90,7 +90,7 @@ describe("audit development owners", () => {
     for (const assessment of f.record.developmentDelivery!.assessments) delete assessment.owner;
     const path = join(f.h.stateDirectory, "prd.json"); const bytes = JSON.stringify(f.record); writeFileSync(path, bytes);
     const migrated = readPrdRecord(f.h.stateDirectory)!;
-    expect(migrated.schemaVersion).toBe(8); expect(migrated.executionId).toBe(f.record.executionId);
+    expect(migrated.schemaVersion).toBe(9); expect(migrated.executionId).toBe(f.record.executionId);
     expect(migrated.developmentDelivery!.checkpoints[0]?.owner).toEqual({ kind: "phase", phaseId: "1" });
     expect(migrated.developmentDelivery!.checkpoints[0]?.operations).toEqual(f.checkpoint.operations);
     expect(readFileSync(path, "utf8")).toBe(bytes);
@@ -252,13 +252,11 @@ describe("audit development owners", () => {
     const lock = await takeInstanceLock(stateRoot(f.h.env), f.h.stateDirectory); if (!lock.taken) throw new Error("No browser proof lock"); cleanups.push(async () => lock.release());
     const server = await startLocalServer({ engine, port: lock.port, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token }); cleanups.push(() => server.close());
     const chrome = await launchChrome(); cleanups.push(() => chrome.close()); const page = await chrome.open(server.address);
-    await page.waitFor(`document.querySelector('input[aria-label="acme-shop grant environment"]')`);
-    await page.evaluate(`(() => { const field = document.querySelector('input[aria-label="acme-shop grant environment"]'); field.value = 'test-development'; field.dispatchEvent(new Event('input', {bubbles:true})); })()`);
-    await page.evaluate(`[...document.querySelectorAll('label')].find(one => one.textContent.trim() === 'This exact target is non-production').querySelector('input').click()`);
-    await page.evaluate(`[...document.querySelectorAll('button')].find(one => one.textContent.trim() === 'Authorize acme-shop development target').click()`);
+    await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"] button')`);
+    await page.evaluate(`document.querySelector('article[aria-label="Early merges for acme-shop"] button').click()`);
     await page.waitFor(`document.body.innerText.includes('audit ${f.activity.activityId}')`);
     expect(engine.record.developmentAuthorization?.activationRecovery?.stoppedOwner).toEqual(f.owner);
-    expect(engine.record.developmentAuthorization?.grants.map(one => one.target)).toEqual([f.checkpoint.target]);
+    expect(engine.record.developmentAuthorization?.grants.map(one => one.target)).toEqual([{ repository: f.checkpoint.target.repository, baseBranch: f.checkpoint.target.baseBranch }]);
     expect(page.problems).toEqual([]); expect(engine.current).toBeUndefined();
   });
 

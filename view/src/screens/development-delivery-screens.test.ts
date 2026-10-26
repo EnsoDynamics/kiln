@@ -3,17 +3,25 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
+import EarlyMergeTarget from "../components/EarlyMergeTarget.svelte";
 function page(enabled: boolean) {
   const snapshot=documentsFoundSnapshot();snapshot.settings.developmentDeployments={enabled,targets:[]};snapshot.repositories=snapshot.repositories.map(row=>({...row,github:"github.com/acme/acme-shop"}));
   return render(DocumentsFound,{props:{snapshot,config:{token:"fixture-token",base:"/customer-returns"},connected:true,now:Date.now()}}).body;
 }
 describe("current execution development setting",()=>{
   it("offers the new off-by-default option with its shared-environment risk",()=>{
-    const html=page(false);expect(html).toContain("Allow development deployments");expect(html).toContain("shared development environments before the PRD finishes");const option=html.match(/<label\b[^>]*>(?:(?!<\/label>)[\s\S])*Allow development deployments(?:(?!<\/label>)[\s\S])*<\/label>/)?.[0];expect(option).toBeDefined();expect(option).not.toContain('checked=""');
+    const html=page(false);expect(html).toContain("Allow early merges");expect(html).toContain("existing CI/CD may run before the PRD finishes");const option=html.match(/<label\b[^>]*>(?:(?!<\/label>)[\s\S])*Allow early merges(?:(?!<\/label>)[\s\S])*<\/label>/)?.[0];expect(option).toBeDefined();expect(option).not.toContain('checked=""');
   });
-  it("identifies actual repository/base and demands an explicit non-production target",()=>{
-    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("Approve a target in this repository");expect(html).toContain("Required checkpoint delivery may happen on approved targets");expect(html).not.toContain("Never merge, deploy, or touch other branches");
+  it("identifies the actual repository and base branch for early merges",()=>{
+    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("Allow merging into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");
   });
+});
+
+it.each(["select", "grant"] as const)("disables the %s action when its screen is disconnected", mode => {
+  const html = render(EarlyMergeTarget, { props: { name: "pricing", repository: "github.com/acme/pricing", branch: "develop", mode, disabled: true } }).body;
+  const action = html.match(mode === "select" ? /<input\b[^>]*>/ : /<button\b[^>]*>/)?.[0];
+  expect(action).toBeDefined();
+  expect(action).toMatch(/\bdisabled(?:[\s=>])/);
 });
 
 // AC-DISPLAY-01/02/03: exercise the actual screen boundary, not just snapshot helpers.
@@ -63,13 +71,13 @@ const completePage = (snapshot: Snapshot) => render(Complete, { props: { snapsho
 it.each([false, true])("shows exact saved authority in ongoing settings for multi-repository=%s without the restricted prohibition", multi => {
   const snapshot = enabled(multi ? runningRepositoriesSnapshot() : runningSnapshot());
   const html = words(runningPage(snapshot));
-  expect(html).toContain("Development deployments allowed");
-  expect(html).toContain("github.com/acme/returns-api · develop · returns-api-dev");
-  expect(html).toContain("Changes may reach these shared environments before the PRD finishes");
+  expect(html).toContain("Early merges allowed");
+  expect(html).toContain("github.com/acme/returns-api · develop · Existing scope: returns-api-dev");
+  expect(html).toContain("Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes");
   expect(html).not.toContain("never merges, deploys");
-  expect(html).toContain(multi ? "Required development work may merge and deploy to approved targets" : "approved development deliveries and any remaining review PRs target");
+  expect(html).toContain(multi ? "Required early merges may reach approved repository branches" : "approved early merges and any remaining review PRs target");
   const restricted = words(runningPage(multi ? runningRepositoriesSnapshot() : runningSnapshot()));
-  expect(restricted).not.toContain("Development deployments allowed");
+  expect(restricted).not.toContain("Early merges allowed");
   expect(restricted).toContain(multi ? "It never merges, deploys, or touches other branches" : "one PR into");
 });
 
