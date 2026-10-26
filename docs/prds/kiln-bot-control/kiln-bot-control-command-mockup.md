@@ -40,7 +40,7 @@ For example, Kiln asks “UPS or FedEx?” and returns `status_labels_7`. Before
 
 In returned payloads, Kiln calls this value `status_token`. The bot copies it unchanged.
 
-A **command ID** identifies one instruction from the person, such as “send this reply.” The bot generates it. If a connection breaks and the bot retries that same instruction, it reuses the same ID so Kiln does not send the reply twice. The bot generates a new ID for a different instruction. A **session ID** instead identifies the Claude or Codex conversation; Kiln supplies that separately.
+A **command ID** identifies one instruction from the person, such as “send this reply.” The bot generates it. If a connection breaks and the bot retries that same instruction, it reuses the same ID so Kiln does not send the reply twice. The bot generates a new ID for a different instruction. A **Kiln session selector** (`session_id`) selects a saved session for Kiln logs or handoff. The **provider conversation ID** (`provider_session_id`) is the actual Claude Code session ID or Codex thread ID used by the provider’s commands. Kiln returns both; they can differ for Codex. Neither is a command ID or a status token.
 
 | Argument | Meaning | Where its value comes from |
 |---|---|---|
@@ -157,7 +157,8 @@ Checked 2026-10-26 13:00:05 UTC
 Shipping labels · Needs you
 PRD: /work/acme-shipping/docs/prds/shipping-labels
 Phase 2 · Carrier selection · 1/4 executable phases complete
-Agent: Codex · session sess_labels_2
+Agent: Codex · Kiln session sess_labels_2
+Provider conversation: thread_labels_2
 Stopped: 2026-10-26 12:54:00 UTC
 Reason: Session ended before the phase passed its completion checks.
 
@@ -187,6 +188,65 @@ kiln status "$labels_prd" --detail full --json
 `--detail full` adds the saved phase/activity history, session IDs, settings, account facts and completion links. It is optional; the normal status already includes the stop message.
 
 The equivalent JSON carries `observed_at`, `stop.final_message`, `stop.message_complete: true`, `stop.failed_checks`, `session_id`, `status_token` and `controls` with availability, reasons and required inputs. A text message never supplies executable authority.
+
+## Find conversations from earlier phases of this PRD
+
+Covers AC-SEE-08. This is limited to the selected PRD's current execution, not Kiln's lifetime history. The example excerpts the session-history portion of full status; the real response also includes the full-status facts described above.
+
+**You say:** “Give me the Claude Code or Codex session IDs for every phase Customer returns has started, including previous phases. I want to ask the phase-2 conversation a question.”
+
+**The bot runs:**
+
+```console
+$ kiln status "$returns_prd" --detail full
+Customer returns · Current execution · Session history complete
+Phase 1 · Return intake · done
+  Agent: Claude Code
+  Kiln session: sess_returns_1
+  Provider conversation: claude_returns_1
+  Working directory: /work/acme-shop-kiln/customer-returns
+  Started: 2026-10-26 10:00:00 UTC · Latest attempt: 10:00:00 UTC
+  State: stopped · 1 attempt
+Phase 2 · Eligibility checks · done
+  Agent: Codex
+  Kiln session: sess_returns_2_initial
+  Provider conversation: thread_returns_2_initial
+  Working directory: /work/acme-shop-kiln/customer-returns
+  Started: 2026-10-26 11:00:00 UTC · Latest attempt: 11:00:00 UTC
+  State: stopped · failed; replaced by sess_returns_2
+  Agent: Codex
+  Kiln session: sess_returns_2
+  Provider conversation: thread_returns_2
+  Working directory: /work/acme-shop-kiln/customer-returns
+  Started: 2026-10-26 11:15:00 UTC · Latest attempt: 11:35:00 UTC
+  State: stopped · 2 attempts of the same conversation
+Phase 3 · Returns dashboard · implementing
+  Agent: Claude Code
+  Kiln session: sess_returns_3
+  Provider conversation: claude_returns_3
+  Working directory: /work/acme-shop-kiln/customer-returns
+  Started: 2026-10-26 12:30:00 UTC · Latest attempt: 12:30:00 UTC
+  State: running under Kiln · 1 attempt
+Phases 4 and 5: not started · no session IDs
+```
+
+The same `--json` invocation returns all conversation entries under their phases, including `session_id`, `provider_session_id`, `agent`, `working_directory`, attempt timestamps and state, plus explicit completeness/errors. It returns every recorded conversation, rather than only the most recent one in each phase. If an ID was never observed, its value is explicitly unknown; knowing a saved ID does not guarantee the provider still retains its conversation history.
+
+**You say:** “Give me the command to reopen that successful phase-2 conversation.”
+
+```console
+$ kiln handoff "$returns_prd" --session-id sess_returns_2
+Agent: Codex
+Phase: 2 · Eligibility checks
+Kiln session: sess_returns_2
+Provider conversation: thread_returns_2
+State: stopped
+Working directory: /work/acme-shop-kiln/customer-returns
+Resume command: codex resume thread_returns_2
+Instructions retrieved; no conversation opened and no Kiln activity changed.
+```
+
+`--session-id` takes the **Kiln selector** copied from full status; the returned command uses the **provider ID**. Claude Code returns `claude --resume <provider-session-id>` instead. If the selected conversation is still running under Kiln, the result reports that fact and says it is unavailable for a second concurrent resume. Missing provider history or identity returns an explicit unavailable reason. A selector from another PRD/execution is refused. To ask a follow-up, the bot can use its existing terminal access and that provider's supported commands, under the person's instruction. `kiln reply` continues to target the current eligible stop; this lookup does not retarget it to a completed phase.
 
 ## Send the reply and resume
 
@@ -565,7 +625,7 @@ The cursor fixes the execution, session and snapshot. If Kiln has since started 
 kiln logs "$returns_prd" --session-id sess_returns_2 --max-lines 100
 ```
 
-`--session-id` chooses a saved coding conversation, using the ID from `kiln status "$returns_prd" --detail full`. This is the session identifier; `--command-id` is unrelated. Omit `--session-id` to use the active session, otherwise the most recent saved session.
+`--session-id` chooses a saved coding conversation, using the ID from `kiln status "$returns_prd" --detail full`. This selects Kiln’s saved session; its provider conversation ID is returned separately and may differ for Codex. `--command-id` is unrelated. Omit `--session-id` to use the active session, otherwise the most recent saved session.
 
 | Condition | Result |
 |---|---|
@@ -590,9 +650,10 @@ Covers AC-SEE-05. This separate read returns instructions, not logs.
 $ kiln handoff "$labels_prd"
 Checked 2026-10-26 13:00:07 UTC
 Agent: Codex
-Session: sess_labels_2
+Kiln session: sess_labels_2
+Provider conversation: thread_labels_2
 Working directory: /work/acme-shipping-kiln/shipping-labels
-Resume command: codex resume sess_labels_2
+Resume command: codex resume thread_labels_2
 Continuation prompt:
 [The complete continuation prompt supplied by this run, including its current authority.]
 
