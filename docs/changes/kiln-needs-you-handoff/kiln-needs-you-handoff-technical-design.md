@@ -2,7 +2,7 @@
 
 **PRD:** [Clear handoffs on Kiln’s Needs you page](kiln-needs-you-handoff-prd.md) · **Arrangement and wording:** [interactive mockup](mockups/kiln-needs-you-handoff.html), [editable source](mockups/kiln-needs-you-handoff-fragment.html).
 
-**Status:** Design draft; not implemented. Doug’s review precedes autonomous design refinement and implementation. One whole PRD; no phase split.
+**Status:** Independent technical-design review complete; not implemented. Autonomous design refinement is on hold at Doug’s direction. Next step: size the work and split into phases only if needed. One whole PRD; no phase split yet.
 
 ## Overview
 
