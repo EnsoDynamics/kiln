@@ -182,6 +182,8 @@ Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technica
 
 ### Starting a phase's session
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
 
 ```
@@ -319,6 +321,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 
 ### Interruptions, sleep and resume
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex same-conversation recovery; Claude behavior retained).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Stayed in the workspace (no resume after work outside the workspace)
@@ -449,6 +453,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 
 ### HTTP API
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (agent selection and stale-editor validation).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API (workspace settings, repositories, the outside-workspace confirmation)
@@ -486,6 +492,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit activities alongside preserved phase details), implemented in Phase 2b. Existing authority and evidence protections remain.
 
@@ -576,6 +584,8 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 
 ## Account and Usage
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Claude Inspection Contract (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances and metadata refresh).
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
@@ -592,6 +602,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Persistent Data and Upgrade (Claude billing safeguards and additive private billing state only).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (execution activity history and preserved legacy completion), implemented in Phase 2b. Existing authority and evidence protections remain.
 

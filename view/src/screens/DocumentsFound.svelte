@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BillingPanel from "../components/BillingPanel.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
   // they are made (AC-START-06), the refinement confirmation (AC-START-05), what Kiln may and
@@ -256,7 +257,7 @@
       <span class="help">Listed models do not guarantee account access.</span>
       {#if settings.choiceNotice}<p class="message">{settings.choiceNotice}</p>{/if}
       {#if settings.readinessErrors?.length}<p class="message">{settings.readinessErrors.join(" ")}</p>{/if}
-      <button type="button" class="button" disabled={settings.metadataPending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
+      <button type="button" class="button" disabled={!connected || settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
       <fieldset class="effort">
         <legend>Effort</legend>
         <div class="segments">
@@ -271,6 +272,7 @@
       {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
 
 
+      <BillingPanel {snapshot} {connected} />
       <label for="awake" class="awake">
         <input id="awake" type="checkbox" checked={settings.keepAwake} disabled={!connected} onchange={(event) => save({ keepAwake: event.currentTarget.checked })} />
         <span class="awake-text"

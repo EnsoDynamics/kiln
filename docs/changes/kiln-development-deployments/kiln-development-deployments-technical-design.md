@@ -19,6 +19,8 @@ Add execution-scoped development authorization, a small delivery ledger and a sh
 
 ## Authorization and Persistence
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Persistent Data and Upgrade (Claude billing safeguards and additive private billing state only).
+
 ### Target identity and project preferences
 
 A target is `{ repository: "github.com/owner/repo", baseBranch, environment }`. Normalize repository identity through the existing GitHub-origin parser, case-insensitively for GitHub owner/name; keep the exact Git branch and trimmed, nonempty environment identifier. Environment is the actual workflow/deployment destination, not a generic checkbox label such as “development.” The UI shows these three values together with the repository's workspace name. No branch name or workflow name proves non-production.

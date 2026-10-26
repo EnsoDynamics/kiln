@@ -1,3 +1,4 @@
+import { readAuthStatus, type AccountStatus } from "../account/claude-account.js";
 // Selection-scoped metadata. Provider reads never create a conversation or a model turn.
 import type { AccountView } from "../account/claude-account.js";
 import { ClaudeInfo, type ClaudeInfoSource, ACCOUNT_REFRESH_MS } from "../account/claude-info.js";
@@ -90,7 +91,7 @@ export class AgentInfo {
         if (this.state !== state || this.abort.signal.aborted) return;
         for (const { cwd, result } of skills) {
           if (!result.ok) {
-            state.blockers.push(`Could not inspect enabled Claude Code skills in ${cwd}: ${result.error}`);
+            state.blockers.push(`Could not inspect enabled Claude Code skills in ${cwd}: recheck agent information.`);
             continue;
           }
           for (const required of METHOD_SKILLS) {
@@ -108,6 +109,36 @@ export class AgentInfo {
     });
     this.reading = pending;
     return pending;
+  }
+  /** Publish the required catalogue independently of an optional account/usage refresh. */
+  async refreshClaudeModels(): Promise<void> {
+    const state = this.state;
+    await this.claude.refreshModels?.();
+    if (state !== this.state || this.abort.signal.aborted) return;
+    state.models = this.claude.models; state.modelListError = this.claude.modelListError;
+    this.changed();
+  }
+  /** Required Claude launch readiness uses the inspected auth inputs; optional usage is independent. */
+  async refreshClaudeForLaunch(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<AccountStatus> {
+    const state = this.state;
+    const startedAt = new Date().toISOString();
+    const [auth, , skills] = await Promise.all([
+      readAuthStatus({ claude: this.options.executable.claude, cwd, env, signal }),
+      this.claude.refreshModels?.(),
+      Promise.all([...new Set([cwd, ...this.contexts])].map(async directory => ({ directory, result: await readSkillList({ claude: this.options.executable.claude, cwd: directory, env: this.options.env, signal }) }))),
+    ]);
+    if (state !== this.state || signal.aborted) return { error: "Claude readiness check was cancelled." };
+    state.models = this.claude.models;
+    state.modelListError = this.claude.modelListError;
+    state.blockers = auth.error ? [auth.error] : [];
+    for (const { result } of skills) {
+      if (!result.ok) state.blockers.push("Could not inspect enabled Claude Code skills. Recheck agent information.");
+      else for (const required of METHOD_SKILLS) if (!result.skills.some(name => name === required || name === `enso-method:${required}`)) state.blockers.push(`Enable or install the Enso Method ${required} skill for Claude Code.`);
+    }
+    state.account = { ...state.account, ...auth, agentId: "claude_code", startedAt, updatedAt: new Date().toISOString(), limits: state.account?.limits ?? [] };
+    if (!auth.error) delete state.account.error;
+    this.changed();
+    return auth;
   }
   private claudeChanged(): void {
     if (this.state.agentId !== "claude_code" || this.state.pending || this.abort.signal.aborted) return;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BillingPanel from "../components/BillingPanel.svelte";
   // Paused (docs/design/mockups/kiln-screen-paused.html): Kiln holds between phases until Start
   // (PRD AC-VIEW-03), with the next phase named, the account to switch before it (AC-WATCH-08),
   // and the settings to change first (AC-VIEW-08). Before the pull request it says "the pull
@@ -46,11 +47,12 @@
       </p>
       {#if reason}<span class="message">{reason}</span>{/if}
     </div>
-    <button type="button" class="button solid start" disabled={!connected || pressing} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
+    <button type="button" class="button solid start" disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
   </section>
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
+      <BillingPanel {snapshot} {connected} />
       {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       <KilnPanel {connected} text="Kiln is waiting in your terminal. Keep it open; Ctrl+C there closes Kiln, and kiln run picks up where it left off." />

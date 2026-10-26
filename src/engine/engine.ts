@@ -1,3 +1,5 @@
+import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
+import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
 import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, acceptedAudit, resolveAuditSkill } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
@@ -368,7 +370,25 @@ export class Engine {
     if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
     this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
     this.offClaude = this.agents.onChange(() => this.modelsChanged());
+    this.record.executionId ??= randomUUID();
+    this.record.billing ??= newBillingState(this.record.executionId);
+    this.billing = new BillingAuthority({
+      state: () => this.record.billing!, generation: () => this.record.settings.selectionGeneration ?? 0,
+      save: () => this.save(), changed: () => this.changed(), busy: () => this.billingBusy(),
+      cancelled: () => this.abort.signal.aborted || this.closed, readiness: () => this.billingResumesConversation ? this.agents.state.blockers.length === 0 : !this.selectionError,
+      completed: () => this.currentlyComplete, now: () => this.now().toISOString(),
+      inspect: async (cwd, env, args) => {
+        const read = await readInventory({ executable: this.options.tools.claude, cwd, env, args, signal: this.abort.signal });
+        this.abort.signal.throwIfAborted();
+        const auth = await this.agents.refreshClaudeForLaunch(cwd, read.projected, this.abort.signal);
+        const result = classify({ cwd, env, read, auth, at: this.now().toISOString() });
+        const overflow = this.claude?.account?.extraUsage;
+        if (result.summary.route === "subscription" && overflow && Date.parse(result.summary.observedAt) - Date.parse(overflow.observedAt) <= 5 * 60_000 && (overflow.email || overflow.orgId) && overflow.email === result.summary.email && overflow.orgId === result.summary.orgId) result.summary.overflow = { enabled: overflow.enabled, observedAt: overflow.observedAt };
+        return result;
+      },
+    });
     this.agents.start();
+    void this.refreshBilling().catch(() => this.changed());
   }
 
   get savedDevelopmentTargets(): DevelopmentPreference | undefined {
@@ -377,6 +397,23 @@ export class Engine {
   }
 
   readonly agents: AgentInfo;
+  readonly billing: BillingAuthority;
+  private billingLaunch: BillingSummary | undefined;
+  get billingCwd(): string { return this.isUnderway ? this.sessionFolder : this.paths.mainCheckoutPath; }
+  private get billingResumesConversation(): boolean {
+    const key = this.stoppedPhaseKey();
+    return this.record.billing?.hold?.action === "resume" || this.waitingPhaseKey() !== undefined || key !== undefined && this.resumeOffered(key);
+  }
+  private billingBusy(): boolean { return !!(this.settingUp || this.checking || this.driving || this.current?.processRunning || this.deliveryBusy || this.stopping); }
+  refreshBilling(): Promise<unknown> {
+    if (this.record.settings.agentId !== "claude_code" || this.currentlyComplete) return Promise.resolve();
+    return this.billing.refresh(this.billingCwd, this.sessionEnv());
+  }
+  async billingCommand(action: "approval" | "clear", body: Record<string, unknown>) {
+    if (this.record.settings.agentId !== "claude_code") throw new BillingError("invalid_request", "Codex has no API billing approval.", 400);
+    return this.billing.command(action, body, this.billingCwd, this.sessionEnv());
+  }
+
   choiceNotice: string | undefined;
 
   get claude(): ClaudeInfoSource | undefined {
@@ -397,9 +434,10 @@ export class Engine {
   }
 
   get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
-  get selectionError(): string | undefined {
+  get selectionError(): string | undefined { return this.selectionIssue(); }
+  private selectionIssue(ignorePending = false): string | undefined {
     const metadata = this.agents.state;
-    if (metadata.pending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
+    if (metadata.pending && !ignorePending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
     if (metadata.blockers.length) return metadata.blockers.join(" ");
     if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
     const choice = selectedChoice(this.record.settings);
@@ -551,6 +589,7 @@ export class Engine {
   async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
     const { record } = this;
     if (this.currentlyComplete) return refuse("The feature is complete.");
+    if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
     if (this.selectionError) return refuse(this.selectionError);
     if (record.pause.activeSince !== undefined) {
@@ -570,6 +609,11 @@ export class Engine {
     this.changed();
     let repositoryCount: number;
     try {
+      if (record.settings.agentId === "claude_code") {
+        try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
+        catch { return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
+        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? "Review and approve the detected billing setup, or change its source and recheck.");
+      }
       const repositories = this.plannedRepositories;
       const fields = await this.runFieldChecks();
       const pending = repositories.filter((repository) => repository.entry?.setupCompletedAt === undefined);
@@ -651,7 +695,7 @@ export class Engine {
   async checkAgain(): Promise<CommandResult> {
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
-    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     this.checking = true;
     this.changed();
     try {
@@ -677,17 +721,17 @@ export class Engine {
    * then the same session on whichever account is signed in, without waiting for a reading.
    */
   async resume(body: { note?: unknown } = {}): Promise<CommandResult> {
-    const waiting = this.waitingPhaseKey();
+    const waiting = this.record.billing?.hold ? undefined : this.waitingPhaseKey();
     if (waiting !== undefined) {
       // An empty note counts as none.
       if (body.note !== undefined && !(typeof body.note === "string" && body.note.trim() === "")) return refuse("Resume now takes no note.");
-      if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
+      if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
       await this.resumeWait(waiting, "person_resume");
       return { ok: true };
     }
     const key = this.stoppedPhaseKey();
     if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
-    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     if (body.note !== undefined && typeof body.note !== "string") return { ok: false, status: 400, reason: "The note must be text." };
     const note = (body.note ?? "").trim();
     if (note.length > NOTE_LIMIT) return { ok: false, status: 400, reason: `The note can be at most ${NOTE_LIMIT.toLocaleString("en-US")} characters.` };
@@ -716,7 +760,7 @@ export class Engine {
    */
   resumeOffered(phaseKey: string): boolean {
     const kind = this.record.phases[phaseKey]?.stop?.kind;
-    if (kind !== "done_check" && kind !== "pull_request_check") return false;
+    if (kind !== "done_check" && kind !== "pull_request_check" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.latestSession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
     return !this.transcriptMissing(session) && this.codexSafetyProblems(phaseKey, false).length === 0;
@@ -758,6 +802,7 @@ export class Engine {
    * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
    */
   async changeSettings(change: Partial<Settings>): Promise<CommandResult> {
+    if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
     const fixedFields = (["workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"] as const).filter((field) => change[field] !== undefined);
     if (fixedFields.length > 0 && (this.record.startedAt !== undefined || this.settingUp)) {
@@ -815,6 +860,8 @@ export class Engine {
       this.choiceNotice = undefined;
       this.save();
       this.agents.select(change.agentId);
+      this.billing.invalidate();
+      void this.refreshBilling().catch(() => this.changed());
     }
     if (hasPair) {
       if (this.agents.state.pending || !this.agents.state.models) return refuse("Wait for a current model catalogue before changing choices.");
@@ -1317,6 +1364,7 @@ export class Engine {
       return { kind: "needs_you", phaseKey: PR_PHASE_KEY, again: true };
     }
     if (this.currentlyComplete) return { kind: "complete" };
+    if (record.billing?.hold) return { kind: "needs_you", phaseKey: record.billing.hold.phaseKey, again: true };
     if (record.completionAudits?.policy === "legacy_complete") { record.completionAudits.policy = "required"; this.save(); }
 
     let doneFirst: DoneFirst | undefined;
@@ -1421,7 +1469,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (this.stopping || !this.isUnderway || this.currentlyComplete) return;
+      if (this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
         this.requestedResume = undefined;
@@ -1486,11 +1534,13 @@ export class Engine {
         return;
       }
       // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-      await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
       if (this.stopping) return;
-      if (this.selectionError) {
+      const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
+      if (selectionError) {
         this.current = undefined;
-        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.selectionError] }]);
+        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
         return;
       }
       if (this.record.settings.agentId === "codex") {
@@ -1808,6 +1858,28 @@ export class Engine {
     if (this.stopping) return;
     this.watchSleep();
     await this.readSleep(true);
+    if (this.stopping) return;
+    mkdirSync(this.workspaceFolder, { recursive: true });
+    let launchEnv = this.sessionEnv();
+    if (session.agentId !== "codex") {
+      try {
+        const inspection = await this.billing.refresh(cwd, launchEnv, args, true);
+        launchEnv = inspection.launchEnv;
+        if (this.stopping) return;
+        const reason = inspection.readinessError ?? (cause === "launch" ? this.selectionIssue(true) : this.agents.state.blockers.length ? this.agents.state.blockers.join(" ") : undefined) ?? (inspection.summary.route === "metered" && !inspection.summary.approved ? "Review and approve this billing setup, or change its source and recheck." : undefined);
+        if (reason) { this.holdBilling(phaseKey, session, cause, inspection.summary, reason); return; }
+        this.billingLaunch = structuredClone(inspection.summary);
+        this.record.billing!.lastLaunch = this.billingLaunch;
+        delete this.record.billing!.hold;
+        this.save();
+      } catch (error) {
+        if (this.stopping) return;
+        const observed = this.billing.view.next ?? this.record.billing!.current?.summary;
+        if (observed) this.holdBilling(phaseKey, session, cause, observed, error instanceof BillingError ? error.message : "Billing inspection failed. Recheck Claude settings.");
+        else throw error;
+        return;
+      }
+    }
     if (this.stopping || session.agentId !== "codex" && started?.() === false) return;
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
@@ -1823,7 +1895,8 @@ export class Engine {
       claude: this.options.tools.claude,
       args,
       cwd,
-      env: this.sessionEnv(),
+      env: launchEnv,
+      ...(this.billingLaunch ? { billing: this.billingLaunch } : {}),
       prompt,
       cause,
       ...(note === undefined ? {} : { note }),
@@ -1855,6 +1928,13 @@ export class Engine {
     current.processRunning = false;
     this.updateKeepAwake();
     if (!this.stopping) await this.refreshCommits(current, true);
+  }
+
+  private holdBilling(phaseKey: string, session: SessionRecord, cause: SessionRun["cause"], observed: BillingSummary, reason: string): void {
+    this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString() };
+    this.checking = false; this.current = undefined; this.unwatchWait();
+    this.save(); this.updateKeepAwake(); this.changed();
+    this.emit({ kind: "message", text: `Billing hold: ${reason} Open Kiln's browser address above to review billing and continue.` });
   }
 
   private codexLaunchOptions(cwd: string) {
@@ -1943,6 +2023,7 @@ export class Engine {
   private async settleSession(phaseKey: string): Promise<Verdict> {
     for (;;) {
       if (this.stopping) return { kind: "stopping" };
+      if (this.record.billing?.hold?.phaseKey === phaseKey) return { kind: "stopped" };
       const run = this.latestSession(phaseKey)?.runs.at(-1);
       if (run?.interruptedBy !== "sleep") return this.judgeEndedSession(phaseKey, false);
       this.emitSessionEvent(phaseKey, "interrupted");
@@ -2083,6 +2164,21 @@ export class Engine {
   /** Check again, or `kiln run` on a stopped phase: the stop's own check, run again. */
   private async recheckStop(phaseKey: string): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const facts = this.record.phases[phaseKey]!;
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === phaseKey) {
+      if (this.latestSession(phaseKey)?.runs.length) {
+        const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
+        if (outcome !== "stopping" && outcome.passed) {
+          delete this.record.billing!.hold;
+          if (phaseKey === PR_PHASE_KEY) { const final = outcome as Awaited<ReturnType<Engine["pullRequestCheck"]>>; this.complete(final.pullRequests!, true, final.mergedBranches); return "complete"; }
+          await this.recordDone(phaseKey, outcome as DoneCheckOutcome, true); return "done";
+        }
+        return "still_stopped";
+      }
+      await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
+      if (!this.billing.view.canLaunch) return "still_stopped";
+      delete this.record.billing!.hold; this.save(); return "cleared";
+    }
     const stop = facts.stop!;
     const latest = this.latestSession(phaseKey);
     if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
@@ -2380,6 +2476,7 @@ export class Engine {
     if (mergedBranches.length) record.mergedBranches = mergedBranches;
     else delete record.mergedBranches;
     record.completedAt ??= at;
+    if (record.billing) { delete record.billing.approval; delete record.billing.current; delete record.billing.hold; }
     // A pending pause is dropped, since nothing would start (UI-008).
     record.pause = {};
     this.current = undefined;
@@ -2610,6 +2707,7 @@ export class Engine {
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
   private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+    if (this.record.billing?.hold && cause === "limit_resume") return;
     this.checking = true;
     this.changed();
     let verdict: Awaited<ReturnType<Engine["recheckWait"]>> | undefined;
@@ -2628,7 +2726,7 @@ export class Engine {
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
   private watchWait(): void {
     const key = this.waitingPhaseKey();
-    if (key === undefined || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
+    if (key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
     this.unwatchWait();
     this.waitWatch = { phaseKey: key, readings: 0 };
     this.watchSleep();
@@ -2703,6 +2801,7 @@ export class Engine {
    * no reset time and it is the wait's first reading.
    */
   private readingArrived(reading: AccountView): void {
+    if (this.record.billing?.hold) return;
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
@@ -3279,7 +3378,7 @@ export class Engine {
 
   /** The phase that holds a Needs you stop, if any. */
   stoppedPhaseKey(): string | undefined {
-    return Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
+    return this.record.billing?.hold?.phaseKey ?? Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
   }
 
   isPhaseDone(phaseKey: string): boolean {

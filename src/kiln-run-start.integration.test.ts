@@ -250,10 +250,16 @@ describe("kiln run on a feature not started", () => {
     expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
     expect(snapshot.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
 
-    // The account, usage and model-list calls run in the PRD's state directory, so no project's settings load.
+    // AC-BILL-03 brackets usage; AC-RUN-01 also reads required readiness in the launch context.
+    await waitFor(async () => {
+      const latest = await api(address, token, "GET", "/api/snapshot");
+      return !!(latest.body as unknown as Snapshot).billing?.next && !(latest.body as unknown as Snapshot).billing?.pending;
+    });
     const helpers = readJsonLines<{ kind: string; cwd: string }>(`${f.scenarioPath}.helpers.jsonl`);
-    expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "models", "skills", "usage"]);
-    for (const call of helpers) expect(call.cwd).toBe(call.kind === "skills" ? f.repository : stateDirectoryOf(f));
+    expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "account", "account", "models", "models", "skills", "skills", "usage"]);
+    expect(helpers.filter(call => call.kind === "account" && call.cwd === f.repository)).toHaveLength(1);
+    expect(helpers.filter(call => call.kind === "account" && call.cwd === stateDirectoryOf(f))).toHaveLength(2);
+    for (const call of helpers.filter(call => call.kind !== "account")) expect(call.cwd).toBe(call.kind === "skills" ? f.repository : stateDirectoryOf(f));
 
     // Nothing has started (AC-START-03): no session, no branch, no worktree.
     expect(existsSync(`${f.scenarioPath}.calls.jsonl`)).toBe(false);

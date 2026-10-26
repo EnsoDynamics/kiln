@@ -26,9 +26,9 @@ describe("the account (claude auth status --json)", () => {
     expect(NOT_SIGNED_IN).toBe("Not signed in to Claude Code. Run `claude auth login`.");
   });
 
-  it("carries the call's own error when its output can't be parsed", () => {
-    expect(parseAuthStatus({ exitCode: 1, stdout: "", stderr: "claude: unknown command auth\n" })).toEqual({ error: "claude: unknown command auth" });
-    expect(parseAuthStatus({ exitCode: null, stdout: "", stderr: "", failure: "timed out after 120 seconds" })).toEqual({ error: "timed out after 120 seconds" });
+  it("sanitizes unreadable authentication output (AC-RUN-06)", () => {
+    expect(parseAuthStatus({ exitCode: 1, stdout: "", stderr: "claude: unknown command auth\n" })).toEqual({ error: "Could not read Claude Code account information. Check `claude auth status` in a terminal, then recheck." });
+    expect(parseAuthStatus({ exitCode: null, stdout: "", stderr: "", failure: "timed out after 120 seconds" })).toEqual({ error: "Could not read Claude Code account information. Check `claude auth status` in a terminal, then recheck." });
   });
 });
 

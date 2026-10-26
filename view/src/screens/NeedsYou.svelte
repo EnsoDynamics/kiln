@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BillingPanel from "../components/BillingPanel.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
   // kiln-screen-needs-you-crashed.html): how the session ended, word for word (PRD AC-STOP-02),
   // the command that reopens it (AC-STOP-05) or a fresh-session prompt (AC-STOP-06), each check
@@ -103,6 +104,7 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
+  <BillingPanel {snapshot} />
   <div class="columns-main">
     <div class="column-wide">
       <section class="card ended">
@@ -127,7 +129,7 @@
         {:else if stop.lastLines && stop.lastLines.length > 0}
           <div class="lines mono">{#each stop.lastLines as line (line.line)}<OutputRow {line} now={nowDate} />{/each}</div>
         {/if}
-        {#if stop.sessionId && stop.outputLineCount !== undefined}
+        {#if stop.sessionId && stop.outputLineCount !== undefined && (stop.kind !== "billing" || stop.sessionStartedAt)}
           <a class="arrow-link" href={outputLink} onclick={(event) => routedClick(event, router, outputLink)}>Full session output · {stop.outputLineCount.toLocaleString("en-US")} {stop.outputLineCount === 1 ? "line" : "lines"}<Icon name="arrow" /></a>
         {/if}
       </section>
@@ -167,7 +169,7 @@
           <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
             <!-- The amber line never holds Resume (AC-LIMIT-03). -->
-            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
           </div>
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
@@ -185,7 +187,7 @@
           </label>
           <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
-            <button type="button" class="button solid" disabled={busy} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             <span class="hint">Uses whichever {accountAgent} account is signed in now. Close the session first if you opened it in a terminal.</span>
           </div>
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
@@ -193,7 +195,7 @@
       {/if}
 
       <section class="card pick">
-        <span class="eyebrow">{stop.resumeOffered ? "Or pick it up yourself" : "Pick it up yourself"}</span>
+        <span class="eyebrow">{stop.kind === "billing" ? "Continue this execution" : stop.resumeOffered ? "Or pick it up yourself" : "Pick it up yourself"}</span>
         <ol>
           {#each steps as step, index (step)}
             <li>

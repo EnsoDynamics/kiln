@@ -1,3 +1,5 @@
+import { assertBillingState, newBillingState, type BillingState } from "../billing/authority.js";
+import type { BillingSummary } from "../billing/inspection.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { assertDevelopmentState, emptyDevelopmentLedger, restrictedAuthorization, type DevelopmentSettings, type DevelopmentAuthorization, type DevelopmentLedger, deliveryOwner, recoveryOwners } from "./development-delivery.js";
@@ -14,7 +16,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -61,7 +63,7 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
   if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
 }
 
-export type StopKind = "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection";
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection";
 
 export interface CheckResult {
   name: string;
@@ -232,6 +234,7 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  billing?: BillingState;
   nextActivityKey?: string;
   activities?: import("../audit/workflow.js").ExecutionActivity[];
   completionAudits?: AuditState;
@@ -262,6 +265,7 @@ export interface PrdRecord {
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
 
 export interface SessionRun {
+  billing?: BillingSummary;
   /** Codex semantic turn/dispatch facts, independent of the private server's exit. */
   codex?: CodexRunFacts;
   pid?: number;
@@ -435,7 +439,7 @@ interface SchemaOnePhase {
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5) {
     for (const owned of [...(record.developmentDelivery?.assessments ?? []), ...(record.developmentDelivery?.checkpoints ?? [])]) owned.owner ??= deliveryOwner(owned);
     const recovery = record.developmentAuthorization?.activationRecovery;
@@ -449,6 +453,8 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.completionAudits && (!record.executionId || !Number.isSafeInteger(record.completionAudits.revision) || !["required", "legacy_complete"].includes(record.completionAudits.policy) || !Array.isArray(record.completionAudits.activities) || !Array.isArray(record.completionAudits.evidence))) throw new Error("Invalid completion audit state.");
   if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
   if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
+  if (record.schemaVersion < 8) record.billing = newBillingState(record.executionId ??= randomUUID());
+  assertBillingState(record.billing, record.executionId);
   assertAgent(record.settings.agentId);
   record.settings.selectionGeneration ??= 0;
   for (const id of Object.keys(record.settings.agentChoices)) assertAgent(id);
@@ -507,6 +513,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
+  assertBillingState(record.billing, record.executionId);
   assertAgent(record.settings.agentId);
   writeJsonAtomically(prdRecordPath(stateDirectory), record);
 }

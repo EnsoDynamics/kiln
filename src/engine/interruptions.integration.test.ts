@@ -339,10 +339,11 @@ describe("resuming", () => {
     expect((await engine.decide()).kind).toBe("resume");
     await engine.continue();
     const runs = sessionOf(h, "1").runs;
-    expect(runs).toHaveLength(2);
-    expect(runs[1]).toMatchObject({ cause: "resume", spawnError: { code: "ENOENT" } });
+    // AC-RUN-01: required auth readiness fails before spawn, retaining the original run.
+    expect(runs).toHaveLength(1);
+    expect(engine.record.billing?.hold?.reason).toContain("authentication");
     // A transcript exists, so this isn't "can't be resumed": the resume command stays.
-    expect(engine.record.phases["1"]!.stop?.kind).toBe("done_check");
+    expect(engine.record.billing?.hold?.action).toBe("resume");
     expect(buildSnapshot(engine).needsYou!.resumeCommand).toContain("claude --resume");
     expect(h.claudeCalls()).toHaveLength(1);
   });

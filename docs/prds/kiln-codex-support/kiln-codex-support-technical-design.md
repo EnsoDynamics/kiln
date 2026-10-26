@@ -27,6 +27,8 @@ This design chooses the bounded raw-wrapper decoder and recorded-frontier candid
 
 ### Agent boundary
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Architecture and Decisions (Claude billing safeguards and additive private billing state only).
+
 The engine selects an installed agent adapter from the PRD/session record, never from a global default during recovery. The adapter contract has five responsibilities:
 
 | Operation | Result and ownership |
@@ -225,6 +227,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 
 ### Local API and snapshot changes
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.
 
 All endpoints retain current loopback, Host, Origin and token checks. Existing controls keep their state locking and no-double-submit behavior.
@@ -244,6 +248,8 @@ No new login endpoint or provider credential fields are exposed. Readiness/model
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §HTTP API, §Snapshot; `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API, §Snapshot, §Screens (agent-specific fields only).
 
 ### Persisted schema 4
+
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Persistent Data and Upgrade (Claude billing safeguards and additive private billing state only).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order and §Recovery and Upgrade (additive audit session kinds, activity-specific storage and schema 6 evidence records, implemented in Phase 1; task-specific skill dispatch remains Phase 2).
 

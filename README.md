@@ -45,6 +45,20 @@ By default, work stays on feature branches for review. Before Start, you can sep
 
 `kiln run` is the user entry point; the browser view provides the controls. Sessions also use helper commands for repository setup, audit evidence and delivery. `kiln --help` shows the usage.
 
+## Claude billing
+
+Before Start or Resume, Kiln shows billing for the next Claude run. A confirmed subscription says **Claude subscription**, with the account email directly below it. Billing follows your Claude account settings. If Claude reports that paid overflow is enabled for that same account, Kiln shows a factual notice and links to [Claude usage settings](https://claude.ai/settings/usage); it does not ask for another approval or change your spending limits. Missing overflow details do not mean paid usage is disabled.
+
+An API key, authentication helper, alternate endpoint or provider setting can select access charged separately from a subscription. Kiln shows the detected source and requires **Use API billing for this PRD** (or the named/configured provider) before model work. The unticked choice authorizes only this PRD execution, including later phases and restarts, while its detectable billing context stays the same. Approval and Recheck billing never start or resume work. You can clear approval while no AI session or dispatch is running. A changed provider, credential source, known payer or detectable credential requires approval again; switching away invalidates the old choice.
+
+If you intended subscription use, change the displayed override at its source and recheck. For an inherited environment variable, stop Kiln and restart it from the corrected environment. Kiln never deletes credentials, edits provider settings or silently chooses a different route. A sign-in failure still needs `claude auth login`, followed by recheck; billing approval cannot bypass readiness or add provider support.
+
+When authentication works but additional billing details cannot be established and no override is detected, the neutral **Claude Code settings** summary lets work continue. Unavailable details are not a subscription guarantee. Running screens retain the billing recorded at launch; different fresh readings apply to the next run. Disconnected screens show last-known information with no approval or launch controls.
+
+These checks run before each model-consuming launch or resume, including recovery, audits and final delivery. They inspect settings without making a model request and preserve local completion checks. They detect observable overrides; they are not a per-request billing firewall or a spending cap. A running CLI may reread settings or rotate credentials, and a helper can rotate its secret without Kiln observing it. Kiln does not interrupt an active session over a later settings change and makes no zero-cost guarantee. Set spending limits with [Anthropic](https://console.anthropic.com/settings/limits), [Claude](https://claude.ai/settings/usage), or the configured provider.
+
+Codex continues requiring ChatGPT sign-in and the OpenAI provider. Claude billing approval never authorizes Codex API-key access. Your account's existing spending settings still apply.
+
 ## Requirements
 
 - [Kiln v1 PRD](docs/prds/kiln-v1/kiln-v1-prd.md): what v1 delivers and its acceptance criteria.

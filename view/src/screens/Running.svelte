@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BillingPanel from "../components/BillingPanel.svelte";
   // Running (docs/design/mockups/kiln-screen-running.html): the current phase at the top, the
   // phase plan, the Claude account, the settings, Pause Kiln and the Kiln panel (PRD
   // AC-WATCH-01 to 08, AC-VIEW-03). Once the view has lost Kiln it becomes the Disconnected
@@ -33,6 +34,7 @@
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
+      <BillingPanel {snapshot} {connected} />
       {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused={false} pullRequest={isPr} {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       {#if connected && snapshot.current && !isPr}<PausePanel {snapshot} />{/if}

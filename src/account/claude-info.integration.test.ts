@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createSandbox, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
 import { waitFor } from "../test-support/engine-harness.js";
 import { ScriptedClaude, signedIn } from "../test-support/scripted-claude.js";
+import { readAccount } from "./claude-account.js";
 import { ClaudeInfo } from "./claude-info.js";
 
 let sandbox: Sandbox | undefined;
@@ -29,10 +30,10 @@ describe("Claude Code's account and usage", () => {
     info = new ClaudeInfo({ claude, env: { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario }, cwd: sandbox.root });
 
     info.start(1_500);
-    // Two refreshes asked for while the first read runs join it: one account call, one usage call.
+    // Refreshes join one bracketed account/usage/account reading (AC-BILL-03 attribution).
     await Promise.all([info.refreshAccount(), info.refreshAccount()]);
     expect(info.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
-    expect(helpers().filter((kind) => kind === "account")).toHaveLength(1);
+    expect(helpers().filter((kind) => kind === "account")).toHaveLength(2);
     expect(helpers().filter((kind) => kind === "usage")).toHaveLength(1);
     const firstUpdate = info.account!.updatedAt;
 
@@ -88,4 +89,18 @@ describe("Claude Code's account and usage", () => {
     expect(scripted.asked).toBe(2);
     expect(scripted.waiting).toBe(true);
   });
+  it("discards overflow when the account switches across the usage read while keeping independently available usage gauges", async () => {
+    sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, "bin"));
+    const scenario = join(sandbox.root, "scenario.json"); writeFileSync(scenario, JSON.stringify({ sessions: [] }));
+    const account = join(sandbox.root, "account.json"); const usage = join(sandbox.root, "usage.jsonl"); const release = join(sandbox.root, "release-usage");
+    writeFileSync(account, JSON.stringify({ loggedIn: true, email: "before@example.test", orgId: "before-org", subscriptionType: "max" }));
+    writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: [{ kind: "session", percent: 42 }], extra_usage: { is_enabled: true } } } }));
+    const reading = readAccount({ claude, cwd: sandbox.root, env: { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, KILN_STANDIN_ACCOUNT: account, KILN_STANDIN_USAGE: usage, KILN_STANDIN_USAGE_WAIT: release } });
+    await waitFor(() => existsSync(`${scenario}.helpers.jsonl`) && readFileSync(`${scenario}.helpers.jsonl`, "utf8").includes('"usage"'));
+    writeFileSync(account, JSON.stringify({ loggedIn: true, email: "after@example.test", orgId: "after-org", subscriptionType: "max" })); writeFileSync(release, "");
+    const result = await reading;
+    expect(result.extraUsage).toBeUndefined(); expect(result.error).toBeUndefined();
+    expect(result.limits).toMatchObject([{ kind: "session", percent: 42 }]);
+  });
+
 });

@@ -1,3 +1,4 @@
+import type { BillingView } from "../billing/authority.js";
 import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
@@ -160,6 +161,7 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  billing?: BillingView;
   activities?: PhaseView[];
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
@@ -404,6 +406,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     phases: views,
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
+    ...(record.settings.agentId === "claude_code" ? { billing: engine.billing.view } : {}),
     ...optional("pullRequests", record.pullRequests),
     ...optional("mergedBranches", record.mergedBranches),
     ...optional("deliveryHistory", record.deliveryHistory),
@@ -485,11 +488,13 @@ function stepLine(name: string): string {
 
 function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const { record } = engine;
-  const stop = record.phases[phaseKey]!.stop!;
+  const hold = record.billing?.hold?.phaseKey === phaseKey ? record.billing.hold : undefined;
+  const retainedStop = record.phases[phaseKey]?.stop;
+  const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.at, checks: [...(retainedStop?.checks ?? record.phases[phaseKey]?.wait?.checks ?? []), { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  const outside = stop.kind === "selection" ? undefined : outsideView(engine, phaseKey);
+  const outside = stop.kind === "selection" || !retainedStop ? undefined : outsideView(engine, phaseKey);
   const base = {
     phaseId: judged,
     kind: stop.kind,

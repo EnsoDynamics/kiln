@@ -64,6 +64,8 @@ describe("agent selection before work", () => {
     await waitFor(() => h.engine.record.settings.agentChoices.claude_code?.model === "sonnet");
     await page.evaluate(`([...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Refresh agent information')).click()`);
     await waitFor(() => !h.engine.agents.state.pending);
+    // Refresh now includes the independent billing reading; wait for the real control to unlock.
+    await page.waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Check again' && !b.disabled)`);
     await page.evaluate(`([...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Check again')).click()`);
     await waitFor(() => h.claudeCalls().length === 2);
     await h.engine.settled();

@@ -2,6 +2,7 @@
 // design, "Account and Usage"): `claude auth status --json` for the account and a headless
 // `/usage` for the limits, which is answered locally and spends none of the person's usage.
 
+import { boundedRead } from "../billing/bounded-process.js";
 import { runHelper, type HelperResult } from "../platform/helper-process.js";
 
 /** The usage-limit threshold (UI-001): a limit at 80% or more is near its limit. */
@@ -33,11 +34,15 @@ export interface AccountView {
   startedAt: string;
   updatedAt: string;
   limits: UsageLimit[];
+  extraUsage?: { enabled: boolean; observedAt: string; email?: string; orgId?: string };
   error?: string;
   limitsError?: string;
 }
 
 export interface AccountStatus {
+  authMethod?: string;
+  apiProvider?: string;
+  apiKeySource?: string;
   email?: string;
   orgId?: string;
   plan?: string;
@@ -56,13 +61,17 @@ export function parseAuthStatus(result: HelperResult): AccountStatus {
   try {
     parsed = JSON.parse(result.stdout);
   } catch {
-    return { error: helperError(result) };
+    return { error: helperError() };
   }
-  if (typeof parsed !== "object" || parsed === null) return { error: helperError(result) };
-  const status = parsed as { loggedIn?: unknown; email?: unknown; orgId?: unknown; subscriptionType?: unknown };
+  if (typeof parsed !== "object" || parsed === null) return { error: helperError() };
+  const status = parsed as { loggedIn?: unknown; email?: unknown; orgId?: unknown; subscriptionType?: unknown; authMethod?: unknown; apiProvider?: unknown; apiKeySource?: unknown };
   if (status.loggedIn === false) return { error: NOT_SIGNED_IN };
-  if (status.loggedIn !== true) return { error: helperError(result) };
+  if (status.loggedIn !== true || result.exitCode !== 0) return { error: helperError() };
   const account: AccountStatus = {};
+  if (["claude.ai", "api_key", "api_key_helper", "oauth_token"].includes(String(status.authMethod))) account.authMethod = String(status.authMethod);
+  if (["firstParty", "bedrock", "vertex", "foundry", "mantle"].includes(String(status.apiProvider))) account.apiProvider = String(status.apiProvider);
+  else if (typeof status.apiProvider === "string" && status.apiProvider) account.apiProvider = "configured";
+  if (typeof status.apiKeySource === "string" && status.apiKeySource && status.apiKeySource !== "none") account.apiKeySource = status.apiKeySource === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : "configured";
   if (typeof status.email === "string" && status.email !== "") account.email = status.email;
   if (typeof status.orgId === "string" && status.orgId !== "") account.orgId = status.orgId;
   if (typeof status.subscriptionType === "string" && status.subscriptionType !== "") {
@@ -72,6 +81,7 @@ export function parseAuthStatus(result: HelperResult): AccountStatus {
 }
 
 export interface UsageReading {
+  extraUsageEnabled?: boolean;
   limits: UsageLimit[];
   limitsError?: string;
 }
@@ -119,7 +129,8 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
       nearLimit: row.percent >= NEAR_LIMIT_PERCENT,
     });
   }
-  return { limits: rows };
+  const extra = (report as { rate_limits?: { extra_usage?: { is_enabled?: unknown } } })?.rate_limits?.extra_usage?.is_enabled;
+  return { limits: rows, ...(typeof extra === "boolean" ? { extraUsageEnabled: extra } : {}) };
 }
 
 function limitLabels(kind: string, scope: unknown): Pick<UsageLimit, "label" | "shortLabel" | "scope"> | undefined {
@@ -151,25 +162,34 @@ export interface AccountReadOptions {
 export async function readAccount(options: AccountReadOptions): Promise<AccountView> {
   const startedAt = (options.now?.() ?? new Date()).toISOString();
   const call = (args: string[]) => runHelper(options.claude, args, { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}) });
-  const [auth, usage] = await Promise.all([
-    call(["auth", "status", "--json"]),
-    call(["-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]),
-  ]);
+  const auth = await call(["auth", "status", "--json"]);
+  const usage = await call(["-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]);
   const updatedAt = (options.now?.() ?? new Date()).toISOString();
   const status = parseAuthStatus(auth);
   if (status.error !== undefined) return { startedAt, updatedAt, limits: [], error: status.error };
   const account: AccountView = { ...status, startedAt, updatedAt, limits: [] };
   if (usage.exitCode !== 0) {
-    account.limitsError = helperError(usage);
+    account.limitsError = helperError();
     return account;
   }
   const reading = parseUsage(usage.stdout, status.plan !== undefined);
+  if (reading.extraUsageEnabled !== undefined) {
+    const after = parseAuthStatus(await call(["auth", "status", "--json"]));
+    if (!after.error && (status.email || status.orgId) && status.email === after.email && status.orgId === after.orgId) {
+      account.extraUsage = { enabled: reading.extraUsageEnabled, observedAt: updatedAt, ...(status.email ? { email: status.email } : {}), ...(status.orgId ? { orgId: status.orgId } : {}) };
+    }
+  }
   account.limits = reading.limits;
   if (reading.limitsError !== undefined) account.limitsError = reading.limitsError;
   return account;
 }
 
-function helperError(result: HelperResult): string {
-  const text = (result.stderr || result.failure || result.stdout || `exit code ${result.exitCode}`).trim();
-  return text.split(/\r?\n/).filter((line) => line.trim() !== "").join(" ");
+/** Required auth read. Projection changes its inputs, never the work environment. */
+export async function readAuthStatus(options: AccountReadOptions): Promise<AccountStatus> {
+  const result = await boundedRead(options.claude, ["auth", "status", "--json"], { ...options, timeoutMs: 120_000, resultLimit: 256 * 1024, allowNonzero: true });
+  if (result.diagnostic) return { error: "Could not read Claude Code authentication. Run `claude auth status`, then recheck." };
+  return parseAuthStatus({ exitCode: result.exitCode ?? null, stdout: result.stdout!, stderr: "" });
+}
+function helperError(): string {
+  return "Could not read Claude Code account information. Check `claude auth status` in a terminal, then recheck.";
 }

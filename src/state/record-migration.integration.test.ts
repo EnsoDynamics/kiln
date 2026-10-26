@@ -66,11 +66,12 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
     await engine.settled();
     const after = buildSnapshot(engine);
-    expect(after.account).toEqual({ ...before.account, startedAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(after.account).toEqual({ ...before.account, ...(before.account?.extraUsage ? { extraUsage: { ...before.account.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String) });
     // A stopped run keeps accruing waiting time during the restart; all other timing facts survive migration.
     const advanceWaiting = (earlier: Timing, later: Timing): Timing => ({ ...earlier, asOf: later.asOf, waitingMs: earlier.waitingMs + Date.parse(later.asOf) - Date.parse(earlier.asOf) });
     expect(after).toEqual({
       ...before,
+      billing: after.billing,
       // Schema 1–4 deliberately receive revision-0 restricted authority. The new grant
       // control must use that revision without changing the historical execution view.
       developmentDelivery: after.developmentDelivery,
@@ -93,7 +94,7 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
     await engine.agents.refresh();
-    expect(buildSnapshot(engine)).toEqual({ ...before, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
+    expect(buildSnapshot(engine)).toEqual({ ...before, billing: buildSnapshot(engine).billing, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });

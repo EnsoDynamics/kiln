@@ -59,6 +59,8 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
+// Billing contract qualification is passive and never consumes a scenario.
+if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "2.1.299-stand-in"}\n`); process.exit(0); }
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
 // The session's git calls are the session's, not Kiln's: they stay out of the harness's log of Kiln's.
 delete process.env.GIT_TRACE2_EVENT;
@@ -75,13 +77,14 @@ const isSession = args.includes("--session-id") || args.includes("--resume");
 if (args[0] === "auth" && args[1] === "status") {
   logHelper("account");
   const account = process.env.KILN_STANDIN_ACCOUNT;
-  process.stdout.write(account ? readFileSync(account, "utf8") : JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "alex@acme-shop.dev", subscriptionType: "max" }));
+  process.stdout.write(account ? readFileSync(account, "utf8") : JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email: "alex@acme-shop.dev", subscriptionType: "max" }));
   process.stdout.write("", () => process.exit(0));
   await new Promise(() => {});
 }
 if (!isSession && args[0] === "-p" && args[1] === "/usage") {
   logHelper("usage");
-  process.stdout.write(readFileSync(join(fixtures, "usage-report-idle.jsonl"), "utf8"), () => process.exit(0));
+  while (process.env.KILN_STANDIN_USAGE_WAIT && !existsSync(process.env.KILN_STANDIN_USAGE_WAIT)) await new Promise(resolve => setTimeout(resolve, 25));
+  process.stdout.write(readFileSync(process.env.KILN_STANDIN_USAGE ?? join(fixtures, "usage-report-idle.jsonl"), "utf8"), () => process.exit(0));
   await new Promise(() => {});
 }
 if (!isSession && args.includes("--input-format")) {

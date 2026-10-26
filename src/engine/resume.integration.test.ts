@@ -171,7 +171,9 @@ describe("where Resume isn't offered (AC-RESUME-01)", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.latestSession("1")!.runs[0]!.spawnError).toBeDefined();
+    // AC-RUN-01 checks required readiness before spawn; a missing executable creates no model attempt.
+    expect(h.engine.latestSession("1")!.runs).toHaveLength(0);
+    expect(h.engine.record.billing?.hold?.reason).toContain("authentication");
     expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(false);
     expect(await h.engine.resume()).toEqual({ ok: false, status: 409, reason: "Resume isn't offered here." });
   });

@@ -1,3 +1,4 @@
+import type { BillingSummary } from "../billing/inspection.js";
 // Starts one headless Claude Code session and supervises it: the launch flags, the prompt on
 // stdin, every event saved as received, output lines and progress steps derived from them,
 // and the run's end recorded (technical design, "Starting a phase's session", "Output and
@@ -75,6 +76,7 @@ export function modelNameFromId(id: string): string {
 }
 
 export interface SessionProcessOptions {
+  billing?: BillingSummary;
   claude: string;
   args: string[];
   cwd: string;
@@ -201,6 +203,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       startedAt,
       endedAt: startedAt,
       cause: options.cause,
+      ...(options.billing ? { billing: options.billing } : {}),
       ...(options.note === undefined ? {} : { note: options.note }),
       ...(options.account === undefined ? {} : { account: options.account }),
       spawnError: { code: error.code ?? "ERROR", message: error.message },
@@ -217,6 +220,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     pid,
     startedAt,
     cause: options.cause,
+      ...(options.billing ? { billing: options.billing } : {}),
     ...(options.note === undefined ? {} : { note: options.note }),
     ...(options.account === undefined ? {} : { account: options.account }),
   };

@@ -86,7 +86,9 @@ export function autoModeError(entry: ModelEntry | undefined): string | undefined
 }
 
 /** An unavailable catalogue blocks new sessions (Codex support PRD AC-MODEL-02). */
-export const modelListErrorMessage = (error: string) => `Couldn’t load Claude Code’s models: ${error}`;
+export const modelListErrorMessage = (error: string) => /^(timed out after \d+ seconds|Kiln is stopping)$/.test(error)
+  ? `Couldn’t load Claude Code’s models: ${error}`
+  : "Couldn’t load Claude Code’s models. Check Claude Code in a terminal, then refresh agent information.";
 
 export interface ModelListOptions {
   claude: string;

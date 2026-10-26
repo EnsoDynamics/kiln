@@ -5,7 +5,7 @@
 // Windows (AC-INSTALL-03).
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -83,6 +83,14 @@ describe("the installed package", () => {
     expect(packedFiles.filter((path) => /\.test\./.test(path) || path.startsWith("dist/test-support/"))).toEqual([]);
     expect(existsSync(join(installedPackage, "dist", "cli.js"))).toBe(true);
     expect(existsSync(kilnCommand)).toBe(true);
+    // AC-RUN-07: public npm users receive the billing boundary, and the passive worker ships.
+    const guidance = readFileSync(join(installedPackage, "README.md"), "utf8");
+    for (const text of ["Use API billing for this PRD", "paid overflow", "per-request billing firewall", "no zero-cost guarantee", "Codex continues requiring ChatGPT sign-in"]) expect(guidance).toContain(text);
+    expect(packedFiles).toContain("dist/billing/settings-worker.js");
+    expect(packedFiles.some(path => /(?:fixtures|agent-sessions|prd\.json|session\.json)/.test(path))).toBe(false);
+    const passive = spawnSync(process.execPath, [join(installedPackage, "dist/billing/settings-worker.js")], { cwd: sandbox.root, env: sandbox.env, encoding: "utf8", timeout: 30_000 });
+    expect(passive.status).toBe(0);
+    expect(JSON.parse(passive.stdout)).toMatchObject({ env: {}, helpers: {} });
   });
 
   it("ships the production Codex decoder and its runtime parser without source checkout dependencies", async () => {

@@ -1,3 +1,4 @@
+import { BillingError } from "../billing/authority.js";
 import { normalizeTarget, type DevelopmentSettings } from "../state/development-delivery.js";
 // The local server: the compiled browser view and a small HTTP API with server-sent events,
 // on loopback only (PRD AC-VIEW-01, AC-VIEW-06, AC-MULTI-02; technical design, "The Local
@@ -79,6 +80,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   const viewRoot = existsSync(viewDirectory) ? realpathSync.native(viewDirectory) : viewDirectory;
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const streams = new Set<SSEStreamingApi>();
+  let closing = false;
   const snapshot = (): Snapshot => buildSnapshot(engine, options.documents);
 
   const app = new Hono();
@@ -153,11 +155,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       let lastSent = 0;
       const sendSnapshot = () => {
         pending = undefined;
+        if (closing || !streams.has(stream)) return;
         lastSent = Date.now();
         void stream.writeSSE({ event: "snapshot", data: JSON.stringify(snapshot()) });
       };
       const onChange = () => {
-        if (pending) return;
+        if (closing || pending) return;
         pending = setTimeout(sendSnapshot, Math.max(0, SNAPSHOT_THROTTLE_MS - (Date.now() - lastSent)));
       };
       const offChange = engine.onChange(onChange);
@@ -201,7 +204,23 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
 
-  app.post("/api/metadata/refresh", async (c) => { await engine.agents.refresh(); return c.json({ settings: snapshot().settings }); });
+  app.post("/api/metadata/refresh", async (c) => { await engine.agents.refresh(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, billing: snapshot().billing }); });
+  for (const action of ["approval", "clear"] as const) app.post(`/api/billing/${action}`, async c => {
+    try {
+      const reader = c.req.raw.body?.getReader();
+      if (!reader) throw new BillingError("invalid_request", "A JSON billing request is required.", 400);
+      const chunks: Uint8Array[] = []; let size = 0;
+      try { for (;;) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > 4096) throw new BillingError("invalid_request", "Billing request exceeds 4 KiB.", 400); chunks.push(next.value); } }
+      finally { reader.releaseLock(); }
+      let body: unknown;
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new BillingError("invalid_request", "A JSON billing request is required.", 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new BillingError("invalid_request", "A JSON object is required.", 400);
+      return c.json({ ok: true, billing: await engine.billingCommand(action, body as Record<string, unknown>) });
+    } catch (error) {
+      const failure = error instanceof BillingError ? error : new BillingError("billing_state_write_failed", "Billing state could not be saved. No work was authorized.", 500);
+      return c.json({ ok: false, code: failure.code, reason: failure.message, billing: engine.billing.view }, failure.status);
+    }
+  });
 
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
@@ -267,6 +286,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   return {
     address: `http://127.0.0.1:${port}/${folderName}`,
     close: async () => {
+      closing = true;
       for (const stream of streams) stream.abort();
       await new Promise<void>((resolveClose) => {
         server.close(() => resolveClose());

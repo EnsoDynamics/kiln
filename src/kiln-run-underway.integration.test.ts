@@ -211,13 +211,22 @@ describe("kiln run on a feature underway", () => {
         const origin = new URL(address).origin;
         const page = (await fetch(address)).status;
         const abort = new AbortController();
-        const events = await fetch(`${origin}/api/events?token=${h.engine.record.token}`, { signal: abort.signal });
+        const events = await fetch(`${origin}/api/events?token=${h.engine.record.token}`, { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(20_000)]) });
         const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
         let text = "";
-        while (!/^event: snapshot\ndata: .*$/m.test(text)) text += (await reader.read()).value ?? "";
+        let current: { feature: { state: string }; settings: { metadataPending?: boolean }; billing?: { canLaunch: boolean } } | undefined;
+        // The real button is disabled during the new passive billing/readiness check.
+        // Wait for the same readiness state, rather than clicking after a fixed delay.
+        while (!current || current.settings.metadataPending || current.billing?.canLaunch === false) {
+          text += (await reader.read()).value ?? "";
+          const latest = [...text.matchAll(/^event: snapshot\ndata: (.*)$/gm)].at(-1);
+          if (latest) current = JSON.parse(latest[1]!);
+        }
         abort.abort();
-        const state = JSON.parse(/^event: snapshot\ndata: (.*)$/m.exec(text)![1]!).feature.state;
-        const start = (await fetch(`${origin}/api/start`, { method: "POST", headers: { "X-Kiln-Token": h.engine.record.token, Origin: origin } })).status;
+        const state = current.feature.state;
+        const response = await fetch(`${origin}/api/start`, { method: "POST", headers: { "X-Kiln-Token": h.engine.record.token, Origin: origin } });
+        const start = response.status;
+        expect(start, await response.text()).toBe(200);
         await waitFor(() => h.claudeCalls().length === 2);
         served = { page, state, start };
       },

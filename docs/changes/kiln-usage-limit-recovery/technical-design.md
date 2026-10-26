@@ -56,6 +56,8 @@ On every run's end, before the verdict, Kiln reads that run's saved events (thos
 
 ## The Wait
 
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Account Usage and Recovery (Codex refusal classification, fresh usage identity and bounded automatic attempts; Claude rules retained).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (the engine loop's verdict and the reconcile), §Interruptions, sleep and resume ("Kiln never resumes one that ended on its own"), §Account and Usage ("Kiln never waits for a reset")
@@ -90,6 +92,8 @@ Resuming at the end of a wait is the [resume](#resume) command with `cause: limi
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Keep-awake
 
 ## Resume
+
+Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (check accepted audit evidence before resuming the saved audit task), implemented in Phase 2b. Existing authority and evidence protections remain.
 
