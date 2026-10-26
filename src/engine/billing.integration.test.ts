@@ -68,7 +68,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(first.runs[0]!.billing).toMatchObject({ route: "subscription", approved: false });
     h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
     expect(h.engine.billing.view.canLaunch).toBe(true);
-    expect(await h.engine.resume()).toEqual({ ok: true }); await h.engine.settled();
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true, outcome: "resume_requested" }); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toContain("--resume");
     expect(h.engine.latestSession("1")!.sessionId).toBe(first.sessionId);
     expect(h.engine.latestSession("1")!.runs[1]!.billing).toMatchObject({ route: "subscription", approved: false });

@@ -46,3 +46,9 @@ Independent deliverable review and test hardening found no gaps; both criteria h
 ## Fresh whole-PRD audit handoff
 
 Once this phase closes, the next unit is a fresh whole-PRD `delivery-audit`, then `test-audit` only after delivery is clean. Re-read all three closed phases and the design's Required implementation evidence; the prior audit at `b5baca9` does not establish that its repairs are complete. Implementation commits follow the skill default. Doug's restriction remains: “Do not push without Doug's approval.” Source: chat `01a1798c-ffcd-7d62-8283-d671b281a8e5`, carried into implementation chat `01a179e2-22d4-7831-b54d-1c3beb3fcb66`.
+
+## Landing revalidation — 2026-10-26
+
+Before the approved push, Phase 3 was rebased onto `7e7b7c8`, which implements the newer manual phase-recovery contract referenced by the design's Holds and recovery section. The subscription Resume proof now submits the current stopped target and asserts `resume_requested`; it still proves the same saved conversation resumes without metered approval. No billing implementation behavior changed during this integration.
+
+The integrated `npm run verify` passes: dependency audit, lint, TypeScript/Svelte checks, 615 unit tests, 17 Codex protocol proofs, and 723 integration tests with two existing conditional skips (725 total; integration duration 322.73 seconds). All four installed-package tests pass. The focused Claude/Codex browser and real passive-boundary checks also pass; all 12 billing dispatch tests pass with the current recovery contract. The existing proof limits above remain in force.
