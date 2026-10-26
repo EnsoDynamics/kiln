@@ -26,6 +26,7 @@
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
   const busy = $derived(!!page.pending || !!stop.checking || !connected);
+  const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const ending = $derived(endingFact(stop));
@@ -36,7 +37,7 @@
   let lastAction: "reply" | "resume" = $state("resume");
 
   async function act(action: "reply" | "resume" | "verify" | "advance") {
-    if (busy) return;
+    if (busy || (action === "reply" || action === "resume") && resumeBlocked) return;
     const target = recovery.target;
     const state = page;
     state.pending = action;
@@ -125,7 +126,7 @@
           <label for="phase-reply">Your reply to {agent}</label>
           <textarea id="phase-reply" bind:this={replyField} bind:value={page.draft} rows="4" maxlength="4000" placeholder="Your answer or instructions for the remaining work"></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your reply has not been sent.</p>{/if}
-          <button class="button solid" disabled={busy || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume Phase {stop.phaseId}</button>
+          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume Phase {stop.phaseId}</button>
           <p class="hint">Kiln handles the remaining work, then follows the plan. Routine work continues unattended; an explicit hold or material decision can return control to you.</p>
         {:else}
           <h2>Conversation recovery unavailable</h2>
@@ -157,7 +158,7 @@
           <h3>We resolved the question. Kiln can finish.</h3>
           {#if stop.resumeOffered}
             <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in Phase {stop.phaseId}. You don’t need to repeat your answer.</p>
-            <button bind:this={resumeButton} class="button solid" disabled={busy} onclick={() => act("resume")}>Resume Phase {stop.phaseId} in Kiln</button>
+            <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume Phase {stop.phaseId} in Kiln</button>
             <p class="hint">The phase can still be open, with uncommitted or unpushed work. Kiln finishes this phase before following the rest of the plan.</p>
           {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish the phase, then verify it.</p>{/if}
         </section>

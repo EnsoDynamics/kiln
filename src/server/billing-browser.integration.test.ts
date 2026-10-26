@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
+import { git } from "../test-support/git-repositories.js";
 import { documentsFound } from "../engine/snapshot.js";
 import { readPlanAt } from "../engine/plan-reading.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
@@ -22,6 +23,68 @@ const panel = `document.querySelector('[aria-label="Claude billing"]')`;
 const clickChoice = `${panel}.querySelector('input[type=checkbox]').click()`;
 const recheck = `[...${panel}.querySelectorAll('button')].find(b => b.textContent.includes('Recheck billing'))`;
 describe("Claude billing browser controls", () => {
+  it("shows enabled overflow without usage meters, omits unknown/disabled notices, and records the attributed launch fact", async () => {
+    h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    const usage = join(h.sandbox.root, "no-meters.jsonl"); h.env.KILN_STANDIN_USAGE = usage;
+    const report = (enabled?: boolean) => writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: null, ...(enabled === undefined ? {} : { extra_usage: { is_enabled: enabled } }) } } }));
+    report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open(360);
+    await page.waitFor(`${panel}.innerText.includes('Paid usage is enabled')`);
+    expect(await page.evaluate(`${panel}.querySelector('a[href="https://claude.ai/settings/usage"]') !== null`)).toBe(true);
+    expect(await page.evaluate(`${panel}.querySelectorAll('input,[role=meter]').length`)).toBe(0);
+    expect(h.engine.billing.view.canLaunch).toBe(true); expect(h.engine.billing.view.next?.overflow?.enabled).toBe(true);
+    writeFileSync("/tmp/kiln-billing-no-meters-360.png", await page.screenshot());
+    for (const enabled of [false, undefined]) {
+      report(enabled); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+      await page.waitFor(`!${panel}.innerText.includes('Paid usage is enabled')`);
+      expect(h.engine.billing.view.canLaunch).toBe(true);
+      expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
+    }
+    report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await waitFor(() => h!.engine.baseCheck === "ok");
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
+    expect(h.engine.latestSession("1")!.runs[0]!.billing).toMatchObject({ route: "subscription", approved: false, overflow: { enabled: true, observedAt: expect.any(String) } });
+    expect(h.engine.record.billing!.approval).toBeUndefined();
+  });
+
+  it.each(["verify", "advance"] as const)("keeps both phase Resume controls unavailable before approval while %s remains independent", async mode => {
+    h = await createHarness({ sessions: [{ actions: [{ result: "Keep the unsent answer?" }] }] });
+    h.env.KILN_STANDIN_VERSION = "2.1.307"; await h.engine.refreshBilling();
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
+    const original = h.engine.latestSession("1")!;
+    h.env.ANTHROPIC_API_KEY = "manual-recovery-private-canary"; await h.engine.refreshBilling();
+    const page = await open(mode === "verify" ? 360 : 1280);
+    const button = (label: string) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+    const reply = button("Send reply & resume Phase 1"); const resume = button("Resume Phase 1 in Kiln"); const verify = button("Verify Phase 1 & advance");
+    await page.waitFor(`document.querySelector('textarea')`);
+    await page.evaluate(`(() => { const field = document.querySelector('textarea'); field.value = 'Preserve this unsent draft'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await page.waitFor(`${reply}.disabled && ${resume}.disabled`);
+    expect(await page.evaluate(`${verify}.disabled`)).toBe(false);
+    await page.evaluate(`${reply}.click(); ${resume}.click()`); expect(h.claudeCalls()).toHaveLength(1);
+    await page.evaluate(`${verify}.click()`); await page.waitFor(`document.body.textContent.includes('still unfinished')`);
+    expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.engine.latestSession("1")!.sessionId).toBe(original.sessionId);
+    expect(await page.evaluate(`document.querySelector('textarea').value`)).toBe("Preserve this unsent draft");
+    writeFileSync(`/tmp/kiln-billing-resume-held-${mode === "verify" ? 360 : 1280}.png`, await page.screenshot());
+    await page.evaluate(`${recheck}.click()`); await page.waitFor(`!${recheck}.disabled`);
+    expect(await page.evaluate(`${resume}.disabled`)).toBe(true); expect(h.claudeCalls()).toHaveLength(1);
+    await page.evaluate(clickChoice); await page.waitFor(`!${reply}.disabled && !${resume}.disabled`);
+    expect(h.claudeCalls()).toHaveLength(1); // Approval itself never resumes or sends the draft.
+    const phase = "docs/prds/customer-returns/phase-1-return-intake.md"; const file = join(h.engine.worktreePath, phase);
+    writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-26\n"));
+    git(h.sandbox, h.engine.worktreePath, "add", phase); git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test: finish billing recovery phase");
+    git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+    if (mode === "advance") {
+      await page.evaluate(`${resume}.click()`); await page.waitFor(`document.body.textContent.includes('Phase 1 is already complete.')`);
+      expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
+    }
+    await page.evaluate(clickChoice); await page.waitFor(`!${panel}.querySelector('input').checked`);
+    expect(h.engine.billing.view.canLaunch).toBe(false);
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    const accept = mode === "verify" ? verify : button("Advance without sending reply");
+    expect(await page.evaluate(`${accept}.disabled`)).toBe(false); await page.evaluate(`${accept}.click()`);
+    await waitFor(() => !!h!.engine.record.phases["1"]!.doneAt); await h.engine.settled();
+    expect(h.engine.record.phases["1"]!.finishedByPerson).toBe(true); expect(h.engine.record.pause.activeSince).toBeDefined();
+    expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
+  });
   it("shows subscription email, attributed overflow and existing usage; handles API choice, stale click, clear and disconnect", async () => {
     h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
     const usage = join(h.sandbox.root, "usage.jsonl");

@@ -89,6 +89,28 @@ describe("qualified passive settings boundary", () => {
     const inventory = extractInventory({ effective: { policyHelper: { command: "never-run" }, env: { ANTHROPIC_API_KEY: "managed-canary" } }, sources: [{ source: "managed", settings: { env: { ANTHROPIC_API_KEY: "managed-canary" } } }] });
     expect(inventory).toMatchObject({ complete: false, diagnostics: ["managed_policy_partial"] });
   });
+  it.skipIf(process.platform !== "darwin" || !findExecutable("claude", process.env))("ignores inactive credentials and helpers from real project/local settings without losing selected credential changes", async () => {
+    sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
+    const env = { ...sandbox.env }; const cli = findExecutable("claude", env)!;
+    for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
+    writeFileSync(join(env.CLAUDE_CONFIG_DIR!, "settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "synthetic-direct-canary" } }));
+    const inspect = async () => {
+      const read = await readInventory({ executable: cli, cwd: project, env });
+      const auth = await readAuthStatus({ claude: cli, cwd: project, env: read.projected });
+      expect(read.inventory.complete).toBe(true); expect(auth).toMatchObject({ authMethod: "api_key", apiProvider: "firstParty" });
+      return classify({ cwd: project, env, read, auth, at: "2026-10-26T20:00:00Z" });
+    };
+    const base = await inspect();
+    const canary = join(sandbox.root, "HELPER-MUST-NOT-RUN");
+    const helper = `${JSON.stringify(process.execPath)} -e "require('fs').writeFileSync(${JSON.stringify(canary)},'ran')"`;
+    settings(project, { env: { ANTHROPIC_FOUNDRY_API_KEY: "inactive-foundry-canary", ANTHROPIC_FOUNDRY_RESOURCE: "inactive-foundry-resource", AWS_PROFILE: "inactive-profile" }, awsAuthRefresh: helper, gcpAuthRefresh: helper });
+    writeFileSync(join(project, ".claude", "settings.local.json"), JSON.stringify({ env: { GOOGLE_APPLICATION_CREDENTIALS: "/inactive/google.json", ANTHROPIC_VERTEX_PROJECT_ID: "inactive-project" } }));
+    expect((await inspect()).identity).toEqual(base.identity);
+    settings(project, { env: { ANTHROPIC_API_KEY: "changed-selected-canary" } });
+    const changed = await inspect(); expect(changed.identity).not.toEqual(base.identity);
+    expect(changed.summary.sources).toContain("project settings · ANTHROPIC_API_KEY");
+    expect(existsSync(canary)).toBe(false); expect(JSON.stringify(changed.summary)).not.toContain("canary");
+  });
   it("bounds extracted bytes, cumulative output, timeout and cancellation, discarding all raw failure output", async () => {
     sandbox = createSandbox(); const options = { cwd: sandbox.root, env: sandbox.env, resultLimit: 128, outputLimit: 4096, timeoutMs: 1500 };
     const overResult = await boundedRead(process.execPath, ["-e", "process.stdout.write('secret-canary'.repeat(100));setInterval(()=>{},1000)"], options);

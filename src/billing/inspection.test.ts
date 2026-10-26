@@ -55,11 +55,80 @@ describe("billing evidence classification", () => {
     expect(run({ ANTHROPIC_VERTEX_BASE_URL: "https://inactive.test" }, providerAuth).identity).toEqual(base.identity);
     expect(run({ CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CODE_USE_FOUNDRY: "1", ANTHROPIC_VERTEX_BASE_URL: "https://gateway.test" }, { ...auth, apiProvider: "configured" }).summary).toMatchObject({ route: "metered", sources: expect.arrayContaining(["Kiln environment · ANTHROPIC_VERTEX_BASE_URL"]) });
   });
+  it("scopes provider credentials, cloud context, skip-auth and helpers to the effective provider in complete and partial inventories", () => {
+    const groups = [
+      { provider: "bedrock", keys: ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE", "CLAUDE_CODE_SKIP_BEDROCK_AUTH"], helpers: ["awsCredentialExport", "awsAuthRefresh"] },
+      { provider: "foundry", keys: ["ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN", "ANTHROPIC_FOUNDRY_RESOURCE", "CLAUDE_CODE_SKIP_FOUNDRY_AUTH"], helpers: [] },
+      { provider: "anthropic_aws", keys: ["ANTHROPIC_AWS_API_KEY", "ANTHROPIC_AWS_WORKSPACE_ID", "CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH"], helpers: ["awsCredentialExport"] },
+      { provider: "vertex", keys: ["ANTHROPIC_VERTEX_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GOOGLE_CLOUD_QUOTA_PROJECT", "CLOUD_ML_REGION", "CLAUDE_CODE_SKIP_VERTEX_AUTH"], helpers: ["gcpAuthRefresh"] },
+      { provider: "anthropic_google_cloud", keys: ["ANTHROPIC_GOOGLE_CLOUD_PROJECT", "ANTHROPIC_GOOGLE_CLOUD_LOCATION", "ANTHROPIC_GOOGLE_CLOUD_WORKSPACE_ID", "CLAUDE_CODE_SKIP_ANTHROPIC_GOOGLE_CLOUD_AUTH"], helpers: ["gcpAuthRefresh"] },
+      { provider: "mantle", keys: ["AWS_PROFILE", "CLAUDE_CODE_SKIP_MANTLE_AUTH"], helpers: ["awsAuthRefresh"] },
+    ];
+    for (const complete of [true, false]) for (const group of groups) {
+      for (const key of group.keys) {
+        const base = { ANTHROPIC_API_KEY: "synthetic-direct-key" };
+        const extra = { ...base, [key]: "private-context-canary" };
+        expect(run(extra, auth, complete).identity).toEqual(run(base, auth, complete).identity);
+        const selected = { ...auth, apiProvider: group.provider };
+        expect(run(extra, selected, complete).identity).not.toEqual(run(base, selected, complete).identity);
+        const other = { ...auth, apiProvider: group.provider === "foundry" ? "bedrock" : "foundry" };
+        expect(run(extra, other, complete).identity).toEqual(run(base, other, complete).identity);
+        // Incomplete inventories retain conflicting inherited and settings evidence.
+        const env = { ...base, [key]: "inherited-canary" }; const reading = read(env, complete);
+        reading.inventory.env[key] = "settings-canary"; reading.inventory.sources[key] = `project settings · ${key}`;
+        const inspect = classify({ cwd: "/repo", env, read: reading, auth: selected, at });
+        expect(JSON.stringify(inspect.identity)).toContain(complete ? "inherited-canary" : "settings-canary");
+        if (!complete) expect(inspect.identity).toHaveProperty(`inherited.${key}`, "inherited-canary");
+        expect(JSON.stringify(inspect.summary)).not.toContain("canary");
+      }
+      for (const key of group.helpers) {
+        const env = { ANTHROPIC_API_KEY: "synthetic-direct-key" }; const reading = read(env, complete);
+        reading.inventory.helpers[key] = { value: "private-helper-canary", source: `project settings · ${key}` };
+        const inspect = (provider: string) => classify({ cwd: "/repo", env, read: reading, auth: { ...auth, apiProvider: provider }, at });
+        expect(inspect("firstParty").identity).toEqual(run(env, auth, complete).identity);
+        expect(JSON.stringify(inspect(group.provider).identity)).toContain("private-helper-canary");
+        expect(inspect(group.provider).summary.sources).toContain(`project settings · ${key}`);
+        expect(JSON.stringify(inspect(group.provider).summary)).not.toContain("private-helper-canary");
+      }
+    }
+  });
   it("preserves neutral-route account and organization-only identity without fabricating an API payer", () => {
     expect(run({}, auth, false).summary).toMatchObject({ route: "settings", email: auth.email, orgId: auth.orgId });
     expect(run({}, { ...auth, email: undefined } as unknown as typeof auth).summary).toMatchObject({ route: "subscription", orgId: auth.orgId });
     const metered = run({ ANTHROPIC_BASE_URL: "https://gateway.test" }).summary;
     expect(metered.email).toBeUndefined(); expect(metered.orgId).toBeUndefined();
+  });
+  it("retains inherited provider candidates when partial settings clear or replace their selectors", () => {
+    for (const apiProvider of [undefined, "configured", "firstParty"]) for (const override of ["0", "false"]) {
+      const env = { CLAUDE_CODE_USE_BEDROCK: "1", AWS_PROFILE: "payer-a" };
+      const reading = read(env, false);
+      reading.inventory.env = { CLAUDE_CODE_USE_BEDROCK: override, CLAUDE_CODE_USE_VERTEX: "1" };
+      reading.inventory.helpers.awsAuthRefresh = { value: "selected-helper-a", source: "project settings · awsAuthRefresh" };
+      const ready = { authMethod: auth.authMethod, email: auth.email, orgId: auth.orgId, ...(apiProvider ? { apiProvider } : {}) };
+      const inspect = () => classify({ cwd: "/repo", env, read: reading, auth: ready, at });
+      const base = structuredClone(inspect());
+      expect(base.summary).toMatchObject({ route: "metered", sources: expect.arrayContaining(["Kiln environment · CLAUDE_CODE_USE_BEDROCK", "project settings · awsAuthRefresh"]) });
+      expect(base.summary.provider).toBeUndefined();
+      expect(base.identity).toHaveProperty("env.AWS_PROFILE", "payer-a");
+      expect(base.identity).toHaveProperty("inherited.AWS_PROFILE", "payer-a");
+      env.AWS_PROFILE = "payer-b"; expect(inspect().identity).not.toEqual(base.identity);
+      env.AWS_PROFILE = "payer-a"; reading.inventory.helpers.awsAuthRefresh.value = "selected-helper-b";
+      expect(inspect().identity).not.toEqual(base.identity);
+    }
+  });
+  it("retains observable context for an unnamed configured provider without recognizing unrelated selector names", () => {
+    expect(run({ CLAUDE_CODE_USE_UNRELATED: "1" }, auth, false).summary).toEqual(run({}, auth, false).summary);
+    for (const complete of [true, false]) {
+      const env = { AWS_PROFILE: "payer-a", ANTHROPIC_FOUNDRY_RESOURCE: "resource-a" }; const reading = read(env, complete);
+      reading.inventory.helpers.gcpAuthRefresh = { value: "helper-a", source: "project settings · gcpAuthRefresh" };
+      const inspect = () => classify({ cwd: "/repo", env, read: reading, auth: { authMethod: "oauth_token", apiProvider: "configured" }, at });
+      const base = structuredClone(inspect()); expect(base.summary.route).toBe("metered"); expect(base.summary.provider).toBeUndefined();
+      expect(base.identity).toHaveProperty("env.AWS_PROFILE", "payer-a");
+      expect(base.identity).toHaveProperty("env.ANTHROPIC_FOUNDRY_RESOURCE", "resource-a");
+      env.AWS_PROFILE = "payer-b"; expect(inspect().identity).not.toEqual(base.identity);
+      env.AWS_PROFILE = "payer-a"; reading.inventory.helpers.gcpAuthRefresh.value = "helper-b";
+      expect(inspect().identity).not.toEqual(base.identity);
+    }
   });
   it("uses per-key source precedence, preserves literal empty overrides, and treats managed helpers as partial without executing them", () => {
     const inventory = extractInventory({ effective: { env: { ANTHROPIC_API_KEY: "", ANTHROPIC_BASE_URL: "https://proxy.test" }, policyHelper: { command: "never-execute" } }, sources: [ { source: "user", settings: { env: { ANTHROPIC_API_KEY: "canary" } } }, { source: "project", settings: { env: { ANTHROPIC_BASE_URL: "https://proxy.test" } } }, { source: "local", settings: { env: { ANTHROPIC_API_KEY: "" } } } ] });

@@ -110,17 +110,21 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
       // Not an event line.
     }
   }
-  const limits = (report as { rate_limits?: { limits?: unknown } | null } | null | undefined)?.rate_limits?.limits;
-  if (limits === undefined || limits === null) return hasPlan ? { limits: [], limitsError: NOT_REPORTED } : { limits: [] };
-  if (!Array.isArray(limits)) return { limits: [], limitsError: UNRECOGNIZED };
+  const rateLimits = (report as { rate_limits?: { limits?: unknown; extra_usage?: { is_enabled?: unknown } | null } | null } | null | undefined)?.rate_limits;
+  // SDKUsageReport permits null usage rows independently of reported overflow.
+  const extra = rateLimits?.extra_usage?.is_enabled;
+  const overflow = typeof extra === "boolean" ? { extraUsageEnabled: extra } : {};
+  const limits = rateLimits?.limits;
+  if (limits === undefined || limits === null) return { limits: [], ...overflow, ...(hasPlan ? { limitsError: NOT_REPORTED } : {}) };
+  if (!Array.isArray(limits)) return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
 
   const rows: UsageLimit[] = [];
   for (const row of limits as Record<string, unknown>[]) {
     const kind = row?.kind;
-    if (typeof kind !== "string") return { limits: [], limitsError: UNRECOGNIZED };
+    if (typeof kind !== "string") return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
     const labels = limitLabels(kind, row.scope);
     if (labels === undefined) continue;
-    if (typeof row.percent !== "number" || !Number.isFinite(row.percent)) return { limits: [], limitsError: UNRECOGNIZED };
+    if (typeof row.percent !== "number" || !Number.isFinite(row.percent)) return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
     rows.push({
       kind,
       ...labels,
@@ -129,8 +133,7 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
       nearLimit: row.percent >= NEAR_LIMIT_PERCENT,
     });
   }
-  const extra = (report as { rate_limits?: { extra_usage?: { is_enabled?: unknown } } })?.rate_limits?.extra_usage?.is_enabled;
-  return { limits: rows, ...(typeof extra === "boolean" ? { extraUsageEnabled: extra } : {}) };
+  return { limits: rows, ...overflow };
 }
 
 function limitLabels(kind: string, scope: unknown): Pick<UsageLimit, "label" | "shortLabel" | "scope"> | undefined {

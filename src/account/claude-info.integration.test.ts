@@ -103,4 +103,23 @@ describe("Claude Code's account and usage", () => {
     expect(result.limits).toMatchObject([{ kind: "session", percent: 42 }]);
   });
 
+  it("attributes reported overflow without usage meters and still rejects an account switch across that read", async () => {
+    sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, "bin"));
+    const scenario = join(sandbox.root, "scenario.json"); writeFileSync(scenario, JSON.stringify({ sessions: [] }));
+    const account = join(sandbox.root, "account.json"); const usage = join(sandbox.root, "usage.jsonl");
+    writeFileSync(account, JSON.stringify({ loggedIn: true, email: "same@example.test", orgId: "same-org", subscriptionType: "max" }));
+    // SDK 0.3.310 explicitly permits limits:null independently of extra_usage.
+    writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: null, extra_usage: { is_enabled: true } } } }));
+    const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, KILN_STANDIN_ACCOUNT: account, KILN_STANDIN_USAGE: usage };
+    const result = await readAccount({ claude, cwd: sandbox.root, env });
+    expect(result.extraUsage).toEqual({ enabled: true, observedAt: result.updatedAt, email: "same@example.test", orgId: "same-org" });
+    expect(result.limits).toEqual([]); expect(result.limitsError).toContain("didn't report"); expect(result.error).toBeUndefined();
+    const release = join(sandbox.root, "release-usage");
+    const before = readFileSync(`${scenario}.helpers.jsonl`, "utf8").split("\n").filter(line => line.includes('"usage"')).length;
+    const pending = readAccount({ claude, cwd: sandbox.root, env: { ...env, KILN_STANDIN_USAGE_WAIT: release } });
+    await waitFor(() => readFileSync(`${scenario}.helpers.jsonl`, "utf8").split("\n").filter(line => line.includes('"usage"')).length > before);
+    writeFileSync(account, JSON.stringify({ loggedIn: true, email: "other@example.test", orgId: "other-org", subscriptionType: "max" })); writeFileSync(release, "");
+    expect((await pending).extraUsage).toBeUndefined();
+  });
+
 });

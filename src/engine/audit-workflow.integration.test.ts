@@ -155,11 +155,23 @@ describe("automatic completion activities", () => {
   });
   it("audits a closed-at-start plan through both gates before final delivery without another Start", async () => {
     const h = await fixture();
+    // AC-BILL-05 covers actual audit routing as well as implementation phases.
+    // The synthetic model process is paired with the real passive SDK/auth proof.
+    h.env.ANTHROPIC_API_KEY = "synthetic-audit-billing-canary";
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false });
+    expect(h.claudeCalls()).toHaveLength(0);
+    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
+    expect(h.claudeCalls()).toHaveLength(0);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => a.kind)).toEqual(["delivery_audit", "test_audit"]);
     expect(h.engine.record.completionAudits!.activities.every(a => a.acceptedResult && h.engine.record.phases[auditKey(a)]?.doneAt)).toBe(true);
     expect(h.claudeCalls().map(c => /^Run (Delivery audit|Test audit)/.exec(c.prompt)?.[1] ?? "Final delivery")).toEqual(["Delivery audit", "Test audit", "Final delivery"]);
+    for (const key of [...h.engine.record.completionAudits!.activities.map(auditKey), "pr"]) {
+      expect(h.engine.latestSession(key)!.runs[0]!.billing).toMatchObject({ route: "metered", approved: true });
+    }
+    expect(h.engine.record.billing!.approval).toBeUndefined(); // Completion cannot carry the grant to another execution.
     const snapshot = buildSnapshot(h.engine);
     expect(snapshot.feature.phasesTotal).toBe(1); expect(snapshot.feature.phasesDone).toBe(1);
     expect(snapshot.activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Test audit", "Final pull request"]);

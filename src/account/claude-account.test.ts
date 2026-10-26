@@ -65,6 +65,16 @@ describe("the usage limits (headless /usage)", () => {
     expect(parseUsage(usageWith([]), true)).toEqual({ limits: [] });
   });
 
+  it("reads boolean overflow independently of absent usage rows in SDKUsageReport", () => {
+    for (const limits of [null, undefined, []]) for (const enabled of [true, false, undefined, "true"]) {
+      const stdout = JSON.stringify({ usage_report: { rate_limits: { limits, extra_usage: { is_enabled: enabled } } } });
+      const reading = parseUsage(stdout, true);
+      expect(reading.limits).toEqual([]);
+      expect(reading.extraUsageEnabled).toBe(typeof enabled === "boolean" ? enabled : undefined);
+      expect(reading.limitsError).toBe(limits === null || limits === undefined ? "Claude Code didn't report this plan's usage limits." : undefined);
+    }
+  });
+
   it("says Claude Code didn't report a plan's limits when the report or its limits are missing, and nothing without a plan", () => {
     const missing = "Claude Code didn't report this plan's usage limits.";
     expect(parseUsage('{"type":"result"}\n', true)).toEqual({ limits: [], limitsError: missing });

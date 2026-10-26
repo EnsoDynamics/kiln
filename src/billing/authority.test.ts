@@ -58,6 +58,27 @@ describe("execution-scoped billing approval", () => {
 // not notice accidentally omitting a helper/source/payer from the canonical identity.
 import { classify, type InventoryRead } from "./inspection.js";
 import { emptyInventory } from "./contract.js";
+it("keeps approval across unrelated provider changes but revokes it for selected credentials, helpers and sources", async () => {
+  let selected = "firstParty"; let env: Record<string, string> = { ANTHROPIC_API_KEY: "same-key" };
+  let helpers: InventoryRead["inventory"]["helpers"] = {}; let source = "user";
+  const state = newBillingState("execution");
+  const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version: "2.1.307", sdkVersion: "0.3.310", projected: env, inventory: { ...emptyInventory(""), complete: true, diagnostics: [], env, sources: { ANTHROPIC_API_KEY: `${source} settings · ANTHROPIC_API_KEY` }, helpers } }, auth: { authMethod: "api_key", apiProvider: selected }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
+  const approve = async () => { await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {}); };
+  await approve(); const digest = state.current!.fingerprint;
+  env = { ...env, ANTHROPIC_FOUNDRY_RESOURCE: "unrelated-resource", GOOGLE_APPLICATION_CREDENTIALS: "/unrelated/google.json", AWS_PROFILE: "unrelated-aws" };
+  helpers = { awsAuthRefresh: { value: "private-aws-helper", source: "project settings · awsAuthRefresh" }, gcpAuthRefresh: { value: "private-google-helper", source: "project settings · gcpAuthRefresh" } };
+  await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(true); expect(state.current!.fingerprint).toBe(digest);
+  selected = "bedrock"; await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(false);
+  await approve(); const bedrock = state.current!.fingerprint;
+  env.GOOGLE_APPLICATION_CREDENTIALS = "/another/google.json"; env.ANTHROPIC_FOUNDRY_RESOURCE = "another-unrelated-resource";
+  helpers.gcpAuthRefresh!.value = "another-google-helper";
+  await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(true); expect(state.current!.fingerprint).toBe(bedrock);
+  env.AWS_PROFILE = "changed-selected-profile"; await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(false);
+  await approve(); helpers.awsAuthRefresh!.value = "changed-selected-helper";
+  await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(false);
+  await approve(); source = "project";
+  await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(false);
+});
 it.each(["source", "helper", "provider", "payer", "cliVersion", "sdkVersion", "launchProfile"])("invalidates extracted %s context and never restores its old grant", async kind => {
   const make = (which: "A" | "B") => {
     const env: Record<string, string> = { ANTHROPIC_API_KEY: "same-synthetic-credential" };

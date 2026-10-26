@@ -20,6 +20,9 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(h.claudeCalls()).toHaveLength(0); expect(h.engine.record.startedAt).toBeUndefined();
     await h.engine.billingCommand("approval", approval(h)); expect(h.claudeCalls()).toHaveLength(0);
     const approved = h.engine.record.billing!.approval;
+    h.env.ANTHROPIC_FOUNDRY_RESOURCE = "inactive-foundry";
+    h.env.ANTHROPIC_VERTEX_PROJECT_ID = "inactive-vertex";
+    h.env.AWS_PROFILE = "inactive-aws-profile";
     h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
     expect(h.engine.record.billing!.approval).toEqual(approved); expect(h.engine.billing.view.canLaunch).toBe(true);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
@@ -81,6 +84,8 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false }); expect(h.claudeCalls()).toHaveLength(0);
     await h.engine.billingCommand("approval", approval(h)); const digest = h.engine.record.billing!.current!.fingerprint;
     h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive.example.test"; await ready();
+    expect(h.engine.billing.view.next!.approved).toBe(true); expect(h.engine.record.billing!.current!.fingerprint).toBe(digest);
+    h.env.GOOGLE_APPLICATION_CREDENTIALS = "/unrelated/google.json"; h.env.ANTHROPIC_FOUNDRY_RESOURCE = "unrelated-foundry"; await ready();
     expect(h.engine.billing.view.next!.approved).toBe(true); expect(h.engine.record.billing!.current!.fingerprint).toBe(digest);
     h.env.ANTHROPIC_BEDROCK_BASE_URL = "https://gateway-two.example.test"; await ready();
     expect(h.engine.billing.view.next!.approved).toBe(false); expect(h.engine.record.billing!.current!.fingerprint).not.toBe(digest);

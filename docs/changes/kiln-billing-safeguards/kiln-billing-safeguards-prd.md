@@ -1,6 +1,6 @@
 # PRD: Kiln billing safeguards
 
-**Status:** Phases 1–3 closed on 2026-10-26. The fresh whole-PRD delivery audit found three remaining behaviors missing across AC-BILL-02, AC-BILL-03, AC-BILL-05 and AC-RUN-02; [completion Phase 4](phase-4-complete-billing-continuity-and-controls.md) is next. Repeat delivery audit after its repairs, then run test audit once delivery is clean. Evidence and proof limits are recorded in the [phase plan](kiln-billing-safeguards-phase-plan.md) and each phase document. Business assumptions remain pending as marked in their document.
+**Status:** Phases 1–4 closed on 2026-10-26. A fresh whole-PRD delivery audit across all four phases is next; run test audit only after a current clean delivery result. Phase 4’s [implementation evidence](phase-4-complete-billing-continuity-and-controls.md#implementation-evidence) records its repairs, verification, isolated recheck of one existing timer-sensitive test failure, and unchanged proof limits. Earlier evidence remains in the [phase plan](kiln-billing-safeguards-phase-plan.md) and phase documents. Business assumptions remain pending as marked in their document.
 
 **Source:** Doug's public npm launch review, mockup feedback, and approval to add Codex billing visibility while retaining its authentication restrictions, 2026-10-25. [Claude mockups](mockups/kiln-billing-safeguards-mockups.html) · [Codex mockups](mockups/kiln-codex-billing-mockups.html) · [Business assumptions](kiln-billing-safeguards-assumptions.md)
 
