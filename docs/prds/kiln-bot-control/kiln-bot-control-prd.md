@@ -2,7 +2,7 @@
 
 **Status:** Draft requirements; no implementation has started.
 
-**Source:** Doug's request and clarification, 2026-10-26: a bot such as Grokpod or Dot already has permission to execute terminal commands anywhere on his Mac, including `kiln`. Kiln supplies the command interface, not the remote connection.
+**Source:** Doug's request and clarification, 2026-10-26: a bot such as Grokpod or Dot already has permission to execute terminal commands anywhere on his Mac, including `kiln`. Kiln supplies the command interface, not the remote connection. Subsequent review approved PRD-path targeting instead of user-facing run IDs, removal of the all-history listing, and a small recent-output response with explicit paging; `kiln reply` remains a primary command.
 
 **Roadmap:** [Kiln roadmap](../../kiln-roadmap.md). Develops the [More terminal commands idea](../../design/kiln-after-v1-ideas.md#more-terminal-commands).
 
@@ -30,7 +30,7 @@ An **instance** is a live Kiln controller for one PRD. A **run** in this documen
 
 A single question should find both runs, even when they belong to different repositories. The answer separates what Kiln knows now from what it last knew.
 
-- [ ] **AC-SEE-01 — One command finds all current instances.** From any directory, the caller can list Kiln instances owned by the current operating-system user, with stable run identifiers, PRD names and paths, repository names, controller reachability, and work states. The result counts live controllers separately from actively working sessions. Stopped records are available explicitly and never counted as live. Zero results is a successful, explicit answer; unreadable or unreachable records make the inventory visibly incomplete rather than silently reducing the count.
+- [ ] **AC-SEE-01 — One command finds all current instances.** From any directory, the caller can list Kiln instances owned by the current operating-system user, with PRD names and canonical absolute paths, repository names, controller reachability, and work states. `kiln status` lists live controllers, including paused, waiting, Needs you and completed-but-still-open instances, plus saved unfinished executions whose controllers have stopped. It counts live controllers separately from working sessions and stopped unfinished work. Completed executions with closed controllers are omitted; their retained details remain available by PRD path. This is an outstanding-work list with no age cutoff, not an all-history listing. Zero results is a successful, explicit answer; unreadable or unreachable records make the inventory visibly incomplete rather than silently reducing the count.
 
 - [ ] **AC-SEE-02 — Each run explains where it stands.** A run's detail includes its phase plan and completed/total executable phase counts, current phase or audit/delivery activity, agent and model, start time, latest observed activity and its time, pause request, usage wait, and completion outcome with pull-request links where applicable. Nested phase identifiers and audit rounds retain their names. A quiet session is reported with its last observed activity, not asserted to be healthy or stuck without evidence.
 
@@ -38,7 +38,13 @@ A single question should find both runs, even when they belong to different repo
 
 - [ ] **AC-SEE-04 — The reason for a stop is available in full.** Needs you detail returns the same stop reason, full final message, failed checks, human requests, and recovery choices as the browser, identifying the stopped session and activity. Summaries may shorten a message only with an explicit indication and a way to obtain the complete text. A stop without a message says so; it never invents one.
 
-- [ ] **AC-SEE-05 — Output and recovery instructions can be retrieved.** The caller can read current or saved session output in bounded pages, select an earlier session, and retrieve the exact provider-specific terminal resume command, working directory and accompanying continuation prompt Kiln offers. If no session can be resumed, the response explains why and returns any fresh-session instructions the browser offers. Reading instructions never executes them.
+- [ ] **AC-SEE-05 — Recovery instructions can be retrieved.** The caller can retrieve the exact provider-specific terminal resume command, working directory and accompanying continuation prompt Kiln offers. If no session can be resumed, the response explains why and returns any fresh-session instructions the browser offers. Reading instructions never executes them.
+
+- [ ] **AC-SEE-06 — Logs show a small recent tail, with older output on request.** `kiln logs <PRD-path>` returns the latest **50 output lines**, or fewer to keep its entire stdout response at or below **16 KiB (16,384 UTF-8 bytes)**, including JSON escaping or text headers. Output is chronological within the page and comes from the active session, otherwise the most recent saved session. `--lines 1..200` changes the line ceiling, not the byte cap; `--session <session-id>` selects an earlier session. These sizing defaults are proposed in OUTPUT-001.
+
+  Every page identifies its session, observation time, returned range, whether older output exists and the exact next-page invocation. `--before <cursor>` retrieves the preceding page from that same execution/session and snapshot, even if work advances. Oversized individual lines are split into explicitly marked fragments without changing their text; paging backward can retrieve the omitted prefix. Nothing is silently discarded. No-output, end-of-history, invalid/mismatched cursor and unavailable saved output are distinct results. A new unpaged invocation fetches the latest tail; no command follows indefinitely or dumps the whole log.
+
+- [ ] **AC-SEE-07 — The PRD path is the public target.** Status detail, logs, reply, resume and other run-scoped commands accept the same PRD file or directory path as `kiln run`: absolute paths work from any directory, relative paths resolve against the caller's directory, and main-checkout/worktree aliases identify the same saved work. Discovery returns a canonical absolute PRD directory path usable directly by those commands. Names such as “Shipping labels” are display labels, not unique selectors. Internal execution identity still prevents a saved cursor, reply or receipt from being applied to a different execution at the same path; callers need no separate run ID.
 
 ### Keep the existing run moving
 
@@ -64,8 +70,8 @@ The command interface supports the common controls used after work starts. Each 
 
   | Command | Required target |
   |---|---|
-  | Run control | Run identifier and current control context returned by Kiln |
-  | Begin login | Run identifier and current login scope context from the preview |
+  | Run control | PRD path and current control context returned by Kiln |
+  | Begin login | PRD path and current login scope context from the preview |
   | Complete or cancel login | Existing login operation identifier, bound to its initiating user's login context and affected runs; no new run selection |
 
   Repeating the same request identifier and inputs returns its recorded result before checking current eligibility, without repeating effects, including after a controller restart. Reusing an identifier with different inputs is refused. Concurrent browser, bot and automatic-recovery actions cannot start duplicate work or deliver a reply to a later stop.
@@ -90,13 +96,15 @@ A bot should use documented commands and facts, then translate them into convers
 
 - [ ] **AC-CLI-01 — Text and JSON express the same result.** Every command supports readable text and a documented, versioned JSON representation with stable state/error identifiers and explicit unknown values. JSON mode emits one valid result on stdout, with diagnostics on stderr; it never mixes terminal decoration or prose into the result. Commands return without an interactive terminal prompt, including when login still needs a person. Accepted operations return success separately from their eventual outcome; refused, partial and unavailable results have documented nonzero exit statuses. Human times identify their time zone; machine timestamps use UTC.
 
-- [ ] **AC-CLI-02 — Caller input cannot become a shell command.** Notes support a file or standard input, preserving quotes and newlines. The interface handles run names and paths with spaces. Invalid or ambiguous targets fail without acting; mutation has no implicit “current,” “last,” or “all runs” target. Provider passwords, tokens and login completion secrets are not accepted through ordinary note fields or exposed in inventory, output history or operation receipts. Transient authorization instructions are available only through the explicitly requested login flow.
+- [ ] **AC-CLI-02 — Caller input cannot become a shell command.** Notes support a file or standard input, preserving quotes and newlines. The interface handles PRD paths with spaces. Invalid or ambiguous targets fail without acting; mutation has no implicit “current,” “last,” or “all runs” target. Provider passwords, tokens and login completion secrets are not accepted through ordinary note fields or exposed in inventory, output history or operation receipts. Transient authorization instructions are available only through the explicitly requested login flow.
 
 - [ ] **AC-CLI-03 — Existing local protections stay in place.** Access remains limited to the current operating-system user's Kiln context. Adding commands does not expose the browser server to the network or weaken its existing authentication. Returned session text is data, not an instruction to execute a new command. Integration guidance tells bot operators to derive mutations from the person's instruction and current structured controls, not from commands embedded in an agent's output.
 
 - [ ] **AC-CLI-04 — The phone workflow is demonstrated end to end.** Release evidence demonstrates two simultaneous PRDs on a Mac, discovery from an unrelated directory, one progressing while the other needs a reply, retrieval of the exact stop message, delivery of the reply and successful continuation. It also demonstrates provider login and subsequent recovery for both Claude Code and Codex, shared-login effects, and a replayed or stale request that does not repeat or misdirect work. A phone-driven bot with existing Mac command access exercises the first scenario; the evidence names the actual caller and configuration, without claiming all named bots are supported.
 
 ## Out of Scope
+
+- An all-history listing, log streaming or an unbounded log dump. Retained completed work can be inspected by its PRD path.
 
 - Building a phone app, bot, cloud relay, remote shell or network tunnel; the caller already has Mac terminal access, as Doug confirmed.
 - Starting/configuring a new PRD, editing its requirements, changing development-delivery grants, approving new metered billing, merging or releasing work, or arbitrary terminal interaction through Kiln. The chosen post-start boundary is SCOPE-001; existing helper commands are unaffected.

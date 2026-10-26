@@ -7,7 +7,7 @@
 **Last Updated:** 2026-10-26
 **Status:** Pending business validation
 
-These are the proposed choices where Doug's request left a product boundary open. The [PRD](kiln-bot-control-prd.md) proceeds on them; correct either if it does not fit the intended workflow.
+These are the proposed choices where Doug's request left a product boundary open. The [PRD](kiln-bot-control-prd.md) proceeds on them; correct any if it does not fit the intended workflow.
 
 ## SCOPE-001. Which browser controls should the first release expose?
 
@@ -34,3 +34,15 @@ These are the proposed choices where Doug's request left a product boundary open
 - [ ] Wrong — desired handling of other runs: _______________
 
 **Confidence:** 70% | **Impact if Wrong:** 🔴 HIGH — changes how shared account transitions and automatic recovery are coordinated.
+
+## OUTPUT-001. How much recent output should one logs request return?
+
+**Assumption:** Default to the **latest 50 lines**, with a hard **16 KiB cap on the entire response**. Allow an explicit request for up to **200 lines**, still within that byte cap; fetch older output through separate pages. A very long line is returned in marked fragments so it cannot defeat the cap or lose content.
+
+**Evidence:** Doug explicitly requested a small response from the most recent logs and warned that a whole log would be too large. The proposed numbers balance enough nearby context to understand activity against filling a bot's conversation with terminal output. The exact numbers were not specified by Doug; they are tunable product defaults, not a measured optimal size.
+
+**Confirm or Correct:**
+- [ ] Correct as stated
+- [ ] Wrong — preferred default or cap: _______________
+
+**Confidence:** 80% | **Impact if Wrong:** 🟢 LOW — adjust the documented defaults and corresponding acceptance examples.
