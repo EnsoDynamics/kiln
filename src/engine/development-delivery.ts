@@ -7,7 +7,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { runHelper } from "../platform/helper-process.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.js";
-import { emptyDevelopmentLedger, normalizeTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
+import { emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
@@ -29,13 +29,13 @@ export function deliveryEnabled(record: PrdRecord): boolean { return record.deve
 export function validateStartTargets(record: PrdRecord, repositories: { github: string; baseBranch: string }[]): void {
   const settings = record.settings.developmentDeployments;
   if (!settings?.enabled) return;
-  need(settings.targets.length > 0, "Select at least one confirmed non-production development target.", 422);
+  need(settings.targets.length > 0, "Select at least one repository branch for early merges.", 422);
   const seen = new Set<string>();
   for (const candidate of settings.targets) {
-    const target = normalizeTarget(candidate.target);
-    need(candidate.confirmedNonProduction === true && candidate.confirmedTarget && targetKey(normalizeTarget(candidate.confirmedTarget)) === targetKey(target), "Confirm the exact development target as non-production after changing it.", 422);
+    const target = normalizeMergeTarget(candidate.target);
+    if (target.environment !== undefined) need(candidate.confirmedNonProduction === true && candidate.confirmedTarget && authorizationTargetKey(normalizeMergeTarget(candidate.confirmedTarget)) === authorizationTargetKey(target), "Reselect the repository branch to replace this unconfirmed legacy target.", 422);
     need(repositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && repo.baseBranch === target.baseBranch), `The development target ${target.repository} / ${target.baseBranch} no longer matches a participating repository.`, 422);
-    need(!seen.has(targetKey(target)), "Duplicate development target.", 422); seen.add(targetKey(target));
+    need(!seen.has(authorizationTargetKey(target)), "Duplicate development target.", 422); seen.add(authorizationTargetKey(target));
   }
 }
 function mechanical(text: string): string { return text.replace(/^\*\*Closed:\*\*[^\n]*\n?/gm, "").replace(/^(\s*- )\[[ xX]\](\s+)/gm, "$1[ ]$2"); }
@@ -53,7 +53,7 @@ function repository(context: DeliveryContext, checkpoint: DeliveryCheckpoint): R
   need(entry, `Missing assigned repository for ${checkpoint.target.repository} / ${checkpoint.target.baseBranch}.`); return entry;
 }
 function granted(context: DeliveryContext, checkpoint: DeliveryCheckpoint): void {
-  need(deliveryEnabled(context.record) && context.record.developmentAuthorization!.grants.some(grant => targetKey(grant.target) === targetKey(checkpoint.target)), `Authorize this development target: ${checkpoint.target.repository} / ${checkpoint.target.baseBranch} / ${checkpoint.target.environment}.`);
+  need(deliveryEnabled(context.record) && context.record.developmentAuthorization!.grants.some(grant => permitsTarget(grant.target, checkpoint.target)), `Authorize early merges into ${checkpoint.target.repository} / ${checkpoint.target.baseBranch}.`);
 }
 async function git(context: DeliveryContext, repo: RepositoryEntry, args: string[]): Promise<string> {
   const answer = await runGit(context.git, repo.worktreePath, args);

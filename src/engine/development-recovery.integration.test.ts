@@ -37,7 +37,7 @@ it("resumes only description repair after every source change is delivered, then
   await engine.settled();
   const calls = f.h.claudeCalls();
   expect(calls.at(-1)!.args).toContain(session.sessionId);
-  expect(calls.at(-1)!.prompt).toContain("saved development-delivery authority");
+  expect(calls.at(-1)!.prompt).toContain("saved early-merge authority");
   expect(calls.at(-1)!.prompt).toContain("Carry on finalizing delivery");
   expect(calls.at(-1)!.prompt).not.toContain("Carry on opening");
   expect(engine.record.completedAt).toBeUndefined();

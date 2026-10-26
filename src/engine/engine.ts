@@ -12,7 +12,7 @@ import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, 
 import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
 import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
-import { normalizeTarget, targetKey, type DevelopmentTarget } from "../state/development-delivery.js";
+import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
 import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
@@ -835,14 +835,14 @@ export class Engine {
         // The displayed exact saved identities are accepted only by this explicit choice.
         if (!this.record.settings.developmentDeployments?.useSavedTargetsForThisPrd) {
           candidate.enabled = preference.enabled;
-          candidate.targets = preference.targets.filter(target => this.plannedRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === baseFor(repo, this.record.settings, this.workspaceFixed))).map(target => ({ target, confirmedTarget: target, confirmedNonProduction: true }));
+          candidate.targets = preference.targets.filter(target => this.plannedRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === baseFor(repo, this.record.settings, this.workspaceFixed))).map(target => target.environment === undefined ? { target } : { target, confirmedTarget: target, confirmedNonProduction: true });
         }
       }
       if (candidate.rememberForPrdRepository) {
         if (candidate.preferenceRevision !== preference.revision) return refuse("Saved targets changed; reload Documents found before saving.");
         try {
           validateStartTargets({ ...this.record, settings: { ...this.record.settings, developmentDeployments: candidate } }, this.plannedRepositories.map(repo => ({ github: repo.github, baseBranch: baseFor(repo, this.record.settings, this.workspaceFixed) })));
-          const savedPreference = saveDevelopmentPreference(preferencePath(this.stateDirectory), { ...preference, enabled: candidate.enabled, targets: candidate.enabled ? candidate.targets.map(one => normalizeTarget(one.target)) : [] }, candidate.preferenceRevision);
+          const savedPreference = saveDevelopmentPreference(preferencePath(this.stateDirectory), { ...preference, enabled: candidate.enabled, targets: candidate.enabled ? candidate.targets.map(one => normalizeMergeTarget(one.target)) : [] }, candidate.preferenceRevision);
           candidate.preferenceRevision = savedPreference.revision;
         } catch (error) { return { ok: false, status: error instanceof DeliveryRefusal ? error.status : 409, reason: (error as Error).message }; }
       }
@@ -912,16 +912,16 @@ export class Engine {
 
   /** A grant is a separate human action, never a settings change or Resume side effect. */
   authorizeDevelopmentTarget(body: Record<string, unknown>): CommandResult {
-    if (!body || typeof body.executionId !== "string" || !Number.isSafeInteger(body.authorizationRevision) || body.confirmedNonProduction !== true) return { ok: false, status: 400, reason: "Submit executionId, authorizationRevision and explicit non-production confirmation." };
-    let target: DevelopmentTarget;
-    try { target = normalizeTarget(body.target); } catch (error) { return { ok: false, status: 400, reason: (error as Error).message }; }
+    if (!body || typeof body.executionId !== "string" || !Number.isSafeInteger(body.authorizationRevision)) return { ok: false, status: 400, reason: "Submit executionId, authorizationRevision and the repository branch to authorize." };
+    let target: MergeTarget;
+    try { target = normalizeMergeTarget(body.target); } catch (error) { return { ok: false, status: 400, reason: (error as Error).message }; }
     const phaseKey = this.stoppedPhaseKey();
     if (!phaseKey || !this.record.startedAt || this.deliveryBusy || this.checking || this.driving || this.current || this.stopping || this.settingUp) return refuse("Authorize a development target only while Needs you is stopped and idle.");
     const authority = this.record.developmentAuthorization!;
     if (body.executionId !== this.record.executionId) return refuse("Wrong execution.");
     if (!this.setUpRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === repo.baseBranch)) return { ok: false, status: 422, reason: "The target must match an assigned repository and its configured base branch." };
     // A retry after lost acknowledgement is idempotent, even with its earlier revision.
-    if (authority.grants.some(grant => targetKey(grant.target) === targetKey(target))) return { ok: true };
+    if (authority.grants.some(grant => authorizationTargetKey(grant.target) === authorizationTargetKey(target))) return { ok: true };
     if (body.authorizationRevision !== authority.revision) return refuse("Stale authorization revision; read the current targets again.");
     const before = structuredClone(authority); const beforeLedger = structuredClone(this.record.developmentDelivery);
     try {

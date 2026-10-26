@@ -5,7 +5,7 @@
      Assumption IDs are permanent. Keep one Last Updated line; remove superseded
      entry text, which version control retains. -->
 
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-26
 **Status:** One grouping assumption pending; AUTH-002 validated
 
 These are the business assumptions used in the [development-deployments PRD](kiln-development-deployments-prd.md). Work proceeds on the pending assumption unless corrected.
@@ -16,7 +16,7 @@ These are the business assumptions used in the [development-deployments PRD](kil
 
 **Since your answer:** The documents now explicitly support **a product repository holding PRDs and separate application repositories**. The remaining proposal concerns only the grouping of saved choices; sharing a PRD repository does not establish that two PRDs are the same project.
 
-**Assumption:** Use **the PRD repository as a provisional storage group** for remembered development-deployment choices, whether it holds application code or only product requirements. Show that group and its exact approved repository, branch and environment targets before Start. **Reuse is an explicit choice for the current PRD**, never automatic permission inferred from where a PRD is stored. Other PRD repositories do not inherit these choices automatically.
+**Assumption:** Use **the PRD repository as a provisional storage group** for remembered development-deployment choices, whether it holds application code or only product requirements. Show that group and its exact approved repository and branch targets before Start. **Reuse is an explicit choice for the current PRD**, never automatic permission inferred from where a PRD is stored. Other PRD repositories do not inherit these choices automatically.
 
 **Why your 2026-10-24 answer did not close this:** Your correction settles where requirements and code may live, but does not select a grouping rule for remembering permission. We read it as rejecting the claim that PRD storage necessarily defines the project. The proposed storage group is therefore still an assumption, not an approved definition of project identity.
 
@@ -39,4 +39,4 @@ The [multi-repository PRD](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-
 
 | ID | Assumption | Validated | Notes |
 |---|---|---|---|
-| AUTH-002 | At Needs you, explicitly approve a named repository, base branch and non-production environment for the current execution; retain the grant across sessions/restarts without changing future preferences | 2026-10-24 | Doug CONFIRMED review 40085e080547 in conversation 01a16e16-9587-7861-bdb7-4c50d9014c9d; permanent rules in PRD AC-PERMIT-05 and Technical Design → Execution grants |
+| AUTH-002 | Approve early merges to a named repository and configured base branch for this execution, without an environment field or non-production attestation; retain the grant across restarts without changing preferences or resuming | 2026-10-26 | Doug corrected the earlier environment-based ruling in conversation `01a17975-ea88-7082-ae74-c10be2ad7121`: “the whole thing is we’re merging to a Git branch”; PRD AC-PERMIT-02/05 and Technical Design → Execution grants |

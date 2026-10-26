@@ -41,7 +41,7 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 
 `kiln run` again, after Ctrl+C or a restart, picks the feature up wherever it stopped.
 
-By default, work stays on feature branches for review. Before Start, you can separately authorize exact development targets: Kiln may then merge and deploy to those approved development environments. Production deployments and destructive actions remain unauthorized. Review the delivery authority shown on Documents found before starting.
+By default, work stays on feature branches for review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may merge there early when a PRD criterion needs deployment or verification; the repository’s existing CI/CD controls deployment. No environment name or non-production declaration is needed. Required checks and reviews still apply, and remaining work ends in a review PR. Other branches, separate release workflows and destructive actions remain unauthorized.
 
 `kiln run` is the user entry point; the browser view provides the controls. Sessions also use helper commands for repository setup, audit evidence and delivery. `kiln --help` shows the usage.
 

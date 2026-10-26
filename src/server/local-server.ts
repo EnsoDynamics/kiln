@@ -1,5 +1,5 @@
 import { BillingError } from "../billing/authority.js";
-import { normalizeTarget, type DevelopmentSettings } from "../state/development-delivery.js";
+import { normalizeMergeTarget, type DevelopmentSettings } from "../state/development-delivery.js";
 // The local server: the compiled browser view and a small HTTP API with server-sent events,
 // on loopback only (PRD AC-VIEW-01, AC-VIEW-06, AC-MULTI-02; technical design, "The Local
 // Server", "HTTP API"). It reaches the engine only through the engine's commands and its
@@ -340,8 +340,8 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
       for (const field of ["rememberForPrdRepository", "useSavedTargetsForThisPrd"] as const) if (raw[field] !== undefined && typeof raw[field] !== "boolean") throw new Error(`${field} must be true or false.`);
       if (raw.preferenceRevision !== undefined && (!Number.isSafeInteger(raw.preferenceRevision) || raw.preferenceRevision < 0)) throw new Error("preferenceRevision must be a nonnegative integer.");
       change.developmentDeployments = { ...raw, enabled: raw.enabled, targets: raw.targets.map(candidate => {
-        if (!candidate || typeof candidate.confirmedNonProduction !== "boolean") throw new Error("Confirm each concrete target as non-production.");
-        return { target: normalizeTarget(candidate.target), confirmedNonProduction: candidate.confirmedNonProduction, ...(candidate.confirmedTarget ? { confirmedTarget: normalizeTarget(candidate.confirmedTarget) } : {}) };
+        if (!candidate || typeof candidate !== "object") throw new Error("Select a repository branch for early merges.");
+        return { target: normalizeMergeTarget(candidate.target), ...(candidate.confirmedNonProduction !== undefined ? { confirmedNonProduction: candidate.confirmedNonProduction } : {}), ...(candidate.confirmedTarget ? { confirmedTarget: normalizeMergeTarget(candidate.confirmedTarget) } : {}) };
       }) };
     } catch (error) { return (error as Error).message; }
   }
