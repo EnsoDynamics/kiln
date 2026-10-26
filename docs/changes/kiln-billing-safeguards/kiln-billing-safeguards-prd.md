@@ -1,6 +1,6 @@
 # PRD: Kiln billing safeguards
 
-**Status:** Phase 1 (Claude billing safeguards) implemented and closed on 2026-10-26; Phase 2 (Codex billing visibility) remains planned. Business assumptions remain pending as marked in their document.
+**Status:** Phases 1 (Claude billing safeguards) and 2 (Codex billing visibility) closed on 2026-10-26. The whole-PRD delivery audit found gaps in AC-BILL-01–02; completion Phase 3 is planned in the [phase plan](kiln-billing-safeguards-phase-plan.md). Business assumptions remain pending as marked in their document.
 
 **Source:** Doug's public npm launch review, mockup feedback, and approval to add Codex billing visibility while retaining its authentication restrictions, 2026-10-25. [Claude mockups](mockups/kiln-billing-safeguards-mockups.html) · [Codex mockups](mockups/kiln-codex-billing-mockups.html) · [Business assumptions](kiln-billing-safeguards-assumptions.md)
 
