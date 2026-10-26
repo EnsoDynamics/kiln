@@ -111,6 +111,40 @@ describe("Claude billing browser controls", () => {
     expect(await page.evaluate(`${panel}.querySelectorAll('input,button').length`)).toBe(0);
     await h.engine.stop("sigint");
   });
+  it("shows neutral account and organization-only subscription identity at desktop and narrow widths without treating inactive endpoints as overrides", async () => {
+    h = await createHarness({ sessions: [] });
+    const account = join(h.sandbox.root, "identity-account.json"); h.env.KILN_STANDIN_ACCOUNT = account;
+    const writeAccount = (email?: string) => writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", orgId: "reliable-org", ...(email ? { email } : {}) }));
+    writeAccount("neutral@example.test"); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    const page = await open();
+    for (const width of [1280, 360]) {
+      const current = width === 1280 ? page : await chrome!.open(server!.address, { width });
+      await current.waitFor(`${panel}.textContent.includes('neutral@example.test')`);
+      expect(await current.evaluate(`${panel}.innerText`)).toContain("Claude Code settings");
+      expect(await current.evaluate(`${panel}.innerText`)).toContain("Organization: reliable-org");
+      expect(await current.evaluate(`${panel}.classList.contains('held')`)).toBe(false);
+      writeFileSync(`/tmp/kiln-billing-neutral-identity-${width}.png`, await current.screenshot());
+    }
+    h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.AWS_ENDPOINT_URL = "https://unrelated-aws.example.test"; h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive.example.test";
+    writeAccount(); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await page.waitFor(`${panel}.textContent.includes('Claude subscription') && !${panel}.textContent.includes('neutral@example.test')`);
+    expect(await page.evaluate(`${panel}.querySelector('.billing-title').nextElementSibling.textContent`)).toBe("Account identity unavailable");
+    expect(await page.evaluate(`${panel}.innerText`)).toContain("Organization: reliable-org");
+    expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull(); expect(h.engine.billing.view.canLaunch).toBe(true);
+    for (const width of [1280, 360]) {
+      const current = width === 1280 ? page : await chrome!.open(server!.address, { width });
+      await current.waitFor(`${panel}.textContent.includes('Organization: reliable-org')`);
+      expect(await current.evaluate(`${panel}.scrollWidth <= ${panel}.clientWidth`)).toBe(true);
+      writeFileSync(`/tmp/kiln-billing-org-identity-${width}.png`, await current.screenshot());
+    }
+    // A direct override remains actionable, with no subscription identity substituted for its payer.
+    h.env.ANTHROPIC_BASE_URL = "https://direct.example.test"; await h.engine.refreshBilling();
+    await page.waitFor(`${panel}.textContent.includes('API payer identity unavailable')`);
+    expect(await page.evaluate(`${panel}.innerText`)).not.toContain("reliable-org");
+    expect(await page.evaluate(`${panel}.querySelector('input').checked`)).toBe(false);
+    expect(h.engine.billing.view.canLaunch).toBe(false); expect(h.claudeCalls()).toHaveLength(0); expect(page.problems).toEqual([]);
+  });
   it("renders a post-setup billing hold at Needs you, keeps local checks available and requires an explicit continuation after approval", async () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); await h.engine.refreshBilling();
     const page = await open(360); await waitFor(() => h!.engine.baseCheck === "ok");

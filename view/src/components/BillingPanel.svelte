@@ -29,7 +29,8 @@
 
 {#snippet summary(s: BillingSummary)}
   <strong class="billing-title">{title(s)}</strong>
-  {#if s.agentId === "codex" || s.route === "subscription"}<span class="identity">{s.email ?? "Account identity unavailable"}</span>{:else if s.route === "metered"}<span class="identity">API payer identity unavailable</span>{/if}
+  {#if s.agentId === "codex" || s.route === "subscription"}<span class="identity">{s.email ?? "Account identity unavailable"}</span>{:else if s.route === "metered"}<span class="identity">API payer identity unavailable</span>{:else if s.email}<span class="identity">{s.email}</span>{/if}
+  {#if s.agentId === "claude_code" && s.route !== "metered" && s.orgId}<span class="identity">Organization: {s.orgId}</span>{/if}
   {#if s.agentId === "codex"}
     <p class="source">Plan: {s.plan ?? "Plan unavailable"}</p>
     <p>Billing follows your ChatGPT account settings.</p>

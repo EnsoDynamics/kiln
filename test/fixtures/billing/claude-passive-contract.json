@@ -1,5 +1,5 @@
 {
-  "contract": "claude-2.1.307-sdk-0.3.310-v1",
+  "contract": "claude-2.1.307-sdk-0.3.310-v2",
   "cliVersion": "2.1.307",
   "sdkVersion": "0.3.310",
   "qualification": "Synthetic project-only credential projected into installed auth status, without inference; real resolver cascade and untouched customization canaries.",

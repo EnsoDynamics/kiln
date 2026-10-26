@@ -56,6 +56,36 @@ describe("Claude billing at the common dispatch boundary", () => {
     await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toContain("--resume"); expect(h.engine.latestSession("1")!.sessionId).toBe(session.sessionId); expect(h.engine.latestSession("1")!.runs[1]!.billing?.approved).toBe(true);
   });
+  it("starts and resumes subscription work without approval when only inactive provider endpoints are present", async () => {
+    h = await createHarness({ sessions: [{ actions: [{ result: "Saved work." }] }, landingSession()] });
+    h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.AWS_ENDPOINT_URL = "https://unrelated-aws.example.test";
+    h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive-vertex.example.test";
+    await ready(); expect(h.engine.billing.view.next).toMatchObject({ route: "subscription", sources: [] });
+    expect(h.engine.billing.view.canLaunch).toBe(true);
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
+    const first = h.engine.latestSession("1")!;
+    expect(first.runs[0]!.billing).toMatchObject({ route: "subscription", approved: false });
+    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    expect(h.engine.billing.view.canLaunch).toBe(true);
+    expect(await h.engine.resume()).toEqual({ ok: true }); await h.engine.settled();
+    expect(h.claudeCalls()[1]!.args).toContain("--resume");
+    expect(h.engine.latestSession("1")!.sessionId).toBe(first.sessionId);
+    expect(h.engine.latestSession("1")!.runs[1]!.billing).toMatchObject({ route: "subscription", approved: false });
+    expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.engine.record.billing!.hold).toBeUndefined();
+  });
+  it("requires approval for a selected provider endpoint and invalidates it when that endpoint changes", async () => {
+    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.CLAUDE_CODE_USE_BEDROCK = "1"; h.env.ANTHROPIC_BEDROCK_BASE_URL = "https://gateway-one.example.test";
+    await ready(); expect(h.engine.billing.view.next).toMatchObject({ route: "metered", sources: expect.arrayContaining(["Kiln environment · ANTHROPIC_BEDROCK_BASE_URL"]) });
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false }); expect(h.claudeCalls()).toHaveLength(0);
+    await h.engine.billingCommand("approval", approval(h)); const digest = h.engine.record.billing!.current!.fingerprint;
+    h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive.example.test"; await ready();
+    expect(h.engine.billing.view.next!.approved).toBe(true); expect(h.engine.record.billing!.current!.fingerprint).toBe(digest);
+    h.env.ANTHROPIC_BEDROCK_BASE_URL = "https://gateway-two.example.test"; await ready();
+    expect(h.engine.billing.view.next!.approved).toBe(false); expect(h.engine.record.billing!.current!.fingerprint).not.toBe(digest);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false }); expect(h.claudeCalls()).toHaveLength(0);
+  });
   it("serializes approval against Start/clear and prevents stale credential replacement from inheriting a click", async () => {
     h = await createHarness({ sessions: [] }); h.env.ANTHROPIC_API_KEY = "A"; await ready();
     const old = approval(h); h.env.ANTHROPIC_API_KEY = "B";

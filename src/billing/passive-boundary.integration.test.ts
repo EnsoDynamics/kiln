@@ -56,6 +56,31 @@ describe("qualified passive settings boundary", () => {
     const unknown = await readInventory({ executable: process.execPath, cwd: project, env: { ...env, ANTHROPIC_API_KEY: "inherited-canary" } });
     expect(unknown.inventory.diagnostics).toContain("inventory_contract_unqualified"); expect(unknown.projected.ANTHROPIC_API_KEY).toBe("inherited-canary");
   });
+  it.skipIf(process.platform !== "darwin" || !findExecutable("claude", process.env))("keeps inactive project/local provider endpoints out of route evidence and approval identity through the real resolver", async () => {
+    sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
+    const env = { ...sandbox.env };
+    const cli = findExecutable("claude", env);
+    if (!cli) throw new Error("Installed Claude is required for provider endpoint qualification.");
+    for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
+    settings(project, { env: { AWS_ENDPOINT_URL: "https://unrelated-aws.example.test", ANTHROPIC_BEDROCK_BASE_URL: "https://inactive-bedrock.example.test", ANTHROPIC_API_KEY: "synthetic-route-canary" } });
+    writeFileSync(join(project, ".claude", "settings.local.json"), JSON.stringify({ env: { ANTHROPIC_VERTEX_BASE_URL: "https://inactive-vertex.example.test" } }));
+    const read = await readInventory({ executable: cli, cwd: project, env });
+    expect(read.inventory.complete).toBe(true);
+    expect(read.inventory.sources.ANTHROPIC_VERTEX_BASE_URL).toBe("local settings · ANTHROPIC_VERTEX_BASE_URL");
+    const auth = await readAuthStatus({ claude: cli, cwd: project, env: read.projected });
+    expect(auth).toMatchObject({ authMethod: "api_key", apiProvider: "firstParty" });
+    const result = classify({ cwd: project, env, read, auth, at: "2026-10-26T20:00:00Z" });
+    expect(result.summary).toMatchObject({ route: "metered", provider: "Anthropic API" });
+    expect(result.summary.sources).toEqual(["Claude Code · ANTHROPIC_API_KEY", "project settings · ANTHROPIC_API_KEY"]);
+    // Independent subscription readiness is scripted here; installed auth above proves
+    // these same endpoint settings do not select a cloud route. No provider inference.
+    settings(project, { env: { AWS_ENDPOINT_URL: "https://unrelated-aws.example.test", ANTHROPIC_BEDROCK_BASE_URL: "https://inactive-bedrock.example.test" } });
+    const subscriptionRead = await readInventory({ executable: cli, cwd: project, env });
+    const subscription = classify({ cwd: project, env, read: subscriptionRead, auth: { authMethod: "claude.ai", apiProvider: "firstParty", email: "fixture@example.test", orgId: "fixture-org" }, at: "2026-10-26T20:00:00Z" });
+    expect(subscription.summary).toMatchObject({ route: "subscription", sources: [], email: "fixture@example.test", orgId: "fixture-org" });
+    expect(subscription.identity).not.toHaveProperty("sourceDirectory");
+    expect(JSON.stringify(result.summary)).not.toContain("synthetic-route-canary");
+  });
   it("records the managed-policy limitation without invoking its helper", () => {
     // Generated contract evidence: real managed host unavailable; SDK 0.3.310 declarations
     // explicitly exclude policyHelper execution. This proves extraction, not native MDM.

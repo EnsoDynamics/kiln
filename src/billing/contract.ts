@@ -1,5 +1,5 @@
 // Qualified passive billing contract. Values stay inside inspection/HMAC memory.
-export const BILLING_CONTRACT = "claude-2.1.307-sdk-0.3.310-v1";
+export const BILLING_CONTRACT = "claude-2.1.307-sdk-0.3.310-v2";
 export const PROVIDERS = ["BEDROCK", "FOUNDRY", "ANTHROPIC_AWS", "ANTHROPIC_GOOGLE_CLOUD", "MANTLE", "VERTEX"] as const;
 export const BILLING_KEYS = [
   "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
