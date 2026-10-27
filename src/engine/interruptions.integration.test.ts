@@ -349,12 +349,13 @@ describe("resuming", () => {
     expect(h.claudeCalls()).toHaveLength(1);
   });
 
-  it("stops a session process a killed Kiln left running before resuming, so two processes never share a session", async () => {
+  it("holds recovered input loss without cancelling the old operation, then permits explicit hand-back (AC-TAKE-02)", async () => {
     harness = await createHarness({ sessions: [], engineOptions: { stopWaitMs: 1_500 } });
     const h = harness;
     const working = flagIn(h, "working");
     const orphanWorking = flagIn(h, "orphan-working");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), workingSession(orphanWorking), landingSession()] }));
+    const orphanRelease = flagIn(h, "orphan-release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [workingSession(working), { actions: [{ touch: orphanWorking }, { waitForFile: orphanRelease }, { result: "Operation finished naturally." }] }, landingSession()] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     await h.engine.stop("sigint");
@@ -376,9 +377,16 @@ describe("resuming", () => {
 
     const engine = h.reopenFromDisk();
     await engine.prepare();
-    expect((await engine.decide()).kind).toBe("resume");
-    expect(await isProcessLive(orphan.pid!, startTime)).toBe(false);
-    await engine.continue();
+    expect((await engine.decide()).kind).toBe("needs_you");
+    expect(await isProcessLive(orphan.pid!, startTime)).toBe(true);
+    await engine.continue(); expect(h.claudeCalls()).toHaveLength(2);
+    // Lost input never grants permission to terminate an operation. Once the old
+    // attempt exits naturally, the existing manual recovery can continue it.
+    writeFileSync(orphanRelease, "finish"); orphan.stdin!.end();
+    await waitFor(async () => !await isProcessLive(orphan.pid!, startTime));
+    await waitFor(() => engine.stoppedPhaseKey() === "1");
+    expect(await engine.resume(recoveryRequest(engine))).toMatchObject({ ok: true, outcome: "resume_requested" });
+    await engine.settled();
     expect(engine.record.phases["1"]!.doneAt).toBeDefined();
   });
 });

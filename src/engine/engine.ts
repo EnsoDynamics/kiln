@@ -1,3 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
+import { sameLiveTarget, validLiveTarget, type LiveTarget, type LiveView } from "../live/target.js";
+import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from "../live/ownership.js";
+import { writeDurableMetadata } from "../control/durable-file.js";
+import { runHelper } from "../platform/helper-process.js";
+import { runGit } from "./git-reads.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
 import { CommandJournal, ACTIONS, type Receipt, type Action, type ControlView } from "../control/commands.js";
@@ -42,7 +49,7 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -169,6 +176,8 @@ export type TerminalEvent =
     }
   | { kind: "delivery"; at: Date; repository: string; environment: string; stage: string; outcome: string }
   | { kind: "message"; text: string };
+
+class TakeoverAlreadyComplete extends Error {}
 
 export type CommandResult =
   | { ok: true; noteSkipped?: true; outcome?: PhaseRecoveryOutcome; target?: PhaseRecoveryTarget }
@@ -352,6 +361,11 @@ export class Engine {
   private interruptedKey: string | undefined;
   private skipStopWait: (() => void) | undefined;
   private closed = false;
+  private takeoverTimer: NodeJS.Timeout | undefined;
+  private takeoverReading: Promise<void> | undefined;
+  private returningTakeover = false;
+  private recoveredLive = false;
+  private recoveredTimer: NodeJS.Timeout | undefined;
   /** Counts field checks, so only the latest one's result is shown. */
   private fieldCheckRun = 0;
   private fieldChecksRunning = 0;
@@ -403,6 +417,7 @@ export class Engine {
     });
     this.record.controlEpoch = this.controlEpoch;
     this.save();
+    if (this.record.liveControl) this.watchTakeover();
     this.agents.start();
     void this.refreshBilling().catch(() => this.changed());
   }
@@ -428,10 +443,11 @@ export class Engine {
 
   controlView(): ControlView {
     const key = this.stoppedPhaseKey(); const wait = this.waitingPhaseKey();
-    const target = JSON.stringify(this.phaseRecoveryTarget() ?? { execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
+    const target = JSON.stringify(this.phaseRecoveryTarget() ?? { live: this.liveTarget(), execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
     const paused = !!this.record.pause.activeSince;
     const available: Record<Action, boolean> = {
+      "take-over": !!this.liveView()?.available && !this.commands?.busy,
       reply: !!key && this.resumeOffered(key) && !busy,
       resume: !!(wait || key && this.resumeOffered(key)) && !busy,
       "verify-and-advance": !!this.phaseRecoveryTarget() && !busy,
@@ -454,6 +470,17 @@ export class Engine {
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (receipt.instruction.action === "take-over" && validLiveTarget(receipt.instruction.inputs.target)) {
+      const target = receipt.instruction.inputs.target;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === target.attemptId);
+      const held = run?.live ? readGate(run.live.gateDirectory).held : undefined;
+      const saved = this.record.liveControl?.takeover;
+      if (held?.operationId === receipt.id || saved?.operationId === receipt.id || receipt.effects.takeover === "requested") {
+        if (!saved) this.record.liveControl = { version: 1, revision: 1, takeover: { target, operationId: receipt.id, instructionId: receipt.command_id, requestedAt: held?.requestedAt ?? receipt.accepted_at, state: "pending", observedAt: this.now().toISOString(), reason: "Reconciling recovered attempt before terminal use." } };
+        return { ...receipt, state: "completed", stage: "settled", outcome: "takeover_requested", effects: { ...receipt.effects, takeover: "requested" } };
+      }
+    }
     const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
     if (!persisted || receipt.execution_id !== persisted.executionId) return undefined;
     if (Object.values(persisted.phases).some(f => f.completedByOperation === receipt.id)) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
@@ -476,6 +503,7 @@ export class Engine {
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
     switch (action) {
+      case "take-over": return this.acceptTakeover(inputs.target, receipt);
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
@@ -492,9 +520,11 @@ export class Engine {
           // Let the one accepted dispatch run; its ownership persists through asynchronous preflight.
           this.controlKickPending = false; this.kick();
           while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
+          if (receipt.outcome === "phase_already_complete") { this.controlDispatch = undefined; return { ok: true, outcome: "phase_already_complete" }; }
           if (this.controlDispatch === receipt) { this.controlDispatch = undefined; return { ok: false, code: "dispatch_not_started", reason: "The existing launch checks did not start a session. Inspect status for recovery." }; }
           if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
-          if (receipt.effects.session !== "resumed") return { ok: false, code: "dispatch_not_started", reason: "The provider did not start the recorded attempt. Inspect the current recovery state." };
+          if (receipt.outcome === "phase_already_complete") return { ok: true, outcome: "phase_already_complete" };
+          if (receipt.effects.session !== "resumed") return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The provider did not start the recorded attempt. Inspect the current recovery state." };
         } else this.controlDispatch = undefined;
         break;
     }
@@ -503,6 +533,180 @@ export class Engine {
     if (action === "settings") receipt.settings = this.runtimeControlSettings();
     this.record.controlApplied = { operationId: receipt.id, outcome, ...(receipt.settings ? { settings: receipt.settings } : {}) }; this.save();
     return { ok: true, outcome };
+  }
+
+  private legacyAttempt(session: SessionRecord, index: number): string {
+    return createHash("sha256").update(`${this.record.executionId}:${session.sessionId}:${index}`).digest("hex");
+  }
+
+  liveTarget(): LiveTarget | undefined {
+    if (this.record.liveControl) return this.record.liveControl.takeover.target;
+    const current = this.current;
+    const session = current?.session;
+    if (!current?.processRunning || !session || session.agentId !== "claude_code" || session.kind === "pull_request") return undefined;
+    const activity = activityHistory(this.record, this.stateDirectory).findLast(a => a.key === current.phaseKey);
+    if (!activity || session.executionId !== this.record.executionId) return undefined;
+    const run = session.runs.at(-1); if (!run || run.endedAt) return undefined;
+    return { executionId: this.record.executionId!, activityId: activity.activityId, activityKey: current.phaseKey, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1) };
+  }
+
+  liveView(): LiveView | undefined {
+    const target = this.liveTarget(); if (!target) return undefined;
+    const audit = this.auditActivity(target.activityKey);
+    const label = audit ? `${auditLabel(audit.kind)} · Round ${audit.round}` : `Phase ${target.activityKey}`;
+    const hold = this.record.liveControl?.takeover;
+    const run = this.latestSession(target.activityKey)?.runs.at(-1);
+    const capable = process.platform === "darwin" && (!!run?.live || this.recoveredLive);
+    return { target, label, observedAt: this.now().toISOString(), available: capable && !hold && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+  }
+
+  private async acceptTakeover(raw: unknown, receipt: Receipt) {
+    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget()) || this.record.liveControl || !this.current?.processRunning || !this.liveView()?.available) return { ok: false, code: "stale_target", reason: "This attempt ended or changed. Refresh the active session." };
+    const session = this.latestSession(raw.activityKey)!; const run = session.runs.at(-1)!;
+    const held = { operationId: receipt.id, instructionId: receipt.command_id, requestedAt: this.now().toISOString() };
+    const persist = () => {
+      receipt.live_target = raw; receipt.effects.takeover = "requested"; this.commands.checkpoint(receipt);
+      this.record.liveControl = { version: 1, revision: 1, takeover: { ...held, target: raw, state: "pending", observedAt: this.now().toISOString(), reason: "Pausing for takeover — finishing the current operation. Wait before opening Claude." } };
+      this.save();
+    };
+    if (run.live) await withGate(run.live.gateDirectory, state => {
+      if (!sameLiveTarget(state.target, raw) || !sameLiveTarget(raw, this.liveTarget()) || !this.current?.processRunning) throw new Error("Attempt ended before takeover admission.");
+      state.held = held;
+      writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), state);
+      persist();
+    });
+    else persist(); // Legacy attempts wait naturally; never signal or invent a checkpoint.
+    this.unwatchWait(); this.watchTakeover(); this.changed();
+    return { ok: true, outcome: "takeover_requested" };
+  }
+
+  private async observeRecoveredLive(): Promise<void> {
+    if (!this.recoveredLive || !this.current?.session) return;
+    const session = this.current.session; const key = this.current.phaseKey;
+    const run = session.runs.at(-1)!;
+    try { await requireExited(run); }
+    catch { this.changed(); return; }
+    // This is an observed exit, never a success or activity completion.
+    run.endedAt ??= this.now().toISOString();
+    writeSessionRecord(this.stateDirectory, session);
+    this.current = undefined; this.recoveredLive = false;
+    clearInterval(this.recoveredTimer); this.recoveredTimer = undefined;
+    this.recordStop(key, "done_check", [{ name: "Recovered conversation", passed: false, facts: ["The prior process ended after input ownership was lost. Review the saved conversation before resuming or verifying."] }]);
+    if (this.record.liveControl) await this.reconcileTakeover();
+  }
+
+  private watchTakeover(): void {
+    if (this.takeoverTimer || this.closed) return;
+    this.takeoverTimer = setInterval(() => { void this.reconcileTakeover(); }, 1000);
+    this.takeoverTimer.unref();
+  }
+
+  reconcileTakeover(): Promise<void> {
+    if (this.takeoverReading) return this.takeoverReading;
+    const reading = this.reconcileTakeoverOnce().finally(() => { if (this.takeoverReading === reading) this.takeoverReading = undefined; });
+    this.takeoverReading = reading; return reading;
+  }
+
+  private async reconcileTakeoverOnce(): Promise<void> {
+    if (!this.record.liveControl) return;
+    const hold = this.record.liveControl.takeover;
+    try {
+      const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
+      const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
+      if (!session || !run) throw new OwnershipError("ownership_unknown", "Saved takeover attempt is unavailable.");
+      const latestActivityAt = run.live ? readGate(run.live.gateDirectory).observedAt : runLastOutputAt(this.stateDirectory, session, session.runs.indexOf(run));
+      if (latestActivityAt) hold.latestActivityAt = latestActivityAt;
+      await requireExited(run);
+      if (run.live) {
+        if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
+        if (resolve(run.live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "The Claude configuration root changed; restore the attempt profile before hand-back.");
+        // Rebuild the projection after a crash between event append and gate update.
+        for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event);
+        const transcript = findTranscripts(run.live.configRoot, session.sessionId).main;
+        if (transcript) {
+          for (const row of readJsonLines<Record<string, unknown>>(transcript)) {
+            if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result });
+          }
+          const read = readTranscript(transcript);
+          if (read.problem) throw new Error(read.problem);
+          await withGate(run.live.gateDirectory, state => {
+            for (const call of read.calls) {
+              const operation = call.id ? state.operations[call.id] : undefined;
+              if (operation?.hookSettled && operation.name !== "Agent" && operation.name !== "Task" && call.result) operation.settled = true;
+            }
+          });
+        }
+        const gate = readGate(run.live.gateDirectory);
+        if (!sameLiveTarget(gate.target, hold.target) || gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
+        if (gate.obstacle) {
+          const inventory = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
+          if (inventory.failure || inventory.exitCode !== 0) throw new Error(gate.obstacle);
+          await withGate(run.live.gateDirectory, state => { delete state.obstacle; });
+        }
+        const pending = unsettled(gate);
+        if (pending.length) throw new OwnershipError("takeover_pending", `Waiting for completed-operation evidence: ${pending.join(", ")}.`);
+        for (const identity of gate.tracked) await requireExited({ pid: identity.pid, processStartTime: identity.startTime });
+      }
+      requireHistory(this.environment, hold.target.providerSessionId);
+      await requireNoTerminal(this.environment, hold.target.providerSessionId);
+      hold.state = "released"; hold.reason = "Paused for terminal takeover.";
+    } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
+    finally {
+      hold.observedAt = this.now().toISOString();
+      if (!this.current?.processRunning) {
+        const facts = this.record.phases[hold.target.activityKey]!;
+        facts.stop ??= { kind: "done_check", at: hold.requestedAt, checkedAt: hold.observedAt, checks: [] };
+      }
+      this.save(); this.changed();
+    }
+  }
+
+  /** Synchronous final guard: controller actions cannot interleave between this read and effect admission. */
+  private takeoverLocalMaterial(key: string): string {
+    const values = this.setUpRepositories.map(entry => [entry.name, ...[["status", "--porcelain=v1", "--untracked-files=all"], ["rev-parse", "HEAD"], ["branch", "--show-current"], ["diff", "HEAD", "--"]].map(args => execFileSync(this.options.tools.git, args, { cwd: expandHome(entry.worktreePath), env: this.options.env, encoding: "utf8", timeout: 5000 }))]);
+    const audit = this.auditActivity(key);
+    let report: string | undefined;
+    if (audit) { try { report = readFileSync(join(this.worktreePath, audit.reportPath), "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
+    return createHash("sha256").update(JSON.stringify([values, report])).digest("hex");
+  }
+
+  private async takeoverBecameComplete(key: string): Promise<boolean> {
+    if (!this.record.liveControl) return false;
+    const outcome = await this.doneCheck(key);
+    if (outcome === "stopping" || outcome.unavailable) throw new CompletionCheckUnavailable("Could not recheck activity completion before dispatch.");
+    if (!outcome.passed) return false;
+    const facts = this.record.phases[key]!;
+    facts.stop ??= { kind: "done_check", at: this.record.liveControl.takeover.requestedAt, checkedAt: this.now().toISOString(), checks: [] };
+    this.updateStop(key, outcome.checks);
+    if (this.controlDispatch) { this.controlDispatch.outcome = "phase_already_complete"; this.controlDispatch.effects.session = "not_started"; this.record.controlApplied = { operationId: this.controlDispatch.id, outcome: "phase_already_complete" }; }
+    this.returningTakeover = false; this.checking = false; this.save();
+    return true;
+  }
+
+  private async takeoverMaterial(key: string): Promise<string> {
+    const repositories = [];
+    for (const entry of this.setUpRepositories) {
+      const read = await runGit(this.git, expandHome(entry.worktreePath), ["status", "--porcelain=v1", "--untracked-files=all"], 5000);
+      const head = await runGit(this.git, expandHome(entry.worktreePath), ["rev-parse", "HEAD"], 5000);
+      const branch = await runGit(this.git, expandHome(entry.worktreePath), ["branch", "--show-current"], 5000);
+      const diff = await runGit(this.git, expandHome(entry.worktreePath), ["diff", "HEAD", "--"], 5000);
+      const remote = await runGit(this.git, expandHome(entry.worktreePath), ["ls-remote", "--heads", "origin", `refs/heads/${this.record.settings.featureBranch}`], 5000);
+      if ([read, head, branch, diff, remote].some(r => r.exitCode !== 0 || r.failure)) throw new CompletionCheckUnavailable("Cannot revalidate completion material.");
+      repositories.push([entry.name, read.stdout, head.stdout, branch.stdout, diff.stdout, remote.stdout]);
+    }
+    const audit = this.auditActivity(key);
+    let report: string | undefined;
+    if (audit) { try { report = readFileSync(join(this.worktreePath, audit.reportPath), "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
+    return createHash("sha256").update(JSON.stringify({ repositories, report, authorization: this.record.developmentAuthorization, settings: this.record.settings, confirmations: this.record.phases[key]?.outsideConfirmations })).digest("hex");
+  }
+
+  private async requireTakeoverReturn(): Promise<void> {
+    const hold = this.record.liveControl?.takeover;
+    if (!hold) return;
+    await this.reconcileTakeover();
+    if (hold.state !== "released") throw new OwnershipError("takeover_pending", hold.reason);
+    requireHistory(this.environment, hold.target.providerSessionId);
+    await requireNoTerminal(this.environment, hold.target.providerSessionId);
   }
 
   get savedDevelopmentTargets(): DevelopmentPreference | undefined {
@@ -811,13 +1015,13 @@ export class Engine {
 
   phaseRecoveryTarget(): PhaseRecoveryTarget | undefined {
     const phaseKey = this.stoppedPhaseKey();
-    if (!phaseKey || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey)) return undefined;
+    if (!phaseKey || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey) && !this.record.liveControl) return undefined;
     const facts = this.record.phases[phaseKey];
     const hold = this.record.billing?.hold?.phaseKey === phaseKey ? this.record.billing.hold : undefined;
     if (!hold && facts?.stop?.kind !== "done_check" && facts?.stop?.kind !== "not_resumable") return undefined;
     const session = this.latestSession(phaseKey);
-    if (!session || session.kind !== "phase" || !session.runs.some(run => run.pid !== undefined)) return undefined;
-    return { executionId: this.record.executionId!, phaseKey, sessionId: session.sessionId, stoppedAt: hold?.at ?? facts!.stop!.at };
+    if (!session || session.kind !== "phase" && !this.record.liveControl || !session?.runs.some(run => run.pid !== undefined)) return undefined;
+    return { executionId: this.record.executionId!, phaseKey, sessionId: session.sessionId, stoppedAt: hold?.at ?? facts!.stop!.at, ...(this.record.liveControl ? { live: this.record.liveControl.takeover.target } : {}) };
   }
 
   phaseRecoveryView(): PhaseRecoveryView | undefined {
@@ -848,7 +1052,9 @@ export class Engine {
     let queued = false;
     try {
       const latest = this.latestSession(key)!;
+      if (this.record.liveControl) await this.requireTakeoverReturn();
       if (latest.agentId === "codex") await this.stopLiveProcess(latest);
+      const evaluatedMaterial = this.record.liveControl ? await this.takeoverMaterial(key) : undefined;
       const outcome = await this.doneCheck(key);
       if (outcome === "stopping" || this.stopping) throw new CompletionCheckUnavailable("The completion check was interrupted. No work was started.");
       if (outcome.unavailable) throw new CompletionCheckUnavailable(outcome.unavailable);
@@ -864,7 +1070,9 @@ export class Engine {
         // No completion state is observable before its atomic write succeeds.
         const before = structuredClone(this.record);
         try {
-          await this.recordDone(key, outcome, true, true);
+          if (this.record.liveControl) await this.requireTakeoverReturn();
+          await this.recordDone(key, outcome, true, true, evaluatedMaterial);
+          if (this.record.liveControl) { delete this.record.liveControl; this.save(); }
         } catch (error) {
           Object.assign(this.record, before);
           throw error;
@@ -873,6 +1081,7 @@ export class Engine {
       }
       if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
       if (!this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
+      this.returningTakeover = !!this.record.liveControl;
       this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note ? { note } : {}) };
       queued = true;
       return { ok: true, outcome: "resume_requested", target: target! };
@@ -957,6 +1166,7 @@ export class Engine {
    * AC-OUTSIDE-01). It reads only the record and the transcripts, so a restarted Kiln offers it the same way.
    */
   resumeOffered(phaseKey: string): boolean {
+    if (this.record.liveControl && this.record.liveControl.takeover.state !== "released") return false;
     const kind = this.record.phases[phaseKey]?.stop?.kind;
     if (kind !== "done_check" && kind !== "pull_request_check" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.latestSession(phaseKey);
@@ -1453,6 +1663,8 @@ export class Engine {
   /** Releases keep-awake and stops reading sleep; for when Kiln exits. */
   close(): void {
     this.closed = true;
+    if (this.takeoverTimer) clearInterval(this.takeoverTimer);
+    if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();
     this.offUsage?.();
     this.agents.close();
@@ -1551,6 +1763,24 @@ export class Engine {
   }
 
   private async decideQuietly(): Promise<UnderwayDecision> {
+    if (this.record.liveControl) {
+      await this.reconcileTakeover();
+      return { kind: "needs_you", phaseKey: this.record.liveControl.takeover.target.activityKey, again: true };
+    }
+    const previous = this.latestSessionOverall();
+    const previousRun = previous?.session.runs.at(-1);
+    if (previous && previousRun && !previousRun.endedAt && previous.session.agentId === "claude_code" && previous.session.kind !== "pull_request") {
+      let released = false;
+      try { await requireExited(previousRun); released = true; } catch { /* Live or ambiguous input ownership must wait safely. */ }
+      if (!released) {
+      this.current = { phaseKey: previous.phaseKey, session: previous.session, processRunning: true, commits: [] };
+      this.recoveredLive = true;
+      this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
+      this.recoveredTimer.unref();
+      await this.observeRecoveredLive();
+      return { kind: "needs_you", phaseKey: previous.phaseKey, again: true };
+      }
+    }
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
     if (deliveryEnabled(record) && record.completedAt) {
@@ -1670,6 +1900,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
+      if (this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
@@ -1859,10 +2090,16 @@ export class Engine {
           checks.push(...result.checks);
         } else {
           const accepted = acceptedAudit(this.stateDirectory, activity)!;
-          const current = await auditCurrentness(context, activity);
-          checks.push({ name: "Audit result recorded", passed: true, facts: [current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent) ? `Accepted ${activity.reportPath}: ${accepted.report.outcome}.` : "Checked audit work changed; recover the assigned result before continuing."] });
+          checks.push({ name: "Audit result recorded", passed: true, facts: [`Accepted ${activity.reportPath}: ${accepted.report.outcome}.`] });
+          try {
+            const current = await auditCurrentness(context, activity);
+            checks.push({ name: "Audit evidence is current", passed: current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent), facts: [current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent) ? "Assigned audit evidence matches current work." : "Checked audit work changed; recover the assigned result before continuing."] });
+          } catch (error) {
+            if (!(error instanceof AuditRefusal) || error.code !== "stale_snapshot") throw new CompletionCheckUnavailable((error as Error).message);
+            checks.push({ name: "Audit evidence is current", passed: false, facts: [error.message] });
+          }
         }
-      } catch (error) { checks.push({ name: "Audit result recorded", passed: false, facts: [(error as Error).message] }); }
+      } catch (error) { if (error instanceof CompletionCheckUnavailable) throw error; checks.push({ name: "Audit result recorded", passed: false, facts: [(error as Error).message] }); }
       checks.push(...await repositoryChecks(context), ...(stayed.passed ? [] : [stayed.check]));
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       this.save();
@@ -1969,7 +2206,10 @@ export class Engine {
   private async resumeSession(phaseKey: string, request?: ResumeRequest): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
-    await this.stopLiveProcess(session);
+    if (this.record.liveControl) {
+      try { await this.requireTakeoverReturn(); }
+      catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
+    } else await this.stopLiveProcess(session);
     if (this.stopping) return;
     if (session.agentId === "codex") {
       await this.readCodexAvailability(session);
@@ -2083,6 +2323,7 @@ export class Engine {
         return;
       }
     }
+    if (this.record.liveControl && this.returningTakeover && await this.takeoverBecameComplete(phaseKey)) return;
     if (this.commands.blocked || this.stopping || session.agentId !== "codex" && started?.() === false) return;
     if (!this.controlDispatch) this.controlDispatch = this.commands.beginAutomatic(`${this.record.executionId}:${phaseKey}:${session.sessionId}:${session.runs.length}`);
     const dispatchedControl = this.controlDispatch;
@@ -2090,6 +2331,24 @@ export class Engine {
       dispatchedControl.stage = "dispatching"; dispatchedControl.session_id = session.sessionId; dispatchedControl.phase_key = phaseKey; dispatchedControl.attempt_id = randomUUID();
       dispatchedControl.effects.session = "starting";
       this.commands.checkpoint(dispatchedControl);
+    }
+    let live: SessionRun["live"];
+    if (session.agentId !== "codex" && phaseKey !== PR_PHASE_KEY && process.platform === "darwin") {
+      const version = await runHelper(this.options.tools.claude, ["--version"], { cwd, env: launchEnv, timeoutMs: 5000 });
+      if (version.exitCode === 0 && /^2\.1\.311(?:\s|$)/.test(version.stdout)) {
+        const attemptId = dispatchedControl!.attempt_id!;
+        const activity = activityHistory(this.record, this.stateDirectory).findLast(a => a.key === phaseKey)!;
+        const target: LiveTarget = { executionId: this.record.executionId!, activityId: activity.activityId, activityKey: phaseKey, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId };
+        const directory = gateDirectory(this.stateDirectory, attemptId);
+        createGate(directory, target);
+        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin" };
+        const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
+        args = [...args, "--settings", JSON.stringify({ hooks })];
+      }
+    }
+    if (this.record.liveControl) {
+      try { await this.requireTakeoverReturn(); }
+      catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
     }
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
@@ -2114,6 +2373,8 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
+      ...(live ? { live } : {}),
+      ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => { const local = this.takeoverLocalMaterial(phaseKey); if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); await requireNoTerminal(launchEnv, session.sessionId, identity); if (local !== this.takeoverLocalMaterial(phaseKey)) { if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back."); } } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
       exitGraceMs: this.options.exitGraceMs ?? (process.platform === "win32" ? WINDOWS_EXIT_GRACE_MS : 0),
@@ -2137,11 +2398,16 @@ export class Engine {
       onRecordChange: () => { this.observeControlDispatch(session); this.changed(); },
     });
     } catch (error) {
+      if (error instanceof TakeoverAlreadyComplete) { this.controlDispatch = undefined; }
+      else if (error instanceof OwnershipError && session.runs.at(-1)?.control?.submitted !== true && dispatchedControl) {
+        dispatchedControl.effects.session = "not_started"; dispatchedControl.outcome = error.code; dispatchedControl.reason = error.message;
+      } else {
       if (!dispatchedControl) throw error;
       dispatchFailed = true;
       dispatchedControl.effects.session = "unknown";
       if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = "unknown";
       dispatchedControl.reason = "The correlated provider attempt could not be durably recorded. Inspect its receipt before continuing.";
+      }
     }
     if (!dispatchFailed) this.observeControlDispatch(session);
     if (this.controlDispatch === dispatchedControl && dispatchedControl) {
@@ -2163,6 +2429,7 @@ export class Engine {
     if (!receipt) return;
     const run = session.runs.find(r => r.control?.operationId === receipt.id);
     if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
+    if (this.returningTakeover && this.record.liveControl) { delete this.record.liveControl; this.returningTakeover = false; this.save(); }
     receipt.effects.session = "resumed";
     if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
     this.commands.checkpoint(receipt);
@@ -2266,6 +2533,11 @@ export class Engine {
    */
   private async settleSession(phaseKey: string): Promise<Verdict> {
     for (;;) {
+      if (this.record.liveControl) {
+        this.current = undefined;
+        await this.reconcileTakeover(); this.watchTakeover(); this.changed();
+        return { kind: "stopped" };
+      }
       if (this.commands.blocked) return { kind: "stopped" };
       if (this.stopping) return { kind: "stopping" };
       if (this.record.billing?.hold?.phaseKey === phaseKey) return { kind: "stopped" };
@@ -2348,6 +2620,7 @@ export class Engine {
         return { kind: "stopped" };
       }
       const outcome = await this.doneCheck(phaseKey);
+      if (this.record.liveControl) { await this.reconcileTakeover(); return { kind: "stopped" }; }
       if (outcome === "stopping" || this.stopping) return { kind: "stopping" };
       if (outcome.passed) {
         await this.recordDone(phaseKey, outcome, byPerson);
@@ -2622,8 +2895,16 @@ export class Engine {
     }
   }
 
-  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false): Promise<void> {
+  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false, takeoverMaterial?: string): Promise<void> {
+    if (this.record.liveControl && !acceptManual) throw new CompletionCheckUnavailable("Takeover holds completion until explicit hand-back.");
     const facts = this.record.phases[phaseKey]!;
+    const finalTakeoverCheck = async () => {
+      if (!this.record.liveControl || !acceptManual) return;
+      if (takeoverMaterial === undefined || takeoverMaterial !== await this.takeoverMaterial(phaseKey)) throw new CompletionCheckUnavailable("Completion evidence changed during hand-back. Retry Verify for fresh results.");
+      const local = this.takeoverLocalMaterial(phaseKey);
+      await this.requireTakeoverReturn();
+      if (local !== this.takeoverLocalMaterial(phaseKey)) throw new CompletionCheckUnavailable("Local completion evidence changed during final ownership admission. Retry Verify.");
+    };
     const clearManualStop = () => {
       if (!acceptManual) return;
       delete facts.stop;
@@ -2648,6 +2929,7 @@ export class Engine {
           const count = await firstParentCount(this.git, expandHome(entry.worktreePath), repository.startCommit, head);
           if (count !== undefined) repository.commitCount = count;
         }
+        await finalTakeoverCheck();
         facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop;
         if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
         this.save();
@@ -2667,6 +2949,7 @@ export class Engine {
       if (repository.startCommit !== sha) pushes.push({ name: entry.name, sha });
     }
     if (this.stopping) throw new CompletionCheckUnavailable("Completion acceptance was interrupted.");
+    await finalTakeoverCheck();
     facts.repositories = repositories;
     facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;
@@ -3643,7 +3926,8 @@ export class Engine {
 
   /** The phase that holds a Needs you stop, if any. */
   stoppedPhaseKey(): string | undefined {
-    return this.record.billing?.hold?.phaseKey ?? Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
+    if (this.recoveredLive && this.current?.processRunning) return undefined;
+    return this.record.liveControl && !this.current?.processRunning ? this.record.liveControl.takeover.target.activityKey : this.record.billing?.hold?.phaseKey ?? Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
   }
 
   isPhaseDone(phaseKey: string): boolean {

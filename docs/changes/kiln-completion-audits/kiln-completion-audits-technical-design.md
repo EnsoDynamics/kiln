@@ -145,6 +145,8 @@ A checkpoint's origin owner is immutable. Retained obligation assignments map `(
 
 ## Recovery and Upgrade
 
+Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
+
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 
 Persist activity intent, session association, submitted report attempts and accepted decision before their corresponding next action. On restart acquire the existing instance lock; settle or stop any owned live provider process before checking artifacts. Check completion first, then resume only the still-unfinished activity. For Codex retain dispatch/turn reconciliation and refuse ambiguous dispatch or cleanup; a private server exit is not proof of turn completion. For Claude retain session ID, run records, transcript and resume semantics. A valid report may be accepted after interruption even if the final process result was never saved, once current checks and workspace evidence pass.
@@ -156,6 +158,8 @@ Use persisted schema 7 for audit-owned development obligations; schema 6 is the 
 Migrate existing implementation/finalization rows in recorded session order, with unstarted phase rows still in plan order. Preserve original timestamps, done facts and historical completion; do not invent session durations. Private state remains local and owner-retained with the execution; there is no new deletion command or retention policy, and removing an execution must remove its audit sidecars too; no automatic audit pruning. Portable committed reports remain with project history. Invalid schema or missing accepted evidence for a required/current gate surfaces Needs you with the exact path. No rollback by lowering a schema number.
 
 ## Progress and Detail Contract
+
+Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
 
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 

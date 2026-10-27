@@ -71,6 +71,7 @@ The command interface supports the common controls used after work starts. Each 
   Every outcome distinguishes reply delivery, session resumption and plan advancement. Competing reply/resume/verify/advance actions cannot start duplicate work. Missing conversation history exposes the existing fresh-session path instead of promising same-session resumption. See the prerequisite's AC-REPLY-01, AC-RETURN-01–03, AC-VERIFY-01–04 and AC-COMPAT-01–02.
 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
+  - Superseded in part by: AC-LIVE-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (human-facing cancellation and pending/reached pause wording; existing deferred command semantics remain, live bot commands are a later phase).
 
   | Person's intention | Observable behavior |
   |---|---|

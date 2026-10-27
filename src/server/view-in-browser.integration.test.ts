@@ -295,6 +295,14 @@ function layoutDifferences(mockup: TextBox[], view: TextBox[]): string[] {
 /** Opens the Details under a phase plan row, as a mockup draws them open. */
 const openDetails = (page: BrowserPage, phaseId: string) => page.evaluate(`document.querySelector('li[data-phase="${phaseId}"] summary').click()`);
 
+// AC-LIVE-03/04 replace only these regions. Their full layout is checked by
+// live-control-browser.integration; keep comparing every unaffected legacy element.
+const LEGACY_PAUSE_LAYOUT = `(() => {
+  document.querySelector('section[aria-labelledby="pause-h"]')?.remove();
+  [...document.querySelectorAll('p')].find(p => p.textContent.trim().endsWith('Paused before the next activity.'))?.remove();
+  return true;
+})()`;
+
 /** Each screen with the mockup it is drawn from, and lines of its copy that must read as drawn. */
 const SCREENS: {
   name: string;
@@ -368,7 +376,7 @@ const SCREENS: {
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
       "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code · Agent fixed for this PRD. Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
-      "Pause Kiln Phase 2b, Store credit, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start. Pause after this phase",
+      "When should Kiln pause? Take over this session At the next safe stopping point. Finish the current operation, then stop before starting more work.",
       "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
     ],
   },
@@ -381,7 +389,7 @@ const SCREENS: {
     addition: WITH_LIMIT_SETTING,
     copy: [
       "Customer returns Paused 2 of 5 phases done",
-      "Paused after phase 2a Next: phase 2b, Store credit Phase 2a, Card refunds, finished with its commit and push at 10:57 AM. Nothing is running. Change the model or effort first if you want; they apply to phase 2b. Start phase 2b",
+      "Paused after phase 2a Next: phase 2b, Store credit Phase 2a finished. Paused before the next activity. Phase 2a, Card refunds, finished with its commit and push at 10:57 AM. Nothing is running. Change the model or effort first if you want; they apply to phase 2b. Start phase 2b",
       "2b Store credit phase-2b-store-credit.md Next",
       "Close to the limit. Switch accounts before you start the next phase.",
       "To switch accounts, run claude auth login in another terminal, then press Start. The next phase uses whichever account is signed in.",
@@ -569,7 +577,8 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
   for (const screen of SCREENS) {
     it(`lays out ${screen.name} as drawn: each text where the mockup puts it, in its color, type and panel (AC-LOOK-01)`, async () => {
       const clock = screen.clock ?? RUNNING_NOW;
-      const mockup = await mockupLayout(screen.mockup, clock, screen.addition);
+      const changedPause = ["running", "paused"].includes(screen.name);
+      const mockup = await mockupLayout(screen.mockup, clock, changedPause ? `${screen.addition};${LEGACY_PAUSE_LAYOUT}` : screen.addition);
       const { server, page } = await openScreen(screen.snapshot(), screen.path ?? "", clock);
       try {
         await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.copy[0]!.split(" ").slice(-3).join(" "))})`);
@@ -580,6 +589,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
           await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.partial.text.trim())})`);
         }
         await page.evaluate(FONTS_LOADED);
+        if (changedPause) await page.evaluate(LEGACY_PAUSE_LAYOUT);
         const decided = mockup.map((box) => ({ ...box, text: screen.decided?.[box.text] ?? box.text }));
         expect(layoutDifferences(decided, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
       } finally {
@@ -678,7 +688,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       expect(lost).toContain(flat("Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again."));
       expect(await largestText(page)).toBe("Customer returns");
       // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
-      expect(lost).not.toContain(flat("Pause Kiln"));
+      expect(lost).not.toContain(flat("When should Kiln pause?"));
       expect(lost).not.toContain(flat("Claude account"));
       expect(lost).not.toContain(flat("Watch live"));
       expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter((b) => ["Change"].includes(b.textContent.trim())).map((b) => b.disabled)`)).toEqual([true]);
@@ -688,7 +698,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
       const back = await words(page);
       expect(back).toContain(flat("Implementing phase 2b"));
-      expect(back).toContain(flat("Pause Kiln"));
+      expect(back).toContain(flat("When should Kiln pause?"));
       expect(back).not.toContain(flat("Kiln isn’t running"));
     } finally {
       await page.close();
@@ -741,7 +751,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
     }
   });
 
-  it("keeps a live Phase detail on screen once disconnected, with its controls gone", async () => {
+  it("keeps live detail output and disables the paired pause controls on disconnect (AC-LIVE-03/04)", async () => {
     const thePort = await nextPort();
     const server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
@@ -757,7 +767,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       expect(text).toContain(flat("23 passed in 4.81s"));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
       expect(text).not.toContain(flat("Load earlier"));
-      expect(text).not.toContain(flat("Pause after this phase"));
+      expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter(b=>b.textContent.includes("Pause after this phase") || b.textContent.includes("Pause & take over")).map(b=>b.disabled)`)).toEqual([true, true]);
       expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
     } finally {
       await page.close();
@@ -1077,7 +1087,7 @@ describe("live output and the phase route", () => {
     }
   });
 
-  it("sends Pause after this phase, then Keep going, to Kiln (AC-VIEW-02, AC-VIEW-03)", async () => {
+  it("sends the deferred pause and its separately named cancellation (AC-LIVE-04)", async () => {
     const { server, page } = await openScreen(runningSnapshot());
     try {
       await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after this phase"))`);
@@ -1086,11 +1096,11 @@ describe("live output and the phase route", () => {
       const pending = runningSnapshot();
       pending.pause = { pending: true, active: false };
       server.send("snapshot", pending);
-      await page.waitFor(`document.body.innerText.includes("Keep going cancels the pause.")`);
-      expect(await words(page)).toContain(flat("Pause Kiln Kiln pauses once phase 2b, Store credit, is done, including its commit and push. Keep going cancels the pause. Keep going"));
+      await page.waitFor(`document.body.innerText.includes("Cancel end-of-phase pause")`);
+      expect(await words(page)).toContain(flat("Will pause after Phase 2b finishes. Current work continues. Cancel end-of-phase pause"));
       // The header doesn't change until the pause takes effect (UI-002).
       expect(await words(page)).toContain(flat("Implementing phase 2b"));
-      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Keep going")).click()`);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Cancel end-of-phase pause")).click()`);
       await waitUntil(() => server.commands.length === 2);
       expect(server.commands).toEqual(["POST /api/pause", "DELETE /api/pause"]);
     } finally {

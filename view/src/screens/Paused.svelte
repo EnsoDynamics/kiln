@@ -41,6 +41,7 @@
     <div class="words">
       <span class="eyebrow">{after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>
       <h2 id="now-h">{#if nextIsPr}Next: the pull request{:else if next}Next: {nextName}, {next.title}{/if}</h2>
+      <p>{after ? `${capitalized(phaseName(after.id, snapshot))} finished. Paused before the next activity.` : "Paused before the next activity."}</p>
       <p>
         {#if after?.doneAt}{capitalized(phaseName(after.id, snapshot))}, {after.title}, finished with its commit and push at {clockTime(after.doneAt, new Date(now), { afterWord: true })}.{/if}
         Nothing is running. Change the model or effort first if you want; they apply to {nextIsPr ? "the pull request" : nextName}.

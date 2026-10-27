@@ -1,3 +1,4 @@
+import { validLiveTarget, sameLiveTarget, canonicalLiveTarget } from "../live/target.js";
 /** Durable instruction journal. Only the exclusively locked controller writes this authority. */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
@@ -6,11 +7,12 @@ import { writeDurableMetadata } from "./durable-file.js";
 import { checkedPath, privateJson } from "./private-state.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation"] as const;
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over"] as const;
 export type Action = typeof ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: Action; inputs: Record<string, unknown> }
-export interface Effects { reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
+export interface Effects { takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
 export interface Receipt {
+  live_target?: import("../live/target.js").LiveTarget;
   settings?: { keep_awake: boolean; resume_after_usage_limit: boolean };
   source: "caller" | "automatic";
   version: 1; sequence: number; id: string; command_id: string; execution_id: string; digest: string; instruction: Instruction;
@@ -42,12 +44,17 @@ export function validateInstruction(raw: unknown): Instruction {
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { reply: ["message"], resume: [], "verify-and-advance": ["without_sending_reply"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed"] };
+  const allowed: Record<Action, string[]> = { reply: ["message", "live_target"], resume: ["live_target"], "verify-and-advance": ["without_sending_reply", "live_target"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed"], "take-over": ["target"] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
-  if (r.action === "reply") {
+  if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
+  if (validLiveTarget(inputs.live_target)) inputs.live_target = canonicalLiveTarget(inputs.live_target);
+  if (r.action === "take-over") {
+    if (!validLiveTarget(inputs.target)) throw new ControlFailure("invalid_input", "An exact live target is required.", 2);
+    inputs.target = canonicalLiveTarget(inputs.target);
+  } else if (r.action === "reply") {
     if (typeof inputs.message !== "string" || !inputs.message.trim() || inputs.message.includes("\0") || inputs.message.trim().length > 4000) throw new ControlFailure("invalid_input", "A nonempty literal reply of at most 4,000 characters is required.", 2);
     inputs.message = inputs.message.trim();
-  } else if (keys.some(k => typeof inputs[k] !== "boolean") || r.action === "settings" && !keys.length || r.action === "outside-confirmation" && keys.length !== 1) throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
+  } else if (keys.some(k => k !== "live_target" && typeof inputs[k] !== "boolean") || r.action === "settings" && !keys.length || r.action === "outside-confirmation" && keys.length !== 1) throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
   return { command_id: r.command_id, execution_id: r.execution_id, status_token: r.status_token, action: r.action as Action, inputs: Object.fromEntries(keys.map(k => [k, inputs[k]])) };
 }
 function receiptPath(directory: string, execution: string, id: string): string { return join(directory, "controls", hash(execution), `${hash(id)}.json`); }
@@ -170,7 +177,7 @@ export class CommandJournal {
     const view = this.host.view();
     const control = view.controls.find(c => c.name === instruction.action)!;
     const unsent = this.unsent(view.target);
-    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || instruction.status_token !== view.token ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
+    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || (instruction.action === "take-over" || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
     const at = new Date().toISOString();
     const r: Receipt = { source, version: 1, sequence: this.nextSequence(), id: randomUUID(), command_id: instruction.command_id, execution_id: instruction.execution_id, digest, instruction, target: view.target, accepted_at: at, updated_at: at,
       state: refusal ? "refused" : "accepted", outcome: refusal?.[0] ?? null, reason: refusal?.[1] ?? null, effects: { reply: instruction.action === "reply" ? "not_sent" : "not_applicable", session: "not_started", plan: "not_advanced" }, reply_text: instruction.action === "reply" ? String(instruction.inputs.message) : null, acknowledged_by: null, stage: "intent" };

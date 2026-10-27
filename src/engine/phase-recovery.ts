@@ -1,5 +1,7 @@
+import { sameLiveTarget, validLiveTarget } from "../live/target.js";
 /** Identity of one stopped implementation attempt; provider IDs never cross this boundary. */
 export interface PhaseRecoveryTarget {
+  live?: import("../live/target.js").LiveTarget;
   executionId: string;
   phaseKey: string;
   sessionId: string;
@@ -17,13 +19,13 @@ export interface PhaseRecoveryView {
 }
 
 export function sameRecoveryTarget(a: PhaseRecoveryTarget | undefined, b: PhaseRecoveryTarget | undefined): boolean {
-  return !!a && !!b && a.executionId === b.executionId && a.phaseKey === b.phaseKey && a.sessionId === b.sessionId && a.stoppedAt === b.stoppedAt;
+  return !!a && !!b && a.executionId === b.executionId && a.phaseKey === b.phaseKey && a.sessionId === b.sessionId && a.stoppedAt === b.stoppedAt && (!a.live && !b.live || sameLiveTarget(a.live, b.live));
 }
 
 export function validRecoveryTarget(value: unknown): value is PhaseRecoveryTarget {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const fields = ["executionId", "phaseKey", "sessionId", "stoppedAt"];
-  return Object.keys(value).length === fields.length && fields.every(key => typeof (value as Record<string, unknown>)[key] === "string" && (value as Record<string, string>)[key]!.trim() !== "");
+  return Object.keys(value).length === fields.length + ((value as PhaseRecoveryTarget).live ? 1 : 0) && (!(value as PhaseRecoveryTarget).live || validLiveTarget((value as PhaseRecoveryTarget).live)) && fields.every(key => typeof (value as Record<string, unknown>)[key] === "string" && (value as Record<string, string>)[key]!.trim() !== "");
 }
 
 /** A source read failed, as distinct from a completed check reporting unfinished work. */

@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Joint PRD/design refinement and [phase planning](kiln-live-session-control-phase-plan.md) complete; ready to implement Phase 1. Provider feasibility on the validated macOS profile and the shared bot instruction contract are established within the evidence limits below. Assembled controller behavior remains implementation verification. No product implementation is included.
+**Status:** Phase 1 takeover/return implemented and verified on 2026-10-27; see **Phase 1 implementation facts** and the closed phase leaf. The shared design remains authoritative for Phases 2–3, whose message accounting, uncertainty review and bot live actions are not yet implemented. The [phase plan](kiln-live-session-control-phase-plan.md) names Phase 2 next.
 
 ## Overview
 
@@ -201,6 +201,16 @@ The first message ceiling is the provider's 64-entry consumption-UUID list, boun
 
 Deliver each capability's provider/engine/storage/API/browser changes together in the existing package after its proof gates pass. The [implementation plan](kiln-live-session-control-phase-plan.md) orders safe takeover/return, then live messaging/recovery, then bot integration through its existing framework. The phase documents scope that work without splitting this design. Earlier-design back-pointers are added only when implementation makes these replacements true.
 
+## Phase 1 implementation facts (2026-10-27)
+
+The takeover slice uses private schema **11**, the existing `CommandJournal` and an exact `LiveTarget` across browser, engine and recovery. `src/live/gate.ts` is the per-attempt admission authority; the packaged `checkpoint-hook` denies new operations under the same durable hold lock and yields completed batches. Lock recovery requires a proven dead PID/start identity; unknown owners and unresolved admissions remain blocking. `owned-processes.ts` retains real descendant identities, while `ownership.ts` checks attempt exit, transcript availability, registry and pending ordinary `--resume` processes. No takeover path signals the provider or its tools.
+
+New attempts advertise safe takeover only on Claude Code **2.1.311/macOS**, independently of future literal-message support. Recovered attempts with lost input wait for natural exit, including older attempts without this gate. Saved stream events and conversation history reconstruct torn tool/task projections before release. Observation errors retain the hold and can clear only through successful fresh observation; a shared reconciliation promise lets action callers await an in-flight observation.
+
+Manual return extends existing phase recovery with live identity, preserving assigned delivery/test audit rounds and their real report/currentness/delivery checks. Verify captures completion material, repeats terminal ownership admission, then checks local material synchronously before acceptance. Resume repeats completion and ownership checks after preflight and immediately before the first input; a newly complete activity sends nothing and retains an explicit advance choice. The hold clears only after durable successful hand-back evidence. Separately requested end-of-activity pause remains independent.
+
+The Phase 1 leaf and investigation record assembled proof. Message accounting, review receipts and bot live actions remain owned by Phases 2 and 3; the design sections describing those capabilities are requirements for subsequent work.
+
 ## Evidence and Verification Gates
 
 Design probes used Claude Code **2.1.311**, Sonnet 5.5 and local macOS disposable directories. The [investigation](kiln-live-session-control-investigation.md#technical-design-feasibility-probes) records exact observed behavior, negative results and retained evidence digests. Anthropic's [hook contract](https://code.claude.com/docs/en/hooks#posttoolbatch) and installed Agent SDK 0.3.310 types support the chosen boundary; actual CLI behavior remains the release proof. macOS is the repository's natively validated platform; Linux/Windows remain best effort under the README, not implicitly certified by these probes. On any runtime where safety cannot be established, controls explain unavailability and preserve the hold.
@@ -213,7 +223,7 @@ Design probes used Claude Code **2.1.311**, Sonnet 5.5 and local macOS disposabl
 | Durable engine and Git — AC-MSG-03/05, AC-TAKE-01/04, AC-BACK-02–04 | Disposable real Git repositories/origins: phase, delivery audit and test audit takeover/return; accepted hold versus completion/delivery/usage/restart; write-failure replay; changed reports/currentness/requirements, legitimate audit continuation/repair, dirty work Resume, missing history and stale targets. Actual assembled engine proof belongs to implementation; no prototype claims this exists. |
 | HTTP and bot — AC-LIVE-02, AC-BOT-01/02 | Real server plus built CLI: auth/target/limit errors, two-client races, non-UUID command IDs and same-ID retry after restart/execution replacement; exact text file/stdin equality; uncertainty/acknowledgement/explicit return; capabilities absent on old controller; no duplicate instruction framework. |
 | Browser — AC-LIVE-01–04, AC-MSG-01/02/05, AC-BACK-01/03 | Built Svelte view at desktop/narrow widths: every mockup state, correct output/composer/paired-pause order, identity, historical exclusion, pending/disconnected disables, draft retention, separate cancellation, uncertain receipts, explicit complete choice, point-in-time check/error facts. |
-| Compatibility | Real existing full verification before implementation commit: ordinary phase/audit recovery, Codex/final delivery, account/billing, workspace, deferred pause, audit invalidation and development obligations. No product suite is claimed for this document-only stage. |
+| Compatibility | Real existing full verification before implementation commit: ordinary phase/audit recovery, Codex/final delivery, account/billing, workspace, deferred pause, audit invalidation and development obligations. Phase 1 passed the full existing verification suite; later phases rerun the same compatibility gate for their changes. |
 
 ## Acceptance Criteria Coverage
 

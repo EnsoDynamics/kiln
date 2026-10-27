@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(10);
+    expect(SCHEMA_VERSION).toBe(11);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -107,7 +107,7 @@ describe("a record without Stayed in the workspace's confirmations (multi-repo A
 it("validates durable control fields without inventing prior effects", () => {
   const old = migrateRecord(schemaOne({})); old.schemaVersion = 9;
   const current = migrateRecord(structuredClone(old));
-  expect(current.schemaVersion).toBe(10); expect(current.controlApplied).toBeUndefined();
+  expect(current.schemaVersion).toBe(11); expect(current.controlApplied).toBeUndefined();
   expect(current.controlRevision).toBeUndefined();
   expect(() => migrateRecord({ ...current, controlRevision: -1 })).toThrow(/control metadata/);
   expect(() => migrateRecord({ ...current, controlFingerprint: "truncated" })).toThrow(/control metadata/);

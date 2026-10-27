@@ -1,3 +1,4 @@
+import { validLiveTarget, sameLiveTarget, canonicalLiveTarget } from "../live/target.js";
 import { randomUUID } from "node:crypto";
 import { type Action, type Receipt } from "../control/commands.js";
 import { sameRecoveryTarget, validRecoveryTarget } from "../engine/phase-recovery.js";
@@ -218,9 +219,41 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ lines: earlier.slice(-limit), total: lines.length });
   });
 
+  app.post("/api/live/take-over", async c => {
+    const body = await liveBody(c);
+    if (!body || Object.keys(body).sort().join() !== "instructionId,target" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target)) return c.json({ ok: false, code: "invalid_request", reason: "Supply instructionId and the exact live target.", observedAt: new Date().toISOString(), remedy: "Refresh the current session." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: body.instructionId, execution_id: body.target.executionId, status_token: JSON.stringify(canonicalLiveTarget(body.target)), action: "take-over", inputs: { target: body.target } });
+      if (!answer.ok) return c.json({ ok: false, code: answer.errors[0]?.code, reason: answer.errors[0]?.message }, 409);
+      await engine.commands.settled();
+      const receipt = engine.commands.lookup(body.instructionId).operation as Receipt;
+      if (receipt.state !== "completed") return c.json({ ok: false, code: receipt.outcome ?? "state_unavailable", reason: receipt.reason, receipt }, receipt.state === "failed" ? 409 : 503);
+      return c.json({ ok: true, receipt, takeover: engine.liveView()?.takeover }, 202);
+    } catch { return c.json({ ok: false, code: "state_unavailable", reason: "Takeover admission could not be durably established. Inspect this instruction before retrying." }, 503); }
+  });
+  app.get("/api/live/instructions/:instructionId", c => {
+    try { return c.json({ ok: true, receipt: engine.commands.lookup(c.req.param("instructionId")).operation }); }
+    catch { return c.json({ ok: false, code: "receipt_not_found", reason: "No instruction with that ID belongs to this saved PRD." }, 404); }
+  });
+  app.post("/api/live/reconcile", async c => {
+    const body = await liveBody(c); const hold = engine.record.liveControl?.takeover;
+    if (!body || Object.keys(body).sort().join() !== "instructionId,target" || !validLiveTarget(body.target) || typeof body.instructionId !== "string") return c.json({ ok: false, code: "invalid_request", reason: "Supply the held instruction and target." }, 400);
+    if (!hold || hold.instructionId !== body.instructionId || !sameLiveTarget(hold.target, body.target)) return c.json({ ok: false, code: "stale_target", reason: "This takeover no longer owns the current activity." }, 409);
+    await engine.reconcileTakeover();
+    return c.json({ ok: true, takeover: engine.liveView()?.takeover });
+  });
+
   const legacyControl = async (c: Context, action: Action, inputs: Record<string, unknown> = {}, body?: Record<string, unknown>) => {
     const target = engine.phaseRecoveryTarget();
-    const id = c.req.header("X-Kiln-Command-Id") ?? randomUUID();
+    const id = typeof body?.instructionId === "string" ? body.instructionId : c.req.header("X-Kiln-Command-Id") ?? randomUUID();
+    const liveTarget = validLiveTarget(body?.target) ? body.target : undefined;
+    if (liveTarget) {
+      if (!engine.commands.has(id) && !sameLiveTarget(target?.live, liveTarget)) return c.json({ ok: false, code: "stale_target", reason: "This hand-back belongs to another attempt." }, 409);
+      inputs = { ...inputs, live_target: liveTarget };
+      const { instructionId: _id, ...fields } = body!;
+      void _id;
+      body = { ...fields, target: target ?? { executionId: liveTarget.executionId, phaseKey: liveTarget.activityKey, sessionId: liveTarget.sessionId, stoppedAt: "previous", live: liveTarget } };
+    }
     if (body?.note !== undefined && typeof body.note !== "string") return c.json({ ok: false, reason: "The note must be text." }, 400);
     if (body && (target || "target" in body || "intent" in body)) {
       const allowed = action === "verify-and-advance" ? ["target", "intent", "withoutSendingReply"] : ["target", "note"];
@@ -230,7 +263,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
     try {
       const view = engine.controlView();
-      const answer = engine.commands.submit({ command_id: id, execution_id: (c.req.header("X-Kiln-Status") ?? view.token).split(":")[0], status_token: c.req.header("X-Kiln-Status") ?? view.token, action, inputs });
+      const answer = engine.commands.submit({ command_id: id, execution_id: liveTarget?.executionId ?? (c.req.header("X-Kiln-Status") ?? view.token).split(":")[0], status_token: liveTarget ? JSON.stringify(canonicalLiveTarget(liveTarget)) : c.req.header("X-Kiln-Status") ?? view.token, action, inputs });
       if (!answer.ok) return c.json({ ok: false, ...(c.req.header("X-Kiln-Command-Id") || answer.errors[0]!.code !== "control_unavailable" ? { code: answer.errors[0]!.code } : {}), reason: answer.errors[0]!.message }, 409);
       await engine.commands.settled();
       const saved = engine.commands.lookup(id); const op = saved.operation as Receipt;
@@ -448,4 +481,17 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/** Live mutations are small, deadline-bound and never hold HTTP open for a tool. */
+async function liveBody(c: Context): Promise<Record<string, unknown> | undefined> {
+  const reader = c.req.raw.body?.getReader(); if (!reader) return undefined;
+  const chunks: Uint8Array[] = []; let length = 0;
+  const timeout = setTimeout(() => { void reader.cancel(); }, 5000);
+  try {
+    for (;;) { const next = await reader.read(); if (next.done) break; length += next.value.length; if (length > 65536) { await reader.cancel(); return undefined; } chunks.push(next.value); }
+    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  } catch { return undefined; }
+  finally { clearTimeout(timeout); reader.releaseLock(); }
 }

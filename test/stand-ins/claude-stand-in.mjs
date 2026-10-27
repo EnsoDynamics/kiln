@@ -186,7 +186,9 @@ const firstLine = new Promise((resolve) => {
 const stdinEnd = new Promise((resolve) => process.stdin.on("end", resolve));
 process.on("SIGINT", () => interrupt("sigint"));
 
-const message = JSON.parse((await firstLine) || "{}");
+const inputLine = await firstLine;
+if (!inputLine) process.exit(0); // Empty-stdin pre-dispatch refusal has no model turn.
+const message = JSON.parse(inputLine);
 const prompt = message?.message?.content ?? "";
 const isAudit = /^Run (Delivery audit|Test audit) on the whole governing PRD/.test(prompt) || /Carry on with the assigned (Delivery audit|Test audit),/.test(prompt);
 const counterPath = `${scenarioPath}.${isAudit ? "audit-" : ""}count`;

@@ -166,6 +166,7 @@ The PRD ends with each changed repository ready for review or already merged int
 Four screens are drawn for this change. The others it touches follow the nearest drawing, so every screen has one governing picture.
 
 - [ ] **AC-SHOW-01 — The changed screens match their drawings.** Documents found, Needs you after work outside the workspace, Complete and the terminal match this change's mockups for layout, copy, colors and type, as v1's screens match theirs. The screens this change alters but doesn't draw follow the nearest drawing:
+  - Superseded in part by: AC-LIVE-03/04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the paired pause region and reached-pause wording; unaffected multi-repository layout remains).
   - Superseded in part by: AC-PAGE-02 in [Kiln Needs you handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (implementation-phase Needs you arrangement only).
   - Superseded in part by: AC-RUN-07 in `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md` (Claude billing visibility and launch eligibility only; existing controls remain).
   - Superseded in part by: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (added audit rows and labels retain the existing layout and style).

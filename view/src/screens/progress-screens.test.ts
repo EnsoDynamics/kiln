@@ -187,7 +187,7 @@ describe("Paused before the pull request (UI-008)", () => {
     snapshot.phases = completeSnapshot().phases.map((phase) => (phase.id === "pr" ? { id: "pr", title: "Final pull request", file: "pull request session", state: "next" as const, finishedByPerson: false } : phase));
     snapshot.feature.phasesDone = 5;
     const words = text(strip(render(Paused, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
-    expect(words).toContain("Paused 5 of 5 phases done Paused after phase 4 Next: the pull request Phase 4, Restock check-in, finished with its commit and push at 2:46 PM. Nothing is running. Change the model or effort first if you want; they apply to the pull request. Start the pull request");
+    expect(words).toContain("Paused 5 of 5 phases done Paused after phase 4 Next: the pull request Phase 4 finished. Paused before the next activity. Phase 4, Restock check-in, finished with its commit and push at 2:46 PM. Nothing is running. Change the model or effort first if you want; they apply to the pull request. Start the pull request");
     expect(words).toContain("PR Final pull request pull request session Next");
   });
 });
@@ -261,10 +261,10 @@ describe("the Complete screen (AC-PR-04)", () => {
 describe("Phase detail", () => {
   const detail = (snapshot: Snapshot) => text(strip(render(PhaseDetail, { props: { snapshot, phaseId: snapshot.current!.phaseId, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
 
-  it("says, while a pause is pending, that Kiln pauses once this phase is done and Keep going cancels it (AC-VIEW-03, UI-002)", () => {
+  it("distinguishes the pending end-of-phase pause and its cancellation (AC-LIVE-04)", () => {
     const snapshot = runningSnapshot();
     snapshot.pause = { pending: true, active: false };
-    expect(detail(snapshot)).toContain("Keep going Kiln pauses once phase 2b is done, including its commit and push. Keep going cancels the pause.");
+    expect(detail(snapshot)).toContain("Will pause after Phase 2b finishes. Current work continues. Cancel end-of-phase pause");
   });
 
   it("labels the repository and the PRD folder above the feature name (AC-LOOK-05)", () => {

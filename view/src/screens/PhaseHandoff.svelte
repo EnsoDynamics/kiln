@@ -10,6 +10,7 @@
   import { clockTime, earlier } from "../lib/time.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
+  import PausePanel from "../components/PausePanel.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import CopyButton from "../components/CopyButton.svelte";
@@ -23,10 +24,12 @@
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const recovery = $derived(stop.phaseRecovery!);
+  const activity = $derived(snapshot.liveControl?.label ?? `Phase ${stop.phaseId}`);
+  const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
-  const busy = $derived(!!page.pending || !!stop.checking || !connected);
+  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -49,7 +52,7 @@
       : await verifyPhase(config, target, action);
     state.pending = undefined;
     if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.billing?.executionId === target.executionId) {
-      connection.notice = `Phase ${stop.phaseId} verified and accepted. Kiln follows the plan and any requested pause.`;
+      connection.notice = `${activity} verified and accepted. Kiln follows the plan and any requested pause.`;
       return;
     }
     // An old response cannot put a choice or draft onto another stopped session.
@@ -61,7 +64,7 @@
       await tick(); choiceHeading?.focus();
     } else if (answer.outcome === "still_stopped") {
       state.choice = false;
-      state.feedback = `Phase ${stop.phaseId} is still unfinished. Finish it in your terminal, or resume it in Kiln.`;
+      state.feedback = `${activity} is still unfinished. Finish it in your terminal, or resume it in Kiln.`;
     } else if (answer.outcome === "resume_requested") {
       state.feedback = "Resume requested. Kiln is checking launch readiness; reply delivery is not yet confirmed.";
     }
@@ -81,7 +84,7 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
-  <h1>Phase {stop.phaseId} needs your input.</h1>
+  <h1>{snapshot.liveControl?.takeover ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
   <p>Resolve it here or in your terminal. Then choose who finishes the phase.</p>
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
@@ -115,9 +118,11 @@
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
   {/if}
-  {#if page.choice}
+  {#if snapshot.liveControl?.takeover}<PausePanel {snapshot} {connected} />{/if}
+  {#if pendingTakeover}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
+  {:else if page.choice}
     <section class="card choice" aria-live="polite">
-      <h2 tabindex="-1" bind:this={choiceHeading}>Phase {stop.phaseId} is already complete.</h2>
+      <h2 tabindex="-1" bind:this={choiceHeading}>{activity} is already complete.</h2>
       <p>The completion checks passed. No conversation was resumed and the plan has not advanced. Advancing checks the evidence again.</p>
       {#if page.draft}<p class="warning">Your reply has not been sent. It is preserved when you return. Advancing proceeds without sending it.</p>{/if}
       <div class="actions">
@@ -131,11 +136,11 @@
       <section class="card">
         {#if stop.resumeOffered}
           <h2>Reply here and let Kiln finish</h2>
-          <p>For a straightforward answer. Your reply goes to the same {agent} conversation, and Kiln resumes Phase {stop.phaseId}.</p>
+          <p>For a straightforward answer. Your reply goes to the same {agent} conversation, and Kiln resumes {activity}.</p>
           <label for="phase-reply">Your reply to {agent}</label>
           <textarea id="phase-reply" bind:this={replyField} bind:value={page.draft} rows="4" maxlength="4000" placeholder="Your answer or instructions for the remaining work"></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your reply has not been sent.</p>{/if}
-          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume Phase {stop.phaseId}</button>
+          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume {activity}</button>
           <p class="hint">Kiln handles the remaining work, then follows the plan. Routine work continues unattended; an explicit hold or material decision can return control to you.</p>
         {:else}
           <h2>Conversation recovery unavailable</h2>
@@ -145,7 +150,7 @@
       <section class="card">
         {#if stop.resumeCommand}
           <h2>Open the conversation in your terminal</h2>
-          <p>For a back-and-forth with {agent}, or to finish the phase yourself. The full conversation comes with you.</p>
+          <p>For a back-and-forth with {agent}, or to finish the activity yourself. The full conversation comes with you.</p>
           <pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy resume command" />
           {#if stop.resumePrompt}<p>Send this recovery prompt before continuing. It supplies the current authority and remaining task.</p><pre>{stop.resumePrompt}</pre><CopyButton text={stop.resumePrompt} label="Copy recovery prompt" />{/if}
         {:else}
@@ -166,14 +171,14 @@
         <section>
           <h3>We resolved the question. Kiln can finish.</h3>
           {#if stop.resumeOffered}
-            <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in Phase {stop.phaseId}. You don’t need to repeat your answer.</p>
-            <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume Phase {stop.phaseId} in Kiln</button>
+            <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in {activity}. You don’t need to repeat your answer.</p>
+            <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume {activity} in Kiln</button>
             <p class="hint">The phase can still be open, with uncommitted or unpushed work. Kiln finishes this phase before following the rest of the plan.</p>
           {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish the phase, then verify it.</p>{/if}
         </section>
         <section class="finished">
-          <h3>I finished the entire phase myself.</h3>
-          <p>Check that Phase {stop.phaseId} is complete, then move to the next step in the plan.</p>
+          <h3>I finished the entire activity myself.</h3>
+          <p>Check that {activity} is complete, then move to the next step in the plan.</p>
           <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
           <ul class="checks" aria-label="Phase completion requirements" aria-busy={!!stop.checking}>
             {#each stop.checks as check (check.name)}
@@ -185,7 +190,7 @@
             <label class="confirmation"><input type="checkbox" disabled={busy} checked={stop.outside.confirmation.ticked} onchange={confirmation} />The changes outside the workspace have been dealt with</label>
             <p class="hint">Covers changes recorded up to this confirmation. Later changes must be checked again.</p>
           {/if}
-          <button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Verify Phase ${stop.phaseId} & advance`}</button>
+          <button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Verify ${activity} & advance`}</button>
           <p class="hint">Rechecks all applicable requirements. Advances only if all pass, respecting any requested pause. This does not finish, commit or push unfinished work.</p>
           {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; use Verify to try again.</p>{/if}
         </section>

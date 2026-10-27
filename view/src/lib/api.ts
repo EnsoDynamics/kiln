@@ -17,7 +17,7 @@ export function pageConfig(document: Document): PageConfig {
   return { token: meta("kiln-token"), base: meta("kiln-base") };
 }
 
-export type CommandAnswer = { ok: true; [key: string]: unknown } | { ok: false; reason: string; fieldErrors?: Record<string, string> };
+export type CommandAnswer = { ok: true; [key: string]: unknown } | { ok: false; reason: string; uncertain?: boolean; fieldErrors?: Record<string, string> };
 
 const pendingInstructions = new WeakMap<PageConfig, Map<string, { id: string; token: string }>>();
 const actionQueues = new WeakMap<PageConfig, Promise<void>>();
@@ -44,9 +44,9 @@ async function sendInstruction(config: PageConfig, method: "POST" | "DELETE", pa
     const answer = (await response.json()) as Record<string, unknown>;
     if (response.ok && typeof answer.controlToken === "string") config.controlToken = answer.controlToken;
     if (response.status < 500) instructions.delete(key);
-    return response.ok ? { ...answer, ok: true } : { ok: false, reason: String(answer.reason ?? response.statusText), ...(answer.fieldErrors ? { fieldErrors: answer.fieldErrors as Record<string, string> } : {}) };
+    return response.ok ? { ...answer, ok: true } : { ok: false, reason: String(answer.reason ?? response.statusText), ...(response.status >= 500 ? { uncertain: true } : {}), ...(answer.fieldErrors ? { fieldErrors: answer.fieldErrors as Record<string, string> } : {}) };
   } catch (error) {
-    return { ok: false, reason: `${(error as Error).message}${instruction ? ` Instruction ${instruction.id} may have been accepted; repeating this action will inspect or replay the same instruction.` : ""}` };
+    return { ok: false, uncertain: true, reason: `${(error as Error).message}${instruction ? ` Instruction ${instruction.id} may have been accepted; repeating this action will inspect or replay the same instruction.` : ""}` };
   }
 }
 
@@ -77,5 +77,29 @@ export const authorizeDevelopmentTarget = (config: PageConfig, body: { execution
 export const billingApproval = (config: PageConfig, action: "approval" | "clear", body: { executionId: string; selectionGeneration: number; readingId: string; approved?: true }) => send(config, "POST", `/api/billing/${action}`, body);
 
 /** Target-bound manual implementation recovery. Only reply supplies note. */
-export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => send(config, "POST", "/api/resume", { target, ...(note === undefined ? {} : { note }) });
-export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => send(config, "POST", "/api/check-again", { target, intent, ...(intent === "advance" ? { withoutSendingReply: true } : {}) });
+export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => sendHandBack(config, target, "resume", note);
+export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => sendHandBack(config, target, intent);
+
+/** Keep one instruction identity across uncertain HTTP retries of a takeover. */
+const takeoverIds = new Map<string, string>();
+export function takeOver(config: PageConfig, target: import("../../../src/live/target.js").LiveTarget): Promise<CommandAnswer> {
+  const key = JSON.stringify(target); const instructionId = takeoverIds.get(key) ?? crypto.randomUUID();
+  takeoverIds.set(key, instructionId);
+  return send(config, "POST", "/api/live/take-over", { instructionId, target }).then(answer => {
+    if (!answer.ok && !answer.uncertain) takeoverIds.delete(key);
+    return answer;
+  });
+}
+
+const handBackIds = new Map<string, string>();
+async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, action: "resume" | "verify" | "advance", note?: string): Promise<CommandAnswer> {
+  const key = JSON.stringify([target, action, note]);
+  const id = handBackIds.get(key) ?? crypto.randomUUID();
+  handBackIds.set(key, id);
+  const answer = await send(config, "POST", action === "resume" ? "/api/resume" : "/api/check-again", {
+    target: target.live ?? target, ...(target.live ? { instructionId: id } : {}),
+    ...(action === "resume" ? note === undefined ? {} : { note } : { intent: action, ...(action === "advance" ? { withoutSendingReply: true } : {}) }),
+  });
+  if (!(!answer.ok && answer.uncertain)) handBackIds.delete(key);
+  return answer;
+}

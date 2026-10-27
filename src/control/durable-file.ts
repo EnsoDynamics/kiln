@@ -4,7 +4,13 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 export function writeDurableMetadata(path: string, value: unknown): void {
-  ensurePrivateDirectory(dirname(path)); const temporary = `${path}.${randomUUID()}.tmp`;
+  const created: string[] = [];
+  for (let directory = dirname(path); !existsSync(directory); directory = dirname(directory)) created.push(directory);
+  ensurePrivateDirectory(dirname(path));
+  if (process.platform !== "win32") for (const directory of created.reverse()) {
+    const parent = openSync(dirname(directory), "r"); try { fsyncSync(parent); } finally { closeSync(parent); }
+  }
+  const temporary = `${path}.${randomUUID()}.tmp`;
   try {
     const fd = openSync(temporary, "wx", 0o600);
     try { writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }

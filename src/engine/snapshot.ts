@@ -163,6 +163,7 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  liveControl?: import("../live/target.js").LiveView;
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
   billing?: BillingView;
@@ -374,6 +375,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
+    ...optional("liveControl", engine.liveView()),
     ...(!record.startedAt ? { savedDevelopmentTargets: engine.savedDevelopmentTargets } : {}),
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
@@ -581,7 +583,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const interrupted = stop.interrupted;
   const finalMessage = interrupted === undefined && run?.result?.text?.trim() ? run.result.text : undefined;
   // `claude --resume` needs the transcript Kiln couldn't find (OUT-003).
-  const resumable = everStarted && !engine.transcriptMissing(session);
+  const resumable = everStarted && !engine.transcriptMissing(session) && (!record.liveControl || record.liveControl.takeover.state === "released");
   return {
     ...base,
     ...sessionFacts,
@@ -595,7 +597,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(resumable ? {
-      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : resumeCommand(folder, session.sessionId),
+      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId).replace("\n", " && ") : resumeCommand(folder, session.sessionId),
       ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
         deliveryAuthority: engine.deliveryAuthority(),
         agentId: session.agentId ?? "claude_code",

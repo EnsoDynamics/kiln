@@ -18,7 +18,7 @@
   import ProgressSteps from "../components/ProgressSteps.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import SessionOutput from "../components/SessionOutput.svelte";
-  import { keepGoing, pause } from "../lib/api.js";
+  import PausePanel from "../components/PausePanel.svelte";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
@@ -49,15 +49,6 @@
   /** "10:58 AM · 49 min" on its own; after "Started" a day reads in lowercase (UI-010 item 8). */
   const started = (afterWord: boolean) => (session.startedAt ? `${clockTime(session.startedAt, new Date(now), { afterWord })} · ${sinceStart}` : undefined);
   const back = $derived(config.base);
-  let pressing = $state(false);
-  let reason = $state<string | undefined>(undefined);
-
-  async function togglePause() {
-    pressing = true;
-    const answer = await (snapshot.pause.pending ? keepGoing(config) : pause(config));
-    pressing = false;
-    reason = answer.ok ? undefined : answer.reason;
-  }
 </script>
 
 <main class="page-main detail-page">
@@ -73,6 +64,7 @@
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} />{/key}
+  {#if current && !isPr}<PausePanel {snapshot} {connected} />{/if}
   {#if row?.audit}
     <section class="card">
       <h3>{row.title} · {row.file}</h3>
@@ -87,13 +79,6 @@
   <div class="columns-main">
     {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">
-      {#if live && !isPr}
-        <div class="pause">
-          <button type="button" class="button wide" disabled={pressing} onclick={togglePause}>{#if snapshot.pause.pending}<Icon name="arrow" size={15} strokeWidth={1.8} />Keep going{:else}<Icon name="pause" size={15} strokeWidth={1.8} />{isAudit ? "Pause after this audit" : "Pause after this phase"}{/if}</button>
-          {#if reason}<span class="reason">{reason}</span>{/if}
-          <p class="note">{snapshot.pause.pending ? `Kiln pauses once ${phaseName(phaseId, snapshot)} is done, including its commit and push. Keep going cancels the pause.` : `${capitalized(phaseName(phaseId, snapshot))} still finishes its commit and push. Nothing is cut off mid-step.`}</p>
-        </div>
-      {/if}
       <aside class="card side">
         <span class="eyebrow">Session</span>
         <dl>
@@ -143,8 +128,6 @@
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 3.4vw, 36px); line-height: 1.1; color: var(--text); }
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--muted); }
   .dot { font-size: 15px; color: var(--dim); }
-  .pause { display: flex; flex-direction: column; gap: 10px; }
-  .reason { font-size: 12.5px; color: var(--amber); }
   .note { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.6; text-wrap: pretty; }
   .side { gap: 18px; }
   dl { margin: 0; display: flex; flex-direction: column; gap: 14px; }

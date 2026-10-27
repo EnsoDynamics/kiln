@@ -1,42 +1,50 @@
 <script lang="ts">
-  // Pause Kiln on Running (PRD AC-VIEW-03): the current phase finishes, with its commit and
-  // push, and then no phase starts until Start. A requested pause turns the button into Keep
-  // going, which cancels it until the phase is Done (UI-002).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import { keepGoing, pause } from "../lib/api.js";
+  import { keepGoing, pause, takeOver } from "../lib/api.js";
   import { capitalized, phaseName } from "../lib/progress.js";
   import { viewContext } from "../lib/view-context.js";
-  import Icon from "./Icon.svelte";
-
-  let { snapshot }: { snapshot: Snapshot } = $props();
+  let { snapshot, connected = true }: { snapshot: Snapshot; connected?: boolean } = $props();
   const { config } = viewContext();
-  const id = $derived(snapshot.current!.phaseId);
-  const title = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === id)?.title ?? "");
+  const id = $derived(snapshot.liveControl?.target.activityKey ?? snapshot.current?.phaseId ?? snapshot.needsYou?.phaseId ?? "");
+  const activity = $derived(snapshot.liveControl?.label ?? capitalized(phaseName(id, snapshot)));
+  const audit = $derived(id.startsWith("audit-"));
+  const held = $derived(snapshot.liveControl?.takeover);
   let pressing = $state(false);
-  let reason = $state<string | undefined>(undefined);
-
-  async function press() {
+  let reason = $state<string | undefined>();
+  async function press(takeover = false) {
+    if (pressing || !connected) return;
     pressing = true;
-    const answer = await (snapshot.pause.pending ? keepGoing(config) : pause(config));
-    pressing = false;
-    reason = answer.ok ? undefined : answer.reason;
+    const answer = await (takeover ? takeOver(config, snapshot.liveControl!.target) : snapshot.pause.pending ? keepGoing(config) : pause(config));
+    pressing = false; reason = answer.ok ? undefined : answer.reason;
   }
 </script>
-
 <section class="card" aria-labelledby="pause-h">
-  <h2 id="pause-h" class="eyebrow">Pause Kiln</h2>
-  {#if snapshot.pause.pending}
-    <p>Kiln pauses once {phaseName(id, snapshot)}, <span class="title">{title}</span>, is done, including its commit and push. Keep going cancels the pause.</p>
-    <button type="button" class="button wide" disabled={pressing} onclick={press}><Icon name="arrow" size={15} strokeWidth={1.8} />Keep going</button>
-  {:else}
-    <p>{capitalized(phaseName(id, snapshot))}, <span class="title">{title}</span>, finishes first, including its commit and push. Then Kiln starts no new phase until you press Start.</p>
-    <button type="button" class="button wide" disabled={pressing} onclick={press}><Icon name="pause" size={15} strokeWidth={1.8} />{id.startsWith("audit-") ? "Pause after this audit" : "Pause after this phase"}</button>
-  {/if}
-  {#if reason}<span class="message">{reason}</span>{/if}
+  <h2 id="pause-h" class="eyebrow">When should Kiln pause?</h2>
+  <div class="choices">
+    <section>
+      <h3>Take over this session</h3>
+      <p><strong>At the next safe stopping point.</strong> Finish the current operation, then stop before starting more work. Open the same conversation in your terminal; the phase/audit can remain unfinished.</p>
+      {#if held}
+        <p role="status"><strong>{held.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation."}</strong></p>
+        {#if held.state !== "released"}<p>Wait before opening Claude. Terminal access becomes available after Kiln releases the conversation.</p><p>{held.reason}</p>{#if held.latestActivityAt && Date.parse(held.observedAt) - Date.parse(held.latestActivityAt) >= 30000}<p>Waiting {Math.floor((Date.parse(held.observedAt) - Date.parse(held.latestActivityAt)) / 1000)} seconds since the last observed activity. There is no automatic cancellation deadline.</p>{/if}{/if}
+      {:else}
+        <button class="button wide" disabled={!connected || pressing || !snapshot.liveControl?.available} onclick={() => press(true)}>Pause &amp; take over</button>
+        {#if !snapshot.liveControl?.available}<p>{snapshot.liveControl?.reason ?? "Live takeover is available for running Claude phases and audits."}</p>{/if}
+      {/if}
+    </section>
+    <section>
+      <h3>Let {activity} finish first</h3>
+      <p><strong>After the whole {audit ? "audit" : "phase"}.</strong> Kiln finishes its work, commits, pushes and required completion checks, then waits before starting the next activity. No terminal takeover is needed.</p>
+      {#if snapshot.pause.pending}<p>Will pause after {activity} finishes. Current work continues.</p>{/if}
+      <button class="button wide" disabled={!connected || pressing || held?.state === "released" && !snapshot.pause.pending} onclick={() => press()}>{snapshot.pause.pending ? (audit ? "Cancel end-of-audit pause" : "Cancel end-of-phase pause") : (audit ? "Pause after this audit" : "Pause after this phase")}</button>
+    </section>
+  </div>
+  {#if !connected}<p>Reconnect before acting. Last-known state.</p>{/if}
+  {#if reason}<p role="alert">{reason}</p>{/if}
 </section>
-
 <style>
-  p { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
-  .title { color: var(--text); }
-  .message { font-size: 12.5px; color: var(--amber); }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 22px; }
+  section { min-width: 0; } .choices > section { display: flex; flex-direction: column; gap: 14px; }
+  h3 { margin: 0; font-size: 16px; } p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; } strong { color: var(--text); }
+  @media(max-width: 680px) { .choices { grid-template-columns: 1fr; } }
 </style>

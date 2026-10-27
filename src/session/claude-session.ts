@@ -1,3 +1,5 @@
+import { LiveOwnedProcesses } from "../live/owned-processes.js";
+import { observeGate, readGate, unsettled } from "../live/gate.js";
 import type { BillingSummary } from "../billing/inspection.js";
 // Starts one headless Claude Code session and supervises it: the launch flags, the prompt on
 // stdin, every event saved as received, output lines and progress steps derived from them,
@@ -76,6 +78,8 @@ export function modelNameFromId(id: string): string {
 }
 
 export interface SessionProcessOptions {
+  live?: SessionRun["live"];
+  beforePrompt?: (identity: { pid: number; startTime: string }) => Promise<void>;
   control?: NonNullable<SessionRun["control"]>;
   billing?: BillingSummary;
   claude: string;
@@ -196,7 +200,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   };
 
   const startedAt = now().toISOString();
-  const run: SessionRun = { startedAt, cause: options.cause, ...(options.control ? { control: { ...options.control } } : {}),
+  const run: SessionRun = { ...(options.live ? { live: options.live } : {}), startedAt, cause: options.cause, ...(options.control ? { control: { ...options.control } } : {}),
     ...(options.billing ? { billing: options.billing } : {}), ...(options.note === undefined ? {} : { note: options.note }), ...(options.account === undefined ? {} : { account: options.account }) };
   // Persist the correlated attempt before spawn or stdin can have an effect.
   record.runs.push(run); saveRecord();
@@ -214,11 +218,6 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   child.stdin!.on("error", () => {
     // The process exited before reading its input; its exit is recorded below.
   });
-  child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
-  if (run.control) {
-    run.control.submitted = true;
-    try { saveRecord(); } catch (error) { endProcessTree(pid, "SIGKILL"); await closed; throw error; }
-  }
   // The controls are handed over at once, so a stop from here on can always reach the process.
   options.onSpawned?.({
     pid,
@@ -236,6 +235,15 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   /** This run's usage-limit reports and model responses, in order, for the refusal verdict. */
   const limitEvents: SavedEvent[] = [];
 
+  let observations = Promise.resolve();
+  let resultSeen = false;
+  const maybeDrain = () => {
+    if (!options.live || !resultSeen || child.stdin!.writableEnded) return;
+    const gate = readGate(options.live.gateDirectory);
+    if (!gate.held || unsettled(gate).length === 0) child.stdin!.end();
+  };
+  const drainTimer = options.live ? setInterval(() => { observations = observations.then(maybeDrain); }, 250) : undefined;
+  drainTimer?.unref();
   let stdoutBuffer = "";
   let stderrBuffer = "";
   const readStdoutLine = (text: string) => {
@@ -254,6 +262,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       return;
     }
     appendJsonLine(files.events, { at, event });
+    if (options.live) observations = observations.then(async () => { await observeGate(options.live!.gateDirectory, event); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
     if (isModelResponse(event)) modelResponses.push(at);
     if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 
@@ -279,7 +288,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       if (typeof event.result === "string") run.result.text = event.result;
       changed = true;
       // Closing stdin ends the session once its turn is over.
-      child.stdin!.end();
+      if (!options.live) child.stdin!.end();
     }
     if (changed) saveRecord();
   };
@@ -289,7 +298,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   let outputFailure: unknown;
   const guardOutput = (read: () => void) => {
     if (outputFailure) return;
-    try { read(); } catch (error) { outputFailure = error; endProcessTree(pid, "SIGKILL"); }
+    try { read(); } catch (error) { outputFailure = error; if (options.live) child.stdin!.end(); else endProcessTree(pid, "SIGKILL"); }
   };
   child.stdout!.on("data", (chunk: string) => guardOutput(() => {
     stdoutBuffer += chunk;
@@ -311,13 +320,36 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   // Read only once the output is being read: on Windows it is a PowerShell call taking a second
   // or more, and a session that exits meanwhile (an early stop, a resume with no transcript)
   // must still have every line it wrote saved before its end is handled.
-  const startTime = await processStartTime(pid);
+  let startTime: string | undefined;
+  try { startTime = await processStartTime(pid, options.live || options.beforePrompt ? { timeoutMs: 5000 } : {}); }
+  catch (error) { child.stdin!.end(); await closed; clearInterval(drainTimer); throw error; }
   if (startTime !== undefined) {
     run.processStartTime = startTime;
     guardOutput(saveRecord);
   }
 
+  const owned = options.live && startTime ? new LiveOwnedProcesses(options.live.gateDirectory, pid, startTime) : undefined;
+  owned?.start();
+  try {
+    if (options.beforePrompt) {
+      if (!startTime) throw new Error("New dispatch PID/start identity cannot be established.");
+      await options.beforePrompt({ pid, startTime });
+    }
+  child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
+  if (run.control) {
+    run.control.submitted = true;
+    try { saveRecord(); } catch (error) { if (options.live) child.stdin!.end(); else endProcessTree(pid, "SIGKILL"); await closed; throw error; }
+  }
+  } catch (error) {
+    // No prompt/effect was supplied to this new process; drain its empty input.
+    child.stdin!.end(); const [code] = await closed; await owned?.close(); clearInterval(drainTimer);
+    run.endedAt = now().toISOString(); if (code !== null) run.exitCode = code; saveRecord(); throw error;
+  }
   const [code, signal] = await closed;
+  await owned?.close();
+  await observations;
+  clearInterval(drainTimer);
+
   if (outputFailure) throw outputFailure;
   readStdoutLine(stdoutBuffer);
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
