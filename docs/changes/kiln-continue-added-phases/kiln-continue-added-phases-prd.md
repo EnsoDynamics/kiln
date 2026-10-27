@@ -10,7 +10,7 @@ When the run is still underway and the person takes over an agent session, phase
 
 Stakeholder feedback can change assumptions after a feature has shipped. A separate Claude Code or Codex session then amends the requirements and writes additional phases. Today a recorded completion can take Kiln straight back to Complete, while its plan reader uses the earlier worktree. New documents in the shared checkout can therefore be absent from the page.
 
-The motivating example is `pricing`, `docs/prds/competitive-pricing-national-brand/`: the supplied screenshot shows seven completed phases and “Already merged.” The current local plan, inspected on 2026-10-27, adds phases 9–15 and says phase 8 was completed separately on another branch and must first be integrated. There are seven new unfinished phases, not necessarily eight because the highest number is 15. Kiln must discover real work and its prerequisites, rather than infer it from the highest phase number.
+The motivating example is `pricing`, `docs/prds/competitive-pricing-national-brand/`: the supplied screenshot shows seven completed phases and “Already merged.” The current local plan, inspected on 2026-10-27, adds phases 9–15 and says phase 8 was completed separately on another branch. Phase 9 explicitly includes integrating that work as its first step, with recorded authorization. There are seven new unfinished phases, not necessarily eight because the highest number is 15. Kiln must discover real work and its prerequisites, rather than infer it from the highest phase number.
 
 Source: Doug's request in chat `01a17c67-4f1d-7950-aa77-f1e682aeeec8`, the attached completed-run screenshot, and the pricing phase plan. Current-behavior references: `src/engine/engine.ts` (`prepare`, `decideQuietly`, `readPlan`) and `src/engine/plan-reading.ts` (`nextLeaf`, `recordedPlan`). These are investigation evidence, not a prescribed implementation.
 
@@ -22,7 +22,7 @@ A person may resume a Kiln session in Claude Code or Codex, discuss changed requ
 
 - [ ] **AC-HANDBACK-01 — Every return reads the revised plan.** Before deciding what to run after a manual session resume, an explicit completion check/advance, or restarting an unfinished Kiln run, Kiln rereads the current PRD and phase plan. It recognizes appended phases and split leaves regardless of whether they were written by the original Kiln conversation, a manually resumed conversation, or a separate session. The return shows which phases were added and the updated remaining count.
 - [ ] **AC-HANDBACK-02 — Added work continues automatically.** Once the current activity passes its existing completion requirements and control has returned to Kiln, Kiln runs the next eligible unfinished leaf from the revised plan and continues through the normal audits and delivery. It does not require the completed-run Continue action, another approval for each addition, or manually starting another chat. Existing pause requests, dependency checks, account limits and permission boundaries still apply. A plan edit alone never starts work while the person still controls the session.
-- [ ] **AC-HANDBACK-03 — Use the active workspace, and explain discrepancies.** An unfinished run uses its active workspace and the normal committed/pushed evidence requirements; it does not require that in-progress feature work first be merged into the delivery base. If newer phase documents were written into the shared checkout or another known source instead, Kiln reports the mismatch and how to bring them into the active plan. It neither silently ignores known additions nor overwrites work to import them. Arbitrary unregistered branches are not searched.
+- [ ] **AC-HANDBACK-03 — Use the active workspace, and explain discrepancies.** An unfinished run uses its active workspace and the normal committed/pushed evidence requirements; it does not require that in-progress feature work first be merged into the delivery base. If newer phase documents were written into the shared checkout or another known source instead, Kiln reports the mismatch and how to bring them into the active plan. A discrepancy that changes the remaining work prevents advancement or completion until reconciled; then normal automatic continuation resumes. Kiln neither ignores the additions nor overwrites work to import them. Arbitrary unregistered branches are not searched.
 - [ ] **AC-HANDBACK-04 — New phases cannot be hidden behind old completion.** Reconciliation occurs before a handback can select final audits/delivery or mark the feature complete. Added work invalidates any completion evidence that does not cover the revised scope. Completed phases keep their results, split parents are not executed, and phases completed outside Kiln require existing completion evidence. The existing explicit choice for resuming a phase that is already complete remains; once the person returns control, no additional new-phases approval is introduced.
 
 ### Find added work when a finished feature is revisited
@@ -48,7 +48,14 @@ The completed page becomes the starting point for additional work. The person se
 Kiln must use the revised requirements and current code. An old merged branch or old audit result must not make new work appear finished.
 
 - [ ] **AC-CONTINUE-01 — Earlier completion stays intact.** Starting additional work preserves earlier phase results, session history, delivery links and completion times, while the overall feature becomes active again. It does not resume the old finished conversation or rerun completed phases. Added phases already completed elsewhere are accepted only through applicable existing completion checks; a Closed line alone is insufficient.
-- [ ] **AC-CONTINUE-02 — Continuation uses a ready plan and current delivery base.** For a previously finished run, before launch the revised PRD, design and phase documents must be committed and available together in the configured delivery base, with earlier prerequisite work integrated for every affected repository. Kiln continues from that current base, preserving unrelated local changes and other sessions' work. It requires no manual state-file deletion or recreation of the old branch/worktree. An unavailable prerequisite or occupied/unsafe workspace produces a specific reason and recovery action. (CONTINUE-002.)
+- [ ] **AC-CONTINUE-02 — Continuation uses a ready plan and current delivery base.** A previously finished run restarts from the current configured delivery base with the revised PRD, design and phase documents committed together. Prerequisites in every affected repository follow the table below. A documented prerequisite integration is not an invalid plan merely because that earlier phase is not yet in the delivery base. Unrelated changes and other sessions’ work remain intact; no manual state-file deletion or recreation of the old branch/worktree is required. (CONTINUE-002.)
+
+  | Prerequisite condition | Continuation behavior |
+  |---|---|
+  | Earlier work integrated and verified | Start the next unfinished phase. |
+  | Next phase explicitly includes preparation using an identified, available source, and existing permissions authorize it | Start that phase with the preparation, verify its outcome, then begin dependent implementation. Do not require the person to perform that preparation first. |
+  | Source, authority or safe workspace unavailable; preparation cannot complete | Explain the specific blocker and recovery action; do not begin dependent implementation or claim completion. |
+
 - [ ] **AC-CONTINUE-03 — Ambiguous changes are not treated as additions.** If previously completed phase identities are removed, reused, reopened or materially changed so earlier completion cannot be safely carried forward, Kiln shows the affected phases and asks for the plan to be reconciled. Mere renaming, formatting or unchanged historical closure metadata does not trigger a rerun. The first release supports adding work to an intact completed plan; it does not decide which earlier implementation to undo.
 - [ ] **AC-CONTINUE-04 — Existing controls still govern the work.** Both Claude Code and Codex use the existing agent/model settings, billing restrictions, pause/resume behavior, workspace protections and repository/deployment permissions. Continue authorizes running the displayed additional plan; it does not grant broader merge, production or spending authority. New repositories pass the existing setup/authorization checks before work in them starts.
 - [ ] **AC-CONTINUE-05 — Additional work finishes through normal audits and delivery.** Once accepted, Kiln advances through eligible remaining phases and any completion phases its normal audits add, without requiring a new continuation click between them. Whole-PRD audit and final delivery evidence must cover the revised requirements and work. Earlier successful audits or merged PRs cannot satisfy completion for the new work. A new delivery is recorded alongside earlier deliveries when the current work meets the existing completion rules.
@@ -60,10 +67,11 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | Plan found | Result |
 |---|---|
 | Seven finished phases plus eight new unfinished phases, all prerequisites present | “8 new phases found”; Continue with 8 phases. |
-| Pricing's phases 9–15 present; required phase 8 work still on another branch | “7 new phases found”; continuation unavailable, with the missing prerequisite and recovery action. |
+| Pricing’s phases 9–15 present; phase 9 includes authorized integration of available phase 8 work | “7 new phases found”; Continue with 7 phases starts phase 9’s preparation. Phase 8 is shown as awaiting integration until that work is verified. |
+| The phase 8 source cannot be accessed, or required preparation is not authorized | “7 new phases found”; explain the blocker, with continuation unavailable until resolved. |
 | Phase 8 subsequently integrated and verified complete; phases 9–15 unfinished | “7 new phases found”; eight completed, fifteen total; Continue with 7 phases, beginning at phase 9. |
 | Added phases saved locally but not committed in the delivery base | Show the additions as not ready and identify which documents must be committed/integrated. |
-| Earlier delivery has an open, unmerged PR | Show additions, but wait for the required earlier work to reach the configured base; do not silently extend an unmerged delivery. (CONTINUE-002.) |
+| Earlier delivery has an open, unmerged PR | Apply AC-CONTINUE-02’s prerequisite rule, including authorized preparation when explicitly planned; do not silently extend the earlier PR. |
 | No new unfinished phase; only wording or assumption changes | No new phases; no implementation starts. |
 | Earlier completion cannot be reconciled, or a required source cannot be read | Explain the unresolved condition; do not offer an executable continuation. |
 
@@ -74,13 +82,13 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | Preview state | What it illustrates |
 |---|---|
 | Return from manual session | An unfinished run accepts newly added work and automatically continues after the current phase passes; AC-HANDBACK-01/02/03/04. |
-| New phases | Pricing's ready scenario after phase 8 is integrated; AC-FIND-03, AC-OFFER-01/02. |
-| Missing prerequisite | The condition described by the inspected pricing plan; AC-CONTINUE-02. |
+| New phases | Pricing’s ready-to-prepare scenario, with phase 9 integrating phase 8; AC-FIND-03, AC-OFFER-01/02. |
+| Missing prerequisite | Illustrative unavailable phase 8 source; AC-CONTINUE-02. |
 | Continuing | Phase 9 active with the earlier delivery preserved; AC-CONTINUE-01/04/05. |
 | No new work | The completed view after an unchanged-plan check; AC-OFFER-02. |
 | Check failed | A failed source read with prior results labelled; AC-FIND-04. |
 
-The ready and continuing scenarios are proposed future states, not claims about current pricing readiness. The mock-up uses real phase titles, with simulated check times and execution state. Preview controls are not product controls.
+The ready and continuing scenarios assume the documented preparation source and authority have been checked; they are proposed future states, not claims about current pricing readiness. The mock-up uses real phase titles, with simulated check times and execution state. Preview controls are not product controls.
 
 ## Assumptions
 

@@ -15,17 +15,17 @@ These two proposed product choices accompany the [change PRD](kiln-continue-adde
 - [ ] Wrong — also detect additions automatically while the finished page remains open
 - [ ] Wrong — correct answer: _______________
 
-### CONTINUE-002. Require the revised plan and earlier work in the delivery base before continuing? ⏳ PENDING (85% confidence)
+### CONTINUE-002. Require a committed plan on the delivery base when restarting a finished run? ⏳ PENDING (85% confidence)
 
-**Assumption:** For a previously finished run, Kiln can discover saved local additions, but Continue becomes available only once the revised document set and prerequisite implementation are committed and integrated into the configured delivery base. It does not automatically bring in someone else's unpublished branch. This also means a prior open PR must be integrated before this continuation starts. An unfinished run handed back from a manual session instead uses its active workspace and normal completion checks, and automatically continues through its updated plan.
+**Assumption:** For a previously finished run, Kiln can discover saved local additions, but the revised document set must be committed together in the configured delivery base before Continue becomes available. Prerequisite work may already be integrated or be explicit, authorized preparation in the next phase. An unfinished run handed back from a manual session instead uses its active workspace and normal completion checks, and automatically continues through its updated plan.
 
-**Example:** In `pricing`'s National-Brand Compare plan, phases 9–15 are new work, but the plan says phase 8 and its test audit remain on `wt/natb-pricing-delivery-audit`. Kiln shows seven new phases and explains that phase 8 must be integrated before starting phase 9. After that prerequisite is present and verified, Continue with 7 phases runs the revised plan.
+**Example:** In `pricing`'s National-Brand Compare plan, phases 9–15 are new work. Phase 9 explicitly brings in phase 8 from `wt/natb-pricing-delivery-audit`, with Doug's recorded authorization in its phase-specific notes. With the source available and authority established, Continue with 7 phases starts that preparation inside Kiln; the person does not have to merge it first.
 
-**Evidence:** Doug's example begins after the earlier work was merged. The local `national-brand-compare-implementation-phases.md` explicitly identifies this outstanding prerequisite. The request does not decide whether Kiln should import uncommitted plans or combine unrelated unpublished work itself. Requiring a settled base preserves ownership and the earlier delivery without introducing that additional workflow.
+**Evidence:** Doug's example begins after the earlier work was merged. The request does not decide whether a finished run should restart from uncommitted or unintegrated requirements. Requiring a settled requirements revision provides a reviewable starting point. This does not override documented, authorized preparation within a phase, such as the integration explicitly assigned to pricing's phase 9.
 
-**Impact if wrong:** Medium — the person must first commit/integrate the changed plan or earlier work; a desired workflow that continues directly from an unmerged branch would need broader scope.
+**Impact if wrong:** Medium — the person must first commit/integrate the changed requirements; a workflow that restarts a finished run directly from an unmerged requirements revision would need broader scope.
 
 **Confirm or Correct:**
 - [ ] Correct as stated
-- [ ] Wrong — Kiln should also prepare continuation directly from an unmerged revision
+- [ ] Wrong — Kiln should also restart finished work directly from an unmerged requirements revision
 - [ ] Wrong — correct answer: _______________
