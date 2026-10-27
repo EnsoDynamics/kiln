@@ -161,7 +161,18 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
   const activeId = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, activeId); const selected = chooseSession(work, history, selector, activeId);
-  if (!selected) return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { resumable: false, reason: "No saved session.", session_id: null } }, history.errors);
+  if (!selected) {
+    const view = engine ? inspectionSnapshot(engine) : cached(work)?.snapshot;
+    const stop = view?.needsYou;
+    const cwd = stop && view ? engine?.sessionFolder ?? expandHome(view.feature.multiRepository ? view.settings.workspaceFolder : view.settings.worktreePath) : null;
+    return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
+      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId,
+      phase_key: stop?.phaseId ?? null, working_directory: cwd, resumable: false, reason: "No saved session.", active_under_kiln: false,
+      provider_history: { state: "unavailable", observed_at: null, reason: "No saved session." },
+      resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null,
+      fresh_session_instructions: stop ? { command: stop.freshSessionCommand, prompt: stop.freshSessionPrompt } : null,
+    } }, history.errors);
+  }
   const session = selected.record; const cwd = session.workingDirectory ?? work.record.settings.worktreePath;
   const provider = session.agentId === "codex" ? session.conversation?.threadId : session.sessionId;
   let available = false; let reason = "Provider conversation identity is unknown.";

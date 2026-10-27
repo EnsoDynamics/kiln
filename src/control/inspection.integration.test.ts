@@ -48,6 +48,56 @@ async function command(args: string[], env = sandbox.env, cwd = sandbox.root) {
 function tree(path: string): Record<string,string> { const out: Record<string,string>={}; for(const name of readdirSync(path,{recursive:true,withFileTypes:true})) if(name.isFile()) {const file=join(name.parentPath,name.name);out[file]=readFileSync(file).toString('base64');} return out; }
 
 describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
+  it.each(['claude_code', 'codex'] as const)('retains %s fresh instructions before any conversation, live and disconnected, without starting work', async agent => {
+    sandbox=createSandbox(); h=await createHarness({sessions:[]});
+    // Restore an execution between workspace setup and its first launch, then
+    // let the real plan reader record the pre-session stop.
+    h.engine.record.settings.worktreePath=h.repository;
+    h.engine.record.startedAt=new Date().toISOString();
+    h.engine.record.setupCompletedAt=h.engine.record.startedAt;
+    expect(await h.engine.decide()).toMatchObject({kind:'start_phase',phaseId:'1'});
+    rmSync(join(h.engine.worktreePath,`docs/prds/${FOLDER}/phase-2b-store-credit.md`));
+    expect(await h.engine.decide()).toEqual({kind:'plan_stop',phaseKey:'1'});
+    expect(h.engine.latestSession('1')).toBeUndefined();
+    h.engine.record.settings.agentId=agent;
+    if(agent==='codex') {
+      // A first readiness stop in a multi-repository execution starts a fresh
+      // session at the workspace root, distinct from either repository.
+      const other=createRepository(h.sandbox,'other-repository');
+      h.engine.record.settings.workspaceFolder=h.sandbox.root;
+      h.engine.record.repositories=[h.repository,other].map((path,index)=>({name:index?'other-repository':'acme-shop',kind:index?'added' as const:'prd' as const,mainCheckoutPath:path,github:`test/repo-${index}`,baseBranch:'develop',worktreePath:path,setupCompletedAt:h!.engine.record.startedAt!}));
+      h.engine.record.phases['1']!.stop!.kind='selection';
+    }
+    writePrdRecord(h.stateDirectory,h.engine.record);
+    const browser=buildSnapshot(h.engine).needsYou!;
+    expect(browser).toMatchObject({kind:agent==='codex'?'selection':'plan',resumeOffered:false});
+    expect(h.engine.sessionFolder).toBe(agent==='codex'?h.sandbox.root:h.repository);
+    expect(browser.freshSessionCommand).toContain(agent==='codex'?'codex':'claude');
+    const port=await freePort(); server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
+    const path=join(h.repository,`docs/prds/${FOLDER}`);
+    const expected={session_id:null,provider_session_id:null,agent,phase_key:browser.phaseId,working_directory:h.engine.sessionFolder,resumable:false,reason:'No saved session.',resume_command:null,resume_argv:null,continuation_prompt:null,fresh_session_instructions:{command:browser.freshSessionCommand,prompt:browser.freshSessionPrompt}};
+    const live=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
+    expect(live.code,live.stdout).toBe(0); expect(live.json().data).toMatchObject(expected);
+    const text=await command(['handoff',path],h.env,h.sandbox.root);
+    expect(text.code).toBe(0); expect(text.stdout).toContain(browser.freshSessionCommand); expect(text.stdout).toContain(browser.freshSessionPrompt);
+    await server.close(); server=undefined; rmSync(join(h.stateDirectory,'instance.lock'));
+    const before=tree(stateRoot(h.env));
+    const offline=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
+    expect(offline.code,offline.stdout).toBe(0); expect(offline.json().data).toMatchObject(expected);
+    const built=join(dirname(fileURLToPath(import.meta.url)),'../../dist/cli.js');
+    const child=spawnSync(process.execPath,[built,'handoff',path,'--json'],{cwd:h.sandbox.root,env:h.env,encoding:'utf8'});
+    expect(child.status,child.stdout).toBe(0); expect(child.stderr).toBe(''); expect(JSON.parse(child.stdout).data).toMatchObject(expected);
+    expect(tree(stateRoot(h.env))).toEqual(before); expect(h.claudeCalls()).toHaveLength(0);
+    expect(Object.values(h.engine.record.phases).every(p=>p.sessionIds.length===0)).toBe(true);
+    expect((await command(['handoff',path,'--session-id','missing','--json'],h.env)).code).toBe(2);
+  });
+  it('reports absent fresh instructions explicitly when no conversation or browser recovery was saved',async()=>{
+    sandbox=createSandbox(); const f=fixture(); const before=tree(stateRoot(sandbox.env));
+    const answer=await command(['handoff',f.path,'--json']);
+    expect(answer.code).toBe(0); expect(answer.json().data).toMatchObject({session_id:null,resumable:false,reason:'No saved session.',working_directory:null,resume_command:null,resume_argv:null,continuation_prompt:null,fresh_session_instructions:null});
+    expect(tree(stateRoot(sandbox.env))).toEqual(before);
+  });
   it.each(['paused', 'complete'] as const)('retains latest observed activity in %s detail, live inventory and disconnected cache', async state => {
     sandbox=createSandbox(); h=await createHarness({sessions:[{actions:[{result:'Saved final output.'}]}]});
     await h.engine.start({refinementConfirmed:true}); await h.engine.settled();
@@ -203,16 +253,28 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     writeFileSync(gate,'done');await h.engine.settled();
     const current=h.engine.latestSession('1')!;
     const earlier={...structuredClone(current),sessionId:'earlier-conversation',phaseId:'2a',createdAt:current.createdAt};
+    earlier.runs.at(-1)!.startedAt=new Date(Date.parse(current.runs.at(-1)!.startedAt)-1000).toISOString();
     h.engine.record.phases['2a']={sessionIds:[earlier.sessionId],repositories:{},finishedByPerson:false,outsideConfirmations:[]};
+    // A later prelaunch stop has no conversation; default handoff still uses
+    // the latest saved conversation, while an explicit selector stays exact.
+    delete h.engine.record.phases['1']!.stop;
+    h.engine.record.phases['3']={sessionIds:[],repositories:{},finishedByPerson:false,outsideConfirmations:[],stop:{kind:'plan',at:new Date().toISOString(),checkedAt:new Date().toISOString(),checks:[]}};
     writeSessionRecord(h.stateDirectory,earlier);writePrdRecord(h.stateDirectory,h.engine.record);
     // Reopen the server to capture selected historical instructions at an actual controller boundary.
     await server.close();server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    const fallback=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
+    expect(fallback.code,fallback.stdout).toBe(0);
+    const latest=fallback.json().data as Record<string,unknown>;
+    expect(latest).toMatchObject({session_id:current.sessionId,provider_session_id:current.sessionId,phase_key:'1',working_directory:current.workingDirectory,resumable:true,continuation_prompt:expect.stringContaining('phase-1-return-intake.md'),fresh_session_instructions:{prompt:expect.stringContaining('phase-1-return-intake.md')}});
     const historical=await command(['handoff',path,'--session-id',earlier.sessionId,'--json'],h.env,h.sandbox.root);
     expect(historical.code).toBe(4);const instructions=historical.json().data as Record<string,unknown>;
     expect(instructions.continuation_prompt).toContain('phase-2a-card-refunds.md');expect(instructions.fresh_session_instructions).toMatchObject({prompt:expect.stringContaining('phase-2a-card-refunds.md')});
     await server.close();server=undefined;rmSync(join(h.stateDirectory,'instance.lock'));
     const offline=(await command(['handoff',path,'--session-id',earlier.sessionId,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
     expect(offline.continuation_prompt).toEqual(instructions.continuation_prompt);expect(offline.fresh_session_instructions).toEqual(instructions.fresh_session_instructions);
+    const offlineLatest=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
+    expect(offlineLatest.code,offlineLatest.stdout).toBe(0);
+    expect(offlineLatest.json().data).toMatchObject({session_id:current.sessionId,provider_session_id:current.sessionId,phase_key:'1',working_directory:current.workingDirectory,resumable:true,continuation_prompt:latest.continuation_prompt,fresh_session_instructions:latest.fresh_session_instructions});
   });
   it('preserves independently dated attempt/current accounts, usage windows, effective models and named nested/audit activity',async()=>{
     sandbox=createSandbox();const f=fixture();const s=session(f);s.record.initModel='effective-provider-model';
