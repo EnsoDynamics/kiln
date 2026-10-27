@@ -1,8 +1,8 @@
 # PRD: Control a live Kiln session
 
-**Status:** Requirements refined through one independent review round and its corrections; no product implementation in this change.
+**Status:** Requirements refined; paired pause UX and mockups approved on 2026-10-26; ready for technical design. No product implementation in this change.
 
-**Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Commit documents only; do not push. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
+**Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
 **In service of:** Kiln product; a bounded change, not a phase of another PRD.
 
@@ -28,14 +28,14 @@ An **activity** is one implementation phase or one delivery/test-audit round. A 
 
 ### Act on the conversation that is running now
 
-The person should see both live controls beside the session's output, with enough identity to avoid steering the wrong work.
+The person sees the message composer and both clearly labeled pause choices with the session's output, with enough identity to avoid steering the wrong work.
 
 - [ ] **AC-LIVE-01 — Both actions live in the active session view.** The current activity's session-detail view places **Message Claude** directly below live output, followed by **When should Kiln pause?**, with the two choices in AC-LIVE-03 visible together above the existing progress/session facts. The running overview links to that view with **Control live session**. The activity title, audit round where applicable, provider, session identity and connection state remain visible. Historical sessions never acquire live controls merely because they are being viewed.
 - [ ] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
 
   | State | Message | Pause / terminal takeover | What the person sees |
   |---|---|---|---|
-  | Running Claude attempt controlled by this Kiln | Nonempty text can be sent | Pause & take over | Live output, both controls, existing Pause after this phase/audit kept separate |
+  | Running Claude attempt controlled by this Kiln | Nonempty text can be sent | Pause & take over | Live output and message composer, then both pause choices grouped under When should Kiln pause? (AC-LIVE-03) |
   | Message submission pending | Prevent repeat submission | Wait for that submission's outcome before pausing | Submitting; no delivery claim yet |
   | Pausing or reconciling a recovered process | Unavailable | Pending; no usable resume command yet | Stopping status, latest output, explanation that terminal use must wait |
   | Paused for terminal takeover | Live send unavailable | Copy exact resume command | Needs you with the existing terminal and hand-back sections |
@@ -124,9 +124,13 @@ The [standalone mockup](mockups/kiln-live-session-control.html) uses the existin
 
 This session produces requirements, assumptions and mockups only. Before implementation, the technical design must prove message accounting across multiple results and interruption/restart races, terminal ownership detection, and the safe-checkpoint/yield path and release with real foreground/background tools on supported platforms. The investigation records which runtime facts are already measured and which product behaviors do not exist yet. These are implementation proof obligations, not claims that a prototype has shipped.
 
+## Next: technical design
+
+Doug approved the paired pause choices and their distinct requested/completed states on 2026-10-26. Draft `kiln-live-session-control-technical-design.md` beside this PRD using `technical-design-writing-standards`, then run its independent `review-technical-design` step. The investigation's **Technical design must resolve before implementation** section owns the remaining proof obligations. The design must cover the whole PRD, including AC-LIVE-03/04 across browser and bot status; this approval does not establish that the provider can safely yield mid-session or that product implementation is ready.
+
 ## Out of scope
 
 - Embedded terminal/chat client, automatic terminal launch, peer inbox, attachments or editing a submitted message.
-- Changing completion evidence, merge/deployment permissions, billing rules, or the existing deferred pause.
+- Changing completion evidence, merge/deployment permissions, billing rules, or when the existing deferred pause takes effect. Its labels and presentation are clarified by AC-LIVE-03/04.
 - Final-delivery sessions and Codex live controls under SCOPE-001; existing recovery for both remains.
 - Building the bot discovery, account-login or command-receipt infrastructure here; the bot PRD owns it. Its original first-release boundary is extended by AC-BOT-01/02 when this change is built, not retroactively declared implemented.
