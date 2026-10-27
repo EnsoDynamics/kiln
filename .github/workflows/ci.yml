@@ -3,19 +3,33 @@ name: CI
 on:
   push:
     branches: [develop, main]
-    # Keep executable documentation fixtures and browser references covered.
+    # Keep only the documentation fixtures and browser references tests consume.
     # README.md is packaged, and prompts/ contains runtime inputs; neither is skipped.
+    # Add new documentation dependencies to both lists when tests start reading them.
+    # npm's explicit package.json files list takes precedence over root .gitignore.
     paths:
       - '**'
+      - '!.gitignore'
       - '!docs/**'
-      - 'docs/prds/kiln-v1/**'
-      - 'docs/**/mockups/**'
+      - 'docs/prds/kiln-v1/kiln-v1-prd.md'
+      - 'docs/prds/kiln-v1/technical-design.md'
+      - 'docs/prds/kiln-v1/assumptions.md'
+      - 'docs/design/mockups/**'
+      - 'docs/changes/kiln-multi-repo-delivery/mockups/**'
+      - 'docs/changes/kiln-usage-limit-recovery/mockups/**'
+      - 'docs/changes/kiln-billing-safeguards/mockups/**'
   pull_request:
     paths:
       - '**'
+      - '!.gitignore'
       - '!docs/**'
-      - 'docs/prds/kiln-v1/**'
-      - 'docs/**/mockups/**'
+      - 'docs/prds/kiln-v1/kiln-v1-prd.md'
+      - 'docs/prds/kiln-v1/technical-design.md'
+      - 'docs/prds/kiln-v1/assumptions.md'
+      - 'docs/design/mockups/**'
+      - 'docs/changes/kiln-multi-repo-delivery/mockups/**'
+      - 'docs/changes/kiln-usage-limit-recovery/mockups/**'
+      - 'docs/changes/kiln-billing-safeguards/mockups/**'
   # The release workflow runs these same checks before it publishes.
   workflow_call:
 
