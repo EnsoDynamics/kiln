@@ -12,7 +12,7 @@ Stakeholder feedback can change assumptions after a feature has shipped. A separ
 
 The motivating example is `pricing`, `docs/prds/competitive-pricing-national-brand/`: the supplied screenshot shows seven completed phases and “Already merged.” The current local plan, inspected on 2026-10-27, adds phases 9–15 and says phase 8 was completed separately on another branch. Phase 9 explicitly includes integrating that work as its first step, with recorded authorization. There are seven new unfinished phases, not necessarily eight because the highest number is 15. Kiln must discover real work and its prerequisites, rather than infer it from the highest phase number.
 
-Source: Doug's request in chat `01a17c67-4f1d-7950-aa77-f1e682aeeec8`, the attached completed-run screenshot, and the pricing phase plan. Current-behavior references: `src/engine/engine.ts` (`prepare`, `decideQuietly`, `readPlan`) and `src/engine/plan-reading.ts` (`nextLeaf`, `recordedPlan`). These are investigation evidence, not a prescribed implementation.
+Source: Doug's request in chat `01a17c67-4f1d-7950-aa77-f1e682aeeec8`, the attached completed-run screenshot, and the pricing phase plan. Current-behavior references: `src/engine/engine.ts` (`prepare`, `decideQuietly`, `readPlan`) and `src/engine/plan-reading.ts` (`nextLeaf`, `recordedPlan`).
 
 ## Acceptance Criteria
 
@@ -102,11 +102,10 @@ The ready and continuing scenarios assume the documented preparation source and 
 
 ## Assumptions
 
-Two scope choices are proposed in [the assumptions document](kiln-continue-added-phases-assumptions.md): when automatic checking happens (CONTINUE-001), and requiring a committed, integrated plan when restarting a finished run (CONTINUE-002). Neither blocks this draft.
+Two scope choices are proposed in [the assumptions document](kiln-continue-added-phases-assumptions.md): when automatic checking happens (CONTINUE-001), and requiring a committed, integrated plan when restarting a finished run (CONTINUE-002).
 
 ## Out of Scope
 
 - Processing stakeholder feedback, generating missing phases, or inferring implementation work from prose changes alone.
 - Automatically undoing/reopening completed phases, discovering arbitrary unrelated branches or other PRDs, or running a PRD roadmap.
 - A background monitor while Kiln is closed, notifications to external services, or automatic implementation on discovery.
-- Technical design, implementation and production release as part of this documentation request.
