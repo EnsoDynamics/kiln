@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Joint PRD/design refinement in progress. All four mechanism questions are answered: tracked-operation checkpoint coverage, ordinary-terminal ownership admission, shared bot instruction authority and literal input with fresh turn-start context on the validated macOS profile. Final refinement verification remains pending. No product implementation is included.
+**Status:** Joint PRD/design refinement complete; ready for phase planning. Provider feasibility on the validated macOS profile and the shared bot instruction contract are established within the evidence limits below. Assembled controller behavior remains implementation verification. No product implementation is included.
 
 ## Overview
 
@@ -229,6 +229,8 @@ Design probes used Claude Code **2.1.311**, Sonnet 5.5 and local macOS disposabl
 | AC-BOT-01, AC-BOT-02 | Bot Extension; shared Local Interfaces and receipt semantics |
 
 ## Open Questions
+
+No unresolved technical questions remain. The resolved decisions below point to their owning sections; assembled product verification remains in §Evidence and Verification Gates.
 
 **Q1 — Resolved: ordinary-terminal ownership admission (95% confidence).** §Ownership admission defines final-boundary checks within Kiln's serialized browser/bot/automatic action authority. Real ordinary terminal resume, including another cwd, is discoverable/refused by provider UUID and PID/start identity; exact pending-resume argv covers observed pre-registry startup. Clean terminal exit and precise new-process self-exclusion were measured. The approved command and AC-TAKE-04 remain unchanged. Independent direct CLI launches after Kiln admission are outside that serialization; provider-wide atomic exclusion is not claimed. Assembled controller/race and ambiguous-identity cases remain implementation validation.
 

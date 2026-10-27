@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Requirements refined; paired pause UX and mockups approved on 2026-10-26. Whole-change technical design drafted and independently reviewed; joint PRD/design refinement has answered its four mechanism questions with runtime and dependency evidence. Final refinement verification remains pending. No product implementation in this change.
+**Status:** Joint PRD/design refinement complete; ready for phase planning after document consolidation and preparation of the stakeholder review package. Paired pause UX and mockups remain approved as of 2026-10-26. No product implementation in this change; acceptance criteria remain unchecked.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -131,9 +131,11 @@ The [standalone mockup](mockups/kiln-live-session-control.html) uses the existin
 
 This change contains requirements, assumptions, mockups and a reviewed technical design only; no product implementation. Runtime investigations establish the live-input, checkpoint and ordinary-terminal mechanisms on the validated profile; the bot instruction contract is reconciled. Implementation must prove the assembled controller’s message accounting, interruption/restart races, ownership checks, safe release and phase/audit hand-back against the approved criteria. The investigation distinguishes measured provider facts from those remaining product verification obligations. No prototype is claimed to have shipped.
 
-## Next: joint PRD/design refinement
+## Next: size and plan implementation
 
-Doug approved the paired pause choices and their distinct requested/completed states on 2026-10-26. The [whole-change technical design](kiln-live-session-control-technical-design.md) was drafted using `technical-design-writing-standards` and independently revised with `review-technical-design`. Joint `autonomous-design-refinement` has answered its four mechanism questions: ordinary-terminal ownership admission within Kiln’s browser/bot/automatic action boundary, safe yield of tracked operations, shared bot instruction authority and literal live input with fresh instructions. The approved ordinary terminal command and UI remain unchanged. Finish refinement’s final verification and consolidation before handing off for phase planning; assembled controller behavior remains implementation validation. The investigation’s **Design decisions and remaining implementation proof** section records that boundary. The design covers the whole PRD, including AC-LIVE-03/04 across browser and bot status; no acceptance criterion is marked implemented.
+Joint `autonomous-design-refinement` is complete. The [whole-change technical design](kiln-live-session-control-technical-design.md) resolves ordinary-terminal ownership admission within Kiln’s browser/bot/automatic action boundary, safe yield of tracked operations, shared bot instruction authority and literal live input with fresh instructions. Final readiness and cross-PRD conflict checks are clean; the approved ordinary terminal command and UI remain unchanged.
+
+After document consolidation and preparation of the stakeholder review package, run `phase-split` to size and plan this change without implementing it. The investigation’s **Design decisions and remaining implementation proof** section records the assembled controller verification still owed during implementation. No acceptance criterion is marked implemented.
 
 ## Out of scope
 
