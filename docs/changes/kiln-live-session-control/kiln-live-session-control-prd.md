@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Phases 1–5 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) completes the remaining AC-TAKE-05 activity-time gap and records scoped evidence with the current full-run/focused-retest qualification. The authorized next unit is a fresh whole-PRD delivery audit, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** Phases 1–5 are closed and published. The whole-PRD delivery audit after Phase 5 found 19 criteria Implemented and AC-LIVE-02 Partly implemented: final-delivery browser views omit the required explanation of unavailable live controls. [Phase 6](phase-6-final-delivery-availability.md) completes that gap; a fresh whole-PRD delivery audit follows, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -32,7 +32,7 @@ The person sees the message composer and both clearly labeled pause choices with
 
 - [x] **AC-LIVE-01 — Both actions live in the active session view.** The current activity's session-detail view places **Message Claude** directly below live output, followed by **When should Kiln pause?**, with the two choices in AC-LIVE-03 visible together above the existing progress/session facts. The running overview links to that view with **Control live session**. The activity title, audit round where applicable, provider, session identity and connection state remain visible. Historical sessions never acquire live controls merely because they are being viewed.
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the added composer, grouped pause choices and affected running/session-detail arrangement; unaffected layout and style remain).
-- [x] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
+- [ ] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
   - Replaces in part: AC-WATCH-01, AC-WATCH-02 and AC-VIEW-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (transport loss labels retained state and time as last known; it does not establish that work stopped or enable terminal recovery).
   - Replaces in part: AC-LIMIT-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a disconnected waiting state remains last known rather than implying a proven interruption).
 
@@ -136,9 +136,9 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: whole-PRD delivery audit after Phase 5
+## Next: Phase 6, then whole-PRD delivery audit
 
-The [audit after Phase 4](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-4--2026-10-27) added the activity-time repair completed by [Phase 5](phase-5-takeover-activity-time.md). Phase 5 is published; repeat whole-PRD `delivery-audit`, then run `test-audit` only when delivery is clean. The Phase 5 leaf records its acceptance evidence and full-run/focused-retest qualification. Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain historical records; none establishes the new whole-PRD audit outcome.
+The [audit after Phase 5](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-5--2026-10-27) confirms the activity-time repair and adds [Phase 6](phase-6-final-delivery-availability.md) for the remaining availability explanation. Build Phase 6, then repeat whole-PRD `delivery-audit`; run `test-audit` only when delivery is clean. Phase 5's full-run/focused-retest qualification, Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain distinct historical records. This delivery audit traced code without running or grading product tests.
 
 ## Out of scope
 
