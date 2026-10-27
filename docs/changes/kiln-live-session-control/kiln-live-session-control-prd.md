@@ -12,7 +12,7 @@
 
 ## Summary
 
-Let a person send a message to the Claude conversation Kiln is currently running, without ending it. Beside that message box, offer **Pause & take over**: stop that session, preserve its conversation and work, and show the exact command and folder for continuing in a terminal. When the person exits Claude, Kiln's existing **Back from your terminal?** section lets them resume unfinished work or verify finished work and advance.
+Let a person send a message to the Claude conversation Kiln is currently running, without ending it. Below that message box, show both pause choices together under **When should Kiln pause?** Offer **Pause & take over**: stop that session, preserve its conversation and work, and show the exact command and folder for continuing in a terminal. When the person exits Claude, Kiln's existing **Back from your terminal?** section lets them resume unfinished work or verify finished work and advance.
 
 The same controls cover implementation phases, delivery audits and test audits. Audits keep their actual names and rounds. The planned bot interface gains both actions, using the same rules as the browser.
 
@@ -30,8 +30,8 @@ An **activity** is one implementation phase or one delivery/test-audit round. A 
 
 The person should see both live controls beside the session's output, with enough identity to avoid steering the wrong work.
 
-- [ ] **AC-LIVE-01 — Both actions live in the active session view.** The current activity's session-detail view places **Message Claude** and **Pause & take over** directly below live output, above the existing progress/session facts. The running overview links to that view with **Control live session**. The activity title, audit round where applicable, provider, session identity and connection state remain visible. Historical sessions never acquire live controls merely because they are being viewed.
-- [ ] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message and takeover choices stack in that order.
+- [ ] **AC-LIVE-01 — Both actions live in the active session view.** The current activity's session-detail view places **Message Claude** directly below live output, followed by **When should Kiln pause?**, with the two choices in AC-LIVE-03 visible together above the existing progress/session facts. The running overview links to that view with **Control live session**. The activity title, audit round where applicable, provider, session identity and connection state remain visible. Historical sessions never acquire live controls merely because they are being viewed.
+- [ ] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
 
   | State | Message | Pause / terminal takeover | What the person sees |
   |---|---|---|---|
@@ -43,6 +43,28 @@ The person should see both live controls beside the session's output, with enoug
   | Browser disconnected / controller unreachable | Unavailable | Unavailable | Last-known state and observation time; reconnect before acting |
   | Completed, waiting for usage, between activities, or ordinary Needs you | No live controls | Existing state-specific controls | Recovery and deferred-pause behavior stays recognizable |
   | Running Codex session | Unavailable under SCOPE-001 | Unavailable under SCOPE-001 | Claude-only explanation; existing Codex controls remain |
+
+### Choose when to pause without guessing what “pause” means
+
+Taking over unfinished work and letting Kiln finish the current activity are different intentions. Show both choices together so the person can compare when Kiln stops and what happens next.
+
+- [ ] **AC-LIVE-03 — The two pause choices explain their timing and result.** Under **When should Kiln pause?**, display the following peer choices. Use the actual phase identifier or audit name/round. Neither control is labeled just “Pause” or “Pause now”; the takeover choice does not imply abrupt interruption. Meaning must be clear from words, without relying on color, icons, a tooltip or opening another page.
+
+  | Choice | Visible timing and explanation | Action |
+  |---|---|---|
+  | **Take over this session** | **At the next safe stopping point.** Finish the current operation, then stop before starting more work. Open the same conversation in your terminal; the phase/audit can remain unfinished. | **Pause & take over** |
+  | **Let {activity} finish first** | **After the whole phase/audit.** Kiln finishes its work, commits, pushes and required completion checks, then waits before starting the next activity. No terminal takeover is needed. | **Pause after this phase** / **Pause after this audit** |
+
+- [ ] **AC-LIVE-04 — Pending and completed pauses remain distinguishable.** The visible states and action labels follow the table below. Preserve any independently requested end-of-activity pause when takeover is requested or handed back; show that pending request and its separate cancellation action. Cancelling it never cancels takeover or resumes stopped work.
+
+  | State | Required wording and available next action |
+  |---|---|
+  | Takeover requested, operation still running | **Pausing for takeover — finishing the current operation.** Explain that the terminal becomes available after Kiln releases the conversation; never imply the whole phase/audit must finish. |
+  | End-of-activity pause requested | **Will pause after {activity} finishes. Current work continues.** Keep live messaging and takeover available under their usual rules. Offer **Cancel end-of-phase pause** / **Cancel end-of-audit pause**, not “Keep going.” |
+  | Takeover ready | **Paused for terminal takeover.** Offer the exact conversation command and existing hand-back flow. |
+  | End-of-activity pause reached | **{activity} finished. Paused before the next activity.** Retain the existing action for starting the next eligible activity, clearly labeled with that destination; do not offer resuming the finished conversation as the way to continue. |
+
+  These labels apply wherever Kiln exposes the affected browser controls, including the running overview and session detail. Bot status carries the same distinction; existing command names and deferred-pause behavior remain unchanged.
 
 ### Send an instruction without restarting the session
 
@@ -59,8 +81,8 @@ A message can change what the agent does next. Kiln must distinguish delivery to
 
 The takeover action keeps Kiln open but prevents it from continuing the plan while the person works. The terminal command becomes usable only after the old attempt is gone.
 
-- [ ] **AC-TAKE-01 — The pause holds this activity and the plan.** Accepting **Pause & take over** immediately holds automatic advancement and automatic recovery for this execution, then requests that the active session yield at the next safe completed-operation checkpoint (as defined above), before starting more substantive work. The activity is not marked complete or failed solely because the person interrupted it. The hold survives browser disconnection and Kiln restart until an explicit hand-back action resolves it. Adjacent text states **“Pauses after the current operation reaches a safe stopping point, before starting more work. It does not wait for the whole batch or session to finish. Conversation and existing work are kept.”** The existing deferred pause still means finish the current phase/audit, including its normal checks, before stopping.
-- [ ] **AC-TAKE-02 — Terminal readiness requires exclusive use.** Kiln shows **Pause requested — finishing the current operation**, explains that it will stop before starting more work, and says **Wait before opening Claude**. The pending state remains until its attempt and tracked tool processes are stopped and the saved conversation is available. A result event or interrupt acknowledgement alone is insufficient. No terminal-ready claim or enabled copy command is offered while cleanup, process identity or resumability is unresolved. Failure shows the concrete obstacle and a retry/recovery path; it does not automatically resume or advance. A recovered process after restart uses the same release requirement, despite having no message channel. If a safe checkpoint cannot be established, keep the hold and wait for the old attempt to end; do not apply the existing cancelling interrupt or forced termination merely to enable takeover.
+- [ ] **AC-TAKE-01 — The pause holds this activity and the plan.** Accepting **Pause & take over** immediately holds automatic advancement and automatic recovery for this execution, then requests that the active session yield at the next safe completed-operation checkpoint (as defined above), before starting more substantive work. The activity is not marked complete or failed solely because the person interrupted it. The hold survives browser disconnection and Kiln restart until an explicit hand-back action resolves it. The visible timing and consequence follow AC-LIVE-03/04. The existing deferred pause still means finish the current phase/audit, including its normal checks, before stopping.
+- [ ] **AC-TAKE-02 — Terminal readiness requires exclusive use.** Kiln shows **Pausing for takeover — finishing the current operation**, explains that it will stop before starting more work, and says **Wait before opening Claude**. The pending state remains until its attempt and tracked tool processes are stopped and the saved conversation is available. A result event or interrupt acknowledgement alone is insufficient. No terminal-ready claim or enabled copy command is offered while cleanup, process identity or resumability is unresolved. Failure shows the concrete obstacle and a retry/recovery path; it does not automatically resume or advance. A recovered process after restart uses the same release requirement, despite having no message channel. If a safe checkpoint cannot be established, keep the hold and wait for the old attempt to end; do not apply the existing cancelling interrupt or forced termination merely to enable takeover.
 - [ ] **AC-TAKE-03 — The paused page opens the exact saved conversation.** Once ready, the existing Needs you layout says **Paused for terminal takeover**, names the interrupted activity, and shows the last message/output and interruption facts. Its terminal choice displays the actual working directory and copyable, correctly quoted `cd <folder> && claude --resume <session-id>` command, including existing necessary recovery instructions. Copying does not launch anything. Missing history shows existing recovery guidance without promising same-conversation resumption.
 - [ ] **AC-TAKE-04 — Competing and late actions cannot start another owner.** Browser, bot and automatic actions serialize against the same activity/attempt. Repeated requests return the existing outcome, not another message or pause. If the targeted activity ends before pause is accepted, report that it ended and never pause its successor. If it ends after acceptance, retain the hold and allow completion verification. Hand-back cannot start a Kiln attempt while the terminal conversation or unresolved tracked work still owns it; where exclusive use cannot be established, remain stopped and explain why.
 
@@ -92,7 +114,8 @@ The [standalone mockup](mockups/kiln-live-session-control.html) uses the existin
 
 | Preview | Criteria illustrated |
 |---|---|
-| Running; sent; delivery uncertain | AC-LIVE-01/02, AC-MSG-01–05 |
+| Running; sent; delivery uncertain | AC-LIVE-01–04, AC-MSG-01–05 |
+| End-of-activity pause requested; both requests; end-of-activity pause reached | AC-LIVE-03/04 |
 | Pausing; restart without input; disconnected | AC-LIVE-02, AC-TAKE-01/02/04 |
 | Paused; back from terminal; uncertain-message review; incomplete verification | AC-TAKE-03, AC-MSG-05, AC-BACK-01/03 |
 | Already complete; resumed; advanced | AC-BACK-02/04 |
