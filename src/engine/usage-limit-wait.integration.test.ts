@@ -217,16 +217,29 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
   });
 
   it("takes a reading a minute after the limit's reset time", async () => {
-    // The reset was 55 seconds ago, so the reset reading is due a few seconds from now.
+    // Keep Git/setup duration out of the reset window while retaining ordered
+    // observation timestamps. The reset timer itself uses real elapsed time.
     const clock = testClock();
+    let tick = clock.now().getTime();
+    let waitingAt: number | undefined;
+    const waitingEngine: { current?: Engine } = {};
+    clock.now = () => {
+      if (waitingAt === undefined && waitingEngine.current?.waitingPhaseKey() === "1") waitingAt = Date.now();
+      return new Date(waitingAt === undefined ? tick++ : tick + Date.now() - waitingAt);
+    };
     const claude = scriptedClaude(clock);
     const reset = Math.floor(clock.now().getTime() / 1000) - 55;
     harness = await createHarness({ sessions: [refusedSession({ rateLimitType: "five_hour", resetsAt: reset })], engineOptions: { claude, now: clock.now } });
-    const s: Setup = { h: harness, claude, clock, reset };
-    await startToWait(s);
+    waitingEngine.current = harness.engine;
+    await harness.engine.start({ refinementConfirmed: true });
+    // Observe the wait immediately; unrelated commit reads may settle after
+    // the real timer fires on a busy workstation.
+    await waitFor(() => harness!.engine.waitingPhaseKey() === "1" && claude.waiting);
     claude.deliver(signedIn([usageRow("session", 100)]));
     const asked = claude.asked;
     await waitFor(() => claude.asked > asked, 10_000);
+    expect(clock.now().getTime()).toBeGreaterThanOrEqual(reset * 1000 + 60_000);
+    await harness.engine.settled();
   });
 
   it("asks for a reading on waking from a sleep during a wait (AC-AUTO-03)", async () => {
