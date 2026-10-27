@@ -147,7 +147,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (name === "status") return write(statusProjection(work, undefined, flags.detail === "full"));
     if (name === "account") {
       if (flags.refresh) throw new ControlFailure("controller_unreachable", "Fresh account reads require the matching live controller.");
-      return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work) }));
+      const history = readHistory(work);
+      return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work, undefined, false, history) }, history.errors));
     }
     if (name === "settings") return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }));
     if (name === "handoff") return write(await handoffProjection(work, typeof flags["session-id"] === "string" ? flags["session-id"] : undefined, context.env));

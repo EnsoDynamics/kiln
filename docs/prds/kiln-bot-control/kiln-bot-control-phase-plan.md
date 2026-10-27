@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Implementation leaves 1–4 are closed and published through `8a2975d` on 2026-10-27. The fresh [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) finds one account-provenance defect affecting AC-SEE-03 and AC-ACCOUNT-01. Build completion Phase 5, then repeat whole-PRD delivery audit; whole-PRD test audit follows only when delivery is clean.
+Implementation leaves 1–5 are closed on 2026-10-27. Leaves 1–4 are published through `8a2975d`; completion Phase 5’s new commits remain held for Doug’s explicit publication authorization. Run a fresh whole-PRD delivery audit after Phase 5 closes; whole-PRD test audit follows only when delivery is clean. The prior [delivery audit](kiln-bot-control-delivery-audit.md) remains a historical gap baseline. Phase 5’s [validation and known baseline failures](phase-5-complete-attempt-account-provenance.md#implementation-and-validation) record its evidence and the full gate’s limits.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -12,7 +12,7 @@ Implementation leaves 1–4 are closed and published through `8a2975d` on 2026-1
 | [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Closed 2026-10-27 |
 | [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Closed 2026-10-27 |
 | [4: Complete recovery instructions without a saved conversation](phase-4-complete-no-session-handoff.md) | Added by delivery audit: return available fresh-session instructions when work stops before any conversation is saved. | 1 (handoff/history projections and retained browser instructions) | Closed 2026-10-27 |
-| [5: Complete attempt account provenance](phase-5-complete-attempt-account-provenance.md) | Added by delivery audit: keep the last attempt’s account, plan and observation time tied to that attempt when a later launch fails before starting. | 1 (account/status projections); 2 (durable launch admission and failure handling) | Open |
+| [5: Complete attempt account provenance](phase-5-complete-attempt-account-provenance.md) | Added by delivery audit: keep the last attempt’s account, plan and observation time tied to that attempt when a later launch fails before starting. | 1 (account/status projections); 2 (durable launch admission and failure handling) | Closed 2026-10-27 |
 
 ## Criterion ownership
 
@@ -30,4 +30,4 @@ The second phase carries one coupled control capability: all entry points share 
 
 Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After all implementation leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
 
-Completion Phase 4 is published at `8a2975d`; the fresh delivery audit confirms its recovery-instruction repair. The audit remains incomplete for the two account criteria assigned to Phase 5. After Phase 5 closes, repeat whole-PRD delivery audit, then whole-PRD test audit only when delivery is clean. Audit-document commits follow the skill default; publishing this audit’s new commits remains held for Doug’s explicit authorization. No production release is authorized.
+Completion Phase 4 is published at `8a2975d`; the prior delivery audit confirms its recovery-instruction repair. Phase 5 closes the account-provenance completion work with evidence in its phase document. Repeat whole-PRD delivery audit after Phase 5 closes, then whole-PRD test audit only when delivery is clean. Scoped commits follow their skills’ defaults; publishing new implementation or audit commits remains held for Doug’s explicit authorization. No production release is authorized.

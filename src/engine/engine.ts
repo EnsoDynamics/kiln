@@ -2330,7 +2330,17 @@ export class Engine {
     if (dispatchedControl) {
       dispatchedControl.stage = "dispatching"; dispatchedControl.session_id = session.sessionId; dispatchedControl.phase_key = phaseKey; dispatchedControl.attempt_id = randomUUID();
       dispatchedControl.effects.session = "starting";
-      this.commands.checkpoint(dispatchedControl);
+      try { this.commands.checkpoint(dispatchedControl); }
+      catch (error) {
+        // No provider was started. Retain the journal fault and report this
+        // failed dispatch without letting its rejected write kill inspection.
+        dispatchedControl.effects.session = "not_started";
+        if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = "not_sent";
+        try { this.commands.finishAutomatic(dispatchedControl); } catch { /* Journal fault keeps dispatch blocked. */ }
+        this.controlDispatch = undefined;
+        this.emit({ kind: "message", text: (error as Error).message });
+        return;
+      }
     }
     let live: SessionRun["live"];
     if (session.agentId !== "codex" && phaseKey !== PR_PHASE_KEY && process.platform === "darwin") {

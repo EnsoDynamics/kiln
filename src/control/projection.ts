@@ -16,7 +16,7 @@ import { selectedChoice } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { privateJson, type SavedWork } from "./private-state.js";
-import { chooseSession, readHistory, workingDirectoryAvailable, type Conversation } from "./history.js";
+import { chooseSession, readHistory, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
 
@@ -83,23 +83,25 @@ function cached(work: SavedWork): InspectionCache | null {
   if (saved.version !== 1 || saved.execution_id !== work.record.executionId) throw new ControlFailure("state_unavailable", "Saved inspection snapshot does not match this execution.");
   return saved;
 }
-export function accountFacts(work: SavedWork, snapshot?: Snapshot, reachable = false): Record<string, unknown> {
+export function accountFacts(work: SavedWork, snapshot?: Snapshot, reachable = false, history: History = readHistory(work)): Record<string, unknown> {
   const cache = snapshot ? null : cached(work); const view = snapshot ?? cache?.snapshot;
-  const last = work.record.billing?.lastLaunch;
   const account = view?.account;
   const observed = (value: unknown, at: string | null, reason: string | null, stale = false) => ({ value: value ?? null, observed_at: at, state: value == null ? "unavailable" : stale || !reachable ? "stale" : "current", reason: reason ?? (!reachable ? "Controller disconnected; last-known observation." : null) });
-  const history = readHistory(work);
-  const lastSession = [...history.sessions].sort((a, b) => (a.record.runs.at(-1)?.startedAt ?? a.record.createdAt).localeCompare(b.record.runs.at(-1)?.startedAt ?? b.record.createdAt)).at(-1)?.record;
+  const lastSession = history.complete ? history.sessions.filter(s => s.record.runs.length).sort((a, b) => a.record.runs.at(-1)!.startedAt.localeCompare(b.record.runs.at(-1)!.startedAt)).at(-1)?.record : undefined;
   const lastRun = lastSession?.runs.at(-1);
-  const attemptAccount = lastRun?.codex?.account ?? lastRun?.account;
+  // Global lastLaunch can be saved before the next durable dispatch checkpoint.
+  // Only the selected attempt's own dated observations establish its provenance.
+  // Legacy run.account has no observation time or plan and cannot supply these.
+  const attemptAccount = lastRun?.codex?.account ?? (lastRun?.billing ? publicBilling(lastRun.billing) : null);
+  const attemptAt = lastRun?.codex?.account.at ?? lastRun?.billing?.observedAt ?? null;
   const next = account ? publicAccount(account) : null;
   return {
     agent: work.record.settings.agentId,
-    last_attempt: observed(attemptAccount ?? (last ? publicBilling(last) : null), lastRun?.codex?.account.at ?? last?.observedAt ?? null, last || attemptAccount ? null : "No account was recorded at launch."),
+    last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ?? null, lastSession?.codex?.originalAccount.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
     next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!account ? "Current provider identity has not been read." : null), account?.stale),
     usage: observed(account?.limits ?? null, account?.updatedAt ?? null, account?.limitsError ?? (!account ? "Usage unavailable." : null), account?.stale || !!account?.limitsError),
-    recovery: observed(account?.codexUsage ?? null, account?.updatedAt ?? null, account?.codexUsage ? null : "No provider recovery permission was observed."),
+    recovery: observed(account?.codexUsage ?? null, account?.codexUsageObservedAt ?? account?.updatedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
     billing: view?.billing ?? null,
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
@@ -133,7 +135,10 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   }
   const state = view?.feature.state ?? (!record.startedAt ? "not_started" : record.completedAt ? "complete" : savedStop ? "needs_you" : wait ? "waiting" : record.pause.activeSince ? "paused" : "implementing");
   const leaves = (record.plan ?? []).filter(p => !p.splitInto?.length);
-  const controls = engine ? engine.controlView().controls.map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Planned control: durable command admission is not implemented in this inspection release." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  let control: ReturnType<Engine["controlView"]> | undefined;
+  try { control = engine?.controlView(); }
+  catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
+  const controls = control ? control.controls.map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active);
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity);
@@ -152,8 +157,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     pause: record.pause, usage_wait: view?.waiting ?? wait?.[1].wait ?? null, stop: stopDetail,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
-    status_token: engine?.controlView().token ?? null, controls, unsent_replies: engine ? engine.commands.unsent(engine.controlView().target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
-    ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
+    status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
+    ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
   }, [...statusErrors, ...last.errors]);
   if (engine && JSON.stringify(engine.record) !== before) throw new ControlFailure("state_unavailable", "Execution changed while status was assembled; refresh status.");
   return answer;

@@ -172,5 +172,6 @@ export async function readCodexMetadata(options: { executable: string | undefine
   } catch { result.blockers.push("Codex metadata failed. Check Codex installation and sign-in in a terminal."); }
   finally { await rpc.close(); }
   result.account.updatedAt = new Date().toISOString();
+  if (result.account.codexUsage) { result.account.codexUsageObservedAt = result.account.updatedAt; result.account.codexUsageStale = false; }
   return result;
 }

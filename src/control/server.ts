@@ -3,7 +3,7 @@ import { strictJson } from "../audit/storage.js";
 import type { Hono, Context } from "hono";
 import { dirname, resolve } from "node:path";
 import { readWork } from "./private-state.js";
-import { accountFacts, handoffProjection, instanceEpoch, statusProjection, inspectionSnapshot } from "./projection.js";
+import { handoffProjection, instanceEpoch, statusProjection } from "./projection.js";
 import { readHistory, chooseSession } from "./history.js";
 import { outputPage } from "./logs.js";
 import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
@@ -40,15 +40,28 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     return outputPage(saved, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json: c.req.query("format") !== "text", ...(selector ? { session: selector } : {}), ...(cursor ? { cursor } : {}) });
   });
   route("handoff", ["session_id"], c => handoffProjection(work(), c.req.query("session_id"), engine.environment, engine));
-  route("account", [], () => result({ prd_path: work().canonical, execution_id: engine.record.executionId!, data: accountFacts(work(), inspectionSnapshot(engine), true) }));
+  route("account", [], () => {
+    const saved = work(); const status = statusProjection(saved, engine, true);
+    return result({ prd_path: saved.canonical, execution_id: engine.record.executionId!, data: status.account ?? null }, status.errors);
+  });
   app.post("/api/control/v1/account/refresh", async c => {
     try {
-      if (c.req.raw.body !== null || c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs.", 2);
+      if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs.", 2);
+      // The Node HTTP adapter supplies a body stream even for a bodyless POST.
+      // Check its bytes; existence of the stream does not mean inputs were sent.
+      const reader = c.req.raw.body?.getReader();
+      if (reader) {
+        let expired = false;
+        const timeout = setTimeout(() => { expired = true; void reader.cancel(); }, 5000);
+        try {
+          if (!(await reader.read()).done || expired) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs and must finish within five seconds.", 2);
+        } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
+      }
       await Promise.all([engine.agents.refresh(), engine.refreshBilling()]);
       const saved = work(); const status = statusProjection(saved, engine, true);
       const facts = (status.account ?? null) as Record<string, unknown> | null;
       const errors = engine.agents.state.account?.error || engine.agents.state.account?.limitsError || !engine.agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
-      return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, errors));
+      return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, [...status.errors, ...errors]));
     } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); }
   });
   route("commands/:command_id", [], c => engine.refreshCommand(c.req.param("command_id")!));
