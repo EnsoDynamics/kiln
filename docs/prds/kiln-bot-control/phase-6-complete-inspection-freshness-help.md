@@ -4,7 +4,7 @@
 **Parent PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md)
 **Technical design:** [Kiln bot control](kiln-bot-control-technical-design.md) — relevant sections: "CLI and Help Contracts", "Status, Conversations and Handoff", "Output Pages", "Account and Usage Facts", "Validation Boundaries".
 **Repository:** kiln
-**Closed:** 2026-10-27 (implemented and validated locally; publication held)
+**Closed:** 2026-10-27 (implemented, validated and published; fresh delivery audit next)
 
 ## Summary
 
@@ -74,6 +74,10 @@ Machine-local diagnostics: `/private/tmp/kiln-ph6-current-verify.log` (interrupt
 
 ## Audit handoff
 
-This phase's source chat is `01a17e5e-2cb9-79e1-8f9d-26bc68cedbbf`. The predecessor prompt cites Doug's instruction in `01a17e54-844f-7a10-9f0c-dfbbe82b2806`: “Go ahead and push, then launch a new chat using GPT 6.1 Sol High Effort to implement Phase 6.” That published audit `8ee5dc9` and authorized this implementation; it did not authorize publishing Phase 6. Scoped commits follow the skill default. Publication of this phase and new audit commits remains held for Doug's explicit authorization; no production release is authorized.
+This phase's source chat is `01a17e5e-2cb9-79e1-8f9d-26bc68cedbbf`. The predecessor prompt cites Doug's instruction in `01a17e54-844f-7a10-9f0c-dfbbe82b2806`: “Go ahead and push, then launch a new chat using GPT 6.1 Sol High Effort to implement Phase 6.” That published audit `8ee5dc9` and authorized this implementation; it did not authorize publishing Phase 6. Scoped commits follow the skill default. At local closeout, publication of this phase and new audit commits remained held; the later authorization below lifts the Phase 6 hold only. No production release is authorized.
 
 After authorized publication and fast-forward of the shared checkout, start a fresh whole-PRD delivery audit from the shared checkout, running its live-session check and creating its own worktree if needed. Do not reuse this phase's worktree. The previous delivery audit remains a historical gap baseline, not a verdict on these repairs. Whole-PRD test audit waits for the fresh clean delivery audit. Read this phase's final gate results and Phase 5's Known baseline failures before reporting verification.
+
+Doug subsequently authorized publication and successor creation in this same source chat, `01a17e5e-2cb9-79e1-8f9d-26bc68cedbbf`, on 2026-10-27: “Go ahead and push, then launch a new chat using GPT-6.1 Sol with high reasoning for the fresh whole-PRD delivery audit.” This covers publishing Phase 6 and launching that audit with the named model/reasoning. It does not authorize publishing new audit commits or a production release. The implementation was cleanly rebased onto `f07bde2`, preserving incoming live-message/takeover controls, repeatable flags and reciprocal supersession links. AC-ACT-01's new AC-BOT-01 extension leaves the helper-input obligation in force; all five completed helper contracts and the core provenance code/proofs are unchanged. Independent compatibility review found no material interaction.
+
+The fresh audit must create its own parallel-session worktree from the published shared branch: another active chat owns live-control UI changes in the shared checkout. Do not include or alter those uncommitted edits, and do not reuse this implementation's worktree. Publication compatibility checks passed on the combined tree: lint, TypeScript/Svelte checks, 624 unit tests, 17 provider-contract checks, 40 account/inspection/live-control/helper-input integration cases, two selected audit/delivery CLI cases and all seven installed-package cases. The complete pre-rebase integration gate was not rerun; its explicitly non-green result and limits above remain unchanged. Diagnostics are in `/private/tmp/kiln-ph6-publish-rebase-validation.log`.
