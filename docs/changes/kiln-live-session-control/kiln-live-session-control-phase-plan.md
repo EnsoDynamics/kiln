@@ -70,3 +70,8 @@ Assessed published implementation `d81de98` (`731c591` plus its publication reco
 **Audit outcome:** 19 Implemented, one Partly implemented. [Phase 5](phase-5-takeover-activity-time.md) records the confirmed AC-TAKE-05 gap and conflict check. The safety hold remains intact; this is a truthful waiting/observation-time gap, not evidence of unsafe release. No implementation or test file was changed, no product tests were run, and no test-evidence grade is claimed. Phase 4's repository validation remains its own historical evidence.
 
 **Next unit:** implement Phase 5 in a fresh chat, then obtain a fresh whole-PRD delivery audit. Whole-PRD test audit follows only when delivery is clean. This audit uses delivery-audit's scoped commit default; publication of its documents remains held for Doug under the launch authorization recorded in Phase 4. No production changes or messages to other chats are authorized.
+
+
+### Audit publication and Phase 5 launch
+
+The audit is published as `a8f2140`. On 2026-10-27 Doug authorized this publication and the successor launch in Codex chat `01a17f70-0129-77e1-865b-b60fab99e8cc`: “Go ahead and push the audit, then launch a new chat for Phase 5 using GPT 6.1 Sol High Effort.” This lifts the audit publication hold above and authorizes the Phase 5 implementation chat with that model and effort. It does not authorize publication of Phase 5's later work, production changes or messages to other chats; the successor uses the implement skill's scoped commit default and holds publication for Doug. Phase 5 remains the next implementation leaf, followed by a fresh whole-PRD delivery audit and test audit only when delivery is clean.
