@@ -445,6 +445,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 
 ### Command line (AC-CLI-01, AC-CLI-02, AC-START-09)
 
+Superseded in part by: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §CLI and Help Contracts and §Local API and Integration Points (documented read-only inspection/help and additive private inspection metadata; existing mutation routes and local protections remain).
+
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Selection and readiness (common startup permits reaching the chooser without either agent).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Found beside the PRD's repository, §The command (start checks for each named repository; a second command)
@@ -702,6 +704,8 @@ macOS is the natively validated release platform. Windows and Linux remain best-
 Claude Code runs natively on Windows; Kiln uses the same `claude` flags there. The untried Windows paths above remain compatibility targets. Native issues are investigated from user reports; no Windows host or manual Windows proof is required before release. Automated CI checks remain enabled and do not establish native console, sleep or agent behavior.
 
 ## Control From Outside the Browser
+
+Superseded in part by: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §CLI and Help Contracts and §Local API and Integration Points (documented read-only inspection/help and additive private inspection metadata; existing mutation routes and local protections remain).
 
 Not in v1 (AC-CLI-02, AC-VIEW-01). Business feedback (2026-10-17) expects it soon after, so v1 is built so that adding it changes no engine code.
 

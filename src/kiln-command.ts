@@ -1,3 +1,6 @@
+import { writeDurableMetadata } from "./control/durable-file.js";
+import { readWork, retainedAliases } from "./control/private-state.js";
+import { runInspectionCommand } from "./control/client.js";
 import { runDelivery } from "./delivery-command.js";
 import { runAudit } from "./audit-command.js";
 import { deliveryEnabled } from "./engine/development-delivery.js";
@@ -6,7 +9,7 @@ import { deliveryEnabled } from "./engine/development-delivery.js";
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
 // repository (multi-repo AC-ADD-01; add-repository-command.ts).
 
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, resolve, join } from "node:path";
 import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
 import { originBranches } from "./engine/git-reads.js";
 import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
@@ -118,6 +121,8 @@ class StopControl {
  *   await runKilnCommand(["run", "docs/prds/customer-returns/"], context)  // 0 when every start check passes
  */
 export async function runKilnCommand(args: string[], context: CommandContext): Promise<number> {
+  const inspection = await runInspectionCommand(args, context);
+  if (inspection !== undefined) return inspection;
   const [command, ...rest] = args;
   if (command === "--help" || command === "-h") {
     context.stdout.write(`${USAGE}\n`);
@@ -226,6 +231,9 @@ function makeEngine(
     onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
     keepAwake,
   });
+  const savedInspection = readWork(stateRoot(context.env), run.stateDirectory);
+  const aliases = [...new Set([...retainedAliases(savedInspection).filter(path => !path.endsWith("-prd.md")), location.prdDirectory])];
+  writeDurableMetadata(join(run.stateDirectory, "inspection-aliases.json"), { version: 1, execution_id: record.executionId!, canonical: savedInspection.canonical, aliases: aliases.map(path => ({ path, provenance: "git_resolved_at_controller_start" })) });
   run.stop.engine = engine;
   let historyRequested = false;
   const readHistoryOnce = () => {

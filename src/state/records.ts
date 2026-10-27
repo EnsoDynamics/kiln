@@ -358,6 +358,10 @@ export const STEP_NAMES = ["Build", "Deliverable review", "Test hardening", "Com
 export type StepName = (typeof STEP_NAMES)[number];
 
 export interface SessionRecord {
+  /** Changes before any replacement of saved output; ordinary appends retain the generation. */
+  outputGeneration?: string;
+  /** Explicit binding for inspection; older records require retained controller migration evidence. */
+  executionId?: string;
   activityId?: string;
   codex?: { launchIntent: CodexExecutionProfile; originalAccount: CodexAccountProvenance; conversationUnavailable?: boolean; resumeError?: string; recoveryObserved?: CodexTurnExecution[]; historyError?: string; usageRecovery?: CodexUsageRecovery };
   /** Codex's persistent identity; the local storage key stays sessionId. */

@@ -122,7 +122,21 @@ describe("the installed package", () => {
   it("puts kiln on the PATH, which prints how to use it", async () => {
     const help = collect(runInstalled(["--help"], sandbox.root));
     expect(await help.exit).toBe(0);
-    expect(help.text()).toMatch(/^Usage: kiln run <PRD directory or PRD file>/);
+    expect(help.text()).toContain("Use kiln <command> --help");
+    expect(help.text()).toContain("status —");
+    expect(help.text()).toContain("audit —");
+  });
+
+  it("ships inspection and complete structured help usable from an unrelated directory", async () => {
+    const inventory = collect(runInstalled(["status", "--json"], sandbox.root));
+    expect(await inventory.exit).toBe(0);
+    expect(JSON.parse(inventory.text())).toMatchObject({ schema_version: "1", ok: true, inventory_complete: true, counts: { live_controllers: 0 }, runs: [] });
+    for (const path of [["handoff"], ["reply"], ["audit", "submit"], ["delivery", "evidence"]]) {
+      const help = collect(runInstalled([...path, "--help", "--json"], sandbox.root));
+      expect(await help.exit).toBe(0);
+      expect(JSON.parse(help.text())).toMatchObject({ schema_version: "1", command: { path } });
+    }
+    expect(packedFiles).toContain("prompts/kiln-command-contracts.json");
   });
 
   it("serves the browser view, its scripts, styles and bundled fonts, from that one install", async () => {

@@ -107,16 +107,18 @@ describe("kiln run", () => {
   });
 
   it("prints how to use it, and exits non-zero, with no path, an unknown command, extra arguments or a directory of several PRDs", () => {
-    for (const args of [[], ["run"], ["status"], ["run", "a", "b"], ["run", "docs/prds/"], ["run", "docs/prds/customer-returns", "--phase", "2"]]) {
+    for (const args of [["run"], ["run", "a", "b"], ["run", "docs/prds/"], ["run", "docs/prds/customer-returns", "--phase", "2"]]) {
       const result = kiln(args);
       expect(result.exitCode, args.join(" ")).toBe(2);
       expect(result.stderr, args.join(" ")).toContain("Usage: kiln run <PRD directory or PRD file>");
     }
-    // AC-CLI-02: no other command, for status, logs, pausing, resuming or one phase; multi-repo AC-ADD-01 adds the second.
-    for (const command of ["status", "logs", "pause", "resume", "start", "phase"]) {
-      const result = kiln([command, "docs/prds/customer-returns"]);
+    // Bot control AC-ACT-01 supersedes the browser-only command restriction.
+    expect(kiln([])).toMatchObject({ exitCode: 2, stderr: "" });
+    expect(kiln([]).stdout).toContain("kiln --help");
+    for (const command of ["pause", "start", "phase"]) {
+      const result = kiln([command, "docs/prds/customer-returns", "--json"]);
       expect(result.exitCode, command).toBe(2);
-      expect(result.stderr.split("\n")[0], command).toBe(`kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
+      expect(JSON.parse(result.stdout).errors[0].code).toBe("command_not_found");
     }
     expect(kiln(["--help"])).toMatchObject({ exitCode: 0, stderr: "" });
   });

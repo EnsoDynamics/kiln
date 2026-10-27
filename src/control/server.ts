@@ -1,0 +1,54 @@
+/** Versioned read-only API, behind the local server's unchanged authentication middleware. */
+import type { Hono, Context } from "hono";
+import { dirname, resolve } from "node:path";
+import { readWork } from "./private-state.js";
+import { accountFacts, handoffProjection, instanceEpoch, statusProjection, inspectionSnapshot } from "./projection.js";
+import { readHistory, chooseSession } from "./history.js";
+import { outputPage } from "./logs.js";
+import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
+import type { Engine } from "../engine/engine.js";
+import { processStartTime } from "../platform/process-start-time.js";
+
+export async function installInspectionRoutes(app: Hono, engine: Engine, cacheError: () => string | undefined): Promise<void> {
+  const epoch = instanceEpoch(); const processTime = await processStartTime(process.pid, { timeoutMs: 2000 });
+  const work = () => ({ ...readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory), record: structuredClone(engine.record) });
+  const send = (c: Context, answer: Result) => c.json(answer, answer.ok ? 200 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
+  const query = (c: Context, allowed: string[]) => {
+    const params = new URL(c.req.url).searchParams;
+    for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) throw new ControlFailure("invalid_input", "Unknown or duplicate query parameter.", 2);
+  };
+  const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
+    app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, failed(e)); } });
+  };
+  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 0, kiln_version: "1.0.0", execution_id: engine.record.executionId,
+    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings"] }));
+  route("status", ["detail"], c => {
+    const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
+    const answer = statusProjection(work(), engine, detail === "full");
+    const error = cacheError();
+    if (error) { answer.ok = false; answer.errors.push(errorFact("state_unavailable", error)); }
+    return answer;
+  });
+  route("logs", ["session_id", "max_lines", "older_output_cursor", "format"], c => {
+    const max = c.req.query("max_lines") ?? "50";
+    if (!/^(?:[1-9]\d?|1\d\d|200)$/.test(max)) throw new ControlFailure("invalid_input", "max_lines must be 1–200.", 2);
+    const saved = work(); const history = readHistory(saved, engine.current?.processRunning ? engine.current.session?.sessionId : undefined);
+    const selector = c.req.query("session_id");
+    const selected = chooseSession(saved, history, selector, engine.current?.processRunning ? engine.current.session?.sessionId : undefined);
+    const cursor = c.req.query("older_output_cursor");
+    return outputPage(saved, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json: c.req.query("format") !== "text", ...(selector ? { session: selector } : {}), ...(cursor ? { cursor } : {}) });
+  });
+  route("handoff", ["session_id"], c => handoffProjection(work(), c.req.query("session_id"), engine.environment, engine));
+  route("account", [], () => result({ prd_path: work().canonical, execution_id: engine.record.executionId!, data: accountFacts(work(), inspectionSnapshot(engine), true) }));
+  app.post("/api/control/v1/account/refresh", async c => {
+    try {
+      if (c.req.raw.body !== null || c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs.", 2);
+      await Promise.all([engine.agents.refresh(), engine.refreshBilling()]);
+      const saved = work(); const status = statusProjection(saved, engine, true);
+      const facts = (status.account ?? null) as Record<string, unknown> | null;
+      const errors = engine.agents.state.account?.error || engine.agents.state.account?.limitsError || !engine.agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
+      return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, errors));
+    } catch (e) { return send(c, failed(e)); }
+  });
+  app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "This inspection release has no durable run-changing command API.", retryable: false, next_command: null, next_argv: null }])));
+}

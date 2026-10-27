@@ -4,12 +4,12 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. No implementation has started.
+Build and verify each phase in this order before starting the next. Phase 1 closed on 2026-10-27; Phase 2 is next.
 
-| Phase | What it does | Depends on |
-|---|---|---|
-| [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None |
-| [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) |
+| Phase | What it does | Depends on | Status |
+|---|---|---|---|
+| [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None | Closed 2026-10-27 |
+| [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Planned |
 
 ## Criterion ownership
 

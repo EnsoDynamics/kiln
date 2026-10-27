@@ -18,3 +18,9 @@ The PRD's exclusions. Do not add provider sign-in, new spending or delivery auth
 
 ## Phase-specific notes
 Keep shared browser/CLI/automatic admission, persisted effect correlation and restart reconciliation together with every new mutation; no control ships through a temporary retry-unsafe path. Prove the Durable effects and Complete workflow validation rows, including both provider boundaries and the accepted local Grok Bot caller. The demonstration is part of this build, not a later test-only phase; retain its release evidence in this PRD directory and do not close the phase while that proof remains owed.
+
+## Inherited from Phase 1
+
+The inspection release intentionally exposes no executable run mutations: control availability is false, status tokens are null, command help labels changing forms as planned, and the versioned command route refuses them. Replace that boundary only when shared durable admission, receipt/reconciliation and existing browser/automatic launch guards are complete together. Keep the read surface and installed help contracts backward compatible.
+
+Reuse the packaged command contracts and the inspection result/serializer, target resolver, history projection, capability handshake and frozen output paging. Inspection sidecars are version 1; new sessions carry execution identity and output generation without rewriting older saved sessions. Read the technical design's Inspection metadata compatibility section before choosing the durable journal/schema migration. The inspection tests and their provider-history proof are recorded in Phase 1's Validation section; the full Grok Bot control demonstration remains this phase's own obligation.

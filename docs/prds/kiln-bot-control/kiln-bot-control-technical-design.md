@@ -2,7 +2,7 @@
 
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md) · **Interface examples:** [command mockup](kiln-bot-control-command-mockup.md) · **Business choices:** [assumptions](kiln-bot-control-assumptions.md) · **Evidence:** [investigation](kiln-bot-control-investigation.md).
 
-**Status:** Technical design refined and independently reviewed; [two implementation phases planned](kiln-bot-control-phase-plan.md). No implementation has started.
+**Status:** Technical design refined and independently reviewed. [Phase 1 inspection is implemented and validated](phase-1-inspect-existing-work.md); [Phase 2 controls remain planned](phase-2-control-existing-work.md).
 
 ## Overview
 
@@ -219,6 +219,12 @@ Partition receipt storage by execution and command-ID digest so one growing embe
 Reads never migrate. Under exclusive controller startup, migrate supported records idempotently and preserve original bytes using the existing migration-evidence convention. Validate all added fields and relationships; an unknown schema disables mutations. An incompatible controller exposes no bot mutations. Rollback can read only versions it supports; do not downgrade files or discard receipts to run an old binary. Export/restore of histories later can retain stable execution/session/operation IDs and explicit schema versions without reinterpreting path labels as identity.
 
 Receipt and cursor growth is proportional to explicit commands/pages; inventory/status/receipt polling creates no new receipt or output snapshot. Repeated unpaged logs at an unchanged output boundary reuse the descriptor. Per controller, one work mutation and one provider refresh are active; excess distinct requests receive `busy`. Keep disk/write failures visible and refuse new effects when durable state cannot be preserved. The first retained-data ceiling is disk capacity or the five-second scan/hash deadline, not a hidden item limit. Emit explicit read completeness/validation-deadline errors and durable-write failures with operation identity; expose inventory totals and retained history/output byte counts where readable so growth is visible. Chunk-integrity indexing can later replace full-prefix streaming behind the same cursor contract without re-keying execution/session history. Retain no silent time/size pruning: execution history deletion removes its receipts, cursors and index entries together, while active/indeterminate dispatch ownership must first be reconciled. Atomic metadata may be rebuilt from authoritative records; never rebuild missing operation outcomes by assuming they succeeded.
+
+### Inspection metadata compatibility
+
+The inspection surface uses version-1 sidecars for retained browser facts and per-conversation recovery instructions, legacy session bindings, Git-authenticated PRD aliases and output snapshots. Pure readers never create bindings, migrate records or synthesize an execution identity. The exclusively locked controller creates legacy bindings and records aliases resolved by Git at startup. New sessions add explicit execution identity and output-generation UUID fields to the compatible existing record shape; the durable-control phase chooses its journal/schema upgrade separately.
+
+Inspection cache writes share the existing 100 ms snapshot cadence and flush pending observations when the controller closes. Live reads still project current engine facts. Retained inspection facts keep their original collection time after disconnection. A failed projection/cache write is explicit in live status; corrupt or unreadable session records still appear as incomplete history. Selected earlier conversations retain their own provider/activity prompts, including Codex's recorded skill context. Status samples saved output with bounded memory and marks any fragment; complete final stop messages remain unabridged.
 
 ## Local API and Integration Points
 

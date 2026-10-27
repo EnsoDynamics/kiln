@@ -1,3 +1,6 @@
+import { errorFact, result as controlResult } from "../control/result.js";
+import { installInspectionRoutes } from "../control/server.js";
+import { bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { BillingError } from "../billing/authority.js";
 import { normalizeMergeTarget, type DevelopmentSettings } from "../state/development-delivery.js";
 // The local server: the compiled browser view and a small HTTP API with server-sent events,
@@ -83,6 +86,21 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   let closing = false;
   const snapshot = (): Snapshot => buildSnapshot(engine, options.documents);
 
+  bindLegacySessions(engine);
+  let inspectionCacheError: string | undefined;
+  const preserveInspection = () => {
+    try { cacheSnapshot(engine, inspectionSnapshot(engine)); inspectionCacheError = undefined; }
+    catch { inspectionCacheError = "The latest inspection projection could not be saved; retained facts may be older."; }
+  };
+  preserveInspection();
+  let pendingInspection: NodeJS.Timeout | undefined;
+  const offInspection = engine.onChange(() => {
+    if (closing || pendingInspection) return;
+    // Output bursts share one observation; live reads still project current engine facts.
+    pendingInspection = setTimeout(() => { pendingInspection = undefined; preserveInspection(); }, SNAPSHOT_THROTTLE_MS);
+    pendingInspection.unref();
+  });
+
   const app = new Hono();
   app.onError((error, c) => c.json({ ok: false, reason: error instanceof NewerSchemaError ? error.message : "Kiln could not read the requested state." }, error instanceof NewerSchemaError ? 409 : 500));
 
@@ -99,6 +117,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     await next();
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value);
   });
+
+  await installInspectionRoutes(app, engine, () => inspectionCacheError);
 
   app.get("/api/delivery/evidence/:digest", c => {
     const digest = c.req.param("digest");
@@ -292,6 +312,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     address: `http://127.0.0.1:${port}/${folderName}`,
     close: async () => {
       closing = true;
+      offInspection();
+      if (pendingInspection) { clearTimeout(pendingInspection); pendingInspection = undefined; preserveInspection(); }
       for (const stream of streams) stream.abort();
       await new Promise<void>((resolveClose) => {
         server.close(() => resolveClose());
@@ -309,7 +331,7 @@ function tokenMatches(given: string | undefined, token: string): boolean {
 }
 
 function refuse(c: Context, status: 400 | 403 | 404 | 409, reason: string) {
-  const response = c.json({ ok: false, reason }, status);
+  const response = c.json(c.req.path.startsWith("/api/control/") ? controlResult({}, [errorFact(status === 403 ? "ownership_mismatch" : "invalid_input", reason)]) : { ok: false, reason }, status);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.headers.set(name, value);
   return response;
 }

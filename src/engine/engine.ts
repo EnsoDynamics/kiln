@@ -479,6 +479,9 @@ export class Engine {
     return this.options.paths;
   }
 
+  /** Provider metadata reads use the controller's original environment. */
+  get environment(): NodeJS.ProcessEnv { return this.options.env; }
+
   get stateDirectory(): string {
     return this.options.stateDirectory;
   }
@@ -1811,6 +1814,8 @@ export class Engine {
       const effort = entry !== undefined && !entry.supportsEffort ? undefined : selectedChoice(this.record.settings).effort;
       session = {
         schemaVersion: SCHEMA_VERSION,
+        executionId: this.record.executionId!,
+        outputGeneration: randomUUID(),
         agentId: this.record.settings.agentId,
         sessionId: randomUUID(),
         phaseId: audit ? "" : phaseKey,

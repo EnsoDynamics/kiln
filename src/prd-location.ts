@@ -40,7 +40,7 @@ export function featureNameFor(folderName: string): string {
  * or the `<folder name>-prd.md` file in it) against the current directory. Any other path is
  * a problem, described in one line.
  */
-export async function resolvePrdPath(pathArgument: string, cwd: string, git: string, env: NodeJS.ProcessEnv): Promise<PrdResolution> {
+export async function resolvePrdPath(pathArgument: string, cwd: string, git: string, env: NodeJS.ProcessEnv, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<PrdResolution> {
   const absolute = resolve(cwd, pathArgument);
   let directory: string;
   let fileName: string | undefined;
@@ -61,7 +61,7 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
   }
 
   const realDirectory = realpathSync.native(directory);
-  const toplevel = await runHelper(git, ["-C", realDirectory, "rev-parse", "--show-toplevel"], { cwd: realDirectory, env });
+  const toplevel = await runHelper(git, ["-C", realDirectory, "rev-parse", "--show-toplevel"], { cwd: realDirectory, env, ...options });
   if (toplevel.exitCode !== 0) return { problem: `${pathArgument} isn't in a Git repository.` };
   const checkoutRoot = realpathSync.native(resolve(toplevel.stdout.trim()));
 
@@ -78,14 +78,14 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
     return { problem: `${pathArgument} isn't the PRD: the PRD in ${prdDirectoryFromRoot}/ is ${prdFileName}.` };
   }
 
-  const worktrees = await runHelper(git, ["-C", realDirectory, "worktree", "list", "--porcelain"], { cwd: realDirectory, env });
+  const worktrees = await runHelper(git, ["-C", realDirectory, "worktree", "list", "--porcelain"], { cwd: realDirectory, env, ...options });
   const firstWorktree = /^worktree (.+)$/m.exec(worktrees.stdout)?.[1];
   if (worktrees.exitCode !== 0 || firstWorktree === undefined) {
     return { problem: `Couldn't list the repository's worktrees: ${(worktrees.stderr || worktrees.failure || "").trim()}` };
   }
   // In a submodule the first entry is the submodule's git directory (.git/modules/<name>), not
   // its working tree; asking that entry for its top level gives the working tree in both cases.
-  const mainToplevel = await runHelper(git, ["-C", firstWorktree.trim(), "rev-parse", "--show-toplevel"], { cwd: realDirectory, env });
+  const mainToplevel = await runHelper(git, ["-C", firstWorktree.trim(), "rev-parse", "--show-toplevel"], { cwd: realDirectory, env, ...options });
   if (mainToplevel.exitCode !== 0) {
     return { problem: `Couldn't find the repository's main checkout: ${(mainToplevel.stderr || mainToplevel.failure || "").trim()}` };
   }
