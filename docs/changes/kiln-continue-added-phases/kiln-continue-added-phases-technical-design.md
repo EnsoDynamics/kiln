@@ -1,0 +1,222 @@
+# Technical Design: Kiln Continue Added Phases
+
+**PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md) · **Assumptions:** [CONTINUE-001 and CONTINUE-002](kiln-continue-added-phases-assumptions.md) · **Screens:** [six-state interactive mock-up](mockups/kiln-continue-added-phases.html)
+
+## Overview
+
+Extend the existing local engine with a retained plan baseline, source reconciliation and an explicit continuation of a completed feature. An unfinished execution accepts compatible additions when control returns; a completed execution discovers additions without starting them. Continue accepts one immutable proposal, prepares a fresh workspace from current delivery bases, and runs the remaining leaves through existing checks, audits and delivery. Earlier executions remain readable history on the same feature page.
+
+CONTINUE-001 governs when discovery runs. CONTINUE-002 requires the revised document set to exist together at the configured remote delivery-base revision for a completed-run restart; an active-run handback keeps its active workspace. Neither discovery nor acceptance creates merge, deployment or spending authority.
+
+## Existing Code
+
+**Posture: Preserve.**
+
+- Reuse the foreground TypeScript engine, instance lock, private atomic JSON records and local Hono/SSE/Svelte interface.
+- Reuse phase identity, split ordering and dependency syntax; phase IDs remain scoped to the same PRD.
+- Reuse repository discovery, objects-only fetches and protected worktree setup.
+- Reuse phase completion, provider provenance, manual recovery, pause, account and billing checks.
+- Reuse whole-PRD audit manifests/currentness and development-delivery evidence and target grants.
+- Preserve old phase facts, session paths, completion times and actual delivery links; no history is rewritten into a later execution.
+- Preserve the explicit already-complete manual-resume choice and the existing local security boundary.
+- Keep installed Enso Method skills unchanged; new instructions belong in Kiln's external prompt templates.
+
+## Architecture
+
+No new service, database, queue, watcher or background process. The existing engine and durable command journal are the only mutation owner for this PRD. It serializes plan acceptance, continuation acceptance, setup, scheduling, recovery and final completion; competing state-changing commands receive `busy`, while identical discovery requests share the current read. Snapshot rendering never starts work.
+
+Three boundaries carry the change:
+
+1. **Observation:** read a coherent document set and its source evidence without replacing the accepted plan.
+2. **Acceptance:** compare it with retained scope and completion evidence; publish a proposal for a completed feature, or accept compatible active-run changes at handback.
+3. **Execution:** schedule only against an accepted plan, with current prerequisites, authority and ordinary completion checks.
+
+A successful observation is not a completion check. A historical delivery is not evidence that the current plan is finished. These distinctions apply to both restricted delivery and enabled development-delivery executions.
+
+## Plan Identity and Comparison
+
+### Retained baseline
+
+Retain a versioned `PlanBaseline` when a new execution starts, whenever a compatible active plan is accepted, and when it completes. Keep the completed baseline immutable. Store source bytes or immutable content-addressed copies so a deleted old worktree or branch cannot erase the comparison basis. Updating the visible current plan must not overwrite the previous baseline before comparison.
+
+A baseline contains the governing PRD identity, document references, parsed ordered phases, normalized scope for each phase, requirement manifest, repository names, dependencies and closure evidence references. Store both an exact document digest and a comparison digest: readiness and stale-proposal checks use exact inputs; detecting a completed phase's material change uses the comparison form.
+
+Phase identity is the existing parsed phase ID, not a title, filename or highest ordinal. A filename change retaining that ID is a rename. Phase order follows existing numeric top-level ordering and declared split-child order. Do not infer work from a maximum number or a separate prose phase table. A split parent never counts as an executable leaf.
+
+### Comparison rules
+
+Use a versioned Markdown structural normalization: normalize line endings, equivalent Markdown emphasis/list formatting and prose line wrapping; preserve words, numbers, code spans/fences, link targets and section structure. Resolve phase-document links to phase IDs before comparing renames. Ignore checkbox state and parsed historical Closed metadata when comparing scope, but compare closure state separately. All other phase content, including phase-specific notes and inherited work, participates. A title wording change is material; changing only its Markdown styling is not.
+
+Carry an earlier completed phase forward only when its ID, normalized scope, repositories, dependencies and split structure remain intact and it is still closed. Removal, ID reuse, reopening, splitting a previously completed leaf or unexplained material edits are unresolved earlier-work changes. Show the affected IDs and source differences; do not rerun them or silently call them additions. Unfinished leaves may split through the normal split contract, including judging the first descendant of a splitting session.
+
+Compare requirements independently from phase completion. Revised PRD criteria or design/assumption text invalidate whole-PRD evidence as required by the audit contract; they do not alone invent a new implementation leaf or reopen earlier completed phases. This permits an amendment to assign revised behavior to appended phases while retaining the earlier phase receipts. A completed feature with only prose changes and no new unfinished leaf stays historically complete and reports no new phases, with the observed revision; discovery does not launch audits by itself.
+
+Classify every observed leaf as carried completed, new unfinished, externally completed and verified, externally closed but unverified, or unresolved earlier work. An externally closed phase is not counted as new unfinished implementation, but is prominently listed with its unresolved evidence or planned integration. It can block readiness; it cannot disappear from total-plan accounting. The executable offer count is the number of newly added unfinished leaves, not the total number of added documents. Counts, first eligible phase and readiness are derived from these classifications, never maintained independently.
+
+### Completion evidence from outside Kiln
+
+For phases completed outside this execution, apply the applicable Closed, Committed, Pushed and workspace/provenance checks plus any required development-delivery evidence. An existing Kiln receipt is reusable only for its unchanged scope and identified repository revisions. For work completed before any Kiln session, do not fabricate a provider session or Stayed result: use the existing no-session completion path with independently verified committed/published work and integration coverage. If the source or scope cannot be established, show unresolved evidence.
+
+Integration proof must cover the identified work in every affected repository. Exact commit ancestry is sufficient; a recorded GitHub merge source/result pair supports verified squash/rebase integration under the existing delivery contract. A closed-unmerged PR, a commit subject or a Closed line is insufficient. Preserve the original completion time and verification time separately; do not invent the former when unknown.
+
+## Source Reconciliation
+
+### Completed feature discovery
+
+Read the shared checkout's saved document bytes and the latest configured remote delivery-base revision of the PRD repository. Resolve the base through the existing origin read and objects-only fetch, and read its files directly from Git objects; discovery creates no checkout and never alters a working branch or index. Read the PRD, design, assumptions when present, phase files and their required local document references as one candidate document set. Retain the path/revision/digest and exact files that are absent, dirty or unintegrated.
+
+The old execution workspace is historical evidence, not the discovery source. Its disappearance is not an error when retained evidence and an authoritative current source are available. Known additional sources are limited to repository/workspace identities already recorded by Kiln and explicit source references in the governing plan. Do not enumerate arbitrary branches or search unrelated worktrees for a preferable plan.
+
+Compare each available candidate against the completed baseline, not simply against the other candidate. A shared checkout still matching the baseline while the remote base has compatible additions is an explainable older copy; report both and use the remote candidate. Conversely, compatible local additions absent from the remote base are discoverable but not ready. Where both candidates introduce different scope, or one changes earlier completed work, report conflict and withhold Continue. Equivalent scope with different formatting can be compared, but readiness still requires the exact selected document set to exist at one base commit. Do not assemble a plan from different revisions.
+
+The required sources must either be read successfully or be positively identified as an obsolete historical workspace. A failed origin read is unknown readiness even when local additions are visible; missing/unreadable shared source is a named incomplete check. Retain prior successful results with their old timestamps and label them as earlier results. Never turn a failed read into an empty plan or a fresh zero count.
+
+A candidate read detects concurrent edits by checking its document membership and bytes before/after extraction, and remote revision before publication. If inputs move, publish `source_changed` and allow retry; never combine revisions. Bound the discovery operation to the existing 120-second reconciliation deadline, cancel on engine shutdown, and retain per-source failure facts. Required network failures do not trigger agent work or an unbounded retry loop.
+
+### Active execution handback
+
+Reconcile before accepting advancement on manual Verify/Resume, settling a returned provider session, restarting unfinished work, selecting final audits/delivery, and recording completion. Read the active workspace PRD and phase set, then compare known other sources with their last accepted source observations. A stale shared checkout that predates the active plan is not a conflict merely because its Closed lines or phase count lag behind.
+
+An addition, reopened leaf, changed dependency or material scope edit in a known other source that is absent from the active workspace creates a plan discrepancy. Show source path/revision, affected phases and the concrete instruction to reconcile the documents into the active workspace, commit/push under the normal execution rules, then use the existing handback control. Kiln does not import, merge or overwrite those documents itself. Missing required source evidence is a failed reconciliation, not permission to complete.
+
+After a coherent compatible plan is accepted, atomically record its baseline, added IDs and remaining count before another activity is selected. Require the current activity's normal completion checks before advancing. Once they pass, run the next eligible unfinished leaf automatically; no completed-feature Continue action is involved. Preserve pending/active pauses and usage/billing holds. A plan edit or page load while the person controls the stopped session is observational only and cannot release that stop.
+
+Keep a short handback notice in the snapshot until the next accepted handback or execution end: added IDs, accepted source and remaining leaf count. If reconciliation fails, leave current session facts and earlier done receipts intact, publish a recoverable plan check, and prevent finalization. A stopped, running or interrupted audit is settled under its existing recovery contract; new leaves invalidate its ability to authorize final delivery. After settlement, unfinished leaves precede new whole-PRD audits. Old pending final-delivery work cannot complete ahead of the revised plan.
+
+Replaces in part: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Evaluate, then act and §Completion Evidence and Errors (revised-plan reconciliation before advancement; the already-complete choice and manual recovery predicates remain).
+
+## Readiness and Planned Preparation
+
+A ready finished-run proposal binds every participating repository to its configured base revision and validates the complete revised document set on the PRD base. Include new repositories in existing discovery, base selection and authorization checks. Readiness must not require unrelated working-tree edits to be discarded; only relevant source disagreements, inaccessible repositories or unsafe target workspace paths block it.
+
+For each prerequisite, record one of `integrated_verified`, `preparation_available`, `blocked` or `unknown`, with evidence and recovery action. Verified integrated work is carried forward. A prerequisite awaiting planned preparation is not falsely marked integrated, and does not increase the new-unfinished count.
+
+Preparation is narrowly scoped work inside the first eligible implementation phase, not another phase or a background merge. The phase must explicitly identify the prerequisite, repository, available source branch/commit, intended integration destination and verification required before dependent implementation. Resolve branch names to immutable revisions and include them in the offer. The pricing example's local `wt/natb-pricing-delivery-audit` source is valid even if its last commit is not on origin: source availability for authorized preparation differs from accepting it as already pushed/integrated completion.
+
+A `PreparationBinding` is retained with the proposal: owning phase ID, prerequisite IDs, repository identity, source ref and resolved commit, destination (`assigned_feature` or an explicitly authorized delivery target), governing document/blob/span, authorization source/reference and verification requirements. Extract explicit Markdown source references and instructions; never execute extracted shell text or infer permission from a branch name. The recognized first-release form includes an imperative merge instruction naming a backtick-quoted branch and revision, an explicit destination in that phase's notes, and its recorded authorization. Ambiguous destinations or missing authority produce a named readiness blocker, with the exact source text shown. A structured internal binding is not a new required phase file format.
+
+Integrating identified source work into the new assigned feature branch uses the phase's documented preparation authority. Integrating into a delivery base additionally requires its existing target grant; Continue cannot create one. Retain narrowly applicable authorization evidence with its original source, scope and limits. An old execution-scoped grant does not automatically become a grant for a new execution. A source document's claim does not override a known denial, narrower saved permission or global instruction. Missing applicable authorization uses the existing authorization/recovery controls.
+
+On Continue, start a fresh conversation for the owning phase with the pinned preparation binding. The session must perform and verify preparation before dependent implementation. Expose a small authenticated preparation-status/result interface to that session; the engine accepts only independently observed Git/merge and required command evidence for the bound source and destination. No agent-written success Boolean is evidence. Failed preparation leaves the phase stopped; recovery resumes that same phase, retaining source identity, attempted changes and verified results. Never retry a merge whose outcome is uncertain without reconciling Git first. Existing provider/workspace controls constrain writes; the task prompt makes the within-session ordering explicit, and completion checks refuse any outcome without preparation proof.
+
+Preparation verification includes source coverage in the assigned branch and the documented pre-implementation checks, using observed command order and immutable revision binding. Conflicts are work for that authorized session within scope, not a reason to demand a manual merge before launch. An unavailable source, unresolved authority or unsafe workspace prevents launch. A dependent phase cannot start until the preparation evidence passes; whole-PRD audits cover the combined result.
+
+## Continuation Acceptance and Recovery
+
+### Durable proposal and one acceptance
+
+A successful completed-feature check retains a `ContinuationProposal` and an opaque content-derived `proposalId`. Bind the ID to the completed execution, baseline ID, candidate document bytes, ordered eligible leaves, repository/base revisions, prerequisite source revisions and evidence, preparation bindings, and applicable authority/settings revisions. Exclude check timestamps and display-only observation times so an identical recheck preserves identity.
+
+Continue submits the displayed proposal ID. Under the existing engine owner, reread all bound inputs and required prerequisites before accepting it. A changed input publishes the replacement proposal and returns `proposal_changed`; nothing starts. A missing prerequisite or failed read returns its concrete blocker. Repeated requests for an already accepted proposal return its original acceptance and current preparation status before checking whether the feature is still complete.
+
+Extend the durable command journal with distinct internal continuation-accept/retry actions; do not overload the existing paused-run `continue` action or expose a new bot mutation command. The browser supplies its command ID, completed execution ID and current status token along with the proposal ID. Reuse journal admission, receipt lookup and automatic launch ownership. The continuation acceptance is the plan/setup payload referenced by that receipt, not a second dispatch journal. Persist acceptance before any setup or launch: old execution ID, proposal ID, fresh execution UUID, accepted time, pinned plan, intended per-repository bases, branch/workspace names and setup progress. Acceptance is the durable authorization to run this displayed plan, subject to existing permissions. Losing the HTTP response, restarting Kiln or pressing Continue again cannot allocate another execution. There is one pending/current continuation per completed execution. An old tab cannot accept an earlier offer after a later execution has begun.
+
+Use deterministic names derived from the new execution UUID, such as `feature/<prd-folder>-continue-<uuid>` and a matching sibling workspace folder, checked against the existing path and branch protections. Never reset or reuse the old delivered branch/worktree. Persist intended names before creation, recognize only exact owned setup artifacts on retry, and report collisions rather than remove anything. Prepare every required repository before any phase starts. Partial setup is a visible `preparing` or `blocked` acceptance, with a **Retry preparation** action; it is not a second offer and never loses the acceptance.
+
+### Start, interruption and completion
+
+Once all workspace setup has passed, reread the pinned plan in the new workspace and atomically activate the new execution. Preserve the previous complete execution as immutable history before replacing active execution fields. If required source/base/authority facts have changed during interrupted preparation, hold setup and present the changed proposal for a fresh choice. Keep the original acceptance and any owned artifacts for explanation; do not silently retarget it. A replacement choice can supersede a blocked acceptance only before any provider activity started and after verifying its owned workspace has no user work. Never delete or overwrite an occupied workspace to recover.
+
+A crash before durable acceptance means no setup was authorized; retry performs a fresh check. A crash after acceptance resumes its same setup intent. A crash after activation resumes the active execution under existing launch-intent and provider dispatch recovery. Missing or ambiguous dispatch evidence remains stopped; replay never starts a second conversation. The start of new work uses a fresh conversation, never an archived session.
+
+The new execution has required completion audits and no accepted current audit, final-session receipt, completed timestamp or development-completion result from the old execution. Carried phase completion references remain historical scope evidence and are not current session owners. An old open PR is retained in history; a new execution cannot silently extend it. Its work must already be covered or explicitly integrated by the approved preparation. Final checks bind the new branch, revised requirements and current repository evidence, then append a new completed execution/delivery beside the earlier one.
+
+An active run's compatible additions stay in the same execution and workspace. Invalidate audit/finalization evidence by the revised requirements and plan fingerprint, retaining the old results as history. Completion phases subsequently added by audits follow the same ordinary loop without another Continue click.
+
+Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does and §Worktree and Branch Setup (completed-feature discovery and explicitly accepted fresh continuation only).
+
+Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision and §Recovery and Upgrade (reconciliation before finalization, required audit policy for a fresh continuation; historical legacy-complete executions remain historical).
+
+## Interfaces
+
+### Local HTTP and engine commands
+
+Use existing loopback Host/Origin/token protections. All new commands terminate through the same engine owner as existing browser, CLI and bot controls. No new terminal mutation commands are required by this PRD.
+
+| Route | Request | Successful response |
+|---|---|---|
+| `POST /api/continuation/check` | `{}` | `200 {check}`; concurrent identical checks join the same read |
+| `POST /api/continuation/accept` | `{proposalId, commandId, executionId, statusToken}` | `202 {acceptance}` on first acceptance; `200 {acceptance}` for replay |
+| `POST /api/continuation/retry` | `{acceptanceId, commandId, executionId, statusToken}` | `202 {acceptance}` for retrying the same owned setup; no new execution |
+| `GET /api/preparation` | Current execution/activity identity | `200 {executionId, phaseId, bindings, checks}` for assigned preparation |
+| `POST /api/preparation/result` | `{executionId, phaseId, bindingId, references[]}` | `200 {disposition: verified, checks}`; references resolve through retained provider/Git evidence |
+
+The preparation interface does not grant authority or execute commands. It is accessible through the pinned Kiln executable's session-facing `kiln preparation status` and `kiln preparation submit <file>` commands, following the audit/development interfaces. Result replay for identical binding/evidence is idempotent; failed attempts retain the unresolved facts and can be corrected within the same activity.
+
+Errors use `{ok:false, code, reason, checks[], check?, acceptance?}`: `400 malformed_request`; `403 outside_execution` or existing security refusal; `409 busy | wrong_state | proposal_changed | stale_acceptance | result_conflict`; `422 plan_invalid | source_conflict | earlier_work_changed | prerequisite_blocked | preparation_unverified | baseline_unavailable`; `503 source_unavailable | check_unavailable`; `500 state_write_failed`. A completed discovery with a known readiness blocker returns `200` and `status: blocked`; a failed/incomplete read returns `503` with `status: failed`. Neither exposes an executable offer. Rejected preparation proof returns `422`; it does not allow dependent execution. State-write failure prevents publication/dispatch and restores the pre-write in-memory state.
+
+`kiln run <PRD>` retains its identity, port and URL. For a completed execution it runs discovery before printing any current nothing-left conclusion, then serves historical delivery with the new check result. It reports additions/readiness and the existing page URL in the terminal; it never implements automatically. Page mount/reload explicitly invokes the check route once, and Check for new phases invokes it again. SSE reconnect alone does not repeatedly initiate checks; a reconnect after a new foreground process may join that process's startup check. No timer polls for plan additions.
+
+### Snapshot and screen contract
+
+Add `continuation` to the existing snapshot, keeping the current feature-state enum for compatibility. It contains:
+
+- `check`: status `never_checked | checking | unchanged | available | blocked | failed`, attempt time, last successful time, source observations, errors and optional earlier result.
+- `proposal`: ID, baseline ID, ordered new unfinished rows `{id,title,file}`, externally completed/unverified rows, earlier-work conflicts, first eligible phase, readiness checks and preparation summary. Counts derive from these rows.
+- `acceptance`: ID, execution ID, proposal ID, state `preparing | blocked | active`, setup checks and recovery action when present.
+- `handback`: accepted source, added phase IDs, remaining count and accepted time when present.
+- `earlierExecutions`: paged summaries with execution ID, original completion time and delivery links; load details on demand.
+
+**Not now** collapses the current tab's offer into a visible return affordance; it changes no engine state or authorization. Reloading or checking can show the offer again. While checking, disable Continue and show the previous result only as earlier information. A failed check never retains an enabled old Continue button.
+
+Render the six mock-up states with the same titles, order and control emphasis. The new-work panel precedes historical delivery. Failed checks show the exact source problem, retry and last successful time; current counts are unknown. During accepted setup show preparation progress before the Running screen. The existing session/activity detail includes execution identity so old finalization and new finalization cannot collide. Historical sessions remain inspectable but cannot be resumed from the current execution's controls. Display UTC stored timestamps in the viewer's local zone. Terminal and browser derive notices and counts from the same observations.
+
+## Data Models and Migration
+
+Retain the same PRD private directory, token, instance lock and session storage paths. Advance the persisted schema from current version 10 to the next available version at implementation time; coordinate that number with other Kiln work rather than assume 11 remains free. The schema reader must reject a newer version before any write.
+
+| Record | Authoritative fields and lifecycle |
+|---|---|
+| `PlanBaseline` | `formatVersion`, ID/digest, PRD identity, source observations, exact document references, normalized phases/requirements and completion references. Immutable private content-addressed sidecar; the current record points at the accepted one |
+| `PlanObservation` | Trigger, attempted/completed times, required sources and their identity/revision/digest, classified delta, errors and last-success reference. Latest result only; older accepted observations remain through proposal/baseline references |
+| `ContinuationProposal` | Content-derived ID, originating completed execution, baseline, candidate documents, ordered leaves, prerequisites/preparation, base vector and authority/settings binding. Immutable sidecar |
+| `ContinuationAcceptance` | Stable ID, proposal ID, old/new execution IDs, accepted time, pinned repository setup intentions/progress and state, linked to its durable command receipt. Owned by the single engine; one unresolved acceptance at a time |
+| `CompletedExecution` | Original execution identity, settings/workspace/repositories, plan baseline, phase/activity/session associations, completion time, audit state, billing/authority and delivery evidence references. Immutable archive, referenced by the feature record |
+| `PreparationBinding` / receipt | Immutable source/destination/scope/authority/verification binding; attempts and independently checked evidence references belong to the current phase and execution |
+
+The top-level record continues to own current execution fields and lightweight historical references. Archive the old record's execution portion as a sidecar before the atomic activation write references it; a crash may leave an unreachable sidecar but cannot leave a pointer to an unwritten archive. Do not embed recursive copies of history. Existing session directories remain stable; archive readers resolve original `(phaseKey, sessionId)` associations. New session IDs are unique, and scheduling/latest-session/PR-phase queries consult only current execution associations. A carried phase uses a historical completion reference, not a copied live `PhaseFacts` owner that could resume an old conversation.
+
+Start the new execution with an empty required audit state, new billing execution state, empty current development ledger and disabled execution-scoped early-merge grants unless separately authorized by an applicable existing control. Preserve agent choices, usage recovery and keep-awake preferences. Never copy a one-use paid approval or authorize new target repositories from remembered settings. Historical delivery obligations required by the revised plan become explicit prerequisite bindings; missing required evidence remains blocking, not silently discarded with the old ledger.
+
+Upgrade old records through the existing idempotent migration path, retaining original bytes for rollback. For a completed record, recover its baseline only from retained accepted snapshots or an immutable recorded completion revision whose plan, phase IDs and receipts agree with the saved plan. Do not use today's checkout as proof of yesterday's scope. Retain the evidence provenance of a recovered baseline. If neither source suffices, show `baseline_unavailable`, preserve history, and identify the missing revision/record to restore before checking again. Never guess “no additions.” An unfinished legacy run may establish its initial observed baseline from its coherent active plan, but cannot invent scope proof for historical completions.
+
+Old binaries refuse the new record schema; use a compatible version once a continuation is accepted. A pre-upgrade backup can support rollback only before new activity exists; no schema-number edit or destructive history reset. All new timestamps use UTC ISO 8601. The owner retains private sidecars with the feature record under existing permissions; no automatic pruning or new deletion command. Any future owner-directed feature deletion must remove the referenced archives and evidence together; committed project documents remain Git history.
+
+Use immutable sidecars for large documents and history, with 100 historical executions per response and an opaque cursor. Bound a candidate document set and one baseline/proposal to 8 MiB and 10,000 phase records, returning `413 plan_too_large` with the actual limit rather than truncating. Detailed source bytes/provider output stay outside SSE. The initial capacity ceiling is bounded local parsing/evidence-read time, not concurrent workers; an exceeded bound is visible and recoverable by adjusting the compatible format/limits, never by partial acceptance.
+
+Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Kiln's State on Disk, and `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Record contract (current-versus-historical execution records and schema upgrade only; existing evidence and grant semantics retained).
+
+## Integration Points
+
+- **Git/GitHub:** exact source/base revisions, coherent document reads, published/integrated completion evidence and owned workspace setup. Reuse bounded helpers; inspect explicitly named sources only. Revalidate source movement at acceptance and before dependent execution.
+- **Claude Code/Codex:** fresh conversation for a completed-feature continuation; normal same-conversation recovery for unfinished activities. External templates supply current plan, preparation ordering, assigned workspace and effective authority. Provider evidence supports preparation proof without expanding writable roots or spending permission.
+- **Audits and delivery:** revised whole-PRD manifests invalidate old currentness; historical reports remain available. New execution IDs prevent old reports or final PRs from satisfying new completion. Active-run additions stay in their execution, with existing fingerprint invalidation.
+- **Browser and inspection clients:** additive snapshot fields expose discovery and historical execution identity. Existing read-only bot inspection may show the continuation summary; this PRD adds no bot mutation surface. Coordinate with the [bot-control design](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md) so all controls share engine serialization and current-execution targeting.
+
+## Validation and Criteria Coverage
+
+These are implementation obligations, not tests claimed by this design. Use actual temporary Git repositories/worktrees and bare origins for source comparison, setup, push/ancestry and crash replay. Use recorded verified GitHub contracts plus real non-production reads for merge/squash coverage. Exercise the packaged CLI/local server and real browser for page-triggered discovery, stale tabs and all six mock-up states. Both actual providers need disposable handback and preparation-to-implementation proofs; deterministic provider fixtures supplement those boundaries. Required merge/deploy proof belongs in explicitly authorized non-production resources.
+
+| Criteria | Design boundary and discriminating proof |
+|---|---|
+| AC-HANDBACK-01–02 | Active handback: append and split during each provider's manual session, Verify and restart; normal done checks pass, added IDs/count appear and next leaf starts once without Continue; pause and usage hold still stop it |
+| AC-HANDBACK-03 | Shared checkout adds a leaf absent from active worktree: stop before advancement; reconcile and resume automatically; ordinary stale shared closure state does not block |
+| AC-HANDBACK-04 | Append just before final PR acceptance or audit settlement: no Complete until new leaves and current audits finish; old completed-phase explicit resume choice retained |
+| AC-FIND-01–02 | CLI restart, page reload and button each check; no agent spawn; removed old worktree/branch still discovers; local dirty additions visible but not ready; remote additions with stale shared copy recognized; divergent new scope withheld |
+| AC-FIND-03 | Gaps, filename rename, split parent, externally verified phase and unresolved closed prerequisite produce correct distinct counts; assumptions-only edit creates no leaf |
+| AC-FIND-04 | Missing/invalid sources, network failure, moving source and unrecoverable old baseline show unknown with earlier timestamp; no enabled stale offer or fabricated zero |
+| AC-OFFER-01–02 | Browser/terminal show same ordered proposal, first leaf and readiness above history; Not now starts nothing and remains returnable; unchanged completed plan shows successful check time |
+| AC-OFFER-03 | Change plan/base/prerequisite/authority after rendering; Continue refreshes without launch; duplicate HTTP requests, stale tabs and process termination around each durable acceptance boundary allocate one execution |
+| AC-CONTINUE-01 | Old completion times, provider history and delivery URLs survive two continuations; new session association cannot select old finalization; externally Closed-only phase cannot pass |
+| AC-CONTINUE-02 | Multi-repo current-base setup with one collision/partial failure; no unrelated files change; pricing-shaped seven-leaf plan starts phase 9 preparation from available unpushed source, verifies it before dependent work; unavailable/unauthorized source blocks |
+| AC-CONTINUE-03 | Completed ID removed/reused/reopened/materially changed stops with IDs; equivalent formatting/rename/closure metadata does not rerun it |
+| AC-CONTINUE-04 | New repository setup, both providers, current billing/selection, narrow merge authority and restart-tested pause controls remain effective; no paid or early-merge approval inherited by accident |
+| AC-CONTINUE-05 | Old merged PR/audit success cannot pass; new whole-PRD audits add a completion leaf, execute it without a second Continue, re-audit and record a second delivery |
+
+At implementation, add reverse supersession pointers under the owning earlier design sections in the same commit as the changed behavior. The source-reading anchors for this draft are [plan parsing](../../../src/plan/phase-plan.ts), [engine reconciliation](../../../src/engine/engine.ts), [completion checks](../../../src/engine/checks.ts), [workspace setup](../../../src/engine/worktree-setup.ts), [state/migration](../../../src/state/records.ts), [audit snapshots](../../../src/audit/snapshots.ts) and [local server](../../../src/server/local-server.ts). These locate constraints; they are not a file-by-file implementation plan.
+
+Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Scope and concurrency and §Version compatibility (continuation admission through the same durable owner and next private schema; existing CLI actions and receipt guarantees remain).
+
+## Open Questions
+
+No unresolved product choice beyond the PRD's declared CONTINUE-001/002 assumptions. During joint design refinement, verify the preparation binding's accepted Markdown/authorization forms against the pricing-shaped case and existing permission evidence: the current parser does not expose a preparation contract, so implementation must not substitute fuzzy prose matching or a self-asserted grant. The required outcome is automated, narrowly authorized preparation with unavailable/ambiguous evidence surfaced before dependent work.
