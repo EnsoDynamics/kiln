@@ -2,7 +2,7 @@
 
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md) · **Interface examples:** [command mockup](kiln-bot-control-command-mockup.md) · **Business choices:** [assumptions](kiln-bot-control-assumptions.md) · **Evidence:** [investigation](kiln-bot-control-investigation.md).
 
-**Status:** Technical design refined and independently reviewed, ready for phase planning. No implementation or phase planning has been performed.
+**Status:** Technical design refined and independently reviewed; [two implementation phases planned](kiln-bot-control-phase-plan.md). No implementation has started.
 
 ## Overview
 
