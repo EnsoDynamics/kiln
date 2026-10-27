@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln live session control
 
-Started: 2026-10-27 UTC   Current pass: 1   Status: In progress
+Started: 2026-10-27 UTC   Current pass: 2   Status: In progress
 Branch: wt/livectl-kiln-tdd-refine
 Existing code posture: Preserve (source: Technical Design)
 PRD words: at start 3365 · growth baseline 3365
@@ -18,6 +18,7 @@ Last updated: 2026-10-27 UTC
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 4 | 4 | 4 | 0 | 0 | 0 | 0 |
+| 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -49,6 +50,8 @@ Resolved mechanism at94 confidence: exact CLI2.1.311/macOS native text_not_typed
 ## Conformance
 Pass1: complete; no new questions.24 relative links/fragments,49 uniqueHTML IDs,16 mockup states, JS syntax, diff check passed. Earlier Chrome counter evidence covers8 composer states,4001 units rejected without truncation,2000 emoji counted4000.
 
+Pass2/completion: clean; canonical files byte-identical to f5c3412; bot dependency matches d881ecc.24links/fragments,49unique IDs,16states, JS syntax/diff checks pass.
+
 ## Conflict check
 Pass 1: 2026-10-27 UTC · 4 intended pointer groups · 0 unintended business conflicts. Writer must add scoped Replaces lines for v1 layout/pause wording/automatic recovery, usage recovery holds, bot extension and audit return. Existing handoff/completion-audit pointers suffice.
 Changed after pass 1: AC-LIVE-01, AC-LIVE-04, AC-MSG-03, AC-TAKE-01, AC-BACK-04, AC-BOT-01/02 (scoped Replaces pointers; AC-BACK-04 acknowledged-message hold clarification).
@@ -63,4 +66,4 @@ None.
 | None | — | Runtime/documentation access established through permitted escalation; no missing prerequisites |
 
 ## Next action
-Pass1 complete,4 questions resolved,0 assumptions/deferred/blocked. Commit checkpoint, then run scoped pass2 discovery (exclude tracked questions). No product implementation claims. Discovery found no additional questions; conformance must align AC-BACK-04 message hold release and visible input limit in mockup. Temporary proof artifacts live under /tmp, outside product source. No product implementation.
+Pass2 discovery clean (0new,4tracked repeats), no Deferred questions. Pass2/completion conformance clean. Next final changed-criteria conflict check and independent readiness verification. No product implementation claims. Discovery found no additional questions; conformance aligned AC-BACK-04 message hold release and visible input limit in mockup. Temporary proof artifacts live under /tmp, outside product source. No product implementation.
