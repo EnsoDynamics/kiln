@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. All three implementation leaves closed on 2026-10-27 with their scoped criteria verified. Whole-PRD delivery audit is next after the held Phase 3 publication. A closed leaf records implementation completion; shared-branch publication is a separate delivery action.
+Build and verify each phase in this order before starting the next. All three implementation leaves closed on 2026-10-27 with their scoped criteria verified. Whole-PRD delivery audit is next after Phase 3 publication, approved on 2026-10-27. A closed leaf records implementation completion; shared-branch publication is a separate delivery action.
 
 | Phase | What it does | Depends on |
 |---|---|---|

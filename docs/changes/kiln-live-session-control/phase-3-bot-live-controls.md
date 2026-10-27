@@ -46,7 +46,7 @@ Test hardening intentionally replaces Phase 2's temporary expectation that versi
 
 ## Publication and successor
 
-Implementation closure does not authorize shared-branch publication. This chat's starting instruction explicitly holds Phase 3 publication; no production changes or messages to other chats are authorized. After publication, the next planned unit is a fresh whole-PRD delivery audit, followed by test audit only when delivery is clean. The separate bot-control inspection cleanup remains owned by its own track.
+Doug lifted this phase's publication hold on 2026-10-27 in Codex chat `01a17ec2-1c2b-7943-b2ec-1955b4f5fa61`: “Go ahead and push Phase 3, then launch the next chat for the whole-PRD delivery audit.” This authorizes publication of the scoped Phase 3 work and launch of that audit. It does not authorize production changes or publication of the audit's later work. After publication, the next planned unit is a fresh whole-PRD delivery audit, followed by test audit only when delivery is clean. The separate bot-control inspection cleanup remains owned by its own track.
 
 ## Verification run details
 
@@ -57,7 +57,3 @@ The broad `npm run verify` integration invocation covered 844 cases across 72 fi
 A separate hardening run's existing 32-message capacity case refused a send during contention; its unchanged isolated rerun and the broad full run passed. The assertion now includes the refusal body as a diagnostic. The new audit CLI fixture prepares its real prerequisite audit in `beforeEach`, keeping the original 60-second functional test deadline; its isolated test-audit Verify case passed. No application timeout, capacity limit or safety assertion was weakened.
 
 Independent deliverable review and test hardening are complete. Review fixes preserve action-ID conflicts before target lookup and durable explicit stale-target refusals. Hardening added independent receipt/help/disabled-state evidence and fixed disconnected handoff safety. No new business assumption was introduced. The portable real-provider text/tool proof details are above.
-
-## Pending human actions
-
-- Doug: authorize publication of the scoped Phase 3 implementation commit. The starting instruction holds shared-branch publication; the finished work remains in this chat's worktree until that approval.

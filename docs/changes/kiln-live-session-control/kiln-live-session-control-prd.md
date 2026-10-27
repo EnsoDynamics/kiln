@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All three implementation phases are closed with their scoped criteria verified on 2026-10-27. Phase 3 adds bot live commands and reviewed-message return. Its shared-branch publication remains held; the next planned unit is whole-PRD delivery audit, then test audit when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All three implementation phases are closed with their scoped criteria verified on 2026-10-27. Phase 3 adds bot live commands and reviewed-message return. Phase 3 publication was approved on 2026-10-27; the next planned unit is whole-PRD delivery audit, then test audit when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,7 +136,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Next: whole-PRD delivery audit
 
-All implementation leaves are closed. After Phase 3 is published to the shared branch, run a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) record the held publication, current proof portfolio and next unit. Implementation closure is not a whole-PRD audit or production-release claim.
+All implementation leaves are closed. After Phase 3 is published to the shared branch, run a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) record the publication approval, current proof portfolio and next unit. Implementation closure is not a whole-PRD audit or production-release claim.
 
 ## Out of scope
 
