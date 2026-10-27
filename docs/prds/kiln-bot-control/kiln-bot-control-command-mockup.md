@@ -611,8 +611,8 @@ $ kiln logs "$returns_prd" --max-lines 2 --json
   "byte_limit_reached": false,
   "range": {"first": 249, "last": 250},
   "lines": [
-    {"number": 249, "at": "2026-10-26T12:59:40Z", "source": "assistant", "text": "Dashboard changes saved.\nFilters and totals are ready.", "fragment": null},
-    {"number": 250, "at": "2026-10-26T12:59:42Z", "source": "assistant", "text": "Running the returns dashboard integration checks.", "fragment": null}
+    {"number": 249, "at": "2026-10-26T12:59:40Z", "source": "claude", "text": "Dashboard changes saved.\nFilters and totals are ready.", "fragment": null},
+    {"number": 250, "at": "2026-10-26T12:59:42Z", "source": "claude", "text": "Running the returns dashboard integration checks.", "fragment": null}
   ],
   "has_older": true,
   "next_before": "page_returns_248",
