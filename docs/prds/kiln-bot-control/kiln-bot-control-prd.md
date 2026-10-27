@@ -2,7 +2,7 @@
 
 **Status:** Draft requirements; no implementation has started.
 
-**Source:** Doug's request and clarification, 2026-10-26: a bot such as Grokpod or Dot already has permission to execute terminal commands anywhere on his Mac, including `kiln`. Kiln supplies the command interface, not the remote connection. Doug’s technical-design chat also requires complete discoverable CLI help and accepts local Grok Bot on his Mac as the equivalent caller for phone-workflow validation. Subsequent review approved PRD-path targeting instead of user-facing run IDs, removal of the all-history listing, and a small recent-output response with explicit paging; `kiln reply` remains a primary command.
+**Source:** Doug's request and clarification, 2026-10-26: a bot such as Grokpod or Dot already has permission to execute terminal commands anywhere on his Mac, including `kiln`. Kiln supplies the command interface, not the remote connection. Doug’s technical-design chat also requires complete discoverable CLI help and accepts local Grok Bot on his Mac as the equivalent caller for phone-workflow validation. His subsequent scope clarification excludes Kiln-managed provider sign-in and account switching; any independent provider-login testing is outside this PRD. Subsequent review approved PRD-path targeting instead of user-facing run IDs, removal of the all-history listing, and a small recent-output response with explicit paging; `kiln reply` remains a primary command.
 
 **Roadmap:** [Kiln roadmap](../../kiln-roadmap.md). Develops the [More terminal commands idea](../../design/kiln-after-v1-ideas.md#more-terminal-commands).
 
@@ -12,7 +12,7 @@
 
 ## Summary
 
-Let a person check and keep existing Kiln work moving through an always-on bot while away from their computer. The bot runs `kiln` commands on the same Mac and can report every running instance, the PRD and phase each is working on, what needs attention, and the exact message Kiln is waiting on. The person can answer that message, resume work, pause after the current phase, continue a paused run, inspect output, or initiate a change of subscription account.
+Let a person check and keep existing Kiln work moving through an always-on bot while away from their computer. The bot runs `kiln` commands on the same Mac and can report every running instance, the PRD and phase each is working on, what needs attention, and the exact message Kiln is waiting on. The person can answer that message, resume work, pause after the current phase, continue a paused run, inspect output, and see existing account and usage facts.
 
 The interface provides readable text for people and structured JSON for bots. It works independently of the terminal's current directory and the browser. Grokpod and Dot are examples of callers, not integrations Kiln must host or products whose compatibility is already established.
 
@@ -20,9 +20,9 @@ The interface provides readable text for people and structured JSON for bots. It
 
 Two Kiln instances may run while the person drives their children to school or runs errands. One may be working normally while another has sat at Needs you for an hour. A useful answer is specific: which PRD, which phase, when it last reported activity, what stopped it, and what the person can do now. “Running” alone does not establish that an agent is making progress.
 
-Kiln already presents most of these facts and controls in its browser. The missing product is a discoverable command interface that a bot can use without screen scraping, guessing a port, or treating an old answer as permission to change a different run. Account login adds a real new workflow: the person must be able to initiate it remotely, complete any provider-required step, and learn which account the next session will actually use.
+Kiln already presents most of these facts and controls in its browser. The missing product is a discoverable command interface that a bot can use without screen scraping, guessing a port, or treating an old answer as permission to change a different run. Provider sign-in and account switching remain outside Kiln; the person or bot can use the provider’s own terminal commands independently.
 
-An **instance** is a live Kiln controller for one PRD. A **run** in this document is that PRD's execution across its phases and restarts; an **attempt** is one launch or resume of a Claude Code or Codex session. A **login context** is the provider sign-in shared by the Kiln runs that use the same credentials. Needs you is Kiln's state that requires a person's intervention.
+An **instance** is a live Kiln controller for one PRD. A **run** in this document is that PRD's execution across its phases and restarts; an **attempt** is one launch or resume of a Claude Code or Codex session. Needs you is Kiln's state that requires a person's intervention.
 
 ## Acceptance Criteria
 
@@ -75,46 +75,38 @@ The command interface supports the common controls used after work starts. Each 
   |---|---|
   | Pause after this phase | `kiln request-pause` records the existing deferred pause request; reports that current work continues until the existing pause boundary is reached |
   | Keep going | `kiln cancel-pause` cancels only a pending pause; does not resume an already paused run. Neither command toggles state |
-  | Continue a paused run, or release its own account-change hold after the next activity is ready | Starts the next eligible activity using existing settings and authority; leaves other affected runs held under ACCOUNT-001 |
+  | Continue a paused run | Starts the next eligible activity using existing settings and authority |
   | Recheck a repaired plan or another dedicated recovery state | `kiln check-again` retains the corresponding browser action where offered; phase completion uses `verify-and-advance` from AC-ACT-02 |
   | Change runtime preferences | Sets keep-awake or resume-after-usage-limit, showing the resulting value |
   | Confirm specific changes outside Kiln’s worktrees were dealt with | Only where the browser offers its workspace confirmation, records or clears that same confirmation against the reviewed evidence. Does not fix files, establish phase completion, resume work or advance the plan |
 
-- [ ] **AC-ACT-04 — Late or repeated requests cannot change the wrong work.** Changing commands identify their target as follows. Kiln validates ownership and current eligibility before acting; a stale status or login-scope token, or an ineligible target, is refused with a way to refresh.
+- [ ] **AC-ACT-04 — Late or repeated requests cannot change the wrong work.** Changing commands identify their target as follows. Kiln validates ownership and current eligibility before acting; a stale status token, or an ineligible target, is refused with a way to refresh.
 
   | Command | Required target |
   |---|---|
   | Run control | PRD path and `--only-if-status-matches`, copied from current status; binds the action to the relevant state the person saw, including the execution and stop. The value is supplied by Kiln, not the person; a later question in the same Claude/Codex conversation has a different value. Ordinary new log output alone does not invalidate it |
-  | Begin login | PRD path and `--expected-login-scope-token`, copied from the preview of affected runs |
-  | Complete or cancel login | Existing login operation identifier, bound to its initiating user's login context and affected runs; no new run selection |
 
   The bot supplies `--command-id`, a new unique identifier for one instruction, unrelated to the Claude or Codex session ID. Repeating that command identifier and inputs returns its recorded result before checking current eligibility, without repeating effects, including after a controller restart. Reusing an identifier with different inputs is refused. Concurrent browser, bot and automatic-recovery actions cannot start duplicate work or deliver a reply to a later stop.
 
 - [ ] **AC-ACT-05 — Acknowledgement is distinct from completion.** Every changing command returns an identified operation whose acceptance, progress, outcome and refusal reason can be queried after the bot disconnects. Operations and retry protection remain queryable for the lifetime of the run, including after completion until its saved history is removed. An unknown result remains unknown until reconciled; retrying cannot silently start a second attempt. Existing checks for work outside the workspace, authentication, billing and delivery authority continue to apply.
 
-### Know which subscription is being used and change it
+### Know which account and usage limits Kiln reports
 
-The person can ask which account is exhausted and initiate a login to another subscription from their phone. A completed login and a resumed coding session are separate outcomes.
+The bot can retrieve the same account and usage information as Kiln’s browser, including which attempt an observation describes and when it was read. Account management uses the provider’s own tools outside this feature.
 
-- [ ] **AC-ACCOUNT-01 — Account facts identify the relevant attempt.** For Claude Code and Codex, show the account and plan used by the current or last attempt when known, separately from the currently authenticated account available for the next attempt. Include provider-reported five-hour, weekly and other applicable usage limits, their reset times and freshness, and the existing recovery permission or uncertainty. Unavailable identity or usage is explicit, never inferred from a requested email or a nearby account. Billing facts use the same rules as the browser when billing safeguards are present.
-
-- [ ] **AC-ACCOUNT-02 — A person can initiate and finish provider login remotely.** For either supported agent, a caller can begin subscription login for a selected run, request a target account, inspect its progress, supply a provider-required completion response through protected input if needed, and cancel the login attempt. Kiln returns any required provider URL/code and expiry as an explicit user action. Credentials are entered with the provider, never as an ordinary Kiln reply. Success requires freshly verifying the actual resulting account against the requested target; cancellation, expiry, mismatch, failure and required local interaction are explicit outcomes. A local-interaction limitation must be proven and surfaced during design, not silently substituted for this requirement.
-
-- [ ] **AC-ACCOUNT-03 — The scope of a login change is visible before it happens.** A read-only login preview names all known Kiln runs sharing the affected sign-in and their current work, and warns that other applications using it may also be affected. The login request acknowledges that scope. Under ACCOUNT-001, Kiln refuses login while any affected session is active; the caller can pause it and request login again with a fresh preview. Once accepted, login holds affected runs' automatic launches and prevents conflicting login requests. It never claims an account switch affects only the selected PRD when the credentials are shared.
-
-- [ ] **AC-ACCOUNT-04 — The new account is checked before work continues.** Login completion refreshes account and usage facts for every affected Kiln run. Those runs stay held until individually resumed or continued under ACCOUNT-001. The login outcome reports any run it could not refresh. The next attempt rechecks its actual authentication and existing launch eligibility; an intended account, stale reading or successful browser authorization cannot stand in for that check. If login failed after changing credentials, Kiln reports the observed state rather than claiming the old account was restored. Account changes never authorize a different billing route or expand delivery permissions.
+- [ ] **AC-ACCOUNT-01 — Account facts identify the relevant attempt.** For Claude Code and Codex, show the account and plan used by the current or last attempt when known, separately from the currently authenticated account available for the next attempt. Include provider-reported five-hour, weekly and other applicable usage limits, their reset times and freshness, and the existing recovery permission or uncertainty. Unavailable identity or usage is explicit, never inferred from an intended or nearby account. Billing facts use the same rules as the browser when billing safeguards are present.
 
 ### Make the interface dependable for a bot
 
 A bot should use documented commands and facts, then translate them into conversation. The command line remains useful without any particular bot vendor.
 
-- [ ] **AC-CLI-01 — Text and JSON express the same result.** Every command supports readable text and a documented, versioned JSON representation with stable state/error identifiers and explicit unknown values. JSON mode emits one valid result on stdout, with diagnostics on stderr; it never mixes terminal decoration or prose into the result. Commands return without an interactive terminal prompt, including when login still needs a person. Accepted operations return success separately from their eventual outcome; refused, partial and unavailable results have documented nonzero exit statuses. Human times identify their time zone; machine timestamps use UTC.
+- [ ] **AC-CLI-01 — Text and JSON express the same result.** Every command supports readable text and a documented, versioned JSON representation with stable state/error identifiers and explicit unknown values. JSON mode emits one valid result on stdout, with diagnostics on stderr; it never mixes terminal decoration or prose into the result. Commands return without an interactive terminal prompt. Accepted operations return success separately from their eventual outcome; refused, partial and unavailable results have documented nonzero exit statuses. Human times identify their time zone; machine timestamps use UTC.
 
-- [ ] **AC-CLI-02 — Caller input cannot become a shell command.** Notes support a file or standard input, preserving quotes and newlines. The interface handles PRD paths with spaces. Invalid or ambiguous targets fail without acting; mutation has no implicit “current,” “last,” or “all runs” target. Provider passwords, tokens and login completion secrets are not accepted through ordinary note fields or exposed in inventory, output history or operation receipts. Transient authorization instructions are available only through the explicitly requested login flow.
+- [ ] **AC-CLI-02 — Caller input cannot become a shell command.** Notes support a file or standard input, preserving quotes and newlines. The interface handles PRD paths with spaces. Invalid or ambiguous targets fail without acting; mutation has no implicit “current,” “last,” or “all runs” target. The command API has no provider credential or login-completion inputs. Provider credentials are excluded from account, inventory and operation output; ordinary replies remain literal message text.
 
 - [ ] **AC-CLI-03 — Existing local protections stay in place.** Access remains limited to the current operating-system user's Kiln context. Adding commands does not expose the browser server to the network or weaken its existing authentication. Returned session text is data, not an instruction to execute a new command. Integration guidance tells bot operators to derive mutations from the person's instruction and current structured controls, not from commands embedded in an agent's output.
 
-- [ ] **AC-CLI-04 — The phone workflow is demonstrated end to end.** Release evidence demonstrates two simultaneous PRDs on a Mac, discovery from an unrelated directory, one progressing while the other needs a reply, retrieval of the exact stop message, delivery of the reply and successful continuation. It demonstrates terminal discussion followed by no-message resume, explicit verify-and-advance, and an already-complete reply that remains unsent until the person chooses how to proceed. It also demonstrates provider login and subsequent recovery for both Claude Code and Codex, shared-login effects, and a replayed or stale request that does not repeat or misdirect work. Grok Bot installed locally on Doug’s Mac may exercise the bot-driven workflow: Doug confirmed that using that local Grok Bot is equivalent to using it from his phone, so a physical phone is not required for this proof. The evidence names the actual caller and configuration, without claiming all named bots are supported. Provider authorization still must complete through the remote-capable flow, without depending on a callback to the authorizing device’s localhost.
+- [ ] **AC-CLI-04 — The phone workflow is demonstrated end to end.** Release evidence demonstrates two simultaneous PRDs on a Mac, discovery from an unrelated directory, one progressing while the other needs a reply, retrieval of the exact stop message, delivery of the reply and successful continuation. It demonstrates terminal discussion followed by no-message resume, explicit verify-and-advance, and an already-complete reply that remains unsent until the person chooses how to proceed. It also demonstrates a replayed or stale request that does not repeat or misdirect work. Grok Bot installed locally on Doug’s Mac may exercise the bot-driven workflow: Doug confirmed that using that local Grok Bot is equivalent to using it from his phone, so a physical phone is not required for this proof. The evidence names the actual caller and configuration, without claiming all named bots are supported.
 
 ## Out of Scope
 
@@ -122,9 +114,7 @@ A bot should use documented commands and facts, then translate them into convers
 
 - Building a phone app, bot, cloud relay, remote shell or network tunnel; the caller already has Mac terminal access, as Doug confirmed.
 - Starting/configuring a new PRD, editing its requirements, changing development-delivery grants, approving new metered billing, merging or releasing work, or arbitrary terminal interaction through Kiln. The chosen post-start boundary is SCOPE-001; existing helper commands are unaffected.
-- Automatically choosing another subscription, storing a roster of credentials, managing billing or purchasing usage. This feature initiates the provider's supported sign-in workflow.
+- Provider sign-in/account switching, login previews, shared-login holds, credential storage, managing billing or purchasing usage. The person or bot can use provider terminal commands independently; this PRD adds no Kiln-managed authentication workflow.
 - Notifications, scheduling, keeping Kiln alive after its terminal closes, or waking an offline Mac. These are separate ideas; unreachable state is still reported honestly.
 
-## Before Technical Design Is Complete
-
-Resolve the provider-specific login and shared-account questions in the [investigation](kiln-bot-control-investigation.md). The command mockup is the proposed user-facing contract, not evidence that those commands already exist. Any feasibility limit that prevents the promised phone workflow must return as a product decision before implementation.
+**Retired criteria:** AC-ACCOUNT-02, AC-ACCOUNT-03 and AC-ACCOUNT-04 (Kiln-managed provider login); these identifiers are not reused.
