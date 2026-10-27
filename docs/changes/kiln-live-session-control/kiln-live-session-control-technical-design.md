@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phases 1–4 are closed and published. The fresh whole-PRD delivery audit after Phase 4, against `d81de98`, finds one AC-TAKE-05 activity-time gap; [Phase 5](phase-5-takeover-activity-time.md) completes it. The runtime design and historical verification limits remain unchanged. Build Phase 5, repeat whole-PRD delivery audit, then test audit when delivery is clean.
+**Status:** Phases 1–4 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) closes the audit-confirmed AC-TAKE-05 activity-time gap locally, with publication held for Doug. Its leaf records acceptance evidence and the current full-run/focused-retest qualification. The provider qualification and release/ownership boundaries remain unchanged. After publication, repeat whole-PRD delivery audit, then test audit when delivery is clean.
 
 ## Overview
 
@@ -118,6 +118,8 @@ Terminal readiness requires all of:
 - No unresolved writer or ownership ambiguity remains, and the takeover/recovery hold is still durable.
 
 No signal, interrupt acknowledgement, result, stale registry removal, or transcript mtime is sufficient alone. Takeover never uses the existing stop path's SIGINT/TERM/KILL escalation. If an operation stalls, keep waiting and show the last observed activity and concrete obstacle; after 30 seconds without a new observation label the elapsed wait without asserting a hang. Observation reads have deadlines; the operation has no automatic cancellation deadline. Retry repeats reconciliation, not the work or interrupt.
+
+Activity time retains the original observation time across reconciliation and restart: use saved stream-event arrival times, transcript record timestamps and live hook times, taking the latest dated activity. Replaying older evidence cannot move that time forward or backward. An undated transcript row may repair operation accounting but supplies no activity time. The hold's reconciliation/check time advances independently, so repeated release checks preserve an honest elapsed wait while unresolved work still blocks terminal access.
 
 A restart loads the holds before completion, delivery reconciliation that could authorize effects, automatic usage recovery or leftover-process cleanup. Recovered input is unavailable; never reconnect by opening a peer conversation. If this attempt has a proven persistent gate, request/observe its yield through that gate. If it predates gate support or its identity is unknown, hold progression and wait for natural completion/release; no forced stop. Retain unsent browser drafts during reconnect. Legacy activity work can still finish naturally, but a takeover request accepted before its end retains the hold for explicit verification.
 

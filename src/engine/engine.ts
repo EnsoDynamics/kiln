@@ -759,11 +759,11 @@ export class Engine {
         if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
         if (resolve(run.live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "The Claude configuration root changed; restore the attempt profile before hand-back.");
         // Rebuild the projection after a crash between event append and gate update.
-        for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event);
+        for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event, saved.at);
         const transcript = findTranscripts(run.live.configRoot, session.sessionId).main;
         if (transcript) {
           for (const row of readJsonLines<Record<string, unknown>>(transcript)) {
-            if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result });
+            if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result }, typeof row.timestamp === "string" ? row.timestamp : undefined);
           }
           const read = readTranscript(transcript);
           if (read.problem) throw new Error(read.problem);
@@ -775,6 +775,7 @@ export class Engine {
           });
         }
         const gate = readGate(run.live.gateDirectory);
+        hold.latestActivityAt = gate.observedAt;
         if (!sameLiveTarget(gate.target, hold.target) || hold.kind !== "delivery_recovery" && gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
         if (gate.obstacle) {
           const inventory = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });

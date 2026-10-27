@@ -84,10 +84,10 @@ it("preserves unresolved task evidence across reused task identifiers", async ()
   h = await createHarness({ sessions: [] }); const directory = join(h.sandbox.root, "gate");
   const target: LiveTarget = { executionId: "e", activityId: "a", activityKey: "1", sessionId: "s", providerSessionId: "s", attemptId: "t" }; createGate(directory, target);
   await withGate(directory, state => { state.operations.tool = { name: "Agent", admittedAt: new Date().toISOString(), hookSettled: true, response: { agentId: "agent", status: "async_launched" } }; state.held = { instructionId: "i", operationId: "o", requestedAt: new Date().toISOString() }; });
-  await observeGate(directory, { type: "system", subtype: "task_started", task_id: "agent", run_id: "run1", tool_use_id: "tool" });
-  await observeGate(directory, { type: "system", subtype: "task_notification", task_id: "agent", run_id: "run0", tool_use_id: "tool", status: "completed" });
+  await observeGate(directory, { type: "system", subtype: "task_started", task_id: "agent", run_id: "run1", tool_use_id: "tool" }, new Date().toISOString());
+  await observeGate(directory, { type: "system", subtype: "task_notification", task_id: "agent", run_id: "run0", tool_use_id: "tool", status: "completed" }, new Date().toISOString());
   expect(unsettled(readGate(directory))).toContain("task agent:run1");
-  await observeGate(directory, { type: "system", subtype: "task_notification", task_id: "agent", run_id: "run1", tool_use_id: "tool", status: "completed" });
+  await observeGate(directory, { type: "system", subtype: "task_notification", task_id: "agent", run_id: "run1", tool_use_id: "tool", status: "completed" }, new Date().toISOString());
   expect(unsettled(readGate(directory))).toEqual([]);
 });
 

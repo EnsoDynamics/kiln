@@ -291,7 +291,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       run.claudeResults = { count: resultAccounting.index, ...(cumulative === undefined ? previous?.cumulativeCostUsd === undefined ? {} : { cumulativeCostUsd: previous.cumulativeCostUsd } : { cumulativeCostUsd: cumulative }) };
     }
     appendJsonLine(files.events, { at, event, ...(resultAccounting ? { resultAccounting } : {}) });
-    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
+    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event, at); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
     if (isModelResponse(event)) modelResponses.push(at);
     if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 

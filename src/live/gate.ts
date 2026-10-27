@@ -89,10 +89,11 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
 export function unsettled(state: GateState): string[] {
   return [...Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id, o]) => `${o.name} ${id}`), ...Object.entries(state.tasks).filter(([, t]) => !t.settled).map(([id]) => `task ${id}`)];
 }
-/** Provider evidence complements hooks: result echo alone never proves process release. */
-export async function observeGate(directory: string, event: Record<string, unknown>): Promise<void> {
+/** Provider evidence complements hooks: result echo alone never proves process release.
+ * Replay supplies the original time; undated evidence repairs accounting without inventing activity. */
+export async function observeGate(directory: string, event: Record<string, unknown>, observedAt: string | undefined): Promise<void> {
   await withGate(directory, state => {
-    state.observedAt = new Date().toISOString();
+    if (observedAt && Date.parse(observedAt) > Date.parse(state.observedAt)) state.observedAt = observedAt;
     if (event.type === "result" && event.session_id === state.target.providerSessionId) for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
     if (event.type === "system" && typeof event.task_id === "string" && typeof event.run_id === "string") {
       const key = `${event.task_id}:${event.run_id}`;
