@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Requirements refined; paired pause UX and mockups approved on 2026-10-26. Whole-change technical design drafted; independent review in progress. Provider ownership and complete checkpoint coverage still block implementation readiness. No product implementation in this change.
+**Status:** Requirements refined; paired pause UX and mockups approved on 2026-10-26. Whole-change technical design drafted and independently reviewed; joint PRD/design refinement is next. Provider ownership, complete checkpoint coverage and literal-input context preservation still block implementation readiness. No product implementation in this change.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -122,11 +122,11 @@ The [standalone mockup](mockups/kiln-live-session-control.html) uses the existin
 
 ## Delivery boundary
 
-This session produces requirements, assumptions and mockups only. Before implementation, the technical design must prove message accounting across multiple results and interruption/restart races, terminal ownership detection, and the safe-checkpoint/yield path and release with real foreground/background tools on supported platforms. The investigation records which runtime facts are already measured and which product behaviors do not exist yet. These are implementation proof obligations, not claims that a prototype has shipped.
+This change currently contains requirements, assumptions, mockups and a reviewed technical design only; no product implementation. Before implementation, the technical design must prove message accounting across multiple results and interruption/restart races, terminal ownership detection, and the safe-checkpoint/yield path and release with real foreground/background tools on supported platforms. The investigation records which runtime facts are already measured and which product behaviors do not exist yet. These are implementation proof obligations, not claims that a prototype has shipped.
 
-## Next: independent technical design review
+## Next: joint PRD/design refinement
 
-Doug approved the paired pause choices and their distinct requested/completed states on 2026-10-26. The [whole-change technical design](kiln-live-session-control-technical-design.md) is drafted using `technical-design-writing-standards`; its independent `review-technical-design` step is next. The design’s Open Questions record the remaining proof gates for subsequent joint refinement. The investigation's **Technical design must resolve before implementation** section owns the remaining proof obligations. The design must cover the whole PRD, including AC-LIVE-03/04 across browser and bot status; this approval does not establish that the provider can safely yield mid-session or that product implementation is ready.
+Doug approved the paired pause choices and their distinct requested/completed states on 2026-10-26. The [whole-change technical design](kiln-live-session-control-technical-design.md) was drafted using `technical-design-writing-standards` and independently revised with `review-technical-design`. Joint `autonomous-design-refinement` is the next method step; it has not run in this design-only change. The design’s Open Questions record the remaining proof gates for subsequent joint refinement. The investigation's **Technical design must resolve before implementation** section owns the remaining proof obligations. The design must cover the whole PRD, including AC-LIVE-03/04 across browser and bot status; this approval does not establish that the provider can safely yield mid-session or that product implementation is ready.
 
 ## Out of scope
 
