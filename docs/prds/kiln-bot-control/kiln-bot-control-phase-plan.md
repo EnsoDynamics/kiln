@@ -4,19 +4,20 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. Both original implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration, and are integrated through `c25bf89`. The [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) found three partly implemented criteria and added completion Phase 3, now also closed. Repeat delivery audit and then test audit after Phase 3 is published.
+Build and verify each phase in this order before starting the next. Phases 1–3 are closed and published through `c8b5cf9` on 2026-10-27. The fresh [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) confirms the prior repairs and adds completion Phase 4 for AC-SEE-05. Build Phase 4, repeat whole-PRD delivery audit, then run whole-PRD test audit only when delivery is clean.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
 | [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None | Closed 2026-10-27 |
 | [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Closed 2026-10-27 |
 | [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Closed 2026-10-27 |
+| [4: Complete recovery instructions without a saved conversation](phase-4-complete-no-session-handoff.md) | Added by delivery audit: return available fresh-session instructions when work stops before any conversation is saved. | 1 (handoff/history projections and retained browser instructions) | Open |
 
 ## Criterion ownership
 
 Phase 1 owns AC-SEE-01–08, AC-ACT-01, AC-ACCOUNT-01 and AC-CLI-01–03. Phase 2 owns AC-ACT-02–05 and AC-CLI-04. All 18 active criteria have exactly one owner; retired AC-ACCOUNT-02–04 stay retired. AC-SEE-03, AC-SEE-07, AC-ACT-01 and AC-CLI-01–03 also constrain Phase 2's additions, as labelled in its phase document. No criteria or product scope changed during planning.
 
-Completion Phase 3 completes AC-SEE-02, AC-ACT-01 and AC-CLI-01; Phase 1 retains ownership and its Closed line. The audit added no scope.
+Completion Phase 3 completes AC-SEE-02, AC-ACT-01 and AC-CLI-01; Phase 1 retains ownership and its Closed line. Completion Phase 4 completes AC-SEE-05; Phase 1 retains ownership and its Closed line. Neither audit added scope.
 
 ## Sizing decision
 
@@ -26,6 +27,6 @@ The second phase carries one coupled control capability: all entry points share 
 
 ## Validation and closeout
 
-Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After both leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
+Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After all implementation leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
 
-Completion Phase 3 closed on 2026-10-27; its implementation and validation are recorded in the phase document. The earlier delivery audit remains complete with gaps, not clean. Next: repeat whole-PRD delivery audit against all completed work, then whole-PRD test audit only when delivery is clean. Publishing Phase 3 remains held for Doug's authorization.
+Completion Phase 3 closed and was published on 2026-10-27 in `c8b5cf9`. The current delivery audit confirms its three repairs but remains complete with one gap, not clean. Build Phase 4, then repeat whole-PRD delivery audit. Whole-PRD test audit is the next closeout stage only when delivery is clean. Publishing this audit's documents remains held for Doug's explicit authorization; no production release is authorized.
