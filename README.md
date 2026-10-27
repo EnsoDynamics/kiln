@@ -91,8 +91,8 @@ Codex requires ChatGPT sign-in and the OpenAI provider before every launch and r
 
 - [Architecture proposal](docs/design/kiln-architecture-proposal.md): principles, v1 scope, the done check, the stop path, and open questions.
 - [Interface scenarios](docs/design/kiln-interface-scenarios.md) and the [mockups](docs/design/mockups/): the v1 screens, which are the design of record.
-- [Kiln roadmap](docs/kiln-roadmap.md): what comes after v1, in order.
-- [Kiln ideas after v1](docs/design/kiln-after-v1-ideas.md): not part of v1; ideas deliberately left out.
+- [Kiln roadmap](docs/kiln-roadmap.md): future feature ideas, with a separate note for each.
+- [Future-feature index](docs/design/kiln-after-v1-ideas.md): links to individual idea notes and existing-feature references.
 
 ## Development
 
