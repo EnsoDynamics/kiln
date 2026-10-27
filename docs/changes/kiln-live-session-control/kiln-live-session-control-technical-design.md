@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Joint PRD/design refinement complete; ready for phase planning. Provider feasibility on the validated macOS profile and the shared bot instruction contract are established within the evidence limits below. Assembled controller behavior remains implementation verification. No product implementation is included.
+**Status:** Joint PRD/design refinement and [phase planning](kiln-live-session-control-phase-plan.md) complete; ready to implement Phase 1. Provider feasibility on the validated macOS profile and the shared bot instruction contract are established within the evidence limits below. Assembled controller behavior remains implementation verification. No product implementation is included.
 
 ## Overview
 
@@ -199,7 +199,7 @@ Receipts/evidence stay with the execution for its history lifetime, including af
 
 The first message ceiling is the provider's 64-entry consumption-UUID list, bounded by the 32-unsettled-input admission limit and exposed in action availability. Other ceilings are private disk/write capacity, bounded reconciliation time and the provider's ability to account for its tools. Disk failure refuses new effects and retains uncertainty; a read deadline returns unknown without releasing ownership. Keep 50-receipt pages and bounded reads; no retention TTL or silent pruning. Future provider parity can add an adapter and correlation evidence version without rekeying activity/session/message history; no generic remote-control platform is introduced now.
 
-Deliver provider/engine/storage/API/browser changes together in the existing package after proof gates pass. Bot commands can follow independently through its existing framework. Incremental internal work can establish provider proof, durable engine/recovery contracts, then UI/API and bot integration, but none is a declared product phase here. Earlier-design back-pointers are added only when implementation makes these replacements true.
+Deliver each capability's provider/engine/storage/API/browser changes together in the existing package after its proof gates pass. The [implementation plan](kiln-live-session-control-phase-plan.md) orders safe takeover/return, then live messaging/recovery, then bot integration through its existing framework. The phase documents scope that work without splitting this design. Earlier-design back-pointers are added only when implementation makes these replacements true.
 
 ## Evidence and Verification Gates
 
