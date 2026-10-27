@@ -23,6 +23,34 @@ const panel = `document.querySelector('[aria-label="Claude billing"]')`;
 const clickChoice = `${panel}.querySelector('input[type=checkbox]').click()`;
 const recheck = `[...${panel}.querySelectorAll('button')].find(b => b.textContent.includes('Recheck billing'))`;
 describe("Claude billing browser controls", () => {
+  // AC-BILL-01/02/04/06: actual protected-server presentations, not renderer fixtures.
+  it.each([
+    { name: "direct API", env: { ANTHROPIC_API_KEY: "presentation-secret-canary" }, provider: "firstParty", title: "Anthropic API", choice: "Use API billing for this PRD", source: "ANTHROPIC_API_KEY", explanation: "Charged separately from Claude subscription usage. Anthropic billing settings apply." },
+    { name: "named provider", env: { CLAUDE_CODE_USE_BEDROCK: "1" }, provider: "bedrock", title: "Amazon Bedrock", choice: "Use Amazon Bedrock billing for this PRD", source: "CLAUDE_CODE_USE_BEDROCK", explanation: "This provider may bill separately from your Claude subscription." },
+    { name: "unnamed provider", env: { ANTHROPIC_BASE_URL: "https://gateway.example.test" }, provider: "firstParty", title: "Configured provider", choice: "Use the configured provider for this PRD", source: "ANTHROPIC_BASE_URL", explanation: "This provider may bill separately from your Claude subscription." },
+  ])("identifies the $name, unticked choice and source remedy without dispatch", async example => {
+    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    Object.assign(h.env, example.env);
+    const account = join(h.sandbox.root, "billing-presentation-account.json");
+    writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: example.provider, email: "subscription@example.test" }));
+    h.env.KILN_STANDIN_ACCOUNT = account;
+    await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open();
+    await page.waitFor(`${panel}.querySelector('input[type=checkbox]')`);
+    expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(example.title);
+    expect(await page.evaluate(`${panel}.querySelector('label.choice').textContent.trim()`)).toBe(example.choice);
+    expect(await page.evaluate(`${panel}.querySelector('input').checked`)).toBe(false);
+    const text = await page.evaluate<string>(`${panel}.innerText`);
+    expect(text).toContain(example.source); expect(text).toContain(example.explanation);
+    expect(text).toContain("To use your subscription instead, change the detected source and recheck.");
+    expect(text).toContain("For inherited environment overrides, restart Kiln from the corrected environment.");
+    expect(text).toContain("Applies to this PRD execution, including restarts, while the billing context stays the same.");
+    expect(text).toContain("API payer identity unavailable");
+    expect(text).not.toContain("subscription@example.test"); expect(text).not.toContain("presentation-secret-canary");
+    expect(h.engine.billing.view.canLaunch).toBe(false); expect(h.claudeCalls()).toHaveLength(0);
+    await page.evaluate(`${recheck}.click()`); await page.waitFor(`!${recheck}.disabled`);
+    expect(await page.evaluate(`${panel}.querySelector('input').checked`)).toBe(false);
+    expect(h.claudeCalls()).toHaveLength(0); expect(page.problems).toEqual([]);
+  });
   it("shows enabled overflow without usage meters, omits unknown/disabled notices, and records the attributed launch fact", async () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
     const usage = join(h.sandbox.root, "no-meters.jsonl"); h.env.KILN_STANDIN_USAGE = usage;
@@ -30,6 +58,9 @@ describe("Claude billing browser controls", () => {
     report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open(360);
     await page.waitFor(`${panel}.innerText.includes('Paid usage is enabled')`);
     expect(await page.evaluate(`${panel}.querySelector('a[href="https://claude.ai/settings/usage"]') !== null`)).toBe(true);
+    // AC-BILL-03: the full factual notice is amber, rather than an approval warning.
+    expect(await page.evaluate(`${panel}.querySelector('.overflow').textContent`)).toContain("Paid usage is enabled in your Claude account. Your account's spending limits apply.");
+    expect(await page.evaluate(`getComputedStyle(${panel}.querySelector('.overflow')).color`)).toBe("rgb(230, 180, 80)");
     expect(await page.evaluate(`${panel}.querySelectorAll('input,[role=meter]').length`)).toBe(0);
     expect(h.engine.billing.view.canLaunch).toBe(true); expect(h.engine.billing.view.next?.overflow?.enabled).toBe(true);
     writeFileSync("/tmp/kiln-billing-no-meters-360.png", await page.screenshot());
@@ -95,6 +126,7 @@ describe("Claude billing browser controls", () => {
     const page = await open(1280);
     await page.waitFor(`${panel}.innerText.includes('Claude subscription')`);
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').nextElementSibling.textContent`)).toBe("alex@acme-shop.dev");
+    expect(await page.evaluate(`${panel}.innerText`)).toContain("Billing follows your Claude account settings.");
     expect(await page.evaluate(`${panel}.innerText`)).toContain("Paid usage is enabled in your Claude account.");
     expect(await page.evaluate(`${panel}.querySelectorAll('[role=meter]').length`)).toBe(0);
     expect(await page.evaluate(`document.body.innerText.includes('Fable')`)).toBe(true);
@@ -124,6 +156,7 @@ describe("Claude billing browser controls", () => {
   it("keeps unavailable optional billing neutral and recheck separate from approval, with bounded API validation", async () => {
     h = await createHarness({ sessions: [] }); await h.engine.refreshBilling(); const page = await open();
     await page.waitFor(`${panel}.innerText.includes('Claude Code settings')`);
+    expect(await page.evaluate(`${panel}.innerText`)).toContain("Billing follows your Claude Code settings.");
     expect(await page.evaluate(`${panel}.classList.contains('held')`)).toBe(false);
     expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
     await page.evaluate(`${recheck}.click()`); await page.waitFor(`!${recheck}.disabled`); expect(h.claudeCalls()).toHaveLength(0);
@@ -151,26 +184,37 @@ describe("Claude billing browser controls", () => {
     expect(JSON.stringify(h.engine.record)).not.toContain("metadata-secret-canary");
     expect(h.claudeCalls()).toHaveLength(0);
   });
-  it("labels active launch history separately from a different next route and never offers approval during a running session", async () => {
+  it.each(["subscription", "settings"] as const)("labels active launch history on %s separately from a different next route and never offers approval during a running session", async route => {
     h = await createHarness({ sessions: [{ actions: [{ waitForFile: "release-session" }, { result: "Stopped" }] }], engineOptions: { stopWaitMs: 50, killGraceMs: 50 } });
-    h.env.KILN_STANDIN_VERSION = "2.1.307"; await h.engine.refreshBilling();
+    if (route === "subscription") h.env.KILN_STANDIN_VERSION = "2.1.307";
+    await h.engine.refreshBilling();
     const page = await open(); await waitFor(() => h!.engine.baseCheck === "ok"); expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await waitFor(() => h!.engine.current?.processRunning === true && h!.claudeCalls().length === 1);
     await page.waitFor(`${panel}.textContent.includes('Billing used to launch this session')`);
     const usage = join(h.sandbox.root, "next-overflow.jsonl");
     const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-1/usage-report-idle.jsonl", import.meta.url), "utf8");
     writeFileSync(usage, recorded.trim().split("\n").map(line => { const event = JSON.parse(line); if (event.usage_report?.rate_limits) event.usage_report.rate_limits.extra_usage = { is_enabled: true }; return JSON.stringify(event); }).join("\n"));
-    h.env.KILN_STANDIN_USAGE = usage; await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    h.env.KILN_STANDIN_USAGE = usage; h.env.KILN_STANDIN_VERSION = "2.1.307";
+    await h.engine.agents.refresh(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('Billing for the next run') && ${panel}.textContent.includes('Paid usage is enabled')`);
-    expect(h.engine.record.billing!.lastLaunch!.overflow?.enabled).toBe(false);
+    const historicalTitle = route === "subscription" ? "Claude subscription" : "Claude Code settings";
+    expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(historicalTitle);
+    expect(h.engine.record.billing!.lastLaunch!.overflow?.enabled).toBe(route === "subscription" ? false : undefined);
     expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
+    const launchBeforeChange = structuredClone(h.engine.record.billing!.lastLaunch);
     h.env.ANTHROPIC_BASE_URL = "https://next-route.example.test"; await h.engine.refreshBilling();
+    // AC-RUN-04: a new route applies to the next launch; it does not interrupt this process.
+    expect(h.engine.current?.processRunning).toBe(true);
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.engine.record.billing!.lastLaunch).toEqual(launchBeforeChange);
     await page.waitFor(`${panel}.textContent.includes('Configured provider')`);
     const text = await page.evaluate<string>(`${panel}.innerText`);
-    expect(text).toContain("Claude subscription"); expect(text).toContain("Configured provider");
+    expect(text).toContain(historicalTitle); expect(text).toContain("Configured provider");
+    if (route === "settings") expect(text).toContain("Billing follows your Claude Code settings.");
     expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
     writeFileSync("/tmp/kiln-billing-running-1280.png", await page.screenshot());
     await server!.close(); server = undefined; await page.waitFor(`${panel}.textContent.includes('Last known billing for this session')`);
+    expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(historicalTitle);
     expect(await page.evaluate(`${panel}.querySelectorAll('input,button').length`)).toBe(0);
     await h.engine.stop("sigint");
   });

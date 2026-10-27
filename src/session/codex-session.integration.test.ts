@@ -75,6 +75,27 @@ describe("durable protected Codex attempts", () => {
     expect(run.codex?.failure).toMatch(/recorded|protected/); expect(f.record.conversation?.threadId).toBe("work-parent");
     expect(f.calls().some(call => call.method === "turn/start")).toBe(false);
   });
+  // AC-CODEX-03: a persisted conversation never inherits earlier eligibility.
+  it.each([
+    { name: "signed out", fixture: { signedOut: true }, error: "codex login" },
+    { name: "API-key-only", fixture: { apiKey: true }, error: "codex login" },
+    { name: "another provider", fixture: { provider: "custom" }, error: "OpenAI" },
+    { name: "unreadable configuration", fixture: { configError: true }, error: "Could not inspect Codex provider and hooks" },
+    { name: "new managed policy", fixture: { requirements: { unknownMandatoryRestriction: true } }, error: "managed requirement" },
+    { name: "changed CLI version", fixture: { version: "99.0.0" }, error: "incompatible" },
+  ])("rechecks $name before a resumed saved conversation and records no new attempt", async example => {
+    const f = fixture(); const first = await runCodexSession(f.options);
+    expect(first.codex?.terminal?.status).toBe("completed"); expect(first.codex?.failure).toBeUndefined();
+    const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(saved.conversation?.threadId).toBe("work-parent"); expect(saved.runs).toHaveLength(1);
+    const original = structuredClone(saved); const before = f.calls().length;
+    f.set(example.fixture);
+    await expect(runCodexSession({ ...f.options, record: saved, cause: "person_resume" })).rejects.toThrow(example.error);
+    expect(saved).toEqual(original);
+    expect(readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)).toEqual(original);
+    const calls = f.calls().slice(before);
+    expect(calls.some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
+  });
   it("a failed preflight allocates no attempt or conversation", async () => {
     const f = fixture(); f.set({ signedOut: true });
     await expect(runCodexSession(f.options)).rejects.toThrow(/sign in/i);

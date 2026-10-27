@@ -92,3 +92,54 @@ One completion phase holds the three gaps: they share the existing billing obser
 Phase 4 is closed. Its Implementation evidence records the overflow-without-meters repair, provider-relevant approval continuity with conservative partial-inventory handling, billing-disabled manual Resume controls, whole-four-criterion proof, independent deliverable review and test hardening, full verification outcome with one unchanged timer test's isolated passing recheck, and final integrated package checks. The earlier ownership, Closed lines, business assumptions and explicit proof limits remain unchanged.
 
 Next unit: a fresh whole-PRD `delivery-audit` across all four phases, followed by `test-audit` only after a current clean delivery audit. The `2dc96a9` audit is a historical baseline and does not establish that these repairs are complete. Read every Markdown document in this directory, Phase 4's Fresh whole-PRD audit handoff, the design's Required implementation evidence and its newer Manual Phase Recovery supersession. Implementation commits follow the skill default; no push, release, publication or production change is authorized without the corresponding approval recorded in Phase 4.
+
+
+## Current whole-PRD delivery audit — Phase 4 baseline, 2026-10-26
+
+**Outcome:** All 20 criteria are Implemented at `8a3c12a1020ffd7d56d0f56687dbd8c3ccf051ee`. All four phases were closed, and the requirements and implementation were clean at assessment. Three independent assessors derived required parts from the governing documents before opening code and traced their assigned criteria from current entry points; the main auditor cross-checked the implementation. No delivery gap or completion phase remains. Earlier audit sections are historical baselines.
+
+| Criterion | Delivery status | Reachable implementation |
+|---|---|---|
+| AC-BILL-01 | Implemented | Engine display/dispatch inspection → passive inventory and required authentication → `classify` → authority/snapshot → `BillingPanel`; provider-relevant sources and reliable non-metered identity are retained without API-payer substitution. |
+| AC-BILL-02 | Implemented | Classification, independent readiness, initial Start and common dispatch implement every billing case; optional absence stays neutral and detected overrides require approval. |
+| AC-BILL-03 | Implemented | `parseUsage` retains boolean overflow independently of absent/null meters; `readAccount` brackets identity, the engine checks matching subscription/freshness, and the panel renders the factual amber notice/link without approval. |
+| AC-BILL-04 | Implemented | Protected approval endpoint → `BillingAuthority.command` validates execution/generation/reading, reinspects and saves the reviewed context; exact direct/named/configured-provider choices precede model dispatch. |
+| AC-BILL-05 | Implemented | Execution-local HMAC authority persists across phases/audits/resumes/restart, uses effective-provider context, invalidates changed or abandoned contexts, supports idle clear and removes approval on completion. |
+| AC-BILL-06 | Implemented | Passive inspection and in-memory authentication projection preserve the work environment/settings; source-change guidance, recheck and approval remain separate from dispatch. |
+| AC-BILL-07 | Implemented | Existing Claude and arbitrary Codex usage rows remain independent of text-only billing; unavailable optional metadata creates no meter or fabricated progress. |
+| AC-BILL-08 | Implemented | Shared summary places subscription email or unavailable wording directly below its label; running views use the persisted launch account. |
+| AC-RUN-01 | Implemented | Phase, audit, final-delivery and all resume paths converge on fresh common dispatch checks; bounded passive inspection, pending UI and independent readiness remain in force. |
+| AC-RUN-02 | Implemented | Start and both manual Resume controls reflect billing eligibility; durable Needs you holds retain sessions/evidence, and approval/recheck cannot dispatch. Verify and explicit advance stay independently available. |
+| AC-RUN-03 | Implemented | Usage, sleep, restart, manual and Resume-now paths reach fresh gates; billing holds suspend automatic release while retaining refusal facts, and explicit continuation rechecks recovery rules. |
+| AC-RUN-04 | Implemented | Local completion evaluation remains independent; resulting AI work returns through dispatch. Public guidance states launch-time detection, active-session behavior and no spending-cap/zero-cost guarantee. |
+| AC-RUN-05 | Implemented | Claude/Codex launch summaries persist before work; panel separates historical launch from changed next readings, disables disconnected actions and labels last-known facts; terminal holds direct users to the browser. |
+| AC-RUN-06 | Implemented | Typed safe summaries exclude private HMAC material and raw credentials; bounded metadata suppresses raw errors, protected commands use sanitized failures and owner-only state, and installed CLI/auth/provider restrictions remain authoritative. |
+| AC-RUN-07 | Implemented | npm-facing root README covers every billing choice and boundary with provider settings links; both referenced mockup galleries cover the new presentations and controls. |
+| AC-CODEX-01 | Implemented | Selected metadata → `codexBillingView` → panel renders ChatGPT label/email/plan, unavailable wording, neutral billing sentence and usage dashboard link. |
+| AC-CODEX-02 | Implemented | Account/usage/account corroboration and workspace routing attach scoped bucket credits; freshness/identity filters omit unreliable data without warning, approval or permission inference. |
+| AC-CODEX-03 | Implemented | Every `runCodexSession` invokes fresh `prepareCodexLaunch`; required ChatGPT/OpenAI, version/model/policy/profile checks precede `turn/start`, and Claude approval is rejected for Codex. |
+| AC-CODEX-04 | Implemented | Existing refreshes, provider window names/durations and independent usage-recovery permission remain intact; optional credits do not authorize automatic recovery or change spending settings. |
+| AC-CODEX-05 | Implemented | Agent selection invalidates obsolete metadata; durable run facts, next-reading comparison and disconnected rendering preserve account/credit attribution and credential protection across views. |
+
+No criterion is wholly superseded, Changed outside the requirements, Waiting on a human action, or Not built yet. The design's partial supersession to the newer Manual Phase Recovery contract was followed: manual Resume retains its explicit already-complete choice and billing eligibility, while Verify/advance can accept completed work without billing approval. BILLING-001 and BILLING-002 remain implementable assumptions, not approval holds.
+
+This delivery audit changed only audit/status documents. It ran no test suite, provider call or paid inference and does not grade the proof portfolio. Read Phase 4's Implementation evidence and Fresh whole-PRD audit handoff together with the design's Required implementation evidence for the test audit. Preserve the reported full verification outcome and separate unchanged timer-sensitive failure/recheck; do not call that original command green. Native Linux/Windows metadata, managed-host behavior, unavailable external-provider acceptance, paid-use entitlement, live missing-meter/unavailable-credit conditions and unobservable helper/policy limits remain exactly as previously recorded.
+
+### Whole-PRD test-audit handoff
+
+Next unit: `test-audit` across all 20 criteria and all four phases, including the shared Codex constraints. This clean delivery result covers requirements and implementation at `8a3c12a`; audit-record-only edits do not invalidate it. Any later requirements or implementation change requires a fresh whole-PRD delivery audit before the affected test rows can close. No implementation or test work is included in this audit commit.
+
+Read every Markdown document in this directory, follow the technical design's Required implementation evidence and supersession links, and independently assess the existing evidence and explicit limitations. The phase plan's earlier audits are historical; the section above is the current delivery baseline. No new completion phase is needed before test audit.
+
+Doug's restriction remains: “Do not push without Doug's approval.” Source: chat `01a1798c-ffcd-7d62-8283-d671b281a8e5`, carried through Phase 4 chat `01a17a5c-fd98-7932-9655-7cc9d93ca222` into this audit chat `01a17a99-8769-7103-873f-c813783fdd63`. Doug's separate authorization in the Phase 4 chat to commit/push that implementation and launch its delivery audit was fulfilled by the published `8a3c12a` and this assessment; it does not authorize pushing this audit commit or launching test audit. Scoped audit commits follow the skill default. No release, publication, paid inference or production change is authorized.
+
+
+## Current whole-PRD test audit — 2026-10-27
+
+**Outcome:** [Test audit Done](test-audit.md). All 20 criteria across all four closed phases are Adequate. Twelve criteria had test gaps; all are repaired and independently regraded. No delivery gap, waiting item or completion phase remains. Earlier handoffs above are historical.
+
+The audit changed tests, their Codex process fixture and audit/status records only. It strengthens exact billing/usage presentation, settings preservation, changed-context phase/audit/final dispatch, wake/restart/Resume-now recovery, saved Codex eligibility and historical neutral billing. Fifteen safe deliberate mutations failed criterion assertions twice and passed after restoration. Authorization/dispatch guards were not weakened; no Strong grade is claimed.
+
+Final verification passes: dependency audit, lint, TypeScript/Svelte, 623 units, 17 Codex protocol proofs, 747 integration tests with two existing Windows browser-opening skips (749 collected; 463.69 seconds), and four installed-package checks. The native passive proof selected existing Claude 2.1.307 with SDK 0.3.310 through a temporary PATH entry; default Claude 2.1.311 remains unqualified by design. A new metadata-only Codex 0.162.1 schema/account/usage/account qualification also passed. The test audit preserves every prior platform/provider/paid-use/hidden-policy proof limit and distinguishes Phase 4's historical failure/recheck from this new passing gate.
+
+**Next unit:** None in this PRD track. Every phase is closed, the whole-PRD delivery audit remains current because production implementation is unchanged, and whole-PRD test audit is Done. Pushing this audit's local commit still requires Doug's approval under the existing restriction. No release, package publication, paid inference or production change is authorized.

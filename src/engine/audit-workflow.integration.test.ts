@@ -179,6 +179,30 @@ describe("automatic completion activities", () => {
     const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(3);
   });
+  it("reinspects changed billing between delivery audit, test audit and final delivery", async () => {
+    const current = await fixture(); current.env.ANTHROPIC_API_KEY = "initial-audit-context";
+    await current.engine.refreshBilling(); await waitFor(() => !current.engine.agents.state.pending);
+    const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, selectionGeneration: current.engine.record.settings.selectionGeneration ?? 0, readingId: current.engine.billing.view.next!.readingId, approved: true });
+    await approve(); let accepted = 0;
+    const off = current.engine.onChange(() => {
+      const count = current.engine.record.completionAudits?.activities.filter(activity => activity.acceptedResult && current.engine.record.phases[auditKey(activity)]?.doneAt).length ?? 0;
+      if (count > accepted) { accepted = count; current.env.ANTHROPIC_API_KEY = `changed-after-audit-${count}`; }
+    });
+    try {
+      await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+      for (const [index, kind] of ["test_audit", "pull_request"].entries()) {
+        expect(current.claudeCalls()).toHaveLength(index + 1);
+        const hold = current.engine.record.billing!.hold!;
+        expect(hold).toMatchObject({ action: "launch" });
+        expect(current.engine.latestSession(hold.phaseKey)!.kind).toBe(kind);
+        expect(current.engine.latestSession(hold.phaseKey)!.runs).toHaveLength(0);
+        expect(current.engine.record.billing!.approval).toBeUndefined();
+        await approve(); expect(current.claudeCalls()).toHaveLength(index + 1);
+        await current.engine.checkAgain(recoveryRequest(current.engine, "verify")); await current.engine.settled();
+      }
+      expect(current.engine.record.completedAt).toBeDefined(); expect(current.claudeCalls()).toHaveLength(3);
+    } finally { off(); }
+  });
   it("implements two appended repair rounds including split children before the clean test audit", async () => {
     const firstRepair=landingSession(`${directory}/value.mjs`,files["value.mjs"]);
     firstRepair.actions.splice(1,0,{split:[{id:"2a",slug:"first",title:"First repair",closed:true,criteria:"AC-PROOF-01"},{id:"2b",slug:"second",title:"Second repair",criteria:"AC-PROOF-01"}]});

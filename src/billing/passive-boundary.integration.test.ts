@@ -21,7 +21,10 @@ describe("qualified passive settings boundary", () => {
     settings(project, { env: { ANTHROPIC_API_KEY: "synthetic-project-canary", ANTHROPIC_BASE_URL: "https://proxy.example.test", ANTHROPIC_CUSTOM_HEADERS: "Authorization: Bearer synthetic-header" }, apiKeyHelper: command, hooks: { SessionStart: [{ hooks: [{ type: "command", command }] }] } });
     writeFileSync(join(project, ".mcp.json"), JSON.stringify({ mcpServers: { canary: { command: process.execPath, args: ["-e", `require('fs').writeFileSync(${JSON.stringify(canary)},'ran')`] } } }));
     writeFileSync(join(project, ".claude", "settings.local.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "local-token" } }));
+    const settingsFiles = [join(sandbox.env.CLAUDE_CONFIG_DIR!, "settings.json"), join(project, ".claude", "settings.json"), join(project, ".claude", "settings.local.json")];
+    const before = settingsFiles.map(file => readFileSync(file, "utf8"));
     const result = await boundedRead(process.execPath, [worker], { cwd: project, env: sandbox.env });
+    expect(settingsFiles.map(file => readFileSync(file, "utf8"))).toEqual(before);
     expect(result.diagnostic).toBeUndefined(); const inventory = JSON.parse(result.stdout!);
     expect(inventory.env).toMatchObject({ ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "local-token", ANTHROPIC_BASE_URL: "https://proxy.example.test" });
     expect(inventory.sources.ANTHROPIC_AUTH_TOKEN).toBe("local settings · ANTHROPIC_AUTH_TOKEN");
@@ -40,11 +43,13 @@ describe("qualified passive settings boundary", () => {
     sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
     const env = { ...sandbox.env }; for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
     settings(project, { env: { ANTHROPIC_API_KEY: "synthetic-billing-project-canary" } });
+    const beforeInspection = readFileSync(join(project, ".claude", "settings.json"), "utf8");
     const read = await readInventory({ executable: claude, cwd: project, env });
     const contract = JSON.parse(readFileSync(new URL("../../test/fixtures/billing/claude-passive-contract.json", import.meta.url), "utf8"));
     expect(read.version).toBe(contract.cliVersion); expect(read.inventory.complete).toBe(true);
     expect(read.projected.ANTHROPIC_API_KEY).toBe("synthetic-billing-project-canary"); expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     const auth = await readAuthStatus({ claude, cwd: project, env: read.projected });
+    expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(beforeInspection);
     expect(auth.error).toBeUndefined(); expect(auth.authMethod).toBe("api_key");
     const result = classify({ cwd: project, env, read, auth, at: new Date().toISOString() });
     expect(result.summary).toMatchObject({ route: "metered", sources: expect.arrayContaining(["project settings · ANTHROPIC_API_KEY"]) });

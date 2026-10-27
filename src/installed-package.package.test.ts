@@ -86,6 +86,17 @@ describe("the installed package", () => {
     // AC-RUN-07: public npm users receive the billing boundary, and the passive worker ships.
     const guidance = readFileSync(join(installedPackage, "README.md"), "utf8");
     for (const text of ["Use API billing for this PRD", "paid overflow", "per-request billing firewall", "no zero-cost guarantee", "Codex requires ChatGPT sign-in", "ChatGPT account", "workspace credits", "https://chatgpt.com/codex/settings/usage", "never buys credits"]) expect(guidance).toContain(text);
+    // AC-RUN-04/07: assert the meaning and provider remedies in the shipped artifact.
+    for (const text of [
+      "https://console.anthropic.com/settings/limits", "https://claude.ai/settings/usage",
+      "When authentication works but additional billing details cannot be established and no override is detected",
+      "the neutral **Claude Code settings** summary lets work continue",
+      "before each model-consuming launch or resume, including recovery, audits and final delivery",
+      "not a per-request billing firewall or a spending cap",
+      "does not interrupt an active session over a later settings change",
+      "For an inherited environment variable, stop Kiln and restart it from the corrected environment",
+      "Claude billing approval never authorizes Codex API-key access",
+    ]) expect(guidance).toContain(text);
     expect(packedFiles).toContain("dist/billing/settings-worker.js");
     expect(packedFiles.some(path => /(?:fixtures|agent-sessions|prd\.json|session\.json)/.test(path))).toBe(false);
     const passive = spawnSync(process.execPath, [join(installedPackage, "dist/billing/settings-worker.js")], { cwd: sandbox.root, env: sandbox.env, encoding: "utf8", timeout: 30_000 });

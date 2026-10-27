@@ -38,10 +38,38 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled(); off();
     expect(h.claudeCalls()).toHaveLength(0); expect(h.engine.record.billing!.hold).toMatchObject({ phaseKey: "1", action: "launch" });
     expect(h.engine.latestSession("1")!.runs).toHaveLength(0); expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
+    // AC-RUN-05/06: terminal guidance is actionable and never carries the credential.
+    const messages = h.events.flatMap(event => event.kind === "message" ? [event.text] : []);
+    expect(messages).toContainEqual(expect.stringMatching(/^Billing hold: .*Open Kiln's browser address above to review billing and continue\.$/));
+    expect(messages.join("\n")).not.toContain("new-post-setup-canary");
     h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
     expect((await h.engine.decide()).kind).toBe("needs_you"); expect(h.claudeCalls()).toHaveLength(0);
     await h.engine.billingCommand("approval", approval(h)); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(0);
     expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true }); await h.engine.settled(); expect(h.claudeCalls().length).toBeGreaterThan(0);
+  });
+  it("reinspects changed billing between every phase and final delivery instead of reusing Start approval", async () => {
+    h = await createHarness({ sessions: [landingSession("one"), landingSession("two"), landingSession("three"), pullRequestSession()] });
+    h.env.ANTHROPIC_API_KEY = "phase-context-start"; await ready();
+    await h.engine.billingCommand("approval", approval(h));
+    const changed = new Set<string>();
+    const off = h.engine.onChange(() => {
+      for (const key of ["1", "2b", "3"]) if (h!.engine.record.phases[key]?.doneAt && !changed.has(key)) {
+        changed.add(key); h!.env.ANTHROPIC_API_KEY = `changed-after-${key}`;
+      }
+    });
+    try {
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      for (const [index, next] of ["2b", "3", "pr"].entries()) {
+        expect(h.claudeCalls()).toHaveLength(index + 1);
+        expect(h.engine.record.billing!.hold).toMatchObject({ phaseKey: next, action: "launch" });
+        expect(h.engine.record.billing!.approval).toBeUndefined();
+        expect(h.engine.latestSession(next)!.runs).toHaveLength(0);
+        await h.engine.billingCommand("approval", approval(h));
+        expect(h.claudeCalls()).toHaveLength(index + 1);
+        await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+      }
+      expect(h.claudeCalls()).toHaveLength(4); expect(h.engine.record.completedAt).toBeDefined();
+    } finally { off(); }
   });
   it("preserves the stopped conversation and checks, holds a changed credential on manual Resume, then resumes explicitly", async () => {
     h = await createHarness({ sessions: [{ actions: [{ write: { path: "partial", content: "saved" } }, { result: "Please finish the mapping." }] }, landingSession()] }); await ready();
@@ -118,6 +146,75 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(h.engine.record.billing!.hold).toBeDefined();
     claude.queue(signedIn([usageRow("session", 10)])); await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.engine.latestSession("1")!.runs[1]).toMatchObject({ cause: "person_resume", billing: { route: "metered", approved: true } });
+  });
+
+  // AC-RUN-01/03: use the real interrupted-session and wake paths, not a manual Resume proxy.
+  it.each(["restart", "sleep"] as const)("holds a changed billing source on automatic %s recovery without losing the conversation", async mode => {
+    let slept = ""; let reported = false;
+    h = await createHarness({ sessions: [], engineOptions: {
+      stopWaitMs: 50, killGraceMs: 50, sleepCheckMs: 20,
+      sleepReader: { next: async () => {
+        if (reported || !slept || !existsSync(slept)) return [];
+        reported = true; writeFileSync(`${slept}.found`, "");
+        return [{ at: new Date(Date.now() - 600_000).toISOString(), seconds: 600 }];
+      } },
+    } });
+    slept = join(h.sandbox.root, "billing-sleep"); const working = join(h.sandbox.root, "billing-working");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+      { actions: [{ skill: "enso-method:implement-from-requirements" }, { text: "Saving partial billing work." }, { write: { path: "partial-billing-work.txt", content: "retained" } }, { touch: working },
+        ...(mode === "restart" ? [{ work: "npm test" }] : [{ waitForFile: `${slept}.found` }, { stderr: "API Error: Connection error." }, { exit: 1 }])] },
+      { actions: [{ result: "Saved conversation still needs input." }] },
+    ] }));
+    await ready(); await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(working));
+    const original = h.engine.latestSession("1")!;
+    expect(original.runs[0]!.billing?.route).toBe("settings"); // Optional unavailable metadata did not block the first launch.
+    if (mode === "restart") {
+      await h.engine.stop("sigint"); h.env.ANTHROPIC_API_KEY = "recovery-secret-canary";
+      h.engine = h.reopenFromDisk(); await h.engine.prepare();
+      expect((await h.engine.decide()).kind).toBe("resume"); await h.engine.continue();
+    } else {
+      h.env.ANTHROPIC_API_KEY = "recovery-secret-canary"; writeFileSync(slept, "");
+    }
+    await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
+    expect(h.engine.latestSession("1")!.runs[0]!.interruptedBy).toBe(mode === "restart" ? "sigint" : "sleep");
+    expect(h.engine.record.billing!.hold).toMatchObject({ action: "resume", sessionId: original.sessionId, phaseKey: "1" });
+    expect(readFileSync(join(h.engine.worktreePath, "partial-billing-work.txt"), "utf8")).toBe("retained");
+    await h.engine.billingCommand("approval", approval(h)); await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(1);
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(2); expect(h.claudeCalls()[1]!.args).toContain("--resume");
+    expect(h.engine.latestSession("1")!.sessionId).toBe(original.sessionId);
+    expect(h.engine.latestSession("1")!.runs[1]).toMatchObject({ cause: "person_resume", billing: { route: "metered", approved: true } });
+  });
+
+  it("holds Resume now at a changed billing source even when the usage percentage is only advisory", async () => {
+    const claude = new ScriptedClaude(() => new Date());
+    claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]));
+    h = await createHarness({ sessions: [
+      { actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] },
+      { actions: [{ result: "Manual recovery still needs input." }] },
+    ], engineOptions: { claude } }); await ready();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.waitingPhaseKey()).toBe("1");
+    const wait = structuredClone(h.engine.record.phases["1"]!.wait!);
+    // Finish the first post-refusal attribution before taking the preservation baseline.
+    claude.queue(signedIn([usageRow("session", 100)]));
+    await waitFor(() => !!h!.engine.latestSession("1")!.runs[0]!.limitRefusal?.account);
+    const first = structuredClone(h.engine.latestSession("1")!.runs[0]!);
+    h.env.ANTHROPIC_API_KEY = "resume-now-private-canary";
+    claude.queue(signedIn([usageRow("session", 100)]));
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
+    expect(h.engine.record.billing!.hold).toMatchObject({ action: "resume", sessionId: wait.sessionId });
+    expect(h.engine.record.phases["1"]!.wait).toMatchObject({ since: wait.since, run: wait.run, sessionId: wait.sessionId });
+    expect(h.engine.latestSession("1")!.runs[0]!.limitRefusal).toEqual(first.limitRefusal);
+    await h.engine.billingCommand("approval", approval(h)); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(1);
+    claude.queue(signedIn([usageRow("session", 100)]));
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
+    expect(h.engine.latestSession("1")!.runs[1]).toMatchObject({ cause: "person_resume", billing: { route: "metered", approved: true } });
+    expect(h.claudeCalls()).toHaveLength(2);
   });
 
   it("resumes the saved model when a different next-session choice was retired, while still checking billing", async () => {
