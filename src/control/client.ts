@@ -65,7 +65,11 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
           if (owner.state !== "stopped") {
             counts.unknown++; errors.push(errorFact(owner.state === "incompatible" ? "instance_incompatible" : "controller_unreachable", owner.error!));
           } else if (work.record.startedAt && !work.record.completedAt) counts.stopped_unfinished++;
-          if (owner.state !== "stopped" || work.record.startedAt && !work.record.completedAt) runs.push({ ...statusProjection(work), controller: owner.state, controller_reason: owner.error ?? null });
+          if (owner.state !== "stopped" || work.record.startedAt && !work.record.completedAt) {
+            const answer = statusProjection(work);
+            runs.push({ ...answer, controller: owner.state, controller_reason: owner.error ?? null });
+            if (!answer.ok) errors.push(...answer.errors);
+          }
         }
       } catch (e) {
         counts.unknown++; errors.push(errorFact(e instanceof ControlFailure ? e.code : "state_unavailable", e instanceof ControlFailure ? e.message : "A saved execution could not be inspected."));

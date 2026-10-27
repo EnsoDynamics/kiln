@@ -190,10 +190,10 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
 }
 
 /** Bounded observation for status; creates no output snapshot or cursor. */
-export function recentSavedOutput(work: SavedWork, phase: string, id: string, limit = 10): { line: number; at: string; source: string; text: string; fragment: Line["fragment"] }[] {
+export function recentSavedOutput(work: SavedWork, phase: string, id: string, limit = 10, deadline = Date.now() + 5000): { line: number; at: string; source: string; text: string; fragment: Line["fragment"] }[] {
   const path = join(work.directory, phase, id, "output.jsonl");
   if (!existsSync(path)) return [];
-  checkedPath(work.root, path); const fd = openSync(path, "r"); const deadline = Date.now() + 5000;
+  checkedPath(work.root, path); const fd = openSync(path, "r");
   try {
     let end = previousNewline(fd, fstatSync(fd).size, deadline) + 1; const rows = [];
     while (end > 0 && rows.length < limit) {

@@ -18,10 +18,11 @@ import type { AgentAccount } from "../agents/metadata.js";
 import { privateJson, type SavedWork } from "./private-state.js";
 import { chooseSession, readHistory, workingDirectoryAvailable, type Conversation } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
+import { latestActivity, type ActivityObservation } from "./activity.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
-export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; handoffs?: Record<string, Instructions> }
+export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
   const session = selected.record; const cwd = engine.workingDirectoryOf(session);
   const current = view.needsYou?.sessionId === session.sessionId ? view.needsYou : undefined;
@@ -61,7 +62,8 @@ export function cacheSnapshot(engine: Engine, snapshot: Snapshot): void {
   const work = { ...readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory), record: engine.record };
   const history = readHistory(work);
   const handoffs = Object.fromEntries(history.sessions.map(s => [s.id, instructionsFor(engine, s, snapshot)]));
-  writeJsonAtomically(join(engine.stateDirectory, "inspection-view.json"), { version: 1, execution_id: engine.record.executionId, observed_at: new Date().toISOString(), snapshot, handoffs });
+  const last = latestActivity(work, history, snapshot);
+  writeJsonAtomically(join(engine.stateDirectory, "inspection-view.json"), { version: 1, execution_id: engine.record.executionId, observed_at: new Date().toISOString(), snapshot, last_activity: last.activity, handoffs });
 }
 /** Called only during controller startup, while kiln run owns its exclusive PRD lock. */
 export function bindLegacySessions(engine: Engine): void {
@@ -133,8 +135,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   const leaves = (record.plan ?? []).filter(p => !p.splitInto?.length);
   const controls = engine ? engine.controlView().controls.map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Planned control: durable command admission is not implemented in this inspection release." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
-  const history = full ? readHistory(work, active) : null;
-  const lastActivity = view?.current?.latestLine?.at ?? view?.current?.seenInSession?.at ?? view?.waiting?.stoppedAt ?? stop?.stoppedAt ?? savedStop?.[1].stop?.at ?? record.startedAt ?? null;
+  const history = readHistory(work, active);
+  const last = latestActivity({ ...work, record }, history, view, cache?.last_activity);
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const savedActivity = { phase_id: audit ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === "pr" ? "final_delivery" : phase ? "implementation" : null), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
@@ -147,12 +149,12 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
     activity: view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity,
     agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
     requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
-    started_at: record.startedAt ?? null, last_activity: { observed_at: lastActivity, state: reachable ? "current" : "stale", description: view?.current?.latestLine?.text ?? view?.current?.seenInSession?.text ?? null },
+    started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     pause: record.pause, usage_wait: view?.waiting ?? wait?.[1].wait ?? null, stop: stopDetail,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: engine?.controlView().token ?? null, controls, unsent_replies: engine ? engine.commands.unsent(engine.controlView().target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
-  }, [...statusErrors, ...(history?.errors ?? [])]);
+  }, [...statusErrors, ...last.errors]);
   if (engine && JSON.stringify(engine.record) !== before) throw new ControlFailure("state_unavailable", "Execution changed while status was assembled; refresh status.");
   return answer;
 }

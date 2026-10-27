@@ -14,6 +14,9 @@ import { displayPath } from "./worktree-setup.js";
 import { buildSnapshot } from "./snapshot.js";
 import { launchArguments } from "../session/claude-session.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
+import { statusProjection } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot } from "../state/state-files.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -53,6 +56,8 @@ describe("the engine from Start to the pull request", () => {
       "PR opened #218",
     ]);
     expect(record.completedAt).toBeDefined();
+    expect(h.engine.current).toBeUndefined();
+    expect(statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine).last_activity).toMatchObject({ observed_at: record.completedAt, description: "Run completed." });
     expect(record.pullRequests?.[0]).toMatchObject({ number: 218, head: "feature/customer-returns", base: "develop", commits: 2, additions: 120, deletions: 4 });
 
     // AC-START-07: one new branch from develop and one worktree beside the repository, `.worktrees/<folder>/<repository>`.
@@ -596,6 +601,8 @@ describe("pausing between phases", () => {
     expect(h.events.at(-1)).toMatchObject({ kind: "phase", phaseId: "1", event: "done" });
     const snapshot = buildSnapshot(h.engine);
     expect(snapshot.feature.state).toBe("paused");
+    expect(h.engine.current).toBeUndefined();
+    expect(statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine).last_activity).toMatchObject({ observed_at: h.engine.record.pause.activeSince, description: "Run paused." });
     expect(snapshot.pause).toEqual({ pending: false, active: true });
     expect(snapshot.phases.find((phase) => phase.id === "2b")?.state).toBe("next");
     expect(h.engine.cancelPause()).toMatchObject({ ok: false, status: 409 });

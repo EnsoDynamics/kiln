@@ -5,7 +5,7 @@ export interface CommandContract {
   arguments: { name: string; required: boolean; source: string }[];
   flags: Record<string, { value: string | null; source: string }>;
   required_exclusive_groups: { exactly_one?: string[]; required?: string[] }[];
-  limits: string[]; result_fields: Record<string, string>; errors: string[]; exits: Record<string, string>;
+  limits: string[]; result_fields: Record<string, string>; errors: string[]; error_meanings?: Record<string, string>; exits: Record<string, string>;
   examples: { request: string; argv: string[]; stdin?: string }[];
 }
 const reference = JSON.parse(readFileSync(new URL("../../prompts/kiln-command-contracts.json", import.meta.url), "utf8")) as { schema_version: "1"; commands: CommandContract[]; guidance: string };
@@ -23,7 +23,7 @@ export function commandHelp(path: string[], json: boolean): string {
     ...Object.entries(c.flags).map(([name, f]) => `--${name}${f.value ? ` <${f.value}>` : ""}: ${f.source}`),
     ...c.required_exclusive_groups.map(g => g.exactly_one ? `Exactly one: ${g.exactly_one.join(", ")}` : `Required together: ${g.required?.join(", ")}`),
     ...c.limits, "Result fields:", ...Object.entries(c.result_fields).map(([k, v]) => `${k}: ${v}`),
-    `Errors: ${c.errors.join(", ")}`, ...Object.entries(c.exits).map(([code, meaning]) => `Exit ${code}: ${meaning}`),
+    `Errors: ${c.errors.join(", ")}`, ...Object.entries(c.error_meanings ?? {}).map(([code, meaning]) => `${code}: ${meaning}`), ...Object.entries(c.exits).map(([code, meaning]) => `Exit ${code}: ${meaning}`),
     ...c.examples.flatMap(e => [`Request: ${e.request}`, `Invocation: ${commandText(e.argv)}`, `Invocation argv: ${JSON.stringify(e.argv)}`, ...(e.stdin ? [`Standard input: ${e.stdin}`] : [])]),
     ...commandContracts.filter(child => child.path.length > c.path.length && c.path.every((p, i) => child.path[i] === p)).map(child => `Subcommand: kiln ${child.path.join(" ")} --help`), reference.guidance, ""].join("\n");
 }

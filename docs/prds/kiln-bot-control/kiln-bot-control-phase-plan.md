@@ -4,13 +4,13 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. Both original implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration, and are integrated through `c25bf89`. The [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) found three partly implemented criteria and added completion Phase 3. Build it before repeating delivery audit and then test audit.
+Build and verify each phase in this order before starting the next. Both original implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration, and are integrated through `c25bf89`. The [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) found three partly implemented criteria and added completion Phase 3, now also closed. Repeat delivery audit and then test audit after Phase 3 is published.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
 | [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None | Closed 2026-10-27 |
 | [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Closed 2026-10-27 |
-| [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Open |
+| [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Closed 2026-10-27 |
 
 ## Criterion ownership
 
@@ -28,4 +28,4 @@ The second phase carries one coupled control capability: all entry points share 
 
 Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After both leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
 
-The 2026-10-27 delivery audit is complete with gaps, not clean. Next: implement Phase 3, repeat whole-PRD delivery audit, then whole-PRD test audit. See the audit record for all criterion outcomes and the completion phase for the exact missing behavior.
+Completion Phase 3 closed on 2026-10-27; its implementation and validation are recorded in the phase document. The earlier delivery audit remains complete with gaps, not clean. Next: repeat whole-PRD delivery audit against all completed work, then whole-PRD test audit only when delivery is clean. Publishing Phase 3 remains held for Doug's authorization.

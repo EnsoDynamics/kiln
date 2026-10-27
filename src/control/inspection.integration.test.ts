@@ -21,6 +21,7 @@ import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { readHistory } from "./history.js";
+import { cacheSnapshot, inspectionSnapshot } from "./projection.js";
 
 let sandbox: Sandbox; let h: Harness | undefined; let server: LocalServer | undefined; let secondServer: LocalServer | undefined; let secondEngine: Engine | undefined;
 afterEach(async () => { await secondServer?.close(); secondServer=undefined; secondEngine?.close(); secondEngine=undefined; await server?.close(); server = undefined; await h?.cleanup(); h = undefined; await sandbox?.cleanup(); });
@@ -47,6 +48,50 @@ async function command(args: string[], env = sandbox.env, cwd = sandbox.root) {
 function tree(path: string): Record<string,string> { const out: Record<string,string>={}; for(const name of readdirSync(path,{recursive:true,withFileTypes:true})) if(name.isFile()) {const file=join(name.parentPath,name.name);out[file]=readFileSync(file).toString('base64');} return out; }
 
 describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
+  it.each(['paused', 'complete'] as const)('retains latest observed activity in %s detail, live inventory and disconnected cache', async state => {
+    sandbox=createSandbox(); h=await createHarness({sessions:[{actions:[{result:'Saved final output.'}]}]});
+    await h.engine.start({refinementConfirmed:true}); await h.engine.settled();
+    const session=h.engine.latestSession('1')!;
+    delete h.engine.record.phases['1']!.stop;
+    h.engine.current=undefined;
+    const transition='2026-11-01T12:00:00.000Z';
+    if(state==='paused') h.engine.record.pause.activeSince=transition;
+    else h.engine.record.completedAt=transition;
+    writePrdRecord(h.stateDirectory,h.engine.record);
+    const port=await freePort(); server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
+    const path=join(h.repository,`docs/prds/${FOLDER}`);
+    const expected={observed_at:transition,description:state==='paused'?'Run paused.':'Run completed.'};
+    expect((await command(['status',path,'--json'],h.env)).json()).toMatchObject({state,last_activity:{...expected,state:'current'}});
+    const inventory=(await command(['status','--json'],h.env)).json();
+    expect(inventory.runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:path,last_activity:expect.objectContaining(expected)})]));
+    // Later saved output remains the latest observation, even without a current view.
+    const outputAt='2026-11-01T12:01:00.000Z';
+    appendFileSync(join(h.stateDirectory,'1',session.sessionId,'output.jsonl'),JSON.stringify({line:999,at:outputAt,source:'assistant',text:'Later saved observation 🐦'})+'\n');
+    const later={observed_at:outputAt,description:'Later saved observation 🐦'};
+    expect((await command(['status',path,'--json'],h.env)).json().last_activity).toMatchObject(later);
+    cacheSnapshot(h.engine,inspectionSnapshot(h.engine));
+    await server.close(); server=undefined; h.engine.close(); rmSync(join(h.stateDirectory,'instance.lock'));
+    const before=tree(stateRoot(h.env));
+    const disconnected=await command(['status',path,'--json'],h.env);
+    expect(disconnected.code,disconnected.stdout).toBe(0);
+    expect(disconnected.json()).toMatchObject({state,status_token:null,last_activity:{...later,state:'stale'}});
+    expect((await command(['status',path],h.env)).stdout).toContain('Later saved observation 🐦');
+    expect(tree(stateRoot(h.env))).toEqual(before);
+  });
+  it('reports saved attempt and skill observations without a current view and marks unreadable latest output',async()=>{
+    sandbox=createSandbox(); const f=fixture(); const s=session(f);
+    s.record.lastSkill={name:'deliverable-review',at:'2026-01-02T04:00:00.000Z'};writeSessionRecord(f.directory,s.record);
+    expect((await command(['status',f.path,'--json'])).json().last_activity).toMatchObject({observed_at:'2026-01-02T04:00:00.000Z',description:'deliverable-review skill started.',state:'stale'});
+    chmodSync(s.output,0);
+    const failed=await command(['status',f.path,'--json']);
+    expect(failed.code).toBe(4);expect(failed.json().last_activity).toMatchObject({state:'unavailable'});
+    const inventory=await command(['status','--json']);
+    expect(inventory.code).toBe(4);expect(inventory.json()).toMatchObject({ok:false,inventory_complete:false});
+    expect(inventory.json().errors).toEqual(expect.arrayContaining([expect.objectContaining({code:'state_unavailable'})]));
+    expect(inventory.json().runs).toEqual(expect.arrayContaining([expect.objectContaining({last_activity:{observed_at:'2026-01-02T04:00:00.000Z',description:'deliverable-review skill started.',state:'unavailable',reason:expect.any(String)}})]));
+    chmodSync(s.output,0o600);
+  });
   it('provides complete text/JSON help from unrelated cwd without tools or a controller; every example parses',async()=>{
     sandbox=createSandbox(); const env={...sandbox.env,PATH:''};
     expect(await command([],env)).toMatchObject({code:2,stderr:''});

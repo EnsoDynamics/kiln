@@ -139,6 +139,40 @@ describe("the installed package", () => {
     expect(packedFiles).toContain("prompts/kiln-command-contracts.json");
   });
 
+  it("documents live controls, durable outcomes and receipt errors without tools or a controller", () => {
+    const help = (path: string[], json = true) => {
+      const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe("");
+      expect(child.stdout).not.toMatch(/planned controls|Null in this inspection release|All changing forms unavailable/);
+      return child.stdout;
+    };
+    const root = JSON.parse(help([]));
+    expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["reply", "resume", "verify-and-advance", "command-status", "settings"]));
+    for (const c of root.commands.filter((c: {path: string[]}) => !['run', 'add-repository', 'audit', 'delivery'].includes(c.path[0]!))) {
+      for (const code of c.errors) expect(c.error_meanings[code], `${c.path.join(' ')} ${code}`).toMatch(/^Exit [234]:/);
+    }
+    const status = JSON.parse(help(["status"])).command;
+    expect(status.result_fields.status_token).toContain("Opaque current");
+    expect(status.result_fields.controls).toContain("live controller");
+    for (const name of ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "settings"]) {
+      const c = JSON.parse(help([name])).command;
+      const text = help([name], false);
+      for (const code of ["stale_status_token", "busy", "command_id_conflict", "operation_indeterminate"]) {
+        expect(c.errors, name).toContain(code); expect(c.error_meanings[code], name).toMatch(/^Exit [234]:/); expect(text).toContain(c.error_meanings[code]);
+      }
+      for (const field of ["command_id", "operation", "operation.state", "operation.outcome", "operation.reason", "operation.effects.reply", "operation.effects.session", "operation.effects.plan", "run_state"]) expect(c.result_fields[field], `${name} ${field}`).toBeTruthy();
+      expect(c.exits['0']).toContain("accepted");
+    }
+    const verify = JSON.parse(help(["verify-and-advance"])).command;
+    expect(verify.error_meanings.unsent_reply_acknowledgement_required).toContain("explicit operator acknowledgement");
+    const receipt = JSON.parse(help(["command-status"])).command;
+    expect(receipt.error_meanings.command_not_found).toContain("no saved receipt");
+    expect(receipt.exits['0']).toContain("indeterminate");
+    expect(receipt.result_fields['operation.effects.reply']).toContain("submitted");
+    expect(receipt.result_fields['operation.effects.reply']).toContain("provider conversation evidence");
+    expect(receipt.result_fields['operation.reply_text']).toContain("not_sent");
+  });
+
   it("serves the browser view, its scripts, styles and bundled fonts, from that one install", async () => {
     const child = runInstalled(["run", `docs/prds/${FOLDER}/`], repository);
     const output = collect(child);
