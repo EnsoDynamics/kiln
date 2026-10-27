@@ -12,7 +12,7 @@ The target is the **same PRD file or folder used with `kiln run`**. There is no 
 kiln status                              # list current and unfinished work
 kiln status <PRD-path>                    # inspect one PRD
 kiln logs <PRD-path>                      # recent output, small bounded page
-kiln logs <PRD-path> --max-lines 20           # ask for fewer lines
+kiln logs <PRD-path> --max-lines 20           # ask for fewer saved output entries
 kiln logs <PRD-path> --older-output-cursor <cursor>    # preceding page from the same session
 kiln reply <PRD-path> --message-file <reply-file> # send the note and resume
 kiln resume <PRD-path>                    # hand unfinished work back, no new message
@@ -90,7 +90,7 @@ Checked 2026-10-26 13:00:00 UTC
 2 live controllers · 1 working · 1 needs you
 
 Customer returns · acme-shop · implementing
-  Phase 3 · Returns dashboard · 3/5 executable phases complete
+  Phase 3 · Returns dashboard · 2/5 executable phases complete
   Last output: 18 seconds ago
   PRD: /work/acme-shop/docs/prds/customer-returns
 
@@ -120,16 +120,20 @@ $ kiln status --json
   "runs": [
     {
       "prd_path": "/work/acme-shop/docs/prds/customer-returns",
+      "execution_id": "execution_returns",
+      "observed_at": "2026-10-26T13:00:00Z",
       "prd": {"name": "Customer returns", "path": "/work/acme-shop/docs/prds/customer-returns"},
       "repositories": ["acme-shop"],
       "controller": "reachable",
       "state": "implementing",
       "activity": {"kind": "implementation", "phase_id": "3", "title": "Returns dashboard"},
-      "phases": {"completed": 3, "total": 5},
+      "phases": {"completed": 2, "total": 5},
       "last_activity_at": "2026-10-26T12:59:42Z"
     },
     {
       "prd_path": "/work/acme-shipping/docs/prds/shipping-labels",
+      "execution_id": "execution_labels",
+      "observed_at": "2026-10-26T13:00:00Z",
       "prd": {"name": "Shipping labels", "path": "/work/acme-shipping/docs/prds/shipping-labels"},
       "repositories": ["acme-shipping"],
       "controller": "reachable",
@@ -296,7 +300,10 @@ KILN_MESSAGE
 {
   "schema_version": "1",
   "ok": true,
+  "observed_at": "2026-10-26T13:00:10Z",
   "prd_path": "/work/acme-shipping/docs/prds/shipping-labels",
+  "execution_id": "execution_labels",
+  "errors": [],
   "command_id": "cmd_labels_reply_1",
   "operation": {
     "id": "op_reply_1",
@@ -375,12 +382,19 @@ $ kiln reply "$labels_prd" --only-if-status-matches status_labels_7 --command-id
 {
   "schema_version": "1",
   "ok": false,
+  "observed_at": "2026-10-26T13:01:00Z",
+  "prd_path": "/work/acme-shipping/docs/prds/shipping-labels",
+  "execution_id": "execution_labels",
+  "command_id": "cmd_labels_reply_2",
   "operation": {"id": "op_reply_2", "state": "refused"},
-  "error": {
+  "run_state": "implementing",
+  "errors": [{
     "code": "stale_status_token",
     "message": "Shipping labels is no longer waiting at the stop you read. Nothing was sent.",
-    "next_command": "kiln status /work/acme-shipping/docs/prds/shipping-labels --json"
-  }
+    "retryable": false,
+    "next_command": "kiln status /work/acme-shipping/docs/prds/shipping-labels --json",
+    "next_argv": ["kiln", "status", "/work/acme-shipping/docs/prds/shipping-labels", "--json"]
+  }]
 }
 ```
 
@@ -555,7 +569,7 @@ With no setting flag, this only reads current settings; no status token or comma
 
 ## Read a small tail of recent output
 
-Covers AC-SEE-06. Logs are **not the full transcript**. With no options, Kiln reads the active session, otherwise the most recent saved session, and returns its newest 50 lines at most. The entire stdout response is capped at **16 KiB**, including headers or JSON metadata and escaping. The defaults are proposed in OUTPUT-001.
+Covers AC-SEE-06. Logs are **not the full transcript**. With no options, Kiln reads the active session, otherwise the most recent saved session, and returns its newest 50 saved numbered output entries at most. The public word “line” and `--max-lines` count one saved entry, even when its text contains internal newlines. The entire stdout response is capped at **16 KiB**, including headers or JSON metadata and escaping. The counting unit and defaults are proposed in OUTPUT-001.
 
 **You say:** “What has Customer returns been doing most recently?”
 
@@ -565,14 +579,14 @@ Covers AC-SEE-06. Logs are **not the full transcript**. With no options, Kiln re
 $ kiln logs "$returns_prd"
 Checked 2026-10-26 13:00:06 UTC
 Customer returns · phase 3 · session sess_returns_3
-Latest 50 lines · range 201–250 · older output available
-[The 50 actual output lines, in oldest-to-newest order.]
+Latest 50 entries · range 201–250 · older output available
+[The 50 actual saved output entries, in oldest-to-newest order.]
 Earlier: kiln logs /work/acme-shop/docs/prds/customer-returns --older-output-cursor page_returns_200
 ```
 
 The bracketed line above stands for content in this mockup, not a product omission. A short explicit request is shown in full.
 
-**You say:** “Just show me the last two lines from Customer returns.”
+**You say:** “Just show me the last two saved output entries from Customer returns.”
 
 **The bot runs:**
 
@@ -586,29 +600,35 @@ $ kiln logs "$returns_prd" --max-lines 2 --json
   "ok": true,
   "observed_at": "2026-10-26T13:00:06Z",
   "prd_path": "/work/acme-shop/docs/prds/customer-returns",
+  "execution_id": "execution_returns",
+  "errors": [],
   "session_id": "sess_returns_3",
+  "snapshot_id": "snapshot_returns_250",
+  "snapshot_observed_at": "2026-10-26T13:00:06Z",
   "snapshot_end_line": 250,
   "requested_lines": 2,
   "response_byte_limit": 16384,
   "byte_limit_reached": false,
+  "range": {"first": 249, "last": 250},
   "lines": [
-    {"number": 249, "at": "2026-10-26T12:59:40Z", "text": "Dashboard changes saved.", "fragment": null},
-    {"number": 250, "at": "2026-10-26T12:59:42Z", "text": "Running the returns dashboard integration checks.", "fragment": null}
+    {"number": 249, "at": "2026-10-26T12:59:40Z", "source": "assistant", "text": "Dashboard changes saved.\nFilters and totals are ready.", "fragment": null},
+    {"number": 250, "at": "2026-10-26T12:59:42Z", "source": "assistant", "text": "Running the returns dashboard integration checks.", "fragment": null}
   ],
   "has_older": true,
   "next_before": "page_returns_248",
-  "next_command": "kiln logs /work/acme-shop/docs/prds/customer-returns --older-output-cursor page_returns_248 --max-lines 2 --json"
+  "next_command": "kiln logs /work/acme-shop/docs/prds/customer-returns --older-output-cursor page_returns_248 --max-lines 2 --json",
+  "next_argv": ["kiln", "logs", "/work/acme-shop/docs/prds/customer-returns", "--older-output-cursor", "page_returns_248", "--max-lines", "2", "--json"]
 }
 ```
 
-**You say:** “What came immediately before those two lines?”
+**You say:** “What came immediately before those two entries?”
 
 **The bot runs:**
 
 ```console
 $ kiln logs "$returns_prd" --older-output-cursor page_returns_248 --max-lines 2
 Checked 2026-10-26 13:01:00 UTC
-Customer returns · session sess_returns_3 · snapshot through line 250
+Customer returns · session sess_returns_3 · snapshot through entry 250
 Earlier page · range 247–248 · older output available
 247  2026-10-26 12:59:36 UTC  Updating dashboard filters.
 248  2026-10-26 12:59:38 UTC  Saving dashboard changes.
@@ -617,9 +637,9 @@ Earlier: kiln logs /work/acme-shop/docs/prds/customer-returns --older-output-cur
 
 The cursor fixes the execution, session and snapshot. If Kiln has since started phase 4, this page still reads phase 3. It never silently switches to phase 4. A fresh `kiln logs "$returns_prd"` reads the latest tail again.
 
-`--max-lines` is an upper bound on the number of output lines, not a way to bypass the response-size cap. `--older-output-cursor` takes the opaque value returned as `next_before`; copy it unchanged, rather than supplying a date or line number.
+`--max-lines` is an upper bound on saved numbered entries; internal newlines do not add to the count. Entry 249 above contains a newline and still counts once. The response-size cap still applies. `--older-output-cursor` takes the opaque value returned as `next_before`; copy it unchanged, rather than supplying a date or line number.
 
-**You say:** “Show the last 100 lines from Customer returns' earlier phase-2 session.”
+**You say:** “Show the last 100 saved output entries from Customer returns' earlier phase-2 session.”
 
 ```sh
 kiln logs "$returns_prd" --session-id sess_returns_2 --max-lines 100
@@ -629,8 +649,8 @@ kiln logs "$returns_prd" --session-id sess_returns_2 --max-lines 100
 
 | Condition | Result |
 |---|---|
-| Requested lines do not fit | Fewer recent lines, `byte_limit_reached: true`, and an earlier-page cursor |
-| One line exceeds the response budget | The newest fragment fits; it is explicitly marked as a fragment with its position in the line. The earlier-page cursor retrieves the preceding fragment. Text is not silently truncated. |
+| Requested entries do not fit | Fewer recent entries, `byte_limit_reached: true`, and an earlier-page cursor |
+| One entry exceeds the response budget | The newest fragment fits; it is explicitly marked as a fragment with its position in the entry. The earlier-page cursor retrieves the preceding fragment. Text is not silently truncated. |
 | No session or no output yet | Successful empty result, with the reason and no earlier-page cursor |
 | Reached the beginning | `has_older: false`, `next_before: null`, `next_command: null` |
 | Cursor is invalid or belongs to another PRD/session | Error, exit 2; no other session is substituted |
@@ -706,9 +726,9 @@ Covers AC-SEE-02 to 03 and AC-CLI-01.
 
 ## Command and result conventions
 
-These proposed conventions make the examples reviewable; the technical design supplies the complete field schema. Internal execution identity protects against reuse of the same PRD path for different work, but is not a second public selector.
+These proposed execution conventions apply to the new bot-control commands; the technical design supplies the complete field schema. Internal execution identity protects against reuse of the same PRD path for different work, but is not a second public selector.
 
-- **“What can I ask Kiln to do?”** maps to `kiln --help`; **“How do I send a reply?”** maps to `kiln reply --help`. Running bare `kiln` prints a concise introduction and points to `kiln --help`. Top-level help lists every supported command, including the existing run, repository, audit and delivery helpers. Each command’s help includes complete syntax, arguments and their sources, limits, JSON fields, errors, exits and request-to-command examples; no extra “verbose help” flag is needed. Help is available without a repository, controller, sign-in or terminal; bot-facing commands support `--json`. Existing helper execution contracts remain unchanged.
+- **“What can I ask Kiln to do?”** maps to `kiln --help`; **“How do I send a reply?”** maps to `kiln reply --help`. Running bare `kiln` prints a concise introduction and points to `kiln --help`. Top-level help lists every supported command, including the existing run, repository, audit and delivery helpers. Each command’s help includes complete syntax, arguments and their sources, limits, JSON fields, errors, exits and request-to-command examples; no extra “verbose help” flag is needed. Every existing and new command supplies help in text and JSON, for example `kiln audit --help --json`. Help is available without a repository, controller, sign-in or terminal. New bot-control commands support execution with `--json`; existing `run`, `add-repository`, `audit` and `delivery` retain their execution output formats and exit statuses (SCOPE-001).
 - Reads return facts only. Changing commands return operation receipts. Run controls target a PRD path and status token, with ownership and current eligibility checked under AC-ACT-04.
 - A run status token changes when relevant controls or their target change, not whenever another output line arrives.
 - Operation lookup uses a PRD path and command ID. A replay is checked before applying the old status token, so a successfully completed request can return its old receipt.

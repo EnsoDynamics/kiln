@@ -98,6 +98,8 @@ Reject unknown/duplicate flags, surplus positionals, incompatible selectors and 
 
 ### Common result and errors
 
+This execution result/exit contract governs the new bot-control commands. Existing helper execution formats and exits remain as recorded in Existing Code; all commands expose text and JSON help (AC-CLI-01; SCOPE-001).
+
 JSON mode writes exactly one UTF-8 JSON object plus newline to stdout; diagnostics go to stderr without payloads/secrets. Text and JSON share the same result object and eligibility decisions. Machine timestamps are ISO 8601 UTC. Text includes a date, time and time-zone label; relative times supplement absolute observations.
 
 ```json
@@ -173,7 +175,7 @@ plan:    not_advanced | advanced | unknown
 
 Before any effect, atomically write and fsync durable intent. Keep one authoritative receipt per command in an execution-owned control journal; persist monotonic sequence and schema. Related PRD transition writes carry the applying operation ID/revision, and new session attempts carry the dispatching operation ID before spawn. After the durable effect, settle the receipt. Atomic file replacement alone does not make several records a transaction: restart reconciliation uses these IDs and the existing authoritative phase/session/delivery facts. No mutation is acknowledged before its journal entry is durable. A failure before that write means no acceptance and no effect. After durable intent, a failed related write may leave partially applied records: retain the accepted operation, disable conflicting dispatch, and reconcile its persisted operation references before settling `failed` or `indeterminate`. Do not promise an unchanged state or undo a possibly delivered provider effect. A receipt-settlement write failure likewise preserves pending intent for reconciliation; it cannot authorize another dispatch.
 
-A controller restart, `command-status`, or control admission reconciles pending receipts before admitting conflicting effects. If persisted facts prove the effect, settle once; if they prove no dispatch/write occurred, resume that same accepted operation only while its original target remains eligible; if provider side effects might have happened, keep `indeterminate` and expose recovery guidance. Never dispatch a second turn to find out. Reads may report uncertainty but do not start work. Recovery on controller startup respects pause/billing/usage holds before any automatic dispatch.
+A controller restart, `command-status`, or control admission reconciles pending receipts before admitting conflicting effects. If persisted facts prove the effect, settle once; if provider side effects might have happened, keep `indeterminate` and expose recovery guidance. `command-status` reconciliation only records or returns proven effects and uncertainty; it never dispatches work. Only controller startup or control admission may resume the same accepted operation when persisted facts prove no dispatch/write occurred and its original target remains eligible. Never dispatch a second turn to find out. Reads may report uncertainty but do not start work. Recovery on controller startup respects pause/billing/usage holds before any automatic dispatch.
 
 Browser controls use the same admission/dispatch/effect mechanism, with browser-generated instruction IDs; automatic actions have internal stable event IDs and the same mutual exclusion/launch checks. Preserve existing HTTP request compatibility by generating an instruction ID server-side for an older browser request, without promising deduplication for its blind retries. The shipped view uses returned revisions and receipts. No legacy route may bypass current stop validation, pending operations or existing launch restrictions.
 
@@ -187,13 +189,13 @@ Replaces in part: [handoff design](../../changes/kiln-needs-you-handoff/kiln-nee
 
 ## Output Pages
 
-The saved Kiln output projection is the source; partial live deltas are excluded. Use a reverse, chunked read of `output.jsonl`, not a full-transcript load. A page covers at most 50 logical output records by default, 1–200 with `--max-lines`. Preserve record text, including internal newlines and Unicode; `number` is the existing output record number. Text rendering prefixes metadata outside the text and JSON preserves exact text. No follow or whole-output mode.
+The saved Kiln output projection is the source; partial live deltas are excluded. Use a reverse, chunked read of `output.jsonl`, not a full-transcript load. A page covers at most 50 saved numbered output records by default, 1–200 with `--max-lines`. The public word “line”, the `lines` array and `--max-lines` use this saved-entry unit, not newline-delimited text lines (AC-SEE-06; OUTPUT-001). Preserve record text, including internal newlines and Unicode; `number` is the existing output record number. Text rendering prefixes metadata outside the text and JSON preserves exact text. No follow or whole-output mode.
 
 On a new unpaged request capture the session, execution, output-file generation, last complete JSONL record byte boundary and observation time. Never include a partially written trailing record. Output storage is append-only for that generation; recovery/rebuild/replacement increments its generation. Pin those coordinates in an authenticated opaque cursor and retain a compact snapshot descriptor until execution history deletion. A cursor cannot select another execution/session; detect generation/length/prefix changes and report unavailable instead of reading different content. The descriptor records `output_generation` (a persisted UUID), `file_identity` (device/inode where supported), `frozen_byte_end`, `last_record_number` and `prefix_sha256` of exactly the complete bytes through that end. Build and validate the prefix digest with bounded-memory streaming under the targeted-read deadline; never load the transcript into memory. Each page opens the pinned generation, verifies identity, minimum length and the frozen-prefix digest, and reads only its selected suffix records from that file. Appending beyond the frozen end is allowed. Every Kiln rewrite/rebuild publishes a new generation before replacement; a missing generation, changed prefix or validation deadline yields `saved_output_unavailable` with a specific reason. Legacy saved output may establish a descriptor from its actual bytes without rewriting the output or migrating its session. Newly appended output cannot move a snapshot.
 
 Each page has the common result identity/time plus `session_id`, `snapshot_id`, `snapshot_observed_at`, `snapshot_end_line`, `requested_lines`, `response_byte_limit: 16384`, `byte_limit_reached`, `range`, `lines`, `has_older`, `next_before`, `next_command` and `next_argv`. Each line has `{ number, at, source, text, fragment }`; a fragment is `{ start, end, total, unit: "unicode_scalar" }`, half-open offsets into the original text. Null fragment means the full record. Cursor position is the exclusive endpoint for the next older page, possibly inside a record.
 
-**Serialization is the budget.** Construct complete metadata including the cursor and next invocation before selecting text, serialize in the selected output format including its trailing newline, and measure UTF-8 bytes. Choose the largest newest contiguous suffix that fits, honoring the logical-line ceiling; serialize again after final cursor selection. If a record cannot fit, split only at Unicode scalar boundaries, return its newest fitting fragment, and position the older cursor immediately before that fragment. On older pages finish that record before preceding records. Within each page all content is chronological. No ellipsis replaces text; fragments have explicit offsets. Metadata is capped separately: identifiers/cursors are bounded, and a too-long canonical path uses a compact `metadata_too_large` error with no echoed path, never an oversized response or payload loss. Cap the entire stdout result at 16,384 bytes in both formats, including errors. A response containing zero content because metadata consumed the budget is an error, not a successful page.
+**Serialization is the budget.** Construct complete metadata including the cursor and next invocation before selecting text, serialize in the selected output format including its trailing newline, and measure UTF-8 bytes. Choose the largest newest contiguous suffix that fits, honoring the saved-entry ceiling; serialize again after final cursor selection. If a record cannot fit, split only at Unicode scalar boundaries, return its newest fitting fragment, and position the older cursor immediately before that fragment. On older pages finish that record before preceding records. Within each page all content is chronological. No ellipsis replaces text; fragments have explicit offsets. Metadata is capped separately: identifiers/cursors are bounded, and a too-long canonical path uses a compact `metadata_too_large` error with no echoed path, never an oversized response or payload loss. Cap the entire stdout result at 16,384 bytes in both formats, including errors. A response containing zero content because metadata consumed the budget is an error, not a successful page.
 
 A cursor fixes snapshot and exclusive endpoint; repeated requests with the same cursor and presentation/options return the same text, while response collection time may change. `--max-lines` may change only the preceding page size. Cursor/session mismatch is exit 2. Beginning-of-history is successful with `has_older: false` and null next fields. No session/no output is successful with an explicit reason. Missing, corrupted or unreadable output is `saved_output_unavailable`, exit 4. Traverse pages backward, sort fragments by their recorded offsets and concatenate their `text` to reconstruct each saved record exactly, without inserted separators or dropped prefixes.
 
@@ -252,22 +254,22 @@ Replaces in part: [Kiln v1 design](../kiln-v1/technical-design.md), §Command li
 
 Use real filesystem/process/HTTP boundaries and disposable Git origins, with existing provider authentication for provider-boundary checks. Recorded verified provider contracts support deterministic negative tests; mocks alone do not establish account metadata or reply delivery. No production run control or repository writes are used as proof. Run the repository's normal full verification gate before implementation commits; this document-only stage runs document/contract checks and the explicitly recorded feasibility probes.
 
-The design-stage serializer prototype exercised two formats over six fixture sets (481 pages); maximum serialized stdout was exactly 16,384 bytes and all original text reconstructed exactly. This is an algorithm feasibility check, not evidence for the future Kiln implementation.
+Design-stage serializer feasibility evidence is recorded in [Investigation, Resolved design questions](kiln-bot-control-investigation.md#resolved-design-questions); it does not establish the future implementation’s validation.
 
 ## Acceptance Criteria Coverage
 
 | PRD criteria | Design sections |
 |---|---|
 | AC-SEE-01, AC-SEE-02, AC-SEE-03, AC-SEE-07 | Discovery, Ownership and Paths; Status, Conversations and Handoff; Common result and errors |
-| AC-SEE-04, AC-SEE-05, AC-SEE-08 | Status, Conversations and Handoff; CLI grammar; Validation Boundaries |
-| AC-SEE-06 | Output Pages; output serialization/reconstruction proof |
-| AC-ACT-01 | CLI and Help Contracts; shared control availability |
-| AC-ACT-02, AC-ACT-03 | Durable Controls and Retries; manual phase outcomes; scope/concurrency |
-| AC-ACT-04, AC-ACT-05 | Status-token semantics; operations/reconciliation; durable data and API |
-| AC-ACCOUNT-01 | Account projection; attempt provenance |
-| AC-CLI-01, AC-CLI-02, AC-CLI-03 | Common result and errors; CLI input/help; Local API; provider credential exclusion |
-| AC-CLI-04 | Validation Boundaries; accepted local Grok Bot caller |
+| AC-SEE-04, AC-SEE-05, AC-SEE-08 | Status, Conversations and Handoff; Command grammar; Validation Boundaries |
+| AC-SEE-06 | Output Pages; Validation Boundaries (Logs) |
+| AC-ACT-01 | CLI and Help Contracts; Status, Conversations and Handoff |
+| AC-ACT-02, AC-ACT-03 | Durable Controls and Retries; Command grammar; Scope and concurrency |
+| AC-ACT-04, AC-ACT-05 | Status-token semantics; Operations, dispatch and crash reconciliation; Durable Data and Evolution; Local API and Integration Points |
+| AC-ACCOUNT-01 | Account and Usage Facts; Status, Conversations and Handoff |
+| AC-CLI-01, AC-CLI-02, AC-CLI-03 | Common result and errors; CLI and Help Contracts; Local API and Integration Points |
+| AC-CLI-04 | Validation Boundaries (Complete workflow) |
 
 ## Open Questions
 
-None requiring a product decision for this drafted and reviewed design. SCOPE-001 and OUTPUT-001 remain the declared business assumptions. Release demonstrations and implementation validation remain owed by the build stages.
+No unresolved technical decisions. SCOPE-001 and OUTPUT-001 remain the declared business assumptions. Release demonstrations and implementation validation remain owed by the build stages.
