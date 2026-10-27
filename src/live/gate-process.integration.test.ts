@@ -1,7 +1,7 @@
 // Real separate Node helpers contend on the packaged cross-process gate.
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,5 +23,22 @@ it("orders admitted work before a competing hold, denies later work, and recover
     const crashed = spawn(process.execPath, ["--input-type=module", "-e", death], { stdio: "ignore" }); await once(crashed, "exit");
     await withGate(root, state => { expect(state.held?.instructionId).toBe("i"); });
     expect(unsettled(readGate(root))).toContain("Read crashed");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+it("retains an accepted hold when a real helper dies before publishing its lock owner", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-gate-ownerless-")); createGate(root, target);
+  try {
+    await withGate(root, state => { state.held = { instructionId: "held", operationId: "hold", requestedAt: new Date().toISOString() }; });
+    const lock = join(root, "admission.lock");
+    const code = `import{mkdirSync}from'node:fs';mkdirSync(${JSON.stringify(lock)});process.kill(process.pid,'SIGKILL');`;
+    const helper = spawn(process.execPath, ["--input-type=module", "-e", code], { stdio: "ignore" });
+    const [exitCode, signal] = await once(helper, "exit");
+    expect(exitCode === null || exitCode !== 0).toBe(true); expect(signal).toBe("SIGKILL");
+    let admitted = false;
+    await expect(withGate(root, () => { admitted = true; })).rejects.toThrow("Admission lock is unresolved");
+    expect(admitted).toBe(false);
+    expect(readGate(root).held?.instructionId).toBe("held");
+    expect(existsSync(lock)).toBe(true); expect(existsSync(join(lock, "owner.json"))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

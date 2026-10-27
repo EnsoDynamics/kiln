@@ -29,7 +29,8 @@ async function setup(version = "2.1.311") {
   return { release, target: h.engine.liveTarget()! };
 }
 async function waitForRelease(): Promise<void> {
-  await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; }, 10000);
+  try { await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; }, 10000); }
+  catch (error) { throw new Error(`Release obstacle: ${JSON.stringify(h.engine.record.liveControl?.takeover)}`, { cause: error }); }
 }
 async function post(path: string, body: unknown, token = h.engine.record.token) {
   const response = await fetch(`${origin}/api/${path}`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -279,6 +280,18 @@ it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through act
     const session = h.engine.sessionRecord(key, onDisk.phases[key]!.sessionIds.at(-1)!)!; const run = session.runs.at(-1)!;
     const target: LiveTarget = { executionId: onDisk.executionId!, activityId: onDisk.activities!.find(a => a.key === key)!.activityId, activityKey: key, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: run.live!.attemptId };
     expect((await post("live/take-over", { instructionId: "controller-crash", target })).status).toBe(202);
+    // Select a recoverable crash boundary. An ownerless mkdir is intentionally
+    // unidentifiable and must stay held; gate-process tests prove that other boundary.
+    const { execFileSync } = await import("node:child_process");
+    await waitFor(async () => {
+      controller.kill("SIGSTOP");
+      await waitFor(() => execFileSync("/bin/ps", ["-o", "state=", "-p", String(controller.pid)], { encoding: "utf8" }).trim().startsWith("T"), 5000);
+      const lock = join(run.live!.gateDirectory, "admission.lock");
+      if (!existsSync(lock) || existsSync(join(lock, "owner.json"))) return true;
+      controller.kill("SIGCONT");
+      await new Promise(resolve => setTimeout(resolve, 25));
+      return false;
+    }, 10000);
     controller.kill("SIGKILL"); await exited;
     h.engine = h.reopenFromDisk(); await h.engine.prepare();
     expect((await h.engine.decide()).kind).toBe("needs_you"); await h.engine.continue();
