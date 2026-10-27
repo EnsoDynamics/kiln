@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phases 1–4 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) closes the audit-confirmed AC-TAKE-05 activity-time gap locally, with publication held for Doug. Its leaf records acceptance evidence and the current full-run/focused-retest qualification. The provider qualification and release/ownership boundaries remain unchanged. After publication, repeat whole-PRD delivery audit, then test audit when delivery is clean.
+**Status:** Phases 1–5 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) completes the audit-confirmed AC-TAKE-05 activity-time gap and records acceptance evidence with the current full-run/focused-retest qualification. The provider qualification and release/ownership boundaries remain unchanged. The authorized next unit is a fresh whole-PRD delivery audit, then test audit when delivery is clean.
 
 ## Overview
 

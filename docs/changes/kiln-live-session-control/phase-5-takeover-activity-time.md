@@ -48,9 +48,11 @@ The scripted provider in deterministic engine/browser checks complements the rea
 
 ## Publication and successor
 
-The launch authorization is recorded in the phase plan, from Codex chat `01a17f70-0129-77e1-865b-b60fab99e8cc`: Doug said “Go ahead and push the audit, then launch a new chat for Phase 5 using GPT 6.1 Sol High Effort.” It authorized that prior audit publication and this launch, not publication of Phase 5's work. This implementation uses the implement skill's scoped commit default and holds shared-branch publication for Doug. No production changes or messages to other chats are authorized.
+The launch authorization is recorded in the phase plan, from Codex chat `01a17f70-0129-77e1-865b-b60fab99e8cc`: Doug said “Go ahead and push the audit, then launch a new chat for Phase 5 using GPT 6.1 Sol High Effort.” It authorized that prior audit publication and this launch, not publication of Phase 5's work. The implementation used the implement skill's scoped commit default and initially held shared-branch publication for Doug.
 
-After this repair is published, the next unit is a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. The audit must read the full PRD, design, assumptions and all five leaves, retaining Phase 3's full-run/focused-retest portfolio and Phase 4's separate current-build full pass as distinct historical records. Bot-control and plan-continuation remain separate tracks.
+This repair is published as `b8cfe5e`. The authorized next unit is a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. The audit must read the full PRD, design, assumptions and all five leaves, retaining Phase 3's full-run/focused-retest portfolio and Phase 4's separate current-build full pass as distinct historical records. Bot-control and plan-continuation remain separate tracks.
+
+Doug lifted the Phase 5 publication hold on 2026-10-27 in this implementation chat, `01a17f79-a7e3-7b40-adff-9e1a195bc47a`: “Go ahead and push Phase 5, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.” `b8cfe5e` was published unchanged over `f3ec593`; no additional runtime or test changes were needed. This authorizes publication of this phase and launch of that audit with GPT 6.1 Sol at High effort. The successor uses the delivery-audit scoped commit default and holds publication of its later work for Doug. No production changes or messages to other chats are authorized.
 
 ## Repository validation
 

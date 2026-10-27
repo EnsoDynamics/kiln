@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Phases 1–4 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) closes the remaining AC-TAKE-05 activity-time gap locally; its publication is held for Doug. Its leaf records scoped evidence and the current full-run/focused-retest qualification. After publication, obtain a fresh whole-PRD delivery audit, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** Phases 1–5 are closed and published. [Phase 5](phase-5-takeover-activity-time.md) completes the remaining AC-TAKE-05 activity-time gap and records scoped evidence with the current full-run/focused-retest qualification. The authorized next unit is a fresh whole-PRD delivery audit, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Next: whole-PRD delivery audit after Phase 5
 
-The [audit after Phase 4](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-4--2026-10-27) added the activity-time repair completed by [Phase 5](phase-5-takeover-activity-time.md). After its publication, repeat whole-PRD `delivery-audit`, then run `test-audit` only when delivery is clean. The Phase 5 leaf records its acceptance evidence and full-run/focused-retest qualification. Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain historical records; none establishes the new whole-PRD audit outcome.
+The [audit after Phase 4](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-4--2026-10-27) added the activity-time repair completed by [Phase 5](phase-5-takeover-activity-time.md). Phase 5 is published; repeat whole-PRD `delivery-audit`, then run `test-audit` only when delivery is clean. The Phase 5 leaf records its acceptance evidence and full-run/focused-retest qualification. Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain historical records; none establishes the new whole-PRD audit outcome.
 
 ## Out of scope
 

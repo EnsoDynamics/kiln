@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. The three original implementation leaves closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` added Phase 4; the fresh audit after its publication added Phase 5 for the remaining activity-time gap. Phase 5 is now closed locally, with publication held for Doug. A closed leaf records its session's implementation completion; audits do not reopen those leaves.
+Build and verify each phase in this order before starting the next. The three original implementation leaves closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` added Phase 4; the fresh audit after its publication added Phase 5 for the remaining activity-time gap. Phase 5 is now closed and published. A closed leaf records its session's implementation completion; audits do not reopen those leaves.
 
 | Phase | What it does | Depends on |
 |---|---|---|
@@ -12,7 +12,7 @@ Build and verify each phase in this order before starting the next. The three or
 | [2: Live messages and delivery recovery](phase-2-live-message-recovery.md) — **closed 2026-10-27** | Send exact live instructions, show honest receipts and resolve uncertain delivery through the working takeover/return flow. | 1 (shared durable authority, safe release, terminal ownership and phase/audit return). |
 | [3: Bot commands for live session control](phase-3-bot-live-controls.md) — **closed 2026-10-27** | Expose live messages, takeover and reviewed-message return through the existing bot interface. | 1 (takeover/return and shared authority); 2 (message accounting/review); external bot-control Phases 1–2 (read/authentication and durable mutation framework). |
 | [4: Complete live connection and audit return wording](phase-4-live-control-state-copy.md) — **closed and published 2026-10-27** | Added by delivery audit: describe disconnected live information honestly and name the actual audit throughout terminal return. | 1 (phase/audit return); 2 (live browser availability); 3 (integrated baseline). |
-| [5: Preserve takeover activity time during reconciliation](phase-5-takeover-activity-time.md) — **closed locally 2026-10-27; publication held** | Added by delivery audit: keep the last real activity time while takeover waits for release, so the elapsed-wait explanation remains truthful. | 1 (takeover gate, release reconciliation and waiting view); 2 (event replay and message recovery integrated into that reconciliation). |
+| [5: Preserve takeover activity time during reconciliation](phase-5-takeover-activity-time.md) — **closed and published 2026-10-27** | Added by delivery audit: keep the last real activity time while takeover waits for release, so the elapsed-wait explanation remains truthful. | 1 (takeover gate, release reconciliation and waiting view); 2 (event replay and message recovery integrated into that reconciliation). |
 
 ## Criterion ownership
 
@@ -80,4 +80,8 @@ The audit is published as `a8f2140`. On 2026-10-27 Doug authorized this publicat
 
 [Phase 5](phase-5-takeover-activity-time.md) completes AC-TAKE-05's activity-time repair. Its acceptance evidence covers durable timestamp ordering, original stream/transcript history, undated settlement, immediate fresh activity, repeated reconciliation, controller restart, built browser waiting/output/obstacles, retained tracked ownership and natural safe release. The real Claude foreground proof retains completed-operation yield with unfinished work and no cancellation signal. Independent deliverable review and test hardening are complete; no business assumption was added.
 
-The leaf's Repository validation records the complete current-build run plus one focused retry, the unchanged-baseline timing comparison and passing other repository/package gates. It does not claim one green full invocation or alter Phase 3's or Phase 4's historical verification records. Shared-branch publication remains held for Doug under the launch authorization above. After publication, the next unit is a fresh whole-PRD delivery audit; test audit follows only when delivery is clean. Bot-control and plan-continuation remain separate tracks.
+The leaf's Repository validation records the complete current-build run plus one focused retry, the unchanged-baseline timing comparison and passing other repository/package gates. It does not claim one green full invocation or alter Phase 3's or Phase 4's historical verification records. Phase 5 is published as `b8cfe5e`. The authorized next unit is a fresh whole-PRD delivery audit; test audit follows only when delivery is clean. Bot-control and plan-continuation remain separate tracks.
+
+### Phase 5 publication and fresh audit launch
+
+On 2026-10-27 Doug authorized publication and the successor launch in Codex chat `01a17f79-a7e3-7b40-adff-9e1a195bc47a`: “Go ahead and push Phase 5, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.” Phase 5 is published unchanged as `b8cfe5e`. The shared checkout will be fast-forwarded before launching the audit on that published baseline. This approval covers this publication and the audit launch with GPT 6.1 Sol at High effort; the audit's later work uses its scoped commit default and remains held for publication. It does not authorize production changes or messages to other chats. Test audit follows only after delivery is clean; bot-control and plan-continuation remain separate tracks.
