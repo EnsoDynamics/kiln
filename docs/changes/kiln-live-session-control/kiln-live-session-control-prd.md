@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All three implementation phases are closed with their scoped criteria verified on 2026-10-27. Phase 3 adds bot live commands and reviewed-message return. Phase 3 publication was approved on 2026-10-27; the next planned unit is whole-PRD delivery audit, then test audit when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** The three original implementation phases closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` found presentation gaps in AC-LIVE-02 and AC-BACK-01; [Phase 4](phase-4-live-control-state-copy.md) completes them before a fresh delivery audit and then test audit when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -32,7 +32,7 @@ The person sees the message composer and both clearly labeled pause choices with
 
 - [x] **AC-LIVE-01 — Both actions live in the active session view.** The current activity's session-detail view places **Message Claude** directly below live output, followed by **When should Kiln pause?**, with the two choices in AC-LIVE-03 visible together above the existing progress/session facts. The running overview links to that view with **Control live session**. The activity title, audit round where applicable, provider, session identity and connection state remain visible. Historical sessions never acquire live controls merely because they are being viewed.
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the added composer, grouped pause choices and affected running/session-detail arrangement; unaffected layout and style remain).
-- [x] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
+- [ ] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
 
   | State | Message | Pause / terminal takeover | What the person sees |
   |---|---|---|---|
@@ -98,7 +98,7 @@ The takeover action keeps Kiln open but prevents it from continuing the plan whi
 
 The person returns to the same **Back from your terminal?** section already used at Needs you. They choose who finishes the work; they do not learn a second recovery workflow.
 
-- [x] **AC-BACK-01 — The existing hand-back serves phases and audits.** Reuse the existing terminal choice and **Back from your terminal?** grouping, with **Resume {activity} in Kiln** and **Verify {activity} & advance**. Replace “phase” with the actual audit name and round where applicable. Direct reply remains the existing stopped-conversation reply action, never the live-send action. Preserve the instructions to exit Claude first, save changed decisions in requirements when useful, and use no special handoff phrase or compulsory summary.
+- [ ] **AC-BACK-01 — The existing hand-back serves phases and audits.** Reuse the existing terminal choice and **Back from your terminal?** grouping, with **Resume {activity} in Kiln** and **Verify {activity} & advance**. Replace “phase” with the actual audit name and round where applicable. Direct reply remains the existing stopped-conversation reply action, never the live-send action. Preserve the instructions to exit Claude first, save changed decisions in requirements when useful, and use no special handoff phrase or compulsory summary.
   - Replaces in part: AC-PAGE-02, AC-TERMINAL-01/02 and AC-RETURN-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (extend that same flow to deliberate live takeover and its audit hand-back; existing ordinary phase recovery remains).
 - [x] **AC-BACK-02 — Resume finishes this activity before following the plan.** Resume continues the same conversation with terminal history and the original activity/round identity. Uncommitted work or an unfinished phase/audit alone does not disable it. If fresh checks find the activity already complete, show an explicit advance choice without resuming or advancing automatically. Preserve any unsent reply and the existing advance-without-sending acknowledgement. Existing launch restrictions still apply.
   - Replaces in part: AC-RETURN-02/03 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (apply the same explicit complete/unsent choice to audit takeover).
@@ -134,9 +134,9 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: whole-PRD delivery audit
+## Next: complete connection and audit return wording
 
-All implementation leaves are closed. After Phase 3 is published to the shared branch, run a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) record the publication approval, current proof portfolio and next unit. Implementation closure is not a whole-PRD audit or production-release claim.
+The [whole-PRD delivery audit](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit--2026-10-27) checked all 20 criteria at the published baseline and found two partly implemented presentation requirements. Build [Phase 4](phase-4-live-control-state-copy.md), then obtain a fresh whole-PRD `delivery-audit` and `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) retain the publication approval and full-run/focused-retest limits. Implementation closure is not a clean whole-PRD audit or production-release claim.
 
 ## Out of scope
 

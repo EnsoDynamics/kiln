@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All three implementation phases are closed and their scoped criteria verified on 2026-10-27. Phase 3 bot integration facts and its phase leaf record the command/status/help boundary and current verification portfolio. Phase 3 shared-branch publication was approved on 2026-10-27; the next planned unit is whole-PRD delivery audit after publication, followed by test audit when delivery is clean.
+**Status:** The three original implementation phases closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` found two browser presentation gaps; [Phase 4](phase-4-live-control-state-copy.md) completes the existing connection and activity-naming contracts below. The runtime design and Phase 3 verification portfolio remain unchanged. Repeat whole-PRD delivery audit after Phase 4, then test audit when delivery is clean.
 
 ## Overview
 

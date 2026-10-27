@@ -4,13 +4,14 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. All three implementation leaves closed on 2026-10-27 with their scoped criteria verified. Whole-PRD delivery audit is next after Phase 3 publication, approved on 2026-10-27. A closed leaf records implementation completion; shared-branch publication is a separate delivery action.
+Build and verify each phase in this order before starting the next. The three original implementation leaves closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` found two partly implemented criteria and added Phase 4 below. A closed leaf records its session's implementation completion; the audit does not reopen those leaves.
 
 | Phase | What it does | Depends on |
 |---|---|---|
 | [1: Safe terminal takeover and return](phase-1-safe-takeover-return.md) — **closed 2026-10-27** | Pause a Claude phase or audit at a safe completed operation, release it for terminal use and hand it back through the browser's existing recovery flow. | None; uses the already implemented handoff and completion-audit prerequisites. |
 | [2: Live messages and delivery recovery](phase-2-live-message-recovery.md) — **closed 2026-10-27** | Send exact live instructions, show honest receipts and resolve uncertain delivery through the working takeover/return flow. | 1 (shared durable authority, safe release, terminal ownership and phase/audit return). |
 | [3: Bot commands for live session control](phase-3-bot-live-controls.md) — **closed 2026-10-27** | Expose live messages, takeover and reviewed-message return through the existing bot interface. | 1 (takeover/return and shared authority); 2 (message accounting/review); external bot-control Phases 1–2 (read/authentication and durable mutation framework). |
+| [4: Complete live connection and audit return wording](phase-4-live-control-state-copy.md) — **open** | Added by delivery audit: describe disconnected live information honestly and name the actual audit throughout terminal return. | 1 (phase/audit return); 2 (live browser availability); 3 (integrated baseline). |
 
 ## Criterion ownership
 
@@ -20,7 +21,7 @@ Build and verify each phase in this order before starting the next. All three im
 | 2 | AC-LIVE-01, AC-LIVE-02, AC-MSG-01–05 |
 | 3 | AC-BOT-01, AC-BOT-02 |
 
-All 20 active criteria have one owner. The phase documents mark repeated interface-wide availability, pause wording, serialization and retained-obligation constraints as also applying to later work. Phase 1 proves its browser/provider behavior; Phase 2 completes the composer and messaging states; Phase 3 proves the corresponding bot behavior under AC-BOT-01/02. No criterion is retired or rewritten. All 20 criteria are marked implemented in the parent PRD; the planned whole-PRD audits independently check delivery and evidence.
+All 20 active criteria retain one original owner. Phase 4 completes AC-LIVE-02 and AC-BACK-01 without taking ownership from Phases 2 and 1. The phase documents mark repeated interface-wide availability, pause wording, serialization and retained-obligation constraints as also applying to later work. No criterion is retired or rewritten. The first whole-PRD delivery audit found 18 Implemented and two Partly implemented; the parent checklist reflects those outstanding gaps.
 
 ## Sizing decision
 
@@ -36,4 +37,12 @@ Use the single design's [Evidence and Verification Gates](kiln-live-session-cont
 
 Provider feasibility recorded during refinement is not assembled-product proof. Phases 1–2 do not depend on bot delivery; if bot code lands first, both reuse its shared journal contract. The bot prerequisite is checked again when Phase 3 becomes next; this plan does not declare that separate track complete or take ownership of it. Add earlier-design replacement back-pointers only as the implementing phase makes them true.
 
-After all three leaves close, run whole-PRD delivery audit, then test audit under the implementation lifecycle. They are this PRD's closeout, not extra planned implementation phases. The next unit is whole-PRD delivery audit after Phase 3 publication. The external bot-control read/mutation prerequisites were checked before Phase 3; the separate bot-control inspection cleanup remains outside this track.
+After Phase 4 closes, run a fresh whole-PRD delivery audit, then test audit only when delivery is clean. They are this PRD's closeout. The external bot-control read/mutation prerequisites were checked before Phase 3; the separate bot-control inspection cleanup remains outside this track.
+
+## Whole-PRD delivery audit — 2026-10-27
+
+Assessed published implementation `d7c59a2` (`14a15ce` plus the publication record), with no uncommitted implementation changes. Three independent readers derived the required parts from the PRD, assumptions, design and closed phase leaves, then traced all 20 criteria from browser/bot/provider entry points. The main reader confirmed both gaps in code and checked their requirement ownership. AC-LIVE-02 and AC-BACK-01 are Partly implemented; the other 18 criteria are Implemented. No criterion was excluded, awaiting a human action, or changed outside the requirements. Phase 4 records both missing parts and their conflict checks.
+
+This was a delivery/code-reachability audit. No implementation or test file was changed, no product tests were run, and no test-evidence grade is claimed. The validated Claude Code 2.1.311/macOS profile, tracked-operation release boundary and Kiln-controlled terminal-admission limits remain as documented. Phase 3's full-run-plus-focused-retest portfolio is not reclassified as a single green full run.
+
+**Next unit:** implement Phase 4 in a fresh chat, then repeat whole-PRD delivery audit before test audit. The audit's scoped document commit is authorized by the delivery-audit default; publication of that commit, production changes and messages to other chats are not authorized by the Phase 3 launch approval.
