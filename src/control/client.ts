@@ -6,7 +6,7 @@ import { processStartTime } from "../platform/process-start-time.js";
 import type { InstanceLockContent } from "../state/instance-lock.js";
 import { privateJson, enumerateWork, targetWork, type SavedWork } from "./private-state.js";
 import { accountFacts, handoffProjection, statusProjection } from "./projection.js";
-import { readHistory, chooseSession } from "./history.js";
+import { readHistory, chooseOutputSession } from "./history.js";
 import { outputPage, LOG_BYTES } from "./logs.js";
 import { commandHelp, parseCommand } from "./help.js";
 import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Result } from "./result.js";
@@ -158,8 +158,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (name === "settings") return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }));
     if (name === "handoff") return write(await handoffProjection(work, typeof flags["session-id"] === "string" ? flags["session-id"] : undefined, context.env));
     const history = readHistory(work); const selector = typeof flags["session-id"] === "string" ? flags["session-id"] : undefined;
-    const selected = chooseSession(work, history, selector);
-    if (!history.complete && !selected) throw new ControlFailure("state_unavailable", "The output session inventory is incomplete.");
+    const selected = chooseOutputSession(work, history, selector, undefined, typeof flags["older-output-cursor"] === "string" ? flags["older-output-cursor"] : undefined);
     return write(outputPage(work, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json, ...(selector ? { session: selector } : {}), ...(typeof flags["older-output-cursor"] === "string" ? { cursor: flags["older-output-cursor"] } : {}) }));
   } catch (error) { return write(failed(error)); }
 }

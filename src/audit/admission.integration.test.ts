@@ -19,6 +19,7 @@ import { validateReport } from "./validate-report.js";
 import { AuditStore, hashBytes, strictJson } from "./storage.js";
 import { captureSnapshot, compareSnapshots, requirementManifest, phaseScope } from "./snapshots.js";
 import type { AuditActivity, AuditReport, EvidenceEntry, WorkSnapshot } from "./contracts.js";
+import { commandContracts } from "../control/help.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(f => f())); });
@@ -62,7 +63,10 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
   call("skill", "Skill", { skill: `enso-method:${skillName}` }, "Skill loaded");
   const context: AdmissionContext = { record, stateDirectory, git: { git: "git", env: sandbox.env }, env: sandbox.env, codex: "codex", signal: AbortSignal.timeout(120_000), session: () => session };
   const body = () => ({ executionId: record.executionId, activityId: activity.activityId, revision: record.completionAudits!.revision });
-  const snap = await issueSnapshot(context, { ...body(), testPaths: [], evidencePaths: [] });
+  const snapshotExample = commandContracts.find(c => c.path.join(" ") === "audit snapshot")!.examples[0]!;
+  const snapshotRequest = structuredClone(Object.values(snapshotExample.files!)[0]) as Record<string, unknown>;
+  Object.assign(snapshotRequest, body());
+  const snap = await issueSnapshot(context, snapshotRequest);
   const store = new AuditStore(stateDirectory); const checked = store.read<WorkSnapshot>(activity.snapshots[0]!);
   const criterion = checked.requirements.criteria[0]!;
   const assess = (purpose: "assessment" | "review" | "regrade" | "test_classification", id: string, verificationEvidenceIds: string[] = [], extra: Partial<NonNullable<EvidenceEntry["assessment"]>> = {}) => {
@@ -175,7 +179,12 @@ describe("audit evidence admission", () => {
       const address = new URL(server.address).origin;
       expect((await fetch(`${address}/api/audit`)).status).toBe(403);
       expect((await fetch(`${address}/api/audit/result`, { method: "POST", headers: { [TOKEN_HEADER]: f.record.token, Origin: "http://evil.invalid" }, body: "{}" })).status).toBe(403);
-      const requestFile = join(f.sandbox.root, "request.json"); writeFileSync(requestFile, JSON.stringify({ ...f.body(), reportPath: f.activity.reportPath }));
+      // AC-ACT-01: the shipped example is a real request contract once its documented
+      // status-sourced values are bound; it must reach successful admission unchanged.
+      const example = commandContracts.find(c => c.path.join(" ") === "audit submit")!.examples[0]!;
+      const request = structuredClone(Object.values(example.files!)[0]) as Record<string, unknown>;
+      Object.assign(request, f.body(), { reportPath: f.activity.reportPath });
+      const requestFile = join(f.sandbox.root, "request.json"); writeFileSync(requestFile, JSON.stringify(request));
       let out = ""; let err = "";
       expect(await runAudit(["submit", requestFile], { cwd: f.root, env: f.sandbox.env, stdout: { write: s => out += s }, stderr: { write: s => err += s } })).toBe(0);
       expect(err).toBe(""); expect(JSON.parse(out).disposition).toBe("recorded");

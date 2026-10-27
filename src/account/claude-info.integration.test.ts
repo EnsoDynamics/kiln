@@ -89,18 +89,20 @@ describe("Claude Code's account and usage", () => {
     expect(scripted.asked).toBe(2);
     expect(scripted.waiting).toBe(true);
   });
-  it("discards overflow when the account switches across the usage read while keeping independently available usage gauges", async () => {
+  it.each([true, undefined])("discards unbound usage after an account switch, with overflow=%s", async overflow => {
     sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, "bin"));
     const scenario = join(sandbox.root, "scenario.json"); writeFileSync(scenario, JSON.stringify({ sessions: [] }));
     const account = join(sandbox.root, "account.json"); const usage = join(sandbox.root, "usage.jsonl"); const release = join(sandbox.root, "release-usage");
     writeFileSync(account, JSON.stringify({ loggedIn: true, email: "before@example.test", orgId: "before-org", subscriptionType: "max" }));
-    writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: [{ kind: "session", percent: 42 }], extra_usage: { is_enabled: true } } } }));
+    writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: [{ kind: "session", percent: 42 }], ...(overflow === undefined ? {} : { extra_usage: { is_enabled: overflow } }) } } }));
     const reading = readAccount({ claude, cwd: sandbox.root, env: { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, KILN_STANDIN_ACCOUNT: account, KILN_STANDIN_USAGE: usage, KILN_STANDIN_USAGE_WAIT: release } });
     await waitFor(() => existsSync(`${scenario}.helpers.jsonl`) && readFileSync(`${scenario}.helpers.jsonl`, "utf8").includes('"usage"'));
     writeFileSync(account, JSON.stringify({ loggedIn: true, email: "after@example.test", orgId: "after-org", subscriptionType: "max" })); writeFileSync(release, "");
     const result = await reading;
     expect(result.extraUsage).toBeUndefined(); expect(result.error).toBeUndefined();
-    expect(result.limits).toMatchObject([{ kind: "session", percent: 42 }]);
+    // Phase 6: usage carries no independent identity; a changed bracket makes it unavailable.
+    expect(result.email).toBe("after@example.test"); expect(result.orgId).toBe("after-org");
+    expect(result.limits).toEqual([]); expect(result.limitsError).toContain("stable authenticated account");
   });
 
   it("attributes reported overflow without usage meters and still rejects an account switch across that read", async () => {
@@ -120,6 +122,16 @@ describe("Claude Code's account and usage", () => {
     await waitFor(() => readFileSync(`${scenario}.helpers.jsonl`, "utf8").split("\n").filter(line => line.includes('"usage"')).length > before);
     writeFileSync(account, JSON.stringify({ loggedIn: true, email: "other@example.test", orgId: "other-org", subscriptionType: "max" })); writeFileSync(release, "");
     expect((await pending).extraUsage).toBeUndefined();
+  });
+
+  it("leaves successful usage unavailable when authentication supplies no account identity", async () => {
+    sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, "bin"));
+    const account = join(sandbox.root, "unknown-account.json");
+    writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }));
+    const result = await readAccount({ claude, cwd: sandbox.root, env: { ...sandbox.env, KILN_STANDIN_ACCOUNT: account } });
+    expect(result.error).toBeUndefined(); expect(result.email).toBeUndefined(); expect(result.orgId).toBeUndefined();
+    expect(result.limits).toEqual([]); expect(result.extraUsage).toBeUndefined();
+    expect(result.limitsError).toContain("stable authenticated account");
   });
 
 });

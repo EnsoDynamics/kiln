@@ -24,6 +24,7 @@ import { runDelivery } from "../delivery-command.js";
 import { buildSnapshot } from "./snapshot.js";
 import { git } from "../test-support/git-repositories.js";
 import { launchChrome } from "../test-support/headless-chrome.js";
+import { commandContracts } from "../control/help.js";
 
 const directory = "docs/prds/customer-returns";
 const prd = "# PRD: Audit development proof\n\n## Acceptance Criteria\n\n- [ ] **AC-RET-01 — Verify the value.** The return value is checked in development.\n- [ ] **AC-RET-02 — Preserve other work.** The unrelated requirement stays separate.\n";
@@ -215,6 +216,9 @@ describe("audit development owners", () => {
     const address = new URL(server.address).origin;
     expect((await fetch(`${address}/api/delivery`, { headers: { Origin: address } })).status).toBe(403);
     const status = engine.deliveryStatus(); expect(status.owner).toEqual(f.owner); expect(status.phaseId).toBeUndefined(); expect(status.requirementManifestDigest).toBe(f.snapshot.requirements.id);
+    // AC-ACT-01: construct real helper requests from the shipped file examples,
+    // substituting the documented status/provider values, then use the actual CLI.
+    const exampleInput = (command: string, index = 0) => structuredClone(Object.values(commandContracts.find(c => c.path.join(" ") === `delivery ${command}`)!.examples[index]!.files!)[0]) as Record<string, unknown>;
     const file = join(f.h.sandbox.root, "assess.json"); writeFileSync(file, JSON.stringify(f.assess()));
     let stdout = ""; let stderr = "";
     expect(await runDelivery(["assess", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
@@ -229,13 +233,19 @@ describe("audit development owners", () => {
     // immutable provider reference through the real client after preparing the operation.
     f.checkpoint.references = f.checkpoint.references!.filter(one => one.requirementId !== "verify");
     f.responses[`repos/acme/acme-shop/actions/workflows/${encodeURIComponent(".github/workflows/deploy.yml")}/runs?head_sha=${f.merged}&per_page=100&page=1`] = { body: { workflow_runs: [] } }; f.save();
-    writeFileSync(file, JSON.stringify({ executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, owner: f.owner, checkpointId: f.checkpoint.id, operation: { kind: "verify" } }));
+    const prepareInput = exampleInput("prepare");
+    Object.assign(prepareInput, { executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, owner: f.owner, checkpointId: f.checkpoint.id });
+    (prepareInput.operation as { requirementIds: string[] }).requirementIds = ["verify"];
+    writeFileSync(file, JSON.stringify(prepareInput));
     stdout = "";
     expect(await runDelivery(["prepare", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
     const prepared = JSON.parse(stdout) as { revision: number; result: { operationId: string; disposition: string } };
     expect(prepared.result.disposition).toBe("proceed");
     expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.checkpoints[0]!.operations.at(-1)).toMatchObject({ id: prepared.result.operationId, kind: "verify", requirementIds: ["verify"], state: "prepared" });
-    writeFileSync(file, JSON.stringify({ executionId: f.record.executionId, revision: prepared.revision, owner: f.owner, checkpointId: f.checkpoint.id, operationId: prepared.result.operationId, references: [{ requirementId: "verify", kind: "github_workflow", id: "21" }] }));
+    const evidenceInput = exampleInput("evidence", 1);
+    Object.assign(evidenceInput, { executionId: f.record.executionId, revision: prepared.revision, owner: f.owner, checkpointId: f.checkpoint.id, operationId: prepared.result.operationId });
+    Object.assign((evidenceInput.references as Record<string, unknown>[])[0]!, { requirementId: "verify", id: "21" });
+    writeFileSync(file, JSON.stringify(evidenceInput));
     stdout = "";
     expect(await runDelivery(["evidence", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
     const observed = readPrdRecord(f.h.stateDirectory)!;

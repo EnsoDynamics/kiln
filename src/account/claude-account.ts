@@ -176,11 +176,14 @@ export async function readAccount(options: AccountReadOptions): Promise<AccountV
     return account;
   }
   const reading = parseUsage(usage.stdout, status.plan !== undefined);
+  // Usage has no account identity of its own. Bracket every successful usage read,
+  // including reports without overflow, before assigning gauges to an account.
+  const after = parseAuthStatus(await call(["auth", "status", "--json"]));
+  if (after.error || !(status.email || status.orgId) || status.email !== after.email || status.orgId !== after.orgId || status.plan !== after.plan || status.authMethod !== after.authMethod || status.apiProvider !== after.apiProvider || status.apiKeySource !== after.apiKeySource) {
+    return { ...after, startedAt, updatedAt: (options.now?.() ?? new Date()).toISOString(), limits: [], limitsError: "Usage could not be bound to a stable authenticated account across the reading. Refresh account information." };
+  }
   if (reading.extraUsageEnabled !== undefined) {
-    const after = parseAuthStatus(await call(["auth", "status", "--json"]));
-    if (!after.error && (status.email || status.orgId) && status.email === after.email && status.orgId === after.orgId) {
-      account.extraUsage = { enabled: reading.extraUsageEnabled, observedAt: updatedAt, ...(status.email ? { email: status.email } : {}), ...(status.orgId ? { orgId: status.orgId } : {}) };
-    }
+    account.extraUsage = { enabled: reading.extraUsageEnabled, observedAt: updatedAt, ...(status.email ? { email: status.email } : {}), ...(status.orgId ? { orgId: status.orgId } : {}) };
   }
   account.limits = reading.limits;
   if (reading.limitsError !== undefined) account.limitsError = reading.limitsError;

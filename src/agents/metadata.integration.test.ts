@@ -29,6 +29,40 @@ function setup(commands?: string[] | Record<string, string[]>) {
 const pluginSkills = METHOD_SKILLS.map(name => `enso-method:${name}`);
 
 describe("Claude Code enabled-skill readiness", () => {
+  it("does not let auth-only or model-only readiness redate usage or reattach another account's gauges", async () => {
+    sandbox = createSandbox();
+    const { claude } = installStandIns(join(sandbox.root, "bin"));
+    const auth = join(sandbox.root, "auth.json"); const scenario = join(sandbox.root, "scenario.json");
+    writeFileSync(scenario, JSON.stringify({ sessions: [] }));
+    const signIn = (email: string) => writeFileSync(auth, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email, subscriptionType: "max" }));
+    signIn("first@example.invalid");
+    const env = { ...sandbox.env, KILN_STANDIN_ACCOUNT: auth, KILN_STANDIN_SCENARIO: scenario };
+    info = new AgentInfo({ agentId: "claude_code", executable: { claude }, cwd: sandbox.root, claudeCwd: sandbox.root, env });
+    await info.refresh();
+    const original = structuredClone(info.state.account!);
+    expect(original.limits).toHaveLength(3); expect(original.limitsObservedAt).toBe(original.updatedAt);
+    await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+    expect(info.state.blockers).toEqual([]);
+    expect(info.state.account).toMatchObject({ email: original.email, limits: original.limits, limitsObservedAt: original.updatedAt, limitsStale: true });
+    expect(info.state.account!.updatedAt).not.toBe(original.updatedAt);
+    signIn("second@example.invalid"); await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+    const second = structuredClone(info.state.account!);
+    expect(second).toMatchObject({ email: "second@example.invalid", limits: [], limitsError: expect.any(String) });
+    expect(second.limitsObservedAt).toBeUndefined();
+    await info.refreshClaudeModels();
+    expect(info.state.account).toEqual(second);
+    signIn("first@example.invalid"); await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+    expect(info.state.account).toMatchObject({ email: "first@example.invalid", limits: original.limits, limitsObservedAt: original.limitsObservedAt, limitsStale: true });
+    signIn("second@example.invalid"); await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+    expect(info.state.account).toMatchObject({ email: "second@example.invalid", limits: [] });
+    expect(info.state.account!.limitsObservedAt).toBeUndefined();
+    const helpers = readFileSync(`${scenario}.helpers.jsonl`, "utf8").trim().split("\n").map(line => JSON.parse(line) as { kind: string });
+    expect(helpers.filter(row => row.kind === "usage")).toHaveLength(1);
+    expect(existsSync(`${scenario}.calls.jsonl`)).toBe(false);
+    await info.refresh();
+    expect(info.state.account).toMatchObject({ email: "second@example.invalid", limits: original.limits });
+    expect(info.state.account!.limitsObservedAt).not.toBe(original.updatedAt);
+  });
   it("accepts the installed plugin without flat skill folders, and sends no implementation prompt", async () => {
     const { scenario } = setup(pluginSkills);
     rmSync(join(sandbox.env.CLAUDE_CONFIG_DIR!, "skills"), { recursive: true });

@@ -173,6 +173,55 @@ describe("the installed package", () => {
     expect(receipt.result_fields['operation.reply_text']).toContain("not_sent");
   });
 
+  it("ships complete helper JSON file contracts, contents and refusal meanings without Git or providers", () => {
+    const help = (path: string[], json: boolean) => {
+      const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
+    };
+    const fields: Record<string, string[]> = {
+      "audit snapshot": ["executionId", "activityId", "revision", "testPaths", "evidencePaths"],
+      "audit submit": ["executionId", "activityId", "revision", "reportPath"],
+      "delivery assess": ["executionId", "revision", "owner", "documentsDigest", "requirementManifestDigest", "required", "criteria", "reason", "checkpoints"],
+      "delivery prepare": ["executionId", "revision", "owner", "checkpointId", "operation"],
+      "delivery evidence": ["executionId", "revision", "owner", "checkpointId", "operationId", "references"],
+    };
+    for (const [name, required] of Object.entries(fields)) {
+      const path = name.split(" "); const c = JSON.parse(help(path, true)).command;
+      expect(Object.keys(c.input_contract.fields)).toEqual(expect.arrayContaining(required));
+      expect(c.usage).toBe(`kiln ${name} <JSON-file>`);
+      const text = help(path, false);
+      for (const field of required) expect(text).toContain(field);
+      expect(c.examples.length).toBeGreaterThan(0);
+      for (const example of c.examples) {
+        expect(example.preparation).toContain("status");
+        const file = example.argv.at(-1); expect(example.files[file]).toBeDefined();
+        expect(text).toContain(JSON.stringify(example.files[file], null, 2));
+        expect(example.files[file].revision).toEqual(expect.any(Number));
+      }
+      for (const error of c.errors) expect(c.error_meanings[error].length).toBeGreaterThan(30);
+      expect(text).not.toContain("existing audit/delivery contract");
+      expect(c.exits).toMatchObject({ "0": expect.any(String), "1": expect.stringContaining("failure"), "2": expect.stringContaining("syntax") });
+    }
+    const snapshot = JSON.parse(help(["audit", "snapshot"], true)).command;
+    expect(snapshot.input_contract.types.TestPath).toHaveProperty("assessmentEvidenceId");
+    const submit = JSON.parse(help(["audit", "submit"], true)).command;
+    expect(submit.input_contract.types.AuditReport).toHaveProperty("methodEvidence");
+    expect(submit.input_contract.types.MethodEvidence).toHaveProperty("redChecks");
+    const assess = JSON.parse(help(["delivery", "assess"], true)).command;
+    expect(assess.input_contract.types.Checkpoint).toHaveProperty("requirements");
+    expect(assess.input_contract.types.EvidenceRequirement).toHaveProperty("match.command");
+    const prepare = JSON.parse(help(["delivery", "prepare"], true)).command;
+    expect(prepare.result_fields.result).toContain("operationId");
+    expect(prepare.error_meanings.unresolved).toContain("no new operation");
+    for (const group of ["audit", "delivery"]) {
+      const root = JSON.parse(help([], true)); const nested = JSON.parse(help([group], true));
+      for (const name of Object.keys(fields).filter(name => name.startsWith(`${group} `))) {
+        expect(root.commands.find((c: { path: string[] }) => c.path.join(" ") === name).input_contract).toBeDefined();
+        expect(nested.subcommands.find((c: { path: string[] }) => c.path.join(" ") === name).input_contract).toBeDefined();
+      }
+    }
+  });
+
   it("serves the browser view, its scripts, styles and bundled fonts, from that one install", async () => {
     const child = runInstalled(["run", `docs/prds/${FOLDER}/`], repository);
     const output = collect(child);

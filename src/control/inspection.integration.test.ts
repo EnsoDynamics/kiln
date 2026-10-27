@@ -282,7 +282,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     s.record.runs.at(-1)!.billing={agentId:'codex',route:'subscription',sources:[],email:'attempt@example.invalid',observedAt:'2026-01-02T02:00:00Z',diagnostics:[],approved:false};writeSessionRecord(f.directory,s.record);
     f.record.phases['1a']!.stop={kind:'done_check',at:'2026-01-03T00:00:00Z',checkedAt:'2026-01-03T00:00:00Z',checks:[]};
     f.record.billing!.lastLaunch={agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false};writePrdRecord(f.directory,f.record);
-    const next={email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
+    const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
     writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},account:next}});
     const answer=(await command(['status',f.path,'--detail','full','--json'])).json();
     expect(answer).toMatchObject({requested_model:{model:'gpt-model'},effective_model:{model:'effective-provider-model'},phases:{completed:0,total:2},activity:{phase_id:'1a',title:'Nested intake'}});

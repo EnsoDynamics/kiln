@@ -80,6 +80,23 @@ export function chooseSession(work: SavedWork, history: History, selector?: stri
   const preferred = id ? history.sessions.find(s => s.id === id) : undefined;
   return preferred ?? [...history.sessions].sort((a, b) => (a.record.runs.at(-1)?.startedAt ?? a.record.createdAt).localeCompare(b.record.runs.at(-1)?.startedAt ?? b.record.createdAt)).at(-1) ?? null;
 }
+/** Default output requires the active session or a complete inventory of saved work.
+ * Explicit selectors and frozen cursors establish their identities independently.
+ */
+export function chooseOutputSession(work: SavedWork, history: History, selector?: string, activeId?: string, cursor?: string): Conversation | null {
+  if (cursor) {
+    if (selector && !safeSelector(selector)) throw new ControlFailure("invalid_input", "Invalid Kiln session selector.", 2);
+    return null; // outputPage authenticates the descriptor's execution/session.
+  }
+  if (selector) return chooseSession(work, history, selector);
+  if (activeId) {
+    const matches = history.sessions.filter(s => s.id === activeId);
+    if (matches.length === 1) return matches[0]!;
+    throw new ControlFailure("saved_output_unavailable", "The active output session is missing, corrupt or unowned.");
+  }
+  if (!history.complete) throw new ControlFailure("saved_output_unavailable", "The latest output session cannot be established because saved session history is incomplete.");
+  return [...history.sessions].sort((a, b) => (a.record.runs.at(-1)?.startedAt ?? a.record.createdAt).localeCompare(b.record.runs.at(-1)?.startedAt ?? b.record.createdAt)).at(-1) ?? null;
+}
 export function workingDirectoryAvailable(folder: string): boolean {
   try { return existsSync(folder) && statSync(folder).isDirectory(); } catch { return false; }
 }

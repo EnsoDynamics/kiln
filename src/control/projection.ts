@@ -96,12 +96,13 @@ export function accountFacts(work: SavedWork, snapshot?: Snapshot, reachable = f
   const attemptAccount = lastRun?.codex?.account ?? (lastRun?.billing ? publicBilling(lastRun.billing) : null);
   const attemptAt = lastRun?.codex?.account.at ?? lastRun?.billing?.observedAt ?? null;
   const next = account ? publicAccount(account) : null;
+  const usageAt = account?.limitsObservedAt ?? (account?.agentId === "codex" ? account.updatedAt : null);
   return {
     agent: work.record.settings.agentId,
     last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ?? null, lastSession?.codex?.originalAccount.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
     next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!account ? "Current provider identity has not been read." : null), account?.stale),
-    usage: observed(account?.limits ?? null, account?.updatedAt ?? null, account?.limitsError ?? (!account ? "Usage unavailable." : null), account?.stale || !!account?.limitsError),
+    usage: observed(usageAt ? account?.limits : null, usageAt, account?.limitsError ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
     recovery: observed(account?.codexUsage ?? null, account?.codexUsageObservedAt ?? account?.updatedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
     billing: view?.billing ?? null,
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,

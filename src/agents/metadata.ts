@@ -7,6 +7,9 @@ import { type AgentId } from "../state/records.js";
 import { METHOD_SKILLS, readCodexMetadata } from "./codex-metadata.js";
 
 export interface AgentAccount extends Omit<AccountView, "limits"> {
+  /** Usage is independent of auth-only readiness and retains its own reading time. */
+  limitsObservedAt?: string | undefined;
+  limitsStale?: boolean;
   credits?: import("../billing/inspection.js").WorkspaceCredits[];
   codexUsage?: { state: "allowed" | "blocked" | "unknown"; reason: string; administrative?: boolean };
   codexUsageObservedAt?: string;
@@ -28,6 +31,9 @@ export interface MetadataState {
   blockers: string[];
 }
 function sameAccountContext(previous: AgentAccount, current: AgentAccount): boolean {
+  if (previous.agentId === "claude_code" && current.agentId === "claude_code") {
+    return !!(current.email || current.orgId) && previous.email === current.email && previous.orgId === current.orgId && previous.plan === current.plan;
+  }
   if (previous.email !== current.email || previous.plan !== current.plan) return false;
   if (current.accountId && current.routingAccountId && current.accountId !== current.routingAccountId) return false;
   const identifiers = ["accountId", "routingAccountId"] as const;
@@ -45,6 +51,7 @@ export class AgentInfo {
   private contexts: string[];
   private readonly abort = new AbortController();
   private offClaude;
+  private lastClaudeAccount: AccountView | undefined;
   constructor(private options: { agentId: AgentId; generation?: number; claude?: ClaudeInfoSource; executable: { claude: string; codex?: string }; cwd: string; claudeCwd: string; env: NodeJS.ProcessEnv }) {
     this.contexts = [options.cwd];
     this.state = { agentId: options.agentId, generation: options.generation ?? 0, pending: true, blockers: [] };
@@ -106,7 +113,10 @@ export class AgentInfo {
         state.account = { ...previous, stale: true, codexUsageStale: true, lastSuccessfulAt: previous.updatedAt, error: state.account.error };
         delete state.account.credits;
       }
-      else if (state.account?.limitsError && previous && !previous.limitsError && sameAccountContext(previous, state.account)) state.account = { ...state.account, limits: previous.limits, updatedAt: previous.updatedAt, stale: true, lastSuccessfulAt: previous.lastSuccessfulAt ?? previous.updatedAt };
+      else if (state.account?.limitsError && previous && sameAccountContext(previous, state.account)) {
+        state.account = { ...state.account, limits: previous.limits, limitsObservedAt: previous.limitsObservedAt ?? (previous.agentId === "codex" ? previous.updatedAt : undefined), limitsStale: true };
+        if (state.agentId === "codex") { state.account.updatedAt = previous.updatedAt; state.account.stale = true; state.account.lastSuccessfulAt = previous.lastSuccessfulAt ?? previous.updatedAt; }
+      }
     };
     const pending = read().catch(() => {
       if (this.state === state) { if (state.account) { delete state.account.credits; state.account.stale = true; state.account.codexUsageStale = true; } state.models = undefined; state.modelListError = "Could not refresh agent metadata."; state.blockers = ["Could not refresh agent readiness. Check the selected agent in a terminal."]; }
@@ -141,13 +151,33 @@ export class AgentInfo {
       if (!result.ok) state.blockers.push("Could not inspect enabled Claude Code skills. Recheck agent information.");
       else for (const required of METHOD_SKILLS) if (!result.skills.some(name => name === required || name === `enso-method:${required}`)) state.blockers.push(`Enable or install the Enso Method ${required} skill for Claude Code.`);
     }
-    state.account = { ...state.account, ...auth, agentId: "claude_code", startedAt, updatedAt: new Date().toISOString(), limits: state.account?.limits ?? [] };
-    if (!auth.error) delete state.account.error;
+    const previous = state.account;
+    const account: AgentAccount = { ...auth, agentId: "claude_code", startedAt, updatedAt: new Date().toISOString(), limits: [] };
+    const source = this.claude.account;
+    const sourceUsage: AgentAccount | undefined = source && !source.error && !source.limitsError ? { ...source, agentId: "claude_code", limitsObservedAt: source.updatedAt } : undefined;
+    // An intermediate auth context may have cleared the display. The independent
+    // full reader can still establish dated usage for the account now authenticated.
+    const usage = previous?.limitsObservedAt && sameAccountContext(previous, account) ? previous : sourceUsage && sameAccountContext(sourceUsage, account) ? sourceUsage : undefined;
+    if (usage && !auth.error) {
+      account.limits = usage.limits;
+      if (usage.limitsObservedAt) account.limitsObservedAt = usage.limitsObservedAt;
+      account.limitsStale = true;
+      if (usage.limitsError) account.limitsError = usage.limitsError;
+      if (usage.extraUsage) account.extraUsage = usage.extraUsage;
+    } else account.limitsError = "Usage has not been observed for the current authenticated account.";
+    if (auth.error && previous) {
+      state.account = { ...previous, error: auth.error, stale: true, limitsStale: true };
+    } else state.account = account;
     this.changed();
     return auth;
   }
   private claudeChanged(): void {
     if (this.state.agentId !== "claude_code" || this.state.pending || this.abort.signal.aborted) return;
+    // Model catalogue notifications carry no new identity or usage observation.
+    if (this.claude.account === this.lastClaudeAccount) {
+      this.state.models = this.claude.models; this.state.modelListError = this.claude.modelListError;
+      this.changed(); return;
+    }
     const previous = this.state.account;
     this.updateClaude();
     const account = this.state.account;
@@ -159,7 +189,8 @@ export class AgentInfo {
   private updateClaude(): void {
     this.state.models = this.claude.models;
     this.state.modelListError = this.claude.modelListError;
-    this.state.account = this.claude.account ? { ...this.claude.account, agentId: "claude_code" } : undefined;
+    this.lastClaudeAccount = this.claude.account;
+    this.state.account = this.claude.account ? { ...this.claude.account, agentId: "claude_code", ...(!this.claude.account.error && !this.claude.account.limitsError ? { limitsObservedAt: this.claude.account.updatedAt } : {}) } : undefined;
     this.state.blockers = !this.claude.account ? ["Claude Code account is unavailable. Check claude auth login in a terminal."] : this.claude.account.error ? [this.claude.account.error] : [];
   }
   onChange(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }

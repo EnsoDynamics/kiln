@@ -4,7 +4,7 @@ import type { Hono, Context } from "hono";
 import { dirname, resolve } from "node:path";
 import { readWork } from "./private-state.js";
 import { handoffProjection, instanceEpoch, statusProjection } from "./projection.js";
-import { readHistory, chooseSession } from "./history.js";
+import { readHistory, chooseOutputSession } from "./history.js";
 import { outputPage } from "./logs.js";
 import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
 import type { Engine } from "../engine/engine.js";
@@ -35,8 +35,8 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     if (!/^(?:[1-9]\d?|1\d\d|200)$/.test(max)) throw new ControlFailure("invalid_input", "max_lines must be 1–200.", 2);
     const saved = work(); const history = readHistory(saved, engine.current?.processRunning ? engine.current.session?.sessionId : undefined);
     const selector = c.req.query("session_id");
-    const selected = chooseSession(saved, history, selector, engine.current?.processRunning ? engine.current.session?.sessionId : undefined);
     const cursor = c.req.query("older_output_cursor");
+    const selected = chooseOutputSession(saved, history, selector, engine.current?.processRunning ? engine.current.session?.sessionId : undefined, cursor);
     return outputPage(saved, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json: c.req.query("format") !== "text", ...(selector ? { session: selector } : {}), ...(cursor ? { cursor } : {}) });
   });
   route("handoff", ["session_id"], c => handoffProjection(work(), c.req.query("session_id"), engine.environment, engine));
