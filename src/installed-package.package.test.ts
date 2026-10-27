@@ -173,6 +173,37 @@ describe("the installed package", () => {
     expect(receipt.result_fields['operation.reply_text']).toContain("not_sent");
   });
 
+  it("inventories every command in root text and supplies usable legacy syntax, context and refusals", () => {
+    const help = (path: string[], json = false) => {
+      const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
+    };
+    const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string }[];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence"];
+    expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
+    const root = help([]);
+    for (const c of inventory) {
+      expect(root).toContain(`${c.path.join(" ")} — ${c.purpose}`);
+      expect(help(c.path)).toContain(c.purpose);
+      expect(JSON.parse(help(c.path, true)).command.path).toEqual(c.path);
+    }
+    for (const group of ["audit", "delivery"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
+    for (const [name, usage, errors] of [
+      ["run", "kiln run <PRD-path>", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
+      ["add-repository", "kiln add-repository <folder-name>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
+    ] as const) {
+      const c = JSON.parse(help([name], true)).command; const text = help([name]);
+      expect(c.usage).toBe(usage); expect(c.errors).toEqual(errors);
+      for (const error of errors) { expect(c.error_meanings[error]).toMatch(/^Exit [12]:/); expect(text).toContain(c.error_meanings[error]); }
+      expect(c.flags.json.source).toContain("Help only"); expect(c.examples[0].preparation).toBeTruthy();
+      expect(text).not.toContain("Existing helper-specific errors"); expect(text).not.toContain("[options]");
+    }
+    const run = JSON.parse(help(["run"], true)).command;
+    expect(run.arguments[0].source).toContain("docs/changes"); expect(run.limits.join(" ")).toContain("foreground");
+    const add = JSON.parse(help(["add-repository"], true)).command;
+    expect(add.arguments[0].source).toContain("cwd selects the PRD"); expect(add.error_meanings.addition_refused).toContain("checking/resuming");
+  });
+
   it("ships complete helper JSON file contracts, contents and refusal meanings without Git or providers", () => {
     const help = (path: string[], json: boolean) => {
       const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });

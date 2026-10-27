@@ -10,6 +10,8 @@ export interface AgentAccount extends Omit<AccountView, "limits"> {
   /** Usage is independent of auth-only readiness and retains its own reading time. */
   limitsObservedAt?: string | undefined;
   limitsStale?: boolean;
+  /** Codex usage keeps its source workspace even when later auth reads omit routing. */
+  limitsAccountId?: string | undefined;
   credits?: import("../billing/inspection.js").WorkspaceCredits[];
   codexUsage?: { state: "allowed" | "blocked" | "unknown"; reason: string; administrative?: boolean };
   codexUsageObservedAt?: string;
@@ -35,10 +37,10 @@ function sameAccountContext(previous: AgentAccount, current: AgentAccount): bool
     return !!(current.email || current.orgId) && previous.email === current.email && previous.orgId === current.orgId && previous.plan === current.plan;
   }
   if (previous.email !== current.email || previous.plan !== current.plan) return false;
-  if (current.accountId && current.routingAccountId && current.accountId !== current.routingAccountId) return false;
-  const identifiers = ["accountId", "routingAccountId"] as const;
-  if (identifiers.some(key => previous[key] && current[key] && previous[key] !== current[key])) return false;
-  return identifiers.some(key => current[key] !== undefined && current[key] === previous[key]);
+  const beforeIds = [previous.accountId, previous.routingAccountId, previous.limitsAccountId].filter((id): id is string => !!id);
+  const afterIds = [current.accountId, current.routingAccountId].filter((id): id is string => !!id);
+  if (new Set([...beforeIds, ...afterIds]).size > 1) return false;
+  return !!current.email?.trim() || afterIds.some(id => beforeIds.includes(id));
 }
 export class AgentInfo {
   state: MetadataState;
@@ -113,9 +115,8 @@ export class AgentInfo {
         state.account = { ...previous, stale: true, codexUsageStale: true, lastSuccessfulAt: previous.updatedAt, error: state.account.error };
         delete state.account.credits;
       }
-      else if (state.account?.limitsError && previous && sameAccountContext(previous, state.account)) {
-        state.account = { ...state.account, limits: previous.limits, limitsObservedAt: previous.limitsObservedAt ?? (previous.agentId === "codex" ? previous.updatedAt : undefined), limitsStale: true };
-        if (state.agentId === "codex") { state.account.updatedAt = previous.updatedAt; state.account.stale = true; state.account.lastSuccessfulAt = previous.lastSuccessfulAt ?? previous.updatedAt; }
+      else if (state.account?.limitsError && previous?.limitsObservedAt && sameAccountContext(previous, state.account)) {
+        state.account = { ...state.account, limits: previous.limits, limitsObservedAt: previous.limitsObservedAt, limitsStale: true, ...(state.agentId === "codex" ? { limitsAccountId: previous.limitsAccountId } : {}) };
       }
     };
     const pending = read().catch(() => {

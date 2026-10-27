@@ -2,7 +2,7 @@
 
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md) · **Interface examples:** [command mockup](kiln-bot-control-command-mockup.md) · **Business choices:** [assumptions](kiln-bot-control-assumptions.md) · **Evidence:** [investigation](kiln-bot-control-investigation.md).
 
-**Status:** Technical design refined and independently reviewed. Implementation phases 1–6 are closed and published on 2026-10-27. The [fresh whole-PRD delivery audit after Phase 6](kiln-bot-control-delivery-audit-after-phase-6.md) added [Completion Phase 7](phase-7-complete-codex-binding-help.md) to complete Codex account binding/availability and command discovery under these existing contracts. Build it, then repeat whole-PRD delivery audit; test audit follows only when delivery is clean. The [previous audit](kiln-bot-control-delivery-audit.md) remains the historical gap baseline.
+**Status:** Technical design refined and independently reviewed. Phases 1–6 are closed and published; [completion Phase 7](phase-7-complete-codex-binding-help.md) is closed locally on 2026-10-27 with publication held. Its implementation and Final verification record the completed Codex binding/availability and command-discovery contracts and each gate's actual limits. After authorized publication, repeat whole-PRD delivery audit, then test audit only when delivery is clean. The [audit after Phase 6](kiln-bot-control-delivery-audit-after-phase-6.md) remains the historical gap baseline.
 
 ## Overview
 

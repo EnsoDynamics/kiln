@@ -63,13 +63,20 @@ export interface WaitingCopy {
   footnote: string;
 }
 
+/** Authentication and optional allowance reads have independent dates. */
+function codexUsageObservation(limit: LimitView, now: Date): string {
+  const observation = limit.allowancesObservation;
+  if (!observation?.observedAt || observation.state === "unavailable") return "Usage observation unavailable. ";
+  return `${observation.state === "stale" ? "Stale usage last updated" : "Usage last updated"} ${limitTime(observation.observedAt, now)}. `;
+}
+
 /** The waiting screen's words (AC-LIMIT-01, AC-LIMIT-02, AC-LIMIT-04). */
 export function waitingCopy(phaseId: string, limit: LimitView, now: Date, agent = "Claude Code"): WaitingCopy {
   if (limit.agentId === "codex") return {
     headline: `${sessionName(phaseId)} is waiting for Codex usage permission.`,
     reported: "Codex reported an exhausted allowance. No applicable reset was reported.",
     resumes: limit.recovery?.reason ?? "Kiln checks fresh Codex permission before one attempt with the original model and effort.",
-    footnote: `${limit.account ? `Usage last updated ${limitTime(limit.account.at, now)}. ` : ""}These are account allowances, not usage solely from this PRD. Kiln reads again every 5 minutes and on waking.`,
+    footnote: `${codexUsageObservation(limit, now)}These are account allowances, not usage solely from this PRD. Kiln reads again every 5 minutes and on waking.`,
   };
   const reset = resetLine(limit, now);
   const passed = resetHasPassed(limit, now);
@@ -103,7 +110,7 @@ export function limitStopCopy(phaseId: string, limit: LimitView & { refusedAgain
     headline: `${sessionName(phaseId)} stopped at a Codex usage limit.`,
     reported: limit.recovery?.reason ?? "Codex reported an exhausted allowance. Automatic usage recovery is off or a recovery check failed.",
     waitText: "Check usage in Codex, then press Resume when ready. No applicable reset was reported.",
-    footnote: `${limit.account ? `Usage last updated ${limitTime(limit.account.at, now)}. ` : ""}These are account allowances, not usage solely from this PRD. Sign in with codex login in a terminal to change accounts. Close the session first if you opened it in a terminal.`,
+    footnote: `${codexUsageObservation(limit, now)}These are account allowances, not usage solely from this PRD. Sign in with codex login in a terminal to change accounts. Close the session first if you opened it in a terminal.`,
   };
   const reset = resetLine(limit, now);
   const sentence = limitSentence(limit.label);

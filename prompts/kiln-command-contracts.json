@@ -1958,18 +1958,18 @@
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln run <PRD-path> [options]",
+      "usage": "kiln run <PRD-path>",
       "arguments": [
         {
           "name": "PRD-path",
           "required": true,
-          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+          "source": "One existing PRD directory directly under docs/prds/<name>/ or docs/changes/<name>/, or its <name>-prd.md file. Supply its absolute path from any cwd; relative paths resolve against caller cwd. A worktree path resolves to the same main-checkout PRD. For new work use the actual requirements path; existing work can use the canonical path from kiln status."
         }
       ],
       "flags": {
         "json": {
           "value": null,
-          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+          "source": "Help only: combine with --help to get versioned command metadata. This helper has no --json execution option; execution keeps its existing readable output and exits."
         },
         "help": {
           "value": null,
@@ -1978,20 +1978,28 @@
       },
       "required_exclusive_groups": [],
       "limits": [
-        "Existing run behavior and exits 0/1/2 and signal exits 129/130/143; --json is help-only."
+        "Existing run behavior and exits 0/1/2 and signal exits 129/130/143; --json is help-only.",
+        "Error names below describe legacy conditions in help; execution prints readable diagnostics, not bot-control error codes or receipts.",
+        "Starts or reopens the local browser/controller and stays in the foreground until stopped, including while paused, at Needs you or complete. Initial setup and Start are in the browser; reopening started work follows its saved state and existing eligibility/authority. Keep this terminal open.",
+        "New-work checks require Git, a clean checkout, a GitHub origin, gh signed in to github.com, the PRD/technical design/phase documents and a valid phase plan; named repositories must be eligible sibling checkouts. Provider readiness and all billing/delivery gates still apply before model work."
       ],
       "result_fields": {
         "execution_output": "run retains terminal progress; add-repository retains readable text; audit/delivery retain their existing JSON result objects. Inspection schema_version/observed_at/exit meanings do not apply to these executions.",
         "help_output": "--help --json returns versioned command reference metadata. --json is not an execution flag on this helper."
       },
       "errors": [
-        "Existing helper-specific errors; inspection stable error codes do not change this helper."
+        "invalid_syntax",
+        "invalid_prd_path",
+        "start_checks_failed",
+        "already_running",
+        "port_unavailable",
+        "newer_saved_schema"
       ],
       "exits": {
-        "0": "Existing helper success.",
-        "1": "Existing helper/start failure.",
-        "2": "Invalid helper syntax.",
-        "129/130/143": "run only: SIGHUP/SIGINT/SIGTERM."
+        "0": "Legacy successful execution; opening the controller is a long-running foreground command, not a completed bot operation.",
+        "1": "Start/readiness checks, existing controller, port or incompatible saved-schema failure; read the printed diagnostic.",
+        "2": "Invalid invocation or PRD path; no new controller accepted.",
+        "129/130/143": "Stopped by SIGHUP/SIGINT/SIGTERM respectively, after the existing stop/lock-release sequence."
       },
       "examples": [
         {
@@ -2000,9 +2008,18 @@
             "kiln",
             "run",
             "/work/shop/docs/prds/orders"
-          ]
+          ],
+          "preparation": "Use the actual refined PRD directory containing its design and phase documents. This absolute path works from any directory; quote it in a shell if it contains spaces. Review setup and press Start in the browser for a new execution."
         }
-      ]
+      ],
+      "error_meanings": {
+        "invalid_syntax": "Exit 2: missing or surplus path arguments, or execution options such as --json. Supply exactly one path; use --help --json only for reference metadata.",
+        "invalid_prd_path": "Exit 2: path does not exist, is outside Git, is not directly under docs/prds or docs/changes, names a different file, or cannot resolve the main checkout/worktrees. Correct the path; no controller is started.",
+        "start_checks_failed": "Exit 1: missing Git/gh, failed GitHub authentication, missing/ambiguous requirements documents, invalid plan, dirty checkout, invalid GitHub origin or unavailable named repositories. Read all printed problems, correct them, then run the same path again.",
+        "already_running": "Exit 1: this PRD already has a live controller. stdout gives its existing browser address; use it or kiln status rather than starting another controller.",
+        "port_unavailable": "Exit 1: the PRD's retained port is occupied, or every controller port is occupied (normally 4700–4799). Free the reported port or stop an unneeded controller, then retry; no second instance is started.",
+        "newer_saved_schema": "Exit 1: saved work was written by a newer Kiln schema. Use a compatible Kiln; never delete or downgrade saved history to bypass the refusal."
+      }
     },
     {
       "path": [
@@ -2012,18 +2029,18 @@
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln add-repository [options]",
+      "usage": "kiln add-repository <folder-name>",
       "arguments": [
         {
-          "name": "repository-name",
+          "name": "folder-name",
           "required": true,
-          "source": "Repository name; current cwd must be an assigned Kiln workspace."
+          "source": "Exact, case-sensitive sibling checkout folder name beside the PRD repository's main checkout, not a URL or PRD path. Run from the assigned Kiln workspace or one of its repository worktrees; cwd selects the PRD. Prefer a worktree when workspace roots overlap."
         }
       ],
       "flags": {
         "json": {
           "value": null,
-          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+          "source": "Help only: combine with --help to get versioned command metadata. This helper has no --json execution option; execution keeps its existing readable output and exits."
         },
         "help": {
           "value": null,
@@ -2032,19 +2049,27 @@
       },
       "required_exclusive_groups": [],
       "limits": [
-        "Existing text execution output and legacy exits; --json is help-only."
+        "Existing text execution output and legacy exits; --json is help-only.",
+        "Error names below describe legacy conditions in help; execution prints readable diagnostics, not bot-control error codes or receipts.",
+        "Requires the matching kiln run controller to be running and a phase running or stopped at Needs you. Adds a worktree using the run's existing branch/base rules; an already-added repository returns success with its path. No new spending or delivery permission is granted.",
+        "A candidate must be an actual sibling checkout, not a symlink, with a GitHub origin. Existing branch/worktree, origin/base and setup checks remain authoritative. Setup may take time; this helper waits for the controller's existing setup result."
       ],
       "result_fields": {
         "execution_output": "run retains terminal progress; add-repository retains readable text; audit/delivery retain their existing JSON result objects. Inspection schema_version/observed_at/exit meanings do not apply to these executions.",
         "help_output": "--help --json returns versioned command reference metadata. --json is not an execution flag on this helper."
       },
       "errors": [
-        "Existing helper-specific errors; inspection stable error codes do not change this helper."
+        "invalid_syntax",
+        "outside_workspace",
+        "ambiguous_workspace",
+        "controller_stopped",
+        "controller_unreachable",
+        "addition_refused"
       ],
       "exits": {
-        "0": "Existing helper success.",
-        "1": "Existing helper failure.",
-        "2": "Invalid helper syntax."
+        "0": "Repository added, or already present; stdout gives the worktree path (and branch/base when added).",
+        "1": "Wrong/ambiguous workspace, stopped/unreachable controller or refused/failed addition; stderr explains the condition.",
+        "2": "Invalid syntax; supply exactly one folder name with no execution flags."
       },
       "examples": [
         {
@@ -2053,9 +2078,18 @@
             "kiln",
             "add-repository",
             "shipping"
-          ]
+          ],
+          "preparation": "Make /work/shop/shipping a real GitHub-backed checkout beside /work/shop/orders, the PRD repository. Change cwd to the assigned running PRD worktree, for example /work/shop/.worktrees/orders/orders. Run while its phase is running or stopped at Needs you; shipping is the exact sibling folder name."
         }
-      ]
+      ],
+      "error_meanings": {
+        "invalid_syntax": "Exit 2: supply exactly one folder name, with no execution flags. --help --json is reference metadata only.",
+        "outside_workspace": "Exit 1: caller cwd is not in a saved Kiln workspace. Run from the assigned repository worktree, not merely its main checkout or an unrelated directory.",
+        "ambiguous_workspace": "Exit 1: cwd belongs to more than one PRD workspace. Run from inside the intended repository's worktree; the helper has no PRD-path selector.",
+        "controller_stopped": "Exit 1: kiln run is not running for the selected PRD, so nothing was added. Reopen that PRD with kiln run first.",
+        "controller_unreachable": "Exit 1: the selected local controller could not be reached. Inspect kiln status for the PRD and the controller terminal before retrying.",
+        "addition_refused": "Exit 1: controller prints its refusal reason. It may be checking/resuming, outside an eligible phase, complete/stopping, or unable to find/validate the sibling checkout, GitHub origin, origin base, branch/worktree or setup. Correct the specific reason; the helper does not bypass checks or remove conflicting work."
+      }
     },
     {
       "path": [

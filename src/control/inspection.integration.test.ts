@@ -234,6 +234,13 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const path=join(h.repository,`docs/prds/${FOLDER}`);const browser=buildSnapshot(h.engine).needsYou!;
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.stop).toMatchObject({final_message:browser.finalMessage,checks:browser.checks,resumeCommand:browser.resumeCommand});
+    // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
+    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','settings','outside-confirmation','message','take-over'].sort();
+    const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
+    expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
+    for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);}
+    for(const name of ['reply','resume','settings'])expect(controls.find(c=>c.name===name)?.available).toBe(true);
+
     const handoff=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
     expect(handoff.code,handoff.stdout).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
     const account=(await command(['account',path,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
@@ -241,6 +248,10 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const calls=h.claudeCalls().length;await command(['account',path,'--refresh','--json'],h.env,h.sandbox.root);expect(h.claudeCalls()).toHaveLength(calls);
     await server.close();server=undefined;rmSync(join(h.stateDirectory,'instance.lock'));
     const stopped=(await command(['status',path,'--json'],h.env,h.sandbox.root)).json();expect(stopped.facts).toMatchObject({state:'stale'});expect(stopped.stop).toMatchObject({final_message:browser.finalMessage});
+    const retained=stopped.controls as {name:string;available:boolean;reason:string|null}[];
+    expect(retained.map(c=>c.name).sort()).toEqual(controlNames);
+    for(const c of retained){expect(c.available).toBe(false);expect(c.reason).toContain('disconnected');}
+
   });
   it('keeps active handoffs unavailable and retains earlier-conversation instructions when the controller closes',async()=>{
     sandbox=createSandbox();const gate=join(sandbox.root,'release-agent');
@@ -282,7 +293,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     s.record.runs.at(-1)!.billing={agentId:'codex',route:'subscription',sources:[],email:'attempt@example.invalid',observedAt:'2026-01-02T02:00:00Z',diagnostics:[],approved:false};writeSessionRecord(f.directory,s.record);
     f.record.phases['1a']!.stop={kind:'done_check',at:'2026-01-03T00:00:00Z',checkedAt:'2026-01-03T00:00:00Z',checks:[]};
     f.record.billing!.lastLaunch={agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false};writePrdRecord(f.directory,f.record);
-    const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
+    const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limitsObservedAt:'2026-01-04T00:00:00Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
     writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},account:next}});
     const answer=(await command(['status',f.path,'--detail','full','--json'])).json();
     expect(answer).toMatchObject({requested_model:{model:'gpt-model'},effective_model:{model:'effective-provider-model'},phases:{completed:0,total:2},activity:{phase_id:'1a',title:'Nested intake'}});

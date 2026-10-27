@@ -17,10 +17,10 @@ describe("Codex metadata rules", () => {
     expect(latestSol([model("gpt-6-sol"), model("gpt-6.0-sol")])).toBeUndefined();
   });
   it("keeps empty maps, missing percentages/resets and unknown account fields unknown", () => {
-    const account = { account: { type: "chatgpt" } };
-    const empty = codexAccount(account, { rateLimitsByLimitId: {}, rateLimits: { primary: { usedPercent: 0 } } }, "2026-10-23T00:00:00Z");
-    expect(empty.limits).toEqual([]); expect(empty.limitsError).toContain("unknown"); expect(empty.email).toBeUndefined();
-    const result = codexAccount(account, { rateLimitsByLimitId: { a: { primary: { windowDurationMins: 10080 }, secondary: { usedPercent: 80 } }, b: { primary: { usedPercent: 12 } } } }, "2026-10-23T00:00:00Z");
+    const account = { account: { type: "chatgpt", email: "known@example.invalid" } };
+    const empty = codexAccount(account, { accountId: "known", rateLimitsByLimitId: {}, rateLimits: { primary: { usedPercent: 0 } } }, account, "2026-10-23T00:00:00Z", "2026-10-23T00:00:01Z");
+    expect(empty.limits).toEqual([]); expect(empty.limitsError).toContain("unknown"); expect(empty.email).toBe("known@example.invalid");
+    const result = codexAccount(account, { accountId: "known", rateLimitsByLimitId: { a: { primary: { windowDurationMins: 10080 }, secondary: { usedPercent: 80 } }, b: { primary: { usedPercent: 12 } } } }, account, "2026-10-23T00:00:00Z", "2026-10-23T00:00:01Z");
     expect(result.limits).toHaveLength(3); expect(result.limits[0]).toMatchObject({ durationMinutes: 10080, nearLimit: false });
     expect(result.limits[0]!.percent).toBeUndefined(); expect(result.limits[0]!.resetsAt).toBeUndefined(); expect(result.limits[1]!.nearLimit).toBe(true);
   });

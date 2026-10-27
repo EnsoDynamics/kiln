@@ -9,7 +9,7 @@ import { sessionStorageKey } from "../state/records.js";
 import type { SessionRecord } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
 import type { Engine } from "../engine/engine.js";
-import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type Snapshot } from "../engine/snapshot.js";
+import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type Snapshot, type LimitView } from "../engine/snapshot.js";
 import { freshSessionPrompt, resumePrompt, auditRecoveryPrompt, pullRequestSessionPrompt, codexSessionPrompt } from "../session/prompts.js";
 import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
@@ -95,15 +95,15 @@ export function accountFacts(work: SavedWork, snapshot?: Snapshot, reachable = f
   // Legacy run.account has no observation time or plan and cannot supply these.
   const attemptAccount = lastRun?.codex?.account ?? (lastRun?.billing ? publicBilling(lastRun.billing) : null);
   const attemptAt = lastRun?.codex?.account.at ?? lastRun?.billing?.observedAt ?? null;
-  const next = account ? publicAccount(account) : null;
-  const usageAt = account?.limitsObservedAt ?? (account?.agentId === "codex" ? account.updatedAt : null);
+  const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account) : null;
+  const usageAt = account?.limitsObservedAt ?? null;
   return {
     agent: work.record.settings.agentId,
     last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ?? null, lastSession?.codex?.originalAccount.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
-    next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!account ? "Current provider identity has not been read." : null), account?.stale),
+    next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
     usage: observed(usageAt ? account?.limits : null, usageAt, account?.limitsError ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
-    recovery: observed(account?.codexUsage ?? null, account?.codexUsageObservedAt ?? account?.updatedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
+    recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
     billing: view?.billing ?? null,
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
@@ -113,7 +113,16 @@ function publicBilling(b: NonNullable<SavedWork["record"]["billing"]>["lastLaunc
   return { agent: b.agentId, route: b.route, provider: b.provider ?? null, email: b.email ?? null, account_id: b.accountId ?? null, plan: b.plan ?? null, credits: b.credits ?? null, overflow: b.overflow ?? null, approved: b.approved };
 }
 function publicAccount(a: AgentAccount): unknown {
-  return { agent: a.agentId ?? null, email: a.email ?? null, account_id: a.accountId ?? null, plan: a.plan ?? null, error: a.error ?? null, credits: a.credits ?? null };
+  return { agent: a.agentId ?? null, email: a.email ?? null, account_id: a.accountId ?? a.routingAccountId ?? null, plan: a.plan ?? null, error: a.error ?? null, credits: a.credits ?? null };
+}
+/** Pure retained projection: nested usage facts cannot stay current after disconnect. */
+function retainedLimit(limit: LimitView): LimitView {
+  if (limit.agentId !== "codex") return limit;
+  const observation = limit.allowancesObservation;
+  const dated = observation && (observation.state === "current" || observation.state === "stale") && observation.observedAt && Number.isFinite(Date.parse(observation.observedAt));
+  return { ...limit, allowances: dated ? limit.allowances ?? [] : [], allowancesObservation: dated
+    ? { ...observation, state: "stale", reason: observation.reason ?? "Controller disconnected; last-known usage observation." }
+    : { observedAt: null, state: "unavailable", reason: "Dated Codex usage is unavailable in this saved observation." } };
 }
 export function statusProjection(work: SavedWork, engine?: Engine, full = false): Result {
   const before = engine ? JSON.stringify(engine.record) : null;
@@ -124,6 +133,10 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   catch { statusErrors.push(errorFact("state_unavailable", "The current browser projection could not be assembled; collected saved records remain available below.")); }
   const record = engine?.record ?? work.record;
   const reachable = !!engine;
+  if (!reachable && view) view = { ...view,
+    ...(view.waiting ? { waiting: { ...view.waiting, limit: retainedLimit(view.waiting.limit) } } : {}),
+    ...(view.needsYou?.limit ? { needsYou: { ...view.needsYou, limit: retainedLimit(view.needsYou.limit) } } : {}),
+  };
   const stop = view?.needsYou;
   const savedStop = Object.entries(record.phases).find(([, f]) => f.stop);
   const wait = Object.entries(record.phases).find(([, f]) => f.wait);

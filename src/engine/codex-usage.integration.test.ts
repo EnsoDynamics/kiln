@@ -7,11 +7,14 @@ import { createHarness, waitFor, type Harness } from "../test-support/engine-har
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { Engine } from "./engine.js";
 import { prdTreeAtHead } from "./worktree-setup.js";
-import { buildSnapshot } from "./snapshot.js";
+import { buildSnapshot, type LimitView } from "./snapshot.js";
 import { git } from "../test-support/git-repositories.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { writePrdRecord, writeSessionRecord } from "../state/records.js";
+import { cacheSnapshot, inspectionSnapshot, statusProjection } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
@@ -180,9 +183,66 @@ it("finishes passing checks before any automatic retry", async () => {
   expect(h.engine.latestSession("1")?.runs).toHaveLength(1);
 });
 
+it("preserves independent allowance observations through waiting, failed refresh, full status and retained stop facts", async () => {
+  const usage = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimitsByLimitId: { codex: { primary: { usedPercent: 85 } } } };
+  await setup({ usage });
+  const initial = buildSnapshot(h.engine).waiting!.limit;
+  const usageAt = h.engine.agents.state.account!.limitsObservedAt!;
+  expect(initial.allowancesObservation).toEqual({ observedAt: usageAt, state: "current", reason: null });
+  expect(initial.allowances).toEqual([expect.objectContaining({ percent: 85 })]);
+  server = await startLocalServer({ engine: h.engine, port: 41449, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const status = async () => {
+    const response = await fetch(`${new URL(server!.address).origin}/api/control/v1/status?detail=full`, { headers: { "X-Kiln-Token": h.engine.record.token } });
+    expect(response.status).toBe(200);
+    return await response.json() as { usage_wait: { limit: LimitView } | null; stop: { limit: LimitView } | null };
+  };
+  expect((await status()).usage_wait!.limit.allowancesObservation).toEqual(initial.allowancesObservation);
+  const saved = readWork(stateRoot(h.env), h.stateDirectory);
+  const cachePath = join(h.stateDirectory, "inspection-view.json");
+  const retained = (field: "usage_wait" | "stop") => {
+    const before = readFileSync(cachePath, "utf8");
+    const projected = statusProjection(saved, undefined, true)[field] as { limit: LimitView };
+    expect(readFileSync(cachePath, "utf8")).toBe(before);
+    return projected.limit;
+  };
+  const legacy = (field: "waiting" | "needsYou") => {
+    const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+    delete cache.snapshot[field].limit.allowancesObservation;
+    writeJsonAtomically(cachePath, cache);
+  };
+  cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+  expect(retained("usage_wait").allowancesObservation).toMatchObject({ observedAt: usageAt, state: "stale" });
+  legacy("waiting");
+  expect(retained("usage_wait")).toMatchObject({ allowances: [], allowancesObservation: { observedAt: null, state: "unavailable" } });
+
+  await refresh({ usageError: true });
+  const stopped = buildSnapshot(h.engine).needsYou!.limit!;
+  expect(stopped.allowancesObservation).toMatchObject({ observedAt: usageAt, state: "stale", reason: expect.any(String) });
+  expect(stopped.allowances).toEqual(initial.allowances);
+  expect(Date.parse(stopped.account!.at)).toBeGreaterThan(Date.parse(initial.account!.at));
+  expect((await status()).stop!.limit.allowancesObservation).toEqual(stopped.allowancesObservation);
+  cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+  await server.close(); server = undefined;
+  expect((statusProjection(saved, undefined, true).stop as { limit: typeof stopped }).limit.allowancesObservation).toEqual(stopped.allowancesObservation);
+  await refresh({ usage: { ...usage, ordinaryUsageAllowed: null } });
+  const freshStop = buildSnapshot(h.engine).needsYou!.limit!;
+  expect(freshStop.allowancesObservation!.state).toBe("current");
+  cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+  expect(retained("stop").allowancesObservation).toMatchObject({ observedAt: freshStop.allowancesObservation!.observedAt, state: "stale" });
+  legacy("needsYou");
+  expect(retained("stop")).toMatchObject({ allowances: [], allowancesObservation: { observedAt: null, state: "unavailable" } });
+  // Legacy retained gauges have no independent date. Their nearby auth timestamp
+  // cannot supply one or make the gauges current in another status projection.
+  delete h.engine.agents.state.account!.limitsObservedAt;
+  const undated = buildSnapshot(h.engine).needsYou!.limit!;
+  expect(undated.allowancesObservation).toMatchObject({ observedAt: null, state: "unavailable" });
+  expect(undated.allowances).toEqual([]); expect(dispatches()).toHaveLength(1);
+});
+
 it("shows Codex wait and unknown recovery, account allowances and native cleanup guidance in the real browser", async () => {
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitName: "Ordinary allowance", primary: { usedPercent: 85, resetsAt: 1793000000 }, secondary: { usedPercent: 12 } } } };
   await setup({ usage });
+  const usageAt = h.engine.agents.state.account!.limitsObservedAt;
   server = await startLocalServer({ engine: h.engine, port: 41448, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token }); chrome = await launchChrome();
   for (const state of ["waiting", "unknown"]) {
     if (state === "unknown") await refresh({ ordinaryUsageAllowed: null });
@@ -192,7 +252,8 @@ it("shows Codex wait and unknown recovery, account allowances and native cleanup
       const text = await page.evaluate<string>("document.body.textContent");
       for (const expected of ["Codex", "codex login", "Independently detached", "Resume"]) expect(text).toContain(expected);
       if (state === "waiting") for (const expected of ["ordinary included usage is blocked", "Ordinary allowance [codex] · primary", "85% used", "reset unknown", "not usage solely from this PRD"]) expect(text).toContain(expected);
-      else { expect(text).toContain("ordinary-usage permission is unavailable"); expect(text).toContain("Usage last updated"); expect(text).not.toContain("Wait for the reset"); }
+      else { expect(text).toContain("ordinary-usage permission is unavailable"); expect(text).toContain("Stale usage last updated");
+        expect(buildSnapshot(h.engine).needsYou?.limit?.allowancesObservation).toMatchObject({ observedAt: usageAt, state: "stale" }); expect(text).not.toContain("Wait for the reset"); }
       expect(text).not.toContain("claude auth login");
       expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(true); expect(page.problems).toEqual([]);
       if (process.env.KILN_SCREENSHOTS) writeFileSync(join(process.env.KILN_SCREENSHOTS, `codex-usage-${state}-${width}.png`), await page.screenshot());

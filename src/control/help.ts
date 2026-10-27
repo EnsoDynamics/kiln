@@ -16,7 +16,7 @@ export function commandHelp(path: string[], json: boolean): string {
   if (path.length && !contract) throw new ControlFailure("command_not_found", "Unknown command. Use kiln --help.", 2);
   const data = path.length ? { schema_version: "1", command: contract, subcommands: commandContracts.filter(c => c.path.length > path.length && path.every((p, i) => c.path[i] === p)), guidance: reference.guidance } : reference;
   if (json) return `${JSON.stringify(data)}\n`;
-  const selected = path.length ? [contract!] : commandContracts.filter(c => c.path.length === 1);
+  const selected = path.length ? [contract!] : commandContracts;
   if (!path.length) return `Kiln — inspect existing work and run an Enso Method plan.\nUse kiln <command> --help for complete details.\n\n${selected.map(c => `${c.path.join(" ")} — ${c.purpose} [${c.availability}]`).join("\n")}\n\nCommon flags: --help (-h), --json. Existing helpers retain their execution formats.\n${reference.guidance}\n`;
   const c = contract!;
   return [c.usage, c.purpose, `Availability: ${c.availability}`, `Side effects: ${c.side_effect}`,

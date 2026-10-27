@@ -46,6 +46,7 @@ export interface LimitView {
   agentId?: AgentId;
   recovery?: { state: "allowed" | "blocked" | "unknown"; reason: string };
   allowances?: AgentAccount["limits"];
+  allowancesObservation?: { observedAt: string | null; state: "current" | "stale" | "unavailable"; reason: string | null };
   label: string;
   resetsAt?: string;
   resetPassed: boolean;
@@ -662,12 +663,16 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
   if (found?.session.agentId === "codex") {
     view.agentId = "codex";
+    view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Codex usage reading is available after the refusal." };
     const release = found.session.codex?.usageRecovery?.release;
     if (release) view.recovery = { state: release.state, reason: release.reason };
     const current = engine.agents.state.account;
     if (current && Date.parse(current.startedAt) >= Date.parse(refusal!.at)) {
       view.account = { ...optional("email", current.email), ...optional("plan", current.plan), ...optional("error", current.error ?? current.limitsError), at: current.updatedAt };
-      view.allowances = current.limits;
+      const usageAt = current.limitsObservedAt;
+      const stale = !!(current.stale || current.limitsStale || current.limitsError || current.error);
+      view.allowances = usageAt ? current.limits : [];
+      view.allowancesObservation = { observedAt: usageAt ?? null, state: !usageAt ? "unavailable" : stale ? "stale" : "current", reason: current.limitsError ?? current.error ?? (!usageAt ? "Dated Codex usage is unavailable." : stale ? "Usage was retained without a fresh usage reading." : null) };
     }
     return view;
   }

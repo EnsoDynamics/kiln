@@ -133,7 +133,8 @@ describe("agent selection before work", () => {
     expect(h.engine.selectionError).toBeUndefined(); // Missing usage alone never blocks metadata readiness.
     fixture.set({}); await h.engine.agents.refresh();
     fixture.set({ routingAccountId: "different-context" }); await h.engine.agents.refresh();
-    expect(h.engine.agents.state.account).toMatchObject({ accountId: "fixture-account", routingAccountId: "different-context", limits: [], limitsError: expect.stringContaining("changed") });
+    expect(h.engine.agents.state.account).toMatchObject({ routingAccountId: "different-context", limits: [], limitsError: expect.stringContaining("changed") });
+    expect(h.engine.agents.state.account?.accountId).toBeUndefined(); // Uncorroborated usage identity is not current authentication.
     expect(h.engine.agents.state.account?.stale).toBeUndefined();
     expect(h.engine.selectionError).toBeUndefined();
     expect(fixture.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
@@ -145,7 +146,8 @@ describe("agent selection before work", () => {
     await page.waitFor(`document.querySelector('#agent')`);
     await page.evaluate(`(() => { const e=document.querySelector('#agent'); e.value='codex'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
     await page.waitFor(`document.querySelector('#model').value === 'gpt-6.1-sol' && document.body.textContent.includes('Ultra')`);
-    const successfulAt = h.engine.agents.state.account!.updatedAt;
+    const successfulAt = h.engine.agents.state.account!.limitsObservedAt!;
+    const identityAt = h.engine.agents.state.account!.updatedAt;
     const successfulText = await page.evaluate<string>(`document.body.textContent`);
     expect(successfulText).toContain("fixture@example.test"); expect(successfulText).toContain("pro");
     expect(successfulText).toContain("codex · primary"); expect(successfulText).toContain("codex · secondary");
@@ -168,16 +170,18 @@ describe("agent selection before work", () => {
     expect(h.claudeCalls()).toEqual([]);
 
     fixture.set({ usageError: true }); await h.engine.agents.refresh();
-    await page.waitFor(`document.body.textContent.includes('Stale reading')`);
+    await page.waitFor(`document.body.textContent.includes('Stale usage reading')`);
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain("82%");
-    expect(h.engine.agents.state.account!.lastSuccessfulAt).toBe(successfulAt);
+    expect(h.engine.agents.state.account!.limitsObservedAt).toBe(successfulAt);
+    expect(Date.parse(h.engine.agents.state.account!.updatedAt)).toBeGreaterThan(Date.parse(identityAt));
+    expect(h.engine.agents.state.account!.stale).toBeUndefined();
     const retainedTimestamp = await page.evaluate<string>(`new Date(${JSON.stringify(successfulAt)}).toLocaleString()`);
-    expect(await page.evaluate<string>(`document.body.textContent`)).toContain(`Stale reading · last successful update ${retainedTimestamp}`);
+    expect(await page.evaluate<string>(`document.body.textContent`)).toContain(`Stale usage reading · last successful usage update ${retainedTimestamp}`);
     if (process.env.KILN_SCREENSHOTS) writeFileSync(`${process.env.KILN_SCREENSHOTS}/codex-agent-selection.png`, await page.screenshot());
     expect(page.problems).toEqual([]);
     await page.close();
     const narrow = await chrome.open(server.address, { width: 360, timeZone: "America/New_York" });
-    await narrow.waitFor(`document.body.textContent.includes('Stale reading')`);
+    await narrow.waitFor(`document.body.textContent.includes('Stale usage reading')`);
     expect(await narrow.evaluate<boolean>(`document.documentElement.scrollWidth <= window.innerWidth`)).toBe(true);
     if (process.env.KILN_SCREENSHOTS) writeFileSync(`${process.env.KILN_SCREENSHOTS}/codex-agent-selection-narrow.png`, await narrow.screenshot());
     expect(narrow.problems).toEqual([]); await narrow.close();
