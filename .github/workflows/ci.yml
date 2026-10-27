@@ -3,9 +3,27 @@ name: CI
 on:
   push:
     branches: [develop, main]
+    # Keep executable documentation fixtures and browser references covered.
+    # README.md is packaged, and prompts/ contains runtime inputs; neither is skipped.
+    paths:
+      - '**'
+      - '!docs/**'
+      - 'docs/prds/kiln-v1/**'
+      - 'docs/**/mockups/**'
   pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - 'docs/prds/kiln-v1/**'
+      - 'docs/**/mockups/**'
   # The release workflow runs these same checks before it publishes.
   workflow_call:
+
+# Cancel superseded CI, with separate groups for each workflow, event and ref.
+# A reusable invocation from a release tag must finish its required checks.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
 
 # Doug's 2026-10-25 release policy (AC-INSTALL-03): full runtime and
 # installed-package validation on macOS; required build/pack checks on Linux and

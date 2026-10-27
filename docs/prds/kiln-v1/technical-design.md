@@ -714,6 +714,8 @@ A later version may let another client take every action the browser view offers
 
 ## Testing Approach
 
+**CI scope and cancellation.** Pushes to `develop` and `main`, and pull requests, run the existing macOS verification/installed-package checks and Linux/Windows build-and-pack checks when any file outside `docs/` changes. Documentation-only changes skip CI except for `docs/prds/kiln-v1/**` (the document-count fixtures) and `docs/**/mockups/**` (browser-test references), which still run it. The packaged root `README.md`, runtime prompts, test fixtures and workflow files remain covered. A newer branch push or update to the same pull request cancels its superseded CI run; branches, pull requests and workflows have separate concurrency groups. Tagged releases always invoke the complete verification workflow regardless of changed paths, and their verification is not cancelled by branch or pull-request updates.
+
 Helper cancellation and timeout results resolve only after the real child process closes. Helpers receive the cancellation signal, followed after one second by a process-group kill if necessary. Test harness teardown calls `Engine.stop()` for every created engine and drains those helpers/sessions before deleting its temporary repositories. In-process CLI test helpers stop in `finally` when callbacks fail. A cancelled audit check is abandoned under the existing stopping verdict. Process-heavy integration files run with at most four workers; the existing test deadlines remain unchanged.
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Proof gates and tests (new Claude sessions also require catalogue validation).
