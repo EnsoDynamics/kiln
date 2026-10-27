@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** The three original implementation phases were published on 2026-10-27. [Phase 4](phase-4-live-control-state-copy.md) is closed and published as `731c591` and completes the presentation gaps from the audit at `d7c59a2`; current-build full verification and package checks pass. Doug authorized the fresh delivery-audit launch. The runtime design and historical Phase 3 verification limits remain unchanged. Repeat whole-PRD delivery audit, then test audit when delivery is clean.
+**Status:** Phases 1–4 are closed and published. The fresh whole-PRD delivery audit after Phase 4, against `d81de98`, finds one AC-TAKE-05 activity-time gap; [Phase 5](phase-5-takeover-activity-time.md) completes it. The runtime design and historical verification limits remain unchanged. Build Phase 5, repeat whole-PRD delivery audit, then test audit when delivery is clean.
 
 ## Overview
 
