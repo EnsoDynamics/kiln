@@ -64,6 +64,9 @@ Kiln must use the revised requirements and current code. An old merged branch or
 
 - [ ] **AC-CONTINUE-03 — Ambiguous changes are not treated as additions.** If previously completed phase identities are removed, reused, reopened or materially changed so earlier completion cannot be safely carried forward, Kiln shows the affected phases and asks for the plan to be reconciled. Mere renaming, formatting or unchanged historical closure metadata does not trigger a rerun. The first release supports adding work to an intact completed plan; it does not decide which earlier implementation to undo.
 - [ ] **AC-CONTINUE-04 — Existing controls still govern the work.** Both Claude Code and Codex use the existing agent/model settings, billing restrictions, pause/resume behavior, workspace protections and repository/deployment permissions. Continue authorizes running the displayed additional plan; it does not grant broader merge, production or spending authority. New repositories pass the existing setup/authorization checks before work in them starts.
+
+  When planned preparation requires an uncovered delivery-base target, the completed page offers the existing **Authorize early merges** action before Continue, showing the exact repository/branch and warning that its existing CI/CD may run before the PRD finishes. Authorization applies only to the proposed fresh run, changes no saved preference and starts no work; Continue remains a separate choice.
+  - Replaces in part: AC-PERMIT-05 in [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md) (the existing target-grant action is also available before accepting a completed-feature continuation; its scope, disclosure and separate resume/continue behavior remain).
 - [ ] **AC-CONTINUE-05 — Additional work finishes through normal audits and delivery.** Once accepted, Kiln advances through eligible remaining phases and any completion phases its normal audits add, without requiring a new continuation click between them. Whole-PRD audit and final delivery evidence must cover the revised requirements and work. Earlier successful audits or merged PRs cannot satisfy completion for the new work. A new delivery is recorded alongside earlier deliveries when the current work meets the existing completion rules.
 
 ## Readiness examples
@@ -90,6 +93,7 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | Return from manual session | An unfinished run accepts newly added work and automatically continues after the current phase passes; AC-HANDBACK-01/02/03/04. |
 | New phases | Pricing’s ready-to-prepare scenario, with phase 9 integrating phase 8; AC-FIND-03, AC-OFFER-01/02. |
 | Missing prerequisite | Illustrative unavailable phase 8 source; AC-CONTINUE-02. |
+| Permission required | A planned delivery-base integration needs the existing target grant; authorizing updates readiness but work still waits for Continue; AC-CONTINUE-04. |
 | Continuing | Phase 9 active with the earlier delivery preserved; AC-CONTINUE-01/04/05. |
 | No new work | The completed view after an unchanged-plan check; AC-OFFER-02. |
 | Check failed | A failed source read with prior results labelled; AC-FIND-04. |
