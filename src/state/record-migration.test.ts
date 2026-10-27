@@ -73,14 +73,14 @@ describe("migrating a schema 1 record", () => {
     expect(record).not.toHaveProperty("pullRequest");
   });
 
-  it("reads a schema 2 record as schema 9, retaining choices under Claude Code and usage recovery (usage-limit recovery AC-AUTO-04, Data Models)", () => {
+  it("reads a schema 2 record as schema 10, retaining choices under Claude Code and usage recovery (usage-limit recovery AC-AUTO-04, Data Models)", () => {
     const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
     const before = JSON.parse(JSON.stringify(record)) as PrdRecord;
     expect(migrateRecord(record)).toBe(record);
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(9);
+    expect(SCHEMA_VERSION).toBe(10);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -102,4 +102,13 @@ describe("a record without Stayed in the workspace's confirmations (multi-repo A
     two.phases["1"]!.outsideConfirmations = [{ at: "2026-10-17T17:30:00Z" }];
     expect(migrateRecord(two).phases["1"]!.outsideConfirmations).toEqual([{ at: "2026-10-17T17:30:00Z" }]);
   });
+});
+
+it("validates durable control fields without inventing prior effects", () => {
+  const old = migrateRecord(schemaOne({})); old.schemaVersion = 9;
+  const current = migrateRecord(structuredClone(old));
+  expect(current.schemaVersion).toBe(10); expect(current.controlApplied).toBeUndefined();
+  expect(current.controlRevision).toBeUndefined();
+  expect(() => migrateRecord({ ...current, controlRevision: -1 })).toThrow(/control metadata/);
+  expect(() => migrateRecord({ ...current, controlFingerprint: "truncated" })).toThrow(/control metadata/);
 });

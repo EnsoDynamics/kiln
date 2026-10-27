@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
-import { readPrdRecord, writePrdRecord, readSessionRecord, writeSessionRecord } from "./records.js";
+import { readPrdRecord, writePrdRecord, readSessionRecord, writeSessionRecord, SCHEMA_VERSION } from "./records.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
 it("migrates schema 7 without granting old unknown billing fields or changing execution/progress, and refuses corrupt/newer state before writing", async () => {
@@ -12,15 +12,15 @@ it("migrates schema 7 without granting old unknown billing fields or changing ex
   record.schemaVersion = 7; record.phases["1"] = { sessionIds: ["saved-session"], repositories: {}, outsideConfirmations: [], finishedByPerson: false, wait: { since: "2026-10-26T10:00:00Z", sessionId: "saved-session", run: 0, checks: [], checkedAt: "2026-10-26T10:00:00Z" } };
   const before = JSON.stringify(record.phases); writeFileSync(path, JSON.stringify(record));
   const migrated = readPrdRecord(h.stateDirectory)!;
-  expect(migrated.schemaVersion).toBe(9); expect(migrated.executionId).toBe(executionId); expect(JSON.stringify(migrated.phases)).toBe(before);
+  expect(migrated.schemaVersion).toBe(10); expect(migrated.executionId).toBe(executionId); expect(JSON.stringify(migrated.phases)).toBe(before);
   expect(migrated.billing?.approval).toBeUndefined(); expect(migrated.billing?.current).toBeUndefined(); expect(migrated.billing?.lastLaunch).toBeUndefined();
   expect(migrated.billing!.key).not.toBe(record.billing!.key); writePrdRecord(h.stateDirectory, migrated);
   const privateBytes = readFileSync(path, "utf8");
   const corrupt = structuredClone(migrated); corrupt.billing!.key = "bad-key"; writeFileSync(path, JSON.stringify(corrupt));
   expect(() => readPrdRecord(h!.stateDirectory)).toThrow("Invalid billing authorization");
-  const newer = { ...migrated, schemaVersion: 10 }; writeFileSync(path, JSON.stringify(newer)); const bytes = readFileSync(path, "utf8");
+  const newer = { ...migrated, schemaVersion: SCHEMA_VERSION + 1 }; writeFileSync(path, JSON.stringify(newer)); const bytes = readFileSync(path, "utf8");
   expect(() => readPrdRecord(h!.stateDirectory)).toThrow("newer Kiln"); expect(() => writePrdRecord(h!.stateDirectory, newer)).toThrow("Update Kiln"); expect(readFileSync(path, "utf8")).toBe(bytes);
-  const futureSession = { schemaVersion: 10, agentId: "claude_code" as const, sessionId: "future", phaseId: "1", kind: "phase" as const, createdAt: "2026-10-26T10:00:00Z", model: "opus", modelDisplayName: "Opus", runs: [], sleeps: [], steps: [] };
+  const futureSession = { schemaVersion: SCHEMA_VERSION + 1, agentId: "claude_code" as const, sessionId: "future", phaseId: "1", kind: "phase" as const, createdAt: "2026-10-26T10:00:00Z", model: "opus", modelDisplayName: "Opus", runs: [], sleeps: [], steps: [] };
   mkdirSync(join(h.stateDirectory, "1", "future"), { recursive: true }); writeFileSync(join(h.stateDirectory, "1", "future", "session.json"), JSON.stringify(futureSession));
   expect(() => readSessionRecord(h!.stateDirectory, "1", "future")).toThrow("newer Kiln"); expect(() => writeSessionRecord(h!.stateDirectory, futureSession)).toThrow("Update Kiln");
   writeFileSync(path, privateBytes);

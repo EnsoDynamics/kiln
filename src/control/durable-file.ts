@@ -7,7 +7,7 @@ export function writeDurableMetadata(path: string, value: unknown): void {
   ensurePrivateDirectory(dirname(path)); const temporary = `${path}.${randomUUID()}.tmp`;
   try {
     const fd = openSync(temporary, "wx", 0o600);
-    try { writeFileSync(fd, `${JSON.stringify(value)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+    try { writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, path);
     if (process.platform !== "win32") { const parent = openSync(dirname(path), "r"); try { fsyncSync(parent); } finally { closeSync(parent); } }
   } finally { if (existsSync(temporary)) unlinkSync(temporary); }

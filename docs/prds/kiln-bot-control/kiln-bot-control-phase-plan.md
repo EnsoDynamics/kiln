@@ -4,12 +4,12 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. Phase 1 closed on 2026-10-27; Phase 2 is next.
+Build and verify each phase in this order before starting the next. Both implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration. Integration/push remains held; whole-PRD delivery and test audits follow integration.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
 | [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None | Closed 2026-10-27 |
-| [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Planned |
+| [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Closed 2026-10-27 |
 
 ## Criterion ownership
 

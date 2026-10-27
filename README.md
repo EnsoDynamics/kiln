@@ -43,7 +43,9 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 
 By default, work stays on feature branches for review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may merge there early when a PRD criterion needs deployment or verification; the repository’s existing CI/CD controls deployment. No environment name or non-production declaration is needed. Required checks and reviews still apply, and remaining work ends in a review PR. Other branches, separate release workflows and destructive actions remain unauthorized.
 
-`kiln run` is the user entry point; the browser view provides the controls. Sessions also use helper commands for repository setup, audit evidence and delivery. `kiln --help` shows the usage.
+`kiln run` starts or reopens the controller. The browser and documented local CLI can control existing work. Use `kiln status --json` to discover runs, `kiln status <PRD-path> --json` to inspect one, and command-specific `--help` for replies, no-message resume, verification, pause and settings. Help is available without a running controller. Sessions also use helper commands for repository setup, audit evidence and delivery.
+
+Existing-run control commands require a caller-generated command ID and the status token returned by a fresh status read. Keep both when retrying the same instruction; inspect `kiln command-status <PRD-path> --command-id <id> --json` after a lost response. A new intention needs a new ID. Reply accepts a literal UTF-8 file or stdin. A reply or resume that discovers an already-complete phase never advances it: use explicit `verify-and-advance`, acknowledging any retained unsent reply with `--without-sending-reply`. See `kiln reply --help` and `kiln verify-and-advance --help` for complete examples and error handling.
 
 ## Claude billing
 

@@ -131,7 +131,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   }
   const state = view?.feature.state ?? (!record.startedAt ? "not_started" : record.completedAt ? "complete" : savedStop ? "needs_you" : wait ? "waiting" : record.pause.activeSince ? "paused" : "implementing");
   const leaves = (record.plan ?? []).filter(p => !p.splitInto?.length);
-  const controls = PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Planned control: durable command admission is not implemented in this inspection release." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  const controls = engine ? engine.controlView().controls.map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Planned control: durable command admission is not implemented in this inspection release." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = full ? readHistory(work, active) : null;
   const lastActivity = view?.current?.latestLine?.at ?? view?.current?.seenInSession?.at ?? view?.waiting?.stoppedAt ?? stop?.stoppedAt ?? savedStop?.[1].stop?.at ?? record.startedAt ?? null;
@@ -150,7 +150,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
     started_at: record.startedAt ?? null, last_activity: { observed_at: lastActivity, state: reachable ? "current" : "stale", description: view?.current?.latestLine?.text ?? view?.current?.seenInSession?.text ?? null },
     pause: record.pause, usage_wait: view?.waiting ?? wait?.[1].wait ?? null, stop: stopDetail,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
-    status_token: null, controls,
+    status_token: engine?.controlView().token ?? null, controls, unsent_replies: engine ? engine.commands.unsent(engine.controlView().target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
   }, [...statusErrors, ...(history?.errors ?? [])]);
   if (engine && JSON.stringify(engine.record) !== before) throw new ControlFailure("state_unavailable", "Execution changed while status was assembled; refresh status.");

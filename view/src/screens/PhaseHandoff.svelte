@@ -23,6 +23,7 @@
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const recovery = $derived(stop.phaseRecovery!);
+  const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
   const busy = $derived(!!page.pending || !!stop.checking || !connected);
@@ -106,13 +107,21 @@
       <p>{atLimitLine(stop.limit, nowDate) ?? ""}</p>
     </section>
   {/if}
+  {#if savedUnsent.length}
+    <section class="card" aria-label="Preserved unsent replies">
+      <h2>Replies that were not sent</h2>
+      <p>These replies were preserved because the phase was already complete. Advancing will leave them unsent.</p>
+      {#each savedUnsent as reply (reply.id)}<pre>{reply.text}</pre>{/each}
+      {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
+    </section>
+  {/if}
   {#if page.choice}
     <section class="card choice" aria-live="polite">
       <h2 tabindex="-1" bind:this={choiceHeading}>Phase {stop.phaseId} is already complete.</h2>
       <p>The completion checks passed. No conversation was resumed and the plan has not advanced. Advancing checks the evidence again.</p>
       {#if page.draft}<p class="warning">Your reply has not been sent. It is preserved when you return. Advancing proceeds without sending it.</p>{/if}
       <div class="actions">
-        <button class="button solid" disabled={busy} onclick={() => act("advance")}>{page.pending === "advance" ? "Checking…" : page.draft ? "Advance without sending reply" : "Advance to the next step"}</button>
+        <button class="button solid" disabled={busy} onclick={() => act("advance")}>{page.pending === "advance" ? "Checking…" : (page.draft || savedUnsent.length) ? "Advance without sending reply" : "Advance to the next step"}</button>
         <button class="button" disabled={busy} onclick={back}>Back to recovery page</button>
       </div>
     </section>

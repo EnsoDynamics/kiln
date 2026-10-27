@@ -23,6 +23,7 @@ const activeSessions = new Set<string>();
 export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> {
   record: SessionRecord; stateDirectory: string; prompt: string; cause: SessionRun["cause"];
   note?: string;
+  control?: NonNullable<SessionRun["control"]>;
   onSpawned?(control: SessionControl): void;
   /** Provider-native messages; the output adapter must not fabricate Claude events. */
   onEvent?(event: CodexMessage, at: string): void;
@@ -89,7 +90,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   if (automaticRelease) facts.automaticUsageEvidence = consumeCodexUsage(record, automaticRelease);
   const billing = codexBillingSummary(prepared.usage);
   options.onBilling?.(billing); // PRD history must be durable before any work process exists.
-  const run: SessionRun = { billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
+  const run: SessionRun = { ...(options.control ? { control: { ...options.control } } : {}), billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
   record.runs.push(run); save(); // No child exists until this durable intent succeeds.
   const terminals = new Map<string, Turn>();
   const terminalTimes = new Map<string, string>();
@@ -203,7 +204,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     const prompt = options.cause === "launch" && ["phase", "delivery_audit", "test_audit"].includes(record.kind) ? codexSessionPrompt(options.prompt, prepared.profile.skills, record.kind === "delivery_audit" ? "delivery-audit" : record.kind === "test_audit" ? "test-audit" : "implement-from-requirements") : options.prompt;
     const started = await rpc.call<{ turn: Turn }>("turn/start", { threadId: parentId, model: record.model, ...(record.effort ? { effort: record.effort } : {}), input: [{ type: "text", text: prompt }], clientUserMessageId: createHash("sha256").update(`${record.sessionId}:${record.runs.length}:${facts.dispatch.at}`).digest("hex") });
     if (!started.turn.id) throw new Error("Codex did not return a dispatched turn identity.");
-    facts.turnId = started.turn.id; save();
+    facts.turnId = started.turn.id; if (run.control) run.control.submitted = true; save();
     if (TERMINAL.has(started.turn.status)) { terminals.set(`${parentId}:${started.turn.id}`, started.turn); if (!terminalTimes.has(`${parentId}:${started.turn.id}`)) terminalTimes.set(`${parentId}:${started.turn.id}`, now()); }
     else if (!terminals.has(`${parentId}:${started.turn.id}`)) active.set(parentId, started.turn.id);
     if (stopping && active.has(parentId)) void rpc.call("turn/interrupt", { threadId: parentId, turnId: started.turn.id }).catch(error => rpc.fail(error as Error));

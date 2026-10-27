@@ -1,3 +1,5 @@
+import { readMessage } from "./input.js";
+import { lookupReceipt, receiptResult, validateInstruction, type Action } from "./commands.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { processStartTime } from "../platform/process-start-time.js";
@@ -11,7 +13,7 @@ import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Res
 import type { CommandContext } from "../kiln-command.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
-interface Controller { state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
+interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
 async function controller(work: SavedWork, deadline = Date.now() + 2000): Promise<Controller> {
   const path = join(work.directory, "instance.lock");
   if (!existsSync(path)) return { state: "stopped" };
@@ -23,7 +25,7 @@ async function controller(work: SavedWork, deadline = Date.now() + 2000): Promis
     if (!response.ok) return { state: "incompatible", error: "Controller does not support the authenticated inspection protocol. Restart it with the updated Kiln." };
     const cap = await response.json() as Capability;
     if (cap.protocol_major !== 1 || cap.execution_id !== work.record.executionId || cap.prd_path !== work.canonical || cap.instance?.pid !== lock.pid || (cap.instance.process_start_time && cap.instance.process_start_time !== lock.processStartTime)) return { state: "incompatible", error: "Controller protocol or saved execution identity does not match; no controls attempted." };
-    return { state: "reachable", address };
+    return { state: "reachable", address, features: cap.features };
   } catch {
     // Process identity is a secondary check; successful authenticated identity needs no ps access.
     const start = await processStartTime(lock.pid, { timeoutMs: Math.max(1, deadline - Date.now()) }).catch(() => undefined);
@@ -36,7 +38,7 @@ async function request(work: SavedWork, owner: Controller, route: string, timeou
   try {
     const response = await fetch(`${owner.address}/api/control/v1/${route}`, { method: refresh ? "POST" : "GET", headers: { "X-Kiln-Token": work.record.token, ...(refresh ? { Origin: owner.address! } : {}) }, redirect: "error", signal: AbortSignal.timeout(timeout) });
     const answer = await response.json() as Result;
-    if (answer.schema_version !== "1" || answer.prd_path !== work.canonical || answer.execution_id !== work.record.executionId || !Array.isArray(answer.errors)) throw new Error("Invalid execution response");
+    if (answer.schema_version !== "1" || answer.prd_path !== work.canonical || !route.startsWith("commands/") && answer.execution_id !== work.record.executionId || !Array.isArray(answer.errors)) throw new Error("Invalid execution response");
     return answer;
   } catch { throw new ControlFailure("controller_unreachable", "Controller response was unavailable or did not match the selected execution."); }
 }
@@ -92,7 +94,14 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (legacy && !args.includes("--help") && !args.includes("-h")) return undefined;
     const parsed = parseCommand(args); const name = parsed.contract.path[0]!; const flags = parsed.flags;
     if (flags.help) { context.stdout.write(commandHelp(parsed.contract.path, json)); return 0; }
-    if (!parsed.contract.implemented || parsed.contract.side_effect === "change" || name === "command-status" || name === "settings" && (flags["keep-awake"] || flags["resume-after-usage-limit"])) throw new ControlFailure("control_unavailable", "This command is planned; durable run-changing admission is not available in this inspection release. No legacy mutation was attempted.", 3);
+    const mutation = parsed.contract.side_effect === "change" || name === "settings" && !!(flags["keep-awake"] || flags["resume-after-usage-limit"]);
+    let message: string | undefined;
+    if (mutation) {
+      if (!flags["command-id"] || !flags["only-if-status-matches"]) throw new ControlFailure("invalid_input", "Changing commands require command ID and status token.", 2);
+      if (name === "reply") message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd);
+      for (const key of ["keep-awake", "resume-after-usage-limit"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
+    }
+
     if (name === "status" && !parsed.positionals.length) {
       if (flags.detail) throw new ControlFailure("invalid_input", "--detail full requires a PRD path.", 2);
       return write(await inventory(context.env));
@@ -102,6 +111,25 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (name === "logs" && !/^(?:[1-9]\d?|1\d\d|200)$/.test(max)) throw new ControlFailure("invalid_input", "--max-lines must be 1–200.", 2);
     const work = await targetWork(parsed.positionals[0]!, context.cwd, context.env);
     const owner = await controller(work);
+    if (name === "command-status") {
+      if (owner.state === "reachable" && owner.features?.includes("command_status")) return write(await request(work, owner, `commands/${encodeURIComponent(String(flags["command-id"]))}`, 12000));
+      const receipt = lookupReceipt(work.directory, String(flags["command-id"]));
+      if (["accepted", "in_progress"].includes(receipt.state)) { receipt.state = "indeterminate"; receipt.reason = "Controller unavailable; the saved instruction has not been reconciled. No dispatch was attempted by this read."; }
+      return write(receiptResult(work.canonical, receipt, "last_known", true));
+    }
+    if (mutation) {
+      if (owner.state !== "reachable") throw new ControlFailure("controller_unreachable", "Changing work requires its matching live controller.");
+      if (!owner.features?.includes("commands")) throw new ControlFailure("instance_incompatible", "This controller does not support durable controls. Restart it with updated Kiln.");
+      const token = String(flags["only-if-status-matches"]);
+      const instruction = validateInstruction({ command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
+        inputs: name === "reply" ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "outside-confirmation" ? { confirmed: !!flags["confirm-resolved"] } : {} });
+      try {
+        const response = await fetch(`${owner.address}/api/control/v1/commands`, { method: "POST", headers: { Origin: owner.address!, "X-Kiln-Token": work.record.token, "Content-Type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(5000), body: JSON.stringify(instruction) });
+        const answer = await response.json() as Result;
+        if (answer.schema_version !== "1" || answer.prd_path !== work.canonical || answer.command_id !== instruction.command_id || !Array.isArray(answer.errors)) throw new Error("Invalid command receipt");
+        return write(answer);
+      } catch { return write(result({ prd_path: work.canonical, execution_id: instruction.execution_id, command_id: instruction.command_id }, [errorFact("operation_indeterminate", "The command response was lost. Inspect its receipt before retrying.", ["kiln", "command-status", work.canonical, "--command-id", instruction.command_id, "--json"])])); }
+    }
     if (owner.state === "incompatible" || owner.state === "unreachable") {
       const answer = statusProjection(work, undefined, flags.detail === "full"); answer.ok = false; answer.controller = owner.state;
       answer.errors.push(errorFact(owner.state === "incompatible" ? "instance_incompatible" : "controller_unreachable", owner.error!)); return write(answer);

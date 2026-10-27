@@ -369,7 +369,7 @@
       "path": [
         "settings"
       ],
-      "purpose": "Read runtime settings; value-changing forms are planned and unavailable.",
+      "purpose": "Read runtime settings, or explicitly change keep-awake and automatic usage-limit recovery.",
       "side_effect": "read",
       "implemented": true,
       "availability": "executable",
@@ -392,11 +392,11 @@
         },
         "keep-awake": {
           "value": "on|off",
-          "source": "Explicit desired value; requires both safety flags when implemented."
+          "source": "Explicit desired value; changing it requires command ID and current status token."
         },
         "resume-after-usage-limit": {
           "value": "on|off",
-          "source": "Explicit desired value; requires both safety flags when implemented."
+          "source": "Explicit desired value; changing it requires command ID and current status token."
         },
         "only-if-status-matches": {
           "value": "status_token",
@@ -458,8 +458,8 @@
       ],
       "purpose": "Send literal text to the current stopped conversation before resuming unfinished work.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln reply <PRD-path> [options]",
       "arguments": [
         {
@@ -584,8 +584,8 @@
       ],
       "purpose": "Return unfinished work to the same saved conversation without a message.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln resume <PRD-path> [options]",
       "arguments": [
         {
@@ -672,8 +672,8 @@
       ],
       "purpose": "Freshly verify every completion requirement, then accept completion only when all pass.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln verify-and-advance <PRD-path> [options]",
       "arguments": [
         {
@@ -764,8 +764,8 @@
       ],
       "purpose": "Request a pause after the current phase; current work continues.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln request-pause <PRD-path> [options]",
       "arguments": [
         {
@@ -852,8 +852,8 @@
       ],
       "purpose": "Cancel only a pending pause; does not restart an already paused run.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln cancel-pause <PRD-path> [options]",
       "arguments": [
         {
@@ -940,8 +940,8 @@
       ],
       "purpose": "Continue a paused run with existing settings and authority.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln continue <PRD-path> [options]",
       "arguments": [
         {
@@ -1028,8 +1028,8 @@
       ],
       "purpose": "Recheck the dedicated browser recovery state; phase completion uses verify-and-advance.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln check-again <PRD-path> [options]",
       "arguments": [
         {
@@ -1116,8 +1116,8 @@
       ],
       "purpose": "Record or clear the browser's specific reviewed outside-workspace confirmation; starts no work.",
       "side_effect": "change",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
       "usage": "kiln outside-confirmation <PRD-path> [options]",
       "arguments": [
         {
@@ -1218,10 +1218,10 @@
       "path": [
         "command-status"
       ],
-      "purpose": "Retrieve a durable operation result; planned and unavailable until Phase 2.",
+      "purpose": "Retrieve the durable receipt for an earlier instruction without dispatching work.",
       "side_effect": "read",
-      "implemented": false,
-      "availability": "planned; unavailable until durable command admission is implemented",
+      "implemented": true,
+      "availability": "Available from retained private state even when its controller is stopped; a matching live controller can reconcile proven effects.",
       "usage": "kiln command-status <PRD-path> [options]",
       "arguments": [
         {
@@ -1241,7 +1241,7 @@
         },
         "command-id": {
           "value": "id",
-          "source": "Caller generates a new unique ASCII identifier of 1\u2013128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+          "source": "The original command ID used for the instruction being inspected. Do not generate a new ID for this query."
         }
       },
       "required_exclusive_groups": [],

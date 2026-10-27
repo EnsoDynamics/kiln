@@ -12,11 +12,12 @@ import { normalizeTarget, assertDevelopmentState, emptyDevelopmentLedger, restri
 
 import type { CodexAudit } from "../session/codex-evidence.js";
 import { dirname, join } from "node:path";
+import { writeDurableMetadata } from "../control/durable-file.js";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -136,6 +137,7 @@ export interface RepositoryPhaseFacts {
 }
 
 export interface PhaseFacts {
+  completedByOperation?: string;
   sessionIds: string[];
   doneAt?: string;
   finishedByPerson: boolean;
@@ -234,6 +236,10 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  controlEpoch?: string;
+  controlRevision?: number;
+  controlFingerprint?: string;
+  controlApplied?: { operationId: string; outcome: string; settings?: { keep_awake: boolean; resume_after_usage_limit: boolean } };
   billing?: BillingState;
   nextActivityKey?: string;
   activities?: import("../audit/workflow.js").ExecutionActivity[];
@@ -265,6 +271,7 @@ export interface PrdRecord {
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
 
 export interface SessionRun {
+  control?: { operationId: string; attemptId: string; submitted?: boolean; promptDigest: string; delivered?: boolean };
   billing?: BillingSummary;
   /** Codex semantic turn/dispatch facts, independent of the private server's exit. */
   codex?: CodexRunFacts;
@@ -442,8 +449,11 @@ interface SchemaOnePhase {
  * into its map without changing conversation keys. Written as schema 4 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
+  if (record.controlEpoch !== undefined && typeof record.controlEpoch !== "string" || record.controlRevision !== undefined && (!Number.isSafeInteger(record.controlRevision) || record.controlRevision < 0) || record.controlFingerprint !== undefined && !/^[a-f0-9]{64}$/.test(record.controlFingerprint) || record.controlApplied !== undefined && (typeof record.controlApplied.operationId !== "string" || typeof record.controlApplied.outcome !== "string")) throw new Error("Malformed durable control metadata.");
+  if (record.controlApplied?.settings && (typeof record.controlApplied.settings.keep_awake !== "boolean" || typeof record.controlApplied.settings.resume_after_usage_limit !== "boolean")) throw new Error("Malformed durable control settings.");
+  for (const phase of Object.values(record.phases ?? {})) if (phase.completedByOperation !== undefined && typeof phase.completedByOperation !== "string") throw new Error("Malformed completion operation reference.");
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -524,7 +534,7 @@ export function writePrdRecord(stateDirectory: string, record: PrdRecord): void 
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
   assertAgent(record.settings.agentId);
-  writeJsonAtomically(prdRecordPath(stateDirectory), record);
+  writeDurableMetadata(prdRecordPath(stateDirectory), record);
 }
 
 export function readSessionRecord(stateDirectory: string, phaseKey: string, sessionId: string): SessionRecord | undefined {
@@ -533,6 +543,11 @@ export function readSessionRecord(stateDirectory: string, phaseKey: string, sess
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("This session needs a newer Kiln. Update Kiln.");
   if (record.schemaVersion < 4) record.agentId = "claude_code";
   assertAgent(record.agentId);
+  if (!Array.isArray(record.runs)) throw new Error("Malformed session runs.");
+  for (const run of record.runs) {
+    const control = run.control;
+    if (control && (typeof control.operationId !== "string" || !control.operationId || typeof control.attemptId !== "string" || !control.attemptId || !/^[a-f0-9]{64}$/.test(control.promptDigest) || control.submitted !== undefined && typeof control.submitted !== "boolean" || control.delivered !== undefined && typeof control.delivered !== "boolean")) throw new Error("Malformed session control correlation.");
+  }
   record.schemaVersion = SCHEMA_VERSION;
   return record;
 }
@@ -540,7 +555,7 @@ export function readSessionRecord(stateDirectory: string, phaseKey: string, sess
 export function writeSessionRecord(stateDirectory: string, record: SessionRecord): void {
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this session.");
   const phaseKey = sessionStorageKey(record);
-  writeJsonAtomically(join(sessionDirectory(stateDirectory, phaseKey, record.sessionId), "session.json"), record);
+  writeDurableMetadata(join(sessionDirectory(stateDirectory, phaseKey, record.sessionId), "session.json"), record);
 }
 
 export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId" | "activityId">): string {

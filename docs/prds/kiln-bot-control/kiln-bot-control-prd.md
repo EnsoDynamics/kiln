@@ -1,6 +1,6 @@
 # PRD: Kiln control from a phone-driven bot
 
-**Status:** [Phase 1 inspection complete](phase-1-inspect-existing-work.md) on 2026-10-27; [Phase 2 controls](phase-2-control-existing-work.md) remain planned. See the [implementation phase plan](kiln-bot-control-phase-plan.md).
+**Status:** Both implementation phases complete on 2026-10-27. Integration/push is held; whole-PRD delivery and test audits remain. See the [implementation phase plan](kiln-bot-control-phase-plan.md) and [release validation](kiln-bot-control-validation.md).
 
 **Source:** Doug's request and clarification, 2026-10-26: a bot such as Grokpod or Dot already has permission to execute terminal commands anywhere on his Mac, including `kiln`. Kiln supplies the command interface, not the remote connection. Doug’s technical-design chat also requires complete discoverable CLI help and accepts local Grok Bot on his Mac as the equivalent caller for phone-workflow validation. His subsequent scope clarification excludes Kiln-managed provider sign-in and account switching; any independent provider-login testing is outside this PRD. Subsequent review approved PRD-path targeting instead of user-facing run IDs, removal of the all-history listing, and a small recent-output response with explicit paging; `kiln reply` remains a primary command.
 

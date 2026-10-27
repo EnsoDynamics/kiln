@@ -163,6 +163,8 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  controlToken?: string;
+  unsentReplies?: { id: string; text: string }[];
   billing?: BillingView;
   activities?: PhaseView[];
   auditHistoryUnavailable?: boolean;

@@ -82,16 +82,16 @@ it("refreshes incomplete checks, preserves old evidence on read error, and reche
   expect(buildSnapshot(h.engine).needsYou!.phaseRecovery!.checkError).toBeUndefined();
   // New dirty evidence invalidates the previous pass; Verify does not commit it.
   writeFileSync(join(worktree, "unfinished.txt"), "still unfinished");
-  expect((await post("check-again", { target: identity, intent: "advance" })).body.outcome).toBe("still_stopped");
+  expect((await post("check-again", { target: identity, intent: "advance", withoutSendingReply: true })).body.outcome).toBe("still_stopped");
   expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
   git(h.sandbox, worktree, "add", "unfinished.txt"); git(h.sandbox, worktree, "commit", "-qm", "test: finish remaining work"); git(h.sandbox, worktree, "push", "-q", "origin", h.engine.record.settings.featureBranch);
   h.engine.record.pause.requestedAt = new Date().toISOString();
-  expect((await post("check-again", { target: identity, intent: "advance" })).body.outcome).toBe("advanced");
+  expect((await post("check-again", { target: identity, intent: "advance", withoutSendingReply: true })).body.outcome).toBe("advanced");
   await h.engine.settled();
   expect(h.engine.record.pause.activeSince).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
   expect(h.engine.record.phases["1"]!.finishedByPerson).toBe(true);
   expect(h.events.filter(e => e.kind === "phase" && e.event === "done")).toHaveLength(1);
-  expect((await post("check-again", { target: identity, intent: "advance" })).body.code).toBe("stale_target");
+  expect((await post("check-again", { target: identity, intent: "advance", withoutSendingReply: true })).body.code).toBe("stale_target");
 });
 
 it("accepts billing-held completion without approval and rolls back a failed write without losing the hold", async () => {
@@ -114,7 +114,7 @@ it("accepts billing-held completion without approval and rolls back a failed wri
     if (record.phases["1"]?.doneAt) throw new Error("injected disk failure");
     return write(directory, record);
   });
-  expect((await post("check-again", { target: identity, intent: "advance" })).body.code).toBe("state_write_failed");
+  expect((await post("check-again", { target: identity, intent: "advance", withoutSendingReply: true })).body.code).toBe("state_write_failed");
   expect(h.engine.record.phases["1"]!.stop).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
   expect(records.readPrdRecord(h.stateDirectory)!.phases["1"]!.stop).toBeDefined();
   expect(h.engine.record.billing!.hold).toEqual(hold);
@@ -122,6 +122,12 @@ it("accepts billing-held completion without approval and rolls back a failed wri
   expect(h.events.filter(e => e.kind === "phase" && e.event === "done")).toHaveLength(0);
   expect(h.claudeCalls()).toHaveLength(1);
   failure.mockRestore();
+  // A durability failure freezes this controller even when the injected failure
+  // is removed. Restart must reconcile the saved stop before another effect.
+  expect((await post("check-again", { target: identity, intent: "verify" })).body.code).toBe("busy");
+  await server.close(); h.engine.close(); h.engine = h.reopenFromDisk();
+  server = await startLocalServer({ engine: h.engine, port: Number(new URL(origin).port), folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.engine.record.billing!.hold).toEqual(hold);
   h.engine.record.pause.requestedAt = new Date().toISOString();
   expect((await post("check-again", { target: identity, intent: "verify" })).body.outcome).toBe("advanced");
   await h.engine.settled(); expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();

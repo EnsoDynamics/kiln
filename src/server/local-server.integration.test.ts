@@ -282,7 +282,9 @@ describe("the local server", () => {
       (await fetch(`${origin}${path}`, { method, headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })).status;
 
     expect(await send("POST", "/api/start", { refinementConfirmed: true })).toBe(200);
-    await waitFor(() => h.claudeCalls().length === 1);
+    // Process invocation precedes the provider's init acknowledgement. Wait for
+    // the same control availability the view uses before pressing Pause.
+    await waitFor(() => h.claudeCalls().length === 1 && h.engine.controlView().controls.some(control => control.name === "request-pause" && control.available));
     expect(await send("POST", "/api/pause")).toBe(200);
     expect(h.engine.record.pause.requestedAt).toBeDefined();
     expect(await send("DELETE", "/api/pause")).toBe(200);

@@ -71,7 +71,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target, note: reply });
     outcome = "still_stopped";
     await click(page, "Advance without sending reply"); await words(page, "still unfinished");
-    expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "advance" });
+    expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "advance", withoutSendingReply: true });
     await server.close(); await words(page, "Disconnected");
     expect(await page.evaluate("document.querySelector('textarea') === null")).toBe(true);
     server = await serveViewFixture(options); await words(page, "Reply here and let Kiln finish");
@@ -125,4 +125,22 @@ it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens 
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-unavailable-narrow.png`, await page.screenshot());
     expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
+});
+
+it("reuses the same browser instruction after an accepted response is lost and the token changes", async () => {
+  const snapshot = fixture("Claude Code"); snapshot.controlToken = "execution:original-token";
+  const requests: { id: string; token: string }[] = []; const effects = new Set<string>();
+  const server = await serveViewFixture({ port: 41985, folder: "customer-returns", snapshot, respond: async (_command, _body, headers) => {
+    const request = { id: String(headers["x-kiln-command-id"]), token: String(headers["x-kiln-status"]) }; requests.push(request); effects.add(request.id);
+    return { status: 200, body: { ok: true, outcome: "already_complete", target: snapshot.needsYou!.phaseRecovery!.target } };
+  } });
+  const page = await chrome.open(server.address);
+  try {
+    await words(page, "Reply here and let Kiln finish"); await draft(page, "One literal reply");
+    await page.evaluate(`(() => { const original = window.fetch; let dropped = false; window.fetch = async (...args) => { const response = await original(...args); if (args[0] === '/api/resume' && !dropped) { dropped = true; throw new Error('Simulated lost response after acceptance'); } return response; }; })()`);
+    await click(page, `Send reply & resume Phase ${snapshot.needsYou!.phaseId}`); await words(page, "may have been accepted");
+    snapshot.controlToken = "execution:new-token"; snapshot.needsYou!.finalMessage = "Refreshed observation"; server.send("snapshot", snapshot); await words(page, "Refreshed observation");
+    await click(page, `Send reply & resume Phase ${snapshot.needsYou!.phaseId}`); await words(page, "already complete");
+    expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]); expect(requests[0]!.token).toBe("execution:original-token"); expect(requests[0]!.id).toMatch(/^[a-f0-9-]{36}$/); expect(effects.size).toBe(1);
+  } finally { await server.close(); }
 });

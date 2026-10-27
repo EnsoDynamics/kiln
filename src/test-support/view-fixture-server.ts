@@ -4,7 +4,7 @@
 // mockup's sample data (technical design, Testing Approach, "The view").
 
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type IncomingHttpHeaders, type Server, type ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Snapshot } from "../engine/snapshot.js";
@@ -37,7 +37,7 @@ export async function serveViewFixture(options: {
   /** Commands refused with a 409 and this reason, keyed `METHOD /path`. */
   refuse?: Record<string, string>;
   /** Controlled response for browser workflow tests; production HTTP behavior is tested separately. */
-  respond?: (command: string, body: string) => Promise<{ status: number; body: unknown }>;
+  respond?: (command: string, body: string, headers: IncomingHttpHeaders) => Promise<{ status: number; body: unknown } | null>;
 }): Promise<ViewFixtureServer> {
   if (!existsSync(join(VIEW, "index.html"))) throw new Error("The view isn't built; run npm run build first.");
   let snapshot = options.snapshot;
@@ -76,7 +76,8 @@ export async function serveViewFixture(options: {
         const command = `${request.method} ${url.pathname}`;
         commands.push(body ? `${command} ${body}` : command);
         if (options.respond) {
-          const answer = await options.respond(command, body);
+          const answer = await options.respond(command, body, request.headers);
+          if (!answer) { response.destroy(); return; }
           response.writeHead(answer.status, headers("application/json")); response.end(JSON.stringify(answer.body)); return;
         }
         const refused = options.refuse?.[command];

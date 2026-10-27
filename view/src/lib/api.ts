@@ -7,6 +7,7 @@ import type { Settings } from "../../../src/state/records.js";
 
 export interface PageConfig {
   token: string;
+  controlToken?: string;
   /** The view's path, `/<PRD folder name>`. */
   base: string;
 }
@@ -18,17 +19,34 @@ export function pageConfig(document: Document): PageConfig {
 
 export type CommandAnswer = { ok: true; [key: string]: unknown } | { ok: false; reason: string; fieldErrors?: Record<string, string> };
 
+const pendingInstructions = new WeakMap<PageConfig, Map<string, { id: string; token: string }>>();
+const actionQueues = new WeakMap<PageConfig, Promise<void>>();
 async function send(config: PageConfig, method: "POST" | "DELETE", path: string, body?: unknown): Promise<CommandAnswer> {
+  const previous = actionQueues.get(config);
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; }); actionQueues.set(config, current);
+  await previous;
+  try { return await sendInstruction(config, method, path, body); }
+  finally { release(); if (actionQueues.get(config) === current) actionQueues.delete(config); }
+}
+async function sendInstruction(config: PageConfig, method: "POST" | "DELETE", path: string, body?: unknown): Promise<CommandAnswer> {
+  const key = JSON.stringify([method, path, body]);
+  let instructions = pendingInstructions.get(config);
+  if (!instructions) { instructions = new Map(); pendingInstructions.set(config, instructions); }
+  const instruction = instructions.get(key) ?? (config.controlToken ? { id: crypto.randomUUID(), token: config.controlToken } : undefined);
+  if (instruction) instructions.set(key, instruction);
   try {
     const response = await fetch(path, {
       method,
-      headers: { "X-Kiln-Token": config.token, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+      headers: { "X-Kiln-Token": config.token, ...(instruction ? { "X-Kiln-Status": instruction.token, "X-Kiln-Command-Id": instruction.id } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const answer = (await response.json()) as Record<string, unknown>;
+    if (response.ok && typeof answer.controlToken === "string") config.controlToken = answer.controlToken;
+    if (response.status < 500) instructions.delete(key);
     return response.ok ? { ...answer, ok: true } : { ok: false, reason: String(answer.reason ?? response.statusText), ...(answer.fieldErrors ? { fieldErrors: answer.fieldErrors as Record<string, string> } : {}) };
   } catch (error) {
-    return { ok: false, reason: (error as Error).message };
+    return { ok: false, reason: `${(error as Error).message}${instruction ? ` Instruction ${instruction.id} may have been accepted; repeating this action will inspect or replay the same instruction.` : ""}` };
   }
 }
 
@@ -60,4 +78,4 @@ export const billingApproval = (config: PageConfig, action: "approval" | "clear"
 
 /** Target-bound manual implementation recovery. Only reply supplies note. */
 export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => send(config, "POST", "/api/resume", { target, ...(note === undefined ? {} : { note }) });
-export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => send(config, "POST", "/api/check-again", { target, intent });
+export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => send(config, "POST", "/api/check-again", { target, intent, ...(intent === "advance" ? { withoutSendingReply: true } : {}) });

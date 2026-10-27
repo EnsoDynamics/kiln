@@ -1,3 +1,6 @@
+import { deliveredInHistory } from "../control/delivery-evidence.js";
+import { resolve } from "node:path";
+import { CommandJournal, ACTIONS, type Receipt, type Action, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -19,7 +22,7 @@ import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordA
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
-import { appendJsonLine, readJsonLines } from "../state/state-files.js";
+import { appendJsonLine, readJson, readJsonLines } from "../state/state-files.js";
 import { runCodexSession, reconcileCodexAttempt } from "../session/codex-session.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
 import { recoverCodexOutput } from "../session/codex-recovery-output.js";
@@ -38,7 +41,7 @@ import { selectedChoice } from "../state/records.js";
 // commands (start, pause, cancel a pause, check again, resume, change settings) and its snapshots. State
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
@@ -273,6 +276,10 @@ type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kin
 type ResumeRequest = { phaseKey: string; cause: "person_resume" | "limit_resume"; note?: string };
 
 export class Engine {
+  readonly commands: CommandJournal;
+  private readonly controlEpoch = randomUUID();
+  private controlDispatch: Receipt | undefined;
+  private controlKickPending = false;
   readonly record: PrdRecord;
   current: CurrentPhase | undefined;
   /** True while Start's worktree setup runs. */
@@ -389,8 +396,113 @@ export class Engine {
         return result;
       },
     });
+    this.commands = new CommandJournal(this.stateDirectory, resolve(this.record.repository.mainCheckoutPath, this.record.prdDirectory), {
+      execution: () => this.record.executionId!, view: () => this.controlView(), runState: () => this.controlRunState(),
+      apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
+      reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
+    });
+    this.record.controlEpoch = this.controlEpoch;
+    this.save();
     this.agents.start();
     void this.refreshBilling().catch(() => this.changed());
+  }
+
+  async refreshCommand(id: string) {
+    const answer = this.commands.lookup(id); const receipt = answer.operation as Receipt;
+    if (receipt.session_id && receipt.phase_key && receipt.effects.reply !== "delivered" && ["submitted", "unknown"].includes(receipt.effects.reply)) {
+      const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
+      const run = session?.runs.find(r => r.control?.operationId === receipt.id);
+      if (session && run?.control) {
+        const delivered = await deliveredInHistory(session, run, this.environment).catch(() => false);
+        if (delivered) {
+          this.commands.recordDelivery(id);
+        }
+      }
+    }
+    return this.commands.lookup(id);
+  }
+
+  controlRunState(): string {
+    return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
+  }
+
+  controlView(): ControlView {
+    const key = this.stoppedPhaseKey(); const wait = this.waitingPhaseKey();
+    const target = JSON.stringify(this.phaseRecoveryTarget() ?? { execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
+    const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
+    const paused = !!this.record.pause.activeSince;
+    const available: Record<Action, boolean> = {
+      reply: !!key && this.resumeOffered(key) && !busy,
+      resume: !!(wait || key && this.resumeOffered(key)) && !busy,
+      "verify-and-advance": !!this.phaseRecoveryTarget() && !busy,
+      "request-pause": this.isUnderway && !this.currentlyComplete && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
+      "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
+      continue: paused && !busy,
+      "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
+      settings: !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
+      "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
+    };
+    const unavailable: Partial<Record<Action, string>> = {
+      "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
+      "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
+      "outside-confirmation": "Stayed in the workspace hasn't failed, so there is nothing to confirm.",
+    };
+    const controls = ACTIONS.map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
+    const fingerprint = { epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+      outside: key && { checks: this.record.phases[key]?.stop?.checks, confirmations: this.record.phases[key]?.outsideConfirmations, codex: this.record.phases[key]?.codexConfirmations }, unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
+    return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
+  }
+
+  private reconcileControl(receipt: Receipt): Receipt | undefined {
+    const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
+    if (!persisted || receipt.execution_id !== persisted.executionId) return undefined;
+    if (Object.values(persisted.phases).some(f => f.completedByOperation === receipt.id)) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
+    if (persisted.controlApplied?.operationId === receipt.id) {
+      const outcome = persisted.controlApplied.outcome;
+      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(outcome === "advanced" ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
+    }
+    if (receipt.phase_key && receipt.session_id) {
+      const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
+      const run = session?.runs.find(r => r.control?.operationId === receipt.id);
+      if (run?.spawnError && !run.pid) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
+      if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: "session_resumed", effects: { ...receipt.effects, session: "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
+    }
+    return undefined;
+  }
+
+  private async applyControl(action: Action, inputs: Record<string, unknown>, receipt: Receipt) {
+    let answer: CommandResult;
+    const target = this.phaseRecoveryTarget();
+    const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
+    const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
+    switch (action) {
+      case "request-pause": answer = this.pause(); break;
+      case "cancel-pause": answer = this.cancelPause(); break;
+      case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
+      case "outside-confirmation": answer = this.setOutsideConfirmation(inputs.confirmed === true); break;
+      case "continue": answer = await this.start(); break;
+      case "check-again": answer = await this.checkAgain(); break;
+      case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
+      case "reply": case "resume":
+        this.controlDispatch = receipt;
+        answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume"), { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
+        if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
+        if (answer.ok && answer.noteSkipped) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced_reply_not_sent" }; }
+        if (answer.ok && answer.outcome !== "already_complete") {
+          // Let the one accepted dispatch run; its ownership persists through asynchronous preflight.
+          this.controlKickPending = false; this.kick();
+          while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
+          if (this.controlDispatch === receipt) { this.controlDispatch = undefined; return { ok: false, code: "dispatch_not_started", reason: "The existing launch checks did not start a session. Inspect status for recovery." }; }
+          if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
+          if (receipt.effects.session !== "resumed") return { ok: false, code: "dispatch_not_started", reason: "The provider did not start the recorded attempt. Inspect the current recovery state." };
+        } else this.controlDispatch = undefined;
+        break;
+    }
+    if (!answer.ok) return answer;
+    const outcome = answer.outcome === "already_complete" ? "phase_already_complete" : answer.outcome === "still_stopped" ? "completion_checks_failed" : answer.outcome === "advanced" ? "advanced" : action === "reply" || action === "resume" ? "session_resumed" : "completed";
+    if (action === "settings") receipt.settings = this.runtimeControlSettings();
+    this.record.controlApplied = { operationId: receipt.id, outcome, ...(receipt.settings ? { settings: receipt.settings } : {}) }; this.save();
+    return { ok: true, outcome };
   }
 
   get savedDevelopmentTargets(): DevelopmentPreference | undefined {
@@ -413,7 +525,8 @@ export class Engine {
   }
   async billingCommand(action: "approval" | "clear", body: Record<string, unknown>) {
     if (this.record.settings.agentId !== "claude_code") throw new BillingError("invalid_request", "Codex has no API billing approval.", 400);
-    return this.billing.command(action, body, this.billingCwd, this.sessionEnv());
+    try { return await this.billing.command(action, body, this.billingCwd, this.sessionEnv()); }
+    finally { this.changed(); }
   }
 
   choiceNotice: string | undefined;
@@ -1438,6 +1551,7 @@ export class Engine {
   }
 
   private async decideQuietly(): Promise<UnderwayDecision> {
+    if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
     if (deliveryEnabled(record) && record.completedAt) {
       this.readPlan();
@@ -1546,6 +1660,7 @@ export class Engine {
 
   private kick(): void {
     if (this.driving) return;
+    if (this.commands?.busy && !(this.controlDispatch && this.requestedResume)) { this.controlKickPending = true; return; }
     this.driving = this.drive().finally(() => {
       this.driving = undefined;
       this.changed();
@@ -1555,7 +1670,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
+      if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
         this.requestedResume = undefined;
@@ -1968,7 +2083,14 @@ export class Engine {
         return;
       }
     }
-    if (this.stopping || session.agentId !== "codex" && started?.() === false) return;
+    if (this.commands.blocked || this.stopping || session.agentId !== "codex" && started?.() === false) return;
+    if (!this.controlDispatch) this.controlDispatch = this.commands.beginAutomatic(`${this.record.executionId}:${phaseKey}:${session.sessionId}:${session.runs.length}`);
+    const dispatchedControl = this.controlDispatch;
+    if (dispatchedControl) {
+      dispatchedControl.stage = "dispatching"; dispatchedControl.session_id = session.sessionId; dispatchedControl.phase_key = phaseKey; dispatchedControl.attempt_id = randomUUID();
+      dispatchedControl.effects.session = "starting";
+      this.commands.checkpoint(dispatchedControl);
+    }
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
     this.interruptedKey = undefined;
@@ -1977,7 +2099,8 @@ export class Engine {
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
     mkdirSync(this.workspaceFolder, { recursive: true });
-    if (session.agentId === "codex") {
+    let dispatchFailed = false;
+    try { if (session.agentId === "codex") {
       await this.runCodexProcess(current, session, prompt, cause, cwd, note, started);
     } else await runSessionProcess({
       claude: this.options.tools.claude,
@@ -1991,6 +2114,7 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
+      ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
       exitGraceMs: this.options.exitGraceMs ?? (process.platform === "win32" ? WINDOWS_EXIT_GRACE_MS : 0),
       onReader: (reader) => (current.reader = reader),
@@ -2010,12 +2134,40 @@ export class Engine {
       onPartial: (partial) => {
         for (const listener of this.partialListeners) listener(session.sessionId, partial);
       },
-      onRecordChange: () => this.changed(),
+      onRecordChange: () => { this.observeControlDispatch(session); this.changed(); },
     });
+    } catch (error) {
+      if (!dispatchedControl) throw error;
+      dispatchFailed = true;
+      dispatchedControl.effects.session = "unknown";
+      if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = "unknown";
+      dispatchedControl.reason = "The correlated provider attempt could not be durably recorded. Inspect its receipt before continuing.";
+    }
+    if (!dispatchFailed) this.observeControlDispatch(session);
+    if (this.controlDispatch === dispatchedControl && dispatchedControl) {
+      const run = session.runs.find(r => r.control?.operationId === dispatchedControl.id);
+      const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && session.agentId !== "codex" && !!run.endedAt && !runReportedInit(this.stateDirectory, session, session.runs.indexOf(run));
+      dispatchedControl.effects.session = neverStarted ? "not_started" : "unknown";
+      if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = dispatchedControl.effects.session === "unknown" ? "unknown" : "not_sent";
+      try { this.commands.finishAutomatic(dispatchedControl); } catch { /* Journal fault keeps dispatch blocked. */ }
+      this.controlDispatch = undefined;
+    }
     this.control = undefined;
     current.processRunning = false;
     this.updateKeepAwake();
     if (!this.stopping) await this.refreshCommits(current, true);
+  }
+
+  private observeControlDispatch(session: SessionRecord): void {
+    const receipt = this.controlDispatch;
+    if (!receipt) return;
+    const run = session.runs.find(r => r.control?.operationId === receipt.id);
+    if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
+    receipt.effects.session = "resumed";
+    if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
+    this.commands.checkpoint(receipt);
+    this.commands.finishAutomatic(receipt);
+    this.controlDispatch = undefined;
   }
 
   private holdBilling(phaseKey: string, session: SessionRecord, cause: SessionRun["cause"], observed: BillingSummary, reason: string): void {
@@ -2053,7 +2205,7 @@ export class Engine {
     const priorRunCount = session.runs.length;
     try {
       await runCodexSession({
-        ...this.codexLaunchOptions(cwd), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
+        ...this.codexLaunchOptions(cwd), ...(this.controlDispatch ? { control: { operationId: this.controlDispatch.id, attemptId: this.controlDispatch.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
         beforeStart: () => {
           if (this.stopping || started?.() === false) throw new CodexLaunchCancelled("Codex launch authorization was withdrawn.");
           if (started) this.save();
@@ -2076,7 +2228,7 @@ export class Engine {
             save(reader.read({ method: "item/completed", params: { threadId, turnId: turn.id, item } }, at, typeof turn.startedAt === "number" ? "turn" : "recovery").lines);
           }
         },
-        onRecordChange: () => this.changed(),
+        onRecordChange: () => { this.observeControlDispatch(session); this.changed(); },
         beforeEnd: () => this.readSleep(false),
       });
     } catch (error) {
@@ -2114,6 +2266,7 @@ export class Engine {
    */
   private async settleSession(phaseKey: string): Promise<Verdict> {
     for (;;) {
+      if (this.commands.blocked) return { kind: "stopped" };
       if (this.stopping) return { kind: "stopping" };
       if (this.record.billing?.hold?.phaseKey === phaseKey) return { kind: "stopped" };
       const run = this.latestSession(phaseKey)?.runs.at(-1);
@@ -2496,6 +2649,7 @@ export class Engine {
           if (count !== undefined) repository.commitCount = count;
         }
         facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop;
+        if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
         this.save();
       } catch (error) { Object.assign(this.record, before); throw error; }
       this.emitAudit(audit, "done"); return;
@@ -2516,6 +2670,7 @@ export class Engine {
     facts.repositories = repositories;
     facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;
+    if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
     clearManualStop();
     this.save();
     const prdSha = shas[this.paths.repositoryName]!;
@@ -2810,6 +2965,12 @@ export class Engine {
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
   private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+    if (cause === "limit_resume" && !this.commands.active) {
+      if (this.commands.busy || this.checking || this.driving) return;
+      const view = this.controlView();
+      this.commands.submit({ command_id: `auto-${createHash("sha256").update(view.target).digest("hex")}`, execution_id: this.record.executionId!, status_token: view.token, action: "resume", inputs: {} }, "automatic");
+      return;
+    }
     if (this.record.billing?.hold && cause === "limit_resume") return;
     this.checking = true;
     this.changed();
@@ -3538,11 +3699,23 @@ export class Engine {
     return latest;
   }
 
+  private runtimeControlSettings() { return { keep_awake: this.record.settings.keepAwake, resume_after_usage_limit: this.record.settings.resumeAfterUsageLimit }; }
+
   private save(): void {
     // Once a stop begins, nothing is judged: the next `kiln run` judges from the record.
     if (this.stopping) return;
+    if (this.commands?.fault) throw new RecoveryStateWriteFailed(this.commands.fault);
+    const previousControl = { controlRevision: this.record.controlRevision, controlFingerprint: this.record.controlFingerprint, controlApplied: this.record.controlApplied };
+    const fingerprint = createHash("sha256").update(JSON.stringify({
+      execution: this.record.executionId, pause: this.record.pause, settings: this.record.settings, completed: this.record.completedAt,
+      phases: Object.fromEntries(Object.entries(this.record.phases).map(([key, facts]) => [key, { sessions: facts.sessionIds, doneAt: facts.doneAt, stop: facts.stop?.at, wait: facts.wait, outside: facts.outsideConfirmations, codex: facts.codexConfirmations }])),
+      next: this.record.nextActivityKey, authorization: this.record.developmentAuthorization, billingHold: this.record.billing?.hold,
+    })).digest("hex");
+    if (this.record.controlFingerprint !== fingerprint) { this.record.controlRevision = (this.record.controlRevision ?? 0) + 1; this.record.controlFingerprint = fingerprint; }
+    const instruction = this.commands?.active;
+    if (instruction && ["request-pause", "cancel-pause", "settings", "outside-confirmation", "continue"].includes(instruction.instruction.action)) this.record.controlApplied = { operationId: instruction.id, outcome: "completed", ...(instruction.instruction.action === "settings" ? { settings: this.runtimeControlSettings() } : {}) };
     try { writePrdRecord(this.options.stateDirectory, this.record); }
-    catch (error) { throw new RecoveryStateWriteFailed(`Kiln could not save execution state: ${(error as Error).message}`); }
+    catch (error) { Object.assign(this.record, previousControl); if (this.commands?.active) this.commands.fault = "Execution state could not be saved. Restart to reconcile before changing work."; throw new RecoveryStateWriteFailed(`Kiln could not save execution state: ${(error as Error).message}`); }
     this.changed();
   }
 

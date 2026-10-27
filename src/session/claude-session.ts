@@ -76,6 +76,7 @@ export function modelNameFromId(id: string): string {
 }
 
 export interface SessionProcessOptions {
+  control?: NonNullable<SessionRun["control"]>;
   billing?: BillingSummary;
   claude: string;
   args: string[];
@@ -195,43 +196,29 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   };
 
   const startedAt = now().toISOString();
+  const run: SessionRun = { startedAt, cause: options.cause, ...(options.control ? { control: { ...options.control } } : {}),
+    ...(options.billing ? { billing: options.billing } : {}), ...(options.note === undefined ? {} : { note: options.note }), ...(options.account === undefined ? {} : { account: options.account }) };
+  // Persist the correlated attempt before spawn or stdin can have an effect.
+  record.runs.push(run); saveRecord();
   const child = spawnDetached(options.claude, options.args, { cwd: options.cwd, env: options.env, stdin: "pipe" });
-
   if (child.pid === undefined) {
     const error = await new Promise<NodeJS.ErrnoException>((resolve) => child.once("error", resolve));
-    const run: SessionRun = {
-      startedAt,
-      endedAt: startedAt,
-      cause: options.cause,
-      ...(options.billing ? { billing: options.billing } : {}),
-      ...(options.note === undefined ? {} : { note: options.note }),
-      ...(options.account === undefined ? {} : { account: options.account }),
-      spawnError: { code: error.code ?? "ERROR", message: error.message },
-    };
-    record.runs.push(run);
-    saveRecord();
+    run.endedAt = startedAt; run.spawnError = { code: error.code ?? "ERROR", message: error.message }; saveRecord();
     saveLines([reader.kilnLine("stderr", `Couldn't start claude in ${options.cwd}: ${error.message}`, startedAt)]);
     return run;
   }
-
   const closed = new Promise<[number | null, NodeJS.Signals | null]>((resolve) => child.once("close", (exitCode, exitSignal) => resolve([exitCode, exitSignal])));
-  const pid = child.pid;
-  const run: SessionRun = {
-    pid,
-    startedAt,
-    cause: options.cause,
-      ...(options.billing ? { billing: options.billing } : {}),
-    ...(options.note === undefined ? {} : { note: options.note }),
-    ...(options.account === undefined ? {} : { account: options.account }),
-  };
-  // The run is recorded at once, so a Kiln stopped from here on leaves it, never a session with no run.
-  record.runs.push(run);
-  saveRecord();
+  const pid = child.pid; run.pid = pid;
+  try { saveRecord(); } catch (error) { endProcessTree(pid, "SIGKILL"); await closed; throw error; }
 
   child.stdin!.on("error", () => {
     // The process exited before reading its input; its exit is recorded below.
   });
   child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
+  if (run.control) {
+    run.control.submitted = true;
+    try { saveRecord(); } catch (error) { endProcessTree(pid, "SIGKILL"); await closed; throw error; }
+  }
   // The controls are handed over at once, so a stop from here on can always reach the process.
   options.onSpawned?.({
     pid,
@@ -299,22 +286,27 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   // Decoded as a stream, so a character split between two reads isn't garbled.
   child.stdout!.setEncoding("utf8");
   child.stderr!.setEncoding("utf8");
-  child.stdout!.on("data", (chunk: string) => {
+  let outputFailure: unknown;
+  const guardOutput = (read: () => void) => {
+    if (outputFailure) return;
+    try { read(); } catch (error) { outputFailure = error; endProcessTree(pid, "SIGKILL"); }
+  };
+  child.stdout!.on("data", (chunk: string) => guardOutput(() => {
     stdoutBuffer += chunk;
     let newline;
     while ((newline = stdoutBuffer.indexOf("\n")) !== -1) {
       readStdoutLine(stdoutBuffer.slice(0, newline));
       stdoutBuffer = stdoutBuffer.slice(newline + 1);
     }
-  });
-  child.stderr!.on("data", (text: string) => {
+  }));
+  child.stderr!.on("data", (text: string) => guardOutput(() => {
     appendFileSync(files.stderr, text, { mode: 0o600 });
     stderrBuffer += text;
     const lastNewline = stderrBuffer.lastIndexOf("\n");
     if (lastNewline === -1) return;
     saveLines(reader.stderrLines(stderrBuffer.slice(0, lastNewline), now().toISOString()));
     stderrBuffer = stderrBuffer.slice(lastNewline + 1);
-  });
+  }));
 
   // Read only once the output is being read: on Windows it is a PowerShell call taking a second
   // or more, and a session that exits meanwhile (an early stop, a resume with no transcript)
@@ -322,10 +314,11 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   const startTime = await processStartTime(pid);
   if (startTime !== undefined) {
     run.processStartTime = startTime;
-    saveRecord();
+    guardOutput(saveRecord);
   }
 
   const [code, signal] = await closed;
+  if (outputFailure) throw outputFailure;
   readStdoutLine(stdoutBuffer);
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
 

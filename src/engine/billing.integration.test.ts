@@ -173,6 +173,9 @@ describe("Claude billing at the common dispatch boundary", () => {
       h.engine = h.reopenFromDisk(); await h.engine.prepare();
       expect((await h.engine.decide()).kind).toBe("resume"); await h.engine.continue();
     } else {
+      // The stand-in's file write can precede Kiln reading its stdout. A sleep
+      // must begin after the last pre-sleep model response has been observed.
+      await waitFor(() => h!.engine.outputLines(original).some(line => line.text === "Saving partial billing work."));
       h.env.ANTHROPIC_API_KEY = "recovery-secret-canary"; writeFileSync(slept, "");
     }
     await h.engine.settled();

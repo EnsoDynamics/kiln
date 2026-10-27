@@ -1,10 +1,14 @@
 # Phase 2: Control existing work safely
 
+**Closed:** 2026-10-27
+
 **Parent PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md)
 **Technical design:** [Kiln bot control](kiln-bot-control-technical-design.md) — relevant sections: "Scope and concurrency", "CLI and Help Contracts", "Status, Conversations and Handoff", "Durable Controls and Retries", "Durable Data and Evolution", "Local API and Integration Points", "Validation Boundaries".
 
 ## Summary
 Let a caller reply, resume, verify completion and use the other existing-run controls while preserving the person's intention through concurrent requests, retries and controller restarts. Demonstrate the complete bot-driven workflow against the built command interface.
+
+**Status:** Complete. Durable controls, independent reviews, full repository verification, installed-package tests and the actual Grok Bot release demonstration pass. See [implementation validation](kiln-bot-control-validation.md) for results and fixture limitations. Integration/push remains held; whole-PRD audits follow integration.
 
 ## Acceptance criteria covered
 AC-ACT-02, AC-ACT-03, AC-ACT-04, AC-ACT-05, AC-CLI-04.

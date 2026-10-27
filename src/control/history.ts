@@ -14,7 +14,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
   try {
     for (const phase of privateNames(root, directory)) {
       deadlineCheck(deadline);
-      if (["output-snapshots", "audit", "audit-evidence", "delivery-evidence", "control", "audit-evidence"].includes(phase) || !safeSelector(phase)) continue;
+      if (["output-snapshots", "audit", "audit-evidence", "delivery-evidence", "control", "controls"].includes(phase) || !safeSelector(phase)) continue;
       const path = join(directory, phase);
       if (!statSync(path).isDirectory()) continue;
       try {

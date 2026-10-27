@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { type Action, type Receipt } from "../control/commands.js";
+import { sameRecoveryTarget, validRecoveryTarget } from "../engine/phase-recovery.js";
 import { errorFact, result as controlResult } from "../control/result.js";
 import { installInspectionRoutes } from "../control/server.js";
 import { bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
@@ -84,7 +87,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const streams = new Set<SSEStreamingApi>();
   let closing = false;
-  const snapshot = (): Snapshot => buildSnapshot(engine, options.documents);
+  const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, options.documents), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
 
   bindLegacySessions(engine);
   let inspectionCacheError: string | undefined;
@@ -215,11 +218,37 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ lines: earlier.slice(-limit), total: lines.length });
   });
 
+  const legacyControl = async (c: Context, action: Action, inputs: Record<string, unknown> = {}, body?: Record<string, unknown>) => {
+    const target = engine.phaseRecoveryTarget();
+    const id = c.req.header("X-Kiln-Command-Id") ?? randomUUID();
+    if (body?.note !== undefined && typeof body.note !== "string") return c.json({ ok: false, reason: "The note must be text." }, 400);
+    if (body && (target || "target" in body || "intent" in body)) {
+      const allowed = action === "verify-and-advance" ? ["target", "intent", "withoutSendingReply"] : ["target", "note"];
+      if (Object.keys(body).some(k => !allowed.includes(k)) || body.target !== undefined && !validRecoveryTarget(body.target) || body.note !== undefined && typeof body.note !== "string" || typeof body.note === "string" && body.note.trim().length > 4000 || action === "verify-and-advance" && body.intent !== undefined && !["verify", "advance"].includes(String(body.intent))) return c.json({ ok: false, code: "invalid_request", reason: "Invalid recovery request." }, 400);
+      if (!engine.commands.has(id) && !sameRecoveryTarget(target, body.target as typeof target)) return c.json({ ok: false, code: "stale_target", reason: "Refresh the stopped conversation before acting." }, 409);
+      if (action === "verify-and-advance" && !body.intent) return c.json({ ok: false, code: "invalid_request", reason: "Choose verify or advance." }, 400);
+    }
+    try {
+      const view = engine.controlView();
+      const answer = engine.commands.submit({ command_id: id, execution_id: (c.req.header("X-Kiln-Status") ?? view.token).split(":")[0], status_token: c.req.header("X-Kiln-Status") ?? view.token, action, inputs });
+      if (!answer.ok) return c.json({ ok: false, ...(c.req.header("X-Kiln-Command-Id") || answer.errors[0]!.code !== "control_unavailable" ? { code: answer.errors[0]!.code } : {}), reason: answer.errors[0]!.message }, 409);
+      await engine.commands.settled();
+      const saved = engine.commands.lookup(id); const op = saved.operation as Receipt;
+      const bound = JSON.parse(op.target) as unknown; const responseTarget = validRecoveryTarget(bound) ? bound : undefined;
+      if (op.outcome === "dispatch_not_started" && responseTarget) return c.json({ ok: true, outcome: "resume_requested", target: responseTarget, ...(c.req.header("X-Kiln-Command-Id") ? { command_id: id, operation: op, controlToken: engine.controlView().token } : {}) });
+      if (op.state === "failed" || op.state === "indeterminate") return c.json({ ok: false, code: op.outcome === "state_write_failed" ? "state_write_failed" : op.outcome ?? "operation_indeterminate", reason: op.reason }, op.outcome === "state_write_failed" ? 500 : op.outcome === "check_unavailable" || op.state === "indeterminate" ? 503 : 409);
+      const outcome = op.outcome === "phase_already_complete" ? "already_complete" : op.outcome === "completion_checks_failed" ? "still_stopped" : op.outcome === "session_resumed" ? "resume_requested" : op.outcome;
+      return c.json({ ok: true, ...(action === "settings" ? { settings: snapshot().settings } : {}), ...(responseTarget && ["resume", "reply", "verify-and-advance"].includes(action) ? { outcome, target: responseTarget } : {}), ...(c.req.header("X-Kiln-Command-Id") ? { command_id: id, operation: op, controlToken: engine.controlView().token } : {}) });
+    } catch { return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500); }
+  };
+
   app.post("/api/settings", async (c) => {
     const body = await jsonBody(c);
     if (body === undefined) return refuse(c, 400, "The body must be a JSON object.");
     const change = settingsChange(body);
     if (typeof change === "string") return refuse(c, 400, change);
+    if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit"].includes(k)) && Object.keys(change).length) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }) });
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     const result = await engine.changeSettings(change);
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
@@ -235,7 +264,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       let body: unknown;
       try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new BillingError("invalid_request", "A JSON billing request is required.", 400); }
       if (!body || typeof body !== "object" || Array.isArray(body)) throw new BillingError("invalid_request", "A JSON object is required.", 400);
-      return c.json({ ok: true, billing: await engine.billingCommand(action, body as Record<string, unknown>) });
+      const billing = await engine.billingCommand(action, body as Record<string, unknown>);
+      return c.json({ ok: true, billing, ...(c.req.header("X-Kiln-Command-Id") ? { controlToken: engine.controlView().token } : {}) });
     } catch (error) {
       const failure = error instanceof BillingError ? error : new BillingError("billing_state_write_failed", "Billing state could not be saved. No work was authorized.", 500);
       return c.json({ ok: false, code: failure.code, reason: failure.message, billing: engine.billing.view }, failure.status);
@@ -244,6 +274,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
+    if (engine.record.pause.activeSince) return legacyControl(c, "continue");
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     const result = await engine.start(body.refinementConfirmed === true ? { refinementConfirmed: true } : {});
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
@@ -259,23 +291,23 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ name: result.name, worktreePath: result.worktreePath, branch: result.branch, baseBranch: result.baseBranch, added: result.added });
   });
 
-  app.post("/api/pause", (c) => answer(c, engine.pause()));
-  app.delete("/api/pause", (c) => answer(c, engine.cancelPause()));
+  app.post("/api/pause", (c) => legacyControl(c, "request-pause"));
+  app.delete("/api/pause", (c) => legacyControl(c, "cancel-pause"));
   app.post("/api/check-again", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
-    return answer(c, await engine.checkAgain(body));
+    return legacyControl(c, engine.phaseRecoveryTarget() || "target" in body || "intent" in body ? "verify-and-advance" : "check-again", body.withoutSendingReply === true ? { without_sending_reply: true } : {}, body);
   });
   // Resume at Needs you, with an optional note, or Resume now while waiting, with none (usage-limit
   // recovery AC-RESUME-01 to 03, AC-LIMIT-02); answered once its check has run.
   app.post("/api/resume", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
-    return answer(c, await engine.resume(body));
+    return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
   });
   // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
-  app.post("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(true)));
-  app.delete("/api/outside-confirmation", (c) => answer(c, engine.setOutsideConfirmation(false)));
+  app.post("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: true }));
+  app.delete("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: false }));
 
   app.all("/api/*", (c) => refuse(c, 404, "No such API."));
 
@@ -341,10 +373,6 @@ function commandRefused(c: Context, result: Extract<CommandResult, { ok: false }
     { ok: false, reason: result.reason, ...(result.code ? { code: result.code } : {}), ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}) },
     result.status,
   );
-}
-
-function answer(c: Context, result: CommandResult) {
-  return result.ok ? c.json(result) : commandRefused(c, result);
 }
 
 async function recoveryBody(c: Context): Promise<Record<string, unknown> | undefined> {

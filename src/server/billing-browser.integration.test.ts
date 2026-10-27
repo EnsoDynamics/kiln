@@ -83,6 +83,7 @@ describe("Claude billing browser controls", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     const original = h.engine.latestSession("1")!;
     h.env.ANTHROPIC_API_KEY = "manual-recovery-private-canary"; await h.engine.refreshBilling();
+    h.engine.record.pause.requestedAt = new Date().toISOString(); // Existing pending pause is part of the displayed control token.
     const page = await open(mode === "verify" ? 360 : 1280);
     const button = (label: string) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
     const reply = button("Send reply & resume Phase 1"); const resume = button("Resume Phase 1 in Kiln"); const verify = button("Verify Phase 1 & advance");
@@ -109,10 +110,9 @@ describe("Claude billing browser controls", () => {
     }
     await page.evaluate(clickChoice); await page.waitFor(`!${panel}.querySelector('input').checked`);
     expect(h.engine.billing.view.canLaunch).toBe(false);
-    h.engine.record.pause.requestedAt = new Date().toISOString();
     const accept = mode === "verify" ? verify : button("Advance without sending reply");
     expect(await page.evaluate(`${accept}.disabled`)).toBe(false); await page.evaluate(`${accept}.click()`);
-    await waitFor(() => !!h!.engine.record.phases["1"]!.doneAt); await h.engine.settled();
+    await waitFor(() => !!h!.engine.record.phases["1"]!.doneAt).catch(async error => { throw new Error(`${error.message}: ${await page.evaluate("document.body.innerText")}`); }); await h.engine.settled();
     expect(h.engine.record.phases["1"]!.finishedByPerson).toBe(true); expect(h.engine.record.pause.activeSince).toBeDefined();
     expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
   });

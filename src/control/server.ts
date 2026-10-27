@@ -1,4 +1,5 @@
-/** Versioned read-only API, behind the local server's unchanged authentication middleware. */
+import { strictJson } from "../audit/storage.js";
+/** Versioned inspection and durable control API, behind the local server's unchanged authentication middleware. */
 import type { Hono, Context } from "hono";
 import { dirname, resolve } from "node:path";
 import { readWork } from "./private-state.js";
@@ -18,10 +19,10 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) throw new ControlFailure("invalid_input", "Unknown or duplicate query parameter.", 2);
   };
   const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
-    app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, failed(e)); } });
+    app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); } });
   };
-  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 0, kiln_version: "1.0.0", execution_id: engine.record.executionId,
-    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings"] }));
+  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 1, kiln_version: "1.0.0", execution_id: engine.record.executionId,
+    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status"] }));
   route("status", ["detail"], c => {
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
     const answer = statusProjection(work(), engine, detail === "full");
@@ -48,7 +49,22 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
       const facts = (status.account ?? null) as Record<string, unknown> | null;
       const errors = engine.agents.state.account?.error || engine.agents.state.account?.limitsError || !engine.agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
       return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, errors));
-    } catch (e) { return send(c, failed(e)); }
+    } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); }
   });
-  app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "This inspection release has no durable run-changing command API.", retryable: false, next_command: null, next_argv: null }])));
+  route("commands/:command_id", [], c => engine.refreshCommand(c.req.param("command_id")!));
+  app.post("/api/control/v1/commands", async c => {
+    let commandId: string | null = null;
+    try {
+      const reader = c.req.raw.body?.getReader(); if (!reader) throw new ControlFailure("invalid_input", "A command body is required.", 2);
+      const chunks: Uint8Array[] = []; let size = 0;
+      const timeout = setTimeout(() => { void reader.cancel(); }, 5000);
+      try { for (;;) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > 65536) return c.json(result({}, [errorFact("invalid_input", "Command body exceeds 64 KiB.")]), 413); chunks.push(next.value); } }
+      finally { clearTimeout(timeout); reader.releaseLock(); }
+      let body: unknown; try { body = strictJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new ControlFailure("invalid_input", "A valid UTF-8 JSON command is required.", 2); }
+      if (body && typeof body === "object" && "command_id" in body && typeof body.command_id === "string") commandId = body.command_id;
+      const answer = engine.commands.submit(body);
+      return c.json(answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
+    } catch (error) { return send(c, { ...failed(error), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId!, command_id: commandId }); }
+  });
+  app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "Unknown command API route or unsupported protocol.", retryable: false, next_command: null, next_argv: null }])));
 }

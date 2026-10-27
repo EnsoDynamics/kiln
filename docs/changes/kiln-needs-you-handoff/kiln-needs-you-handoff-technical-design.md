@@ -29,6 +29,8 @@ The independent review is recorded in `a2b1909`, with the sizing handoff pushed 
 
 ## Manual Phase Recovery
 
+Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
+
 ### Applicability and ownership
 
 Expose the new handoff flow only for a stopped implementation activity with a previously started phase session. Use recorded activity/session identity, not the visible phase label: a launched leaf may have split, and the displayed judged leaf can differ from its storage key. Missing resumable history removes both reply and no-reply Resume, while retaining the fresh-session path and Verify. Billing, usage, outside-workspace and Codex recovery facts remain visible with their existing eligibility rules.
@@ -55,6 +57,8 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 
 ## Local Interfaces
 
+Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
+
 Retain loopback binding, Host/Origin/token checks and existing endpoints. Require a target for the affected manual phase requests so a delayed press cannot act on a different stop. Dedicated recovery outside this scope retains its existing request/response contracts.
 
 **PhaseRecoveryTarget:** `{ executionId, phaseKey, sessionId, stoppedAt }`. All fields are required strings from the snapshot. `sessionId` is Kiln’s local session ID, never a provider ID; `phaseKey` identifies the launched activity even after a split. `stoppedAt` identifies the recorded stop, not the latest check time; use the billing hold’s recorded time when it owns the stop. The engine compares all fields with current authoritative state.
@@ -79,6 +83,8 @@ Errors return `{ ok: false, code, reason }` plus current state through the norma
 Preserve the existing note’s text and trimming policy; do not paraphrase it. A nonempty note identifies the direct-reply path; an empty/whitespace-only reply is disabled in the view. Older tabs cannot bypass the phase guard by using the former targetless endpoints: return `stale_target` with reload guidance. Non-phase commands retain their older semantics, including `noteSkipped` where still applicable. The view and server ship in the same package; no second compatibility endpoint is needed.
 
 ### Snapshot and transient data
+
+Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
 
 Extend affected `needsYou` with:
 

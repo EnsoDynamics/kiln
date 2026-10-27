@@ -32,6 +32,7 @@ export class Connection {
     this.source = source;
     source.addEventListener("snapshot", (event) => {
       this.snapshot = JSON.parse((event as MessageEvent<string>).data) as Snapshot;
+      this.config.controlToken = this.snapshot.controlToken;
       this.alive();
     });
     source.addEventListener("output", (event) => {

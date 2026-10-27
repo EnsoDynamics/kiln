@@ -140,7 +140,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.stop).toMatchObject({final_message:browser.finalMessage,checks:browser.checks,resumeCommand:browser.resumeCommand});
     const handoff=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
-    expect(handoff.code).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
+    expect(handoff.code,handoff.stdout).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
     const account=(await command(['account',path,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
     expect(account.next_attempt).toMatchObject({observed_at:h.engine.agents.state.account!.updatedAt,state:'current'});
     const calls=h.claudeCalls().length;await command(['account',path,'--refresh','--json'],h.env,h.sandbox.root);expect(h.claudeCalls()).toHaveLength(calls);
@@ -233,7 +233,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const selected=readWork(stateRoot(sandbox.env),f.directory);selected.record.executionId='different-execution';expect(()=>outputPage(selected,null,{max:1,json:true,cursor:first.next_before as string})).toThrow(/execution/);
     for(const args of [['logs',f.path,'--max-lines','0'],['logs',f.path,'--max-lines','201'],['logs',f.path,'--max-lines','2','--max-lines','3'],['logs',f.path,'--older-output-cursor','invalid']])expect((await command([...args,'--json'])).code).toBe(2);
     rmSync(s.output);expect((await command(['logs',f.path,'--session-id',s.record.sessionId,'--json'])).code).toBe(4);
-    for(const c of ['resume','request-pause'])expect((await command([c,f.path,'--only-if-status-matches','opaque','--command-id','unique','--json'])).code).toBe(3);
+    for(const c of ['resume','request-pause'])expect((await command([c,f.path,'--only-if-status-matches','opaque','--command-id','unique','--json'])).code).toBe(4); // A disconnected controller cannot admit controls.
     expect(existsSync('/tmp/no')).toBe(false);
   });
   it('authenticates two live repositories and rechecks identity rather than trusting ports; preserves token/Host/Origin restrictions',async()=>{
@@ -257,7 +257,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect((await fetch(origin+'/api/control/v1/capabilities')).status).toBe(403);
     expect((await fetch(origin+'/api/control/v1/account/refresh',{method:'POST',headers})).status).toBe(403);
     expect(await new Promise(resolve=>{const req=httpRequest({host:'127.0.0.1',port,path:'/api/control/v1/status',headers:{...headers,Host:'evil.example'}},res=>{res.resume();resolve(res.statusCode)});req.end()})).toBe(403);
-    const status=await command(['status',join(h.repository,`docs/prds/${FOLDER}`),'--detail','full','--json'],h.env,h.sandbox.root);expect(status.code).toBe(0);expect(status.stdout).not.toContain(h.engine.record.token);expect((status.json().controls as {available:boolean}[]).every(c=>!c.available)).toBe(true);
+    const status=await command(['status',join(h.repository,`docs/prds/${FOLDER}`),'--detail','full','--json'],h.env,h.sandbox.root);expect(status.code).toBe(0);expect(status.stdout).not.toContain(h.engine.record.token);expect(status.json().status_token).toEqual(expect.any(String));expect((status.json().controls as {name:string;available:boolean}[]).find(c=>c.name==='settings')?.available).toBe(true);
     const original=h.engine.record.executionId!;h.engine.record.executionId='replaced';expect((await command(['status','--json'],h.env)).code).toBe(4);h.engine.record.executionId=original;
     await server.close();server=undefined;
     expect((await command(['status','--json'],h.env)).code).toBe(4); // process still live but no matching controller
