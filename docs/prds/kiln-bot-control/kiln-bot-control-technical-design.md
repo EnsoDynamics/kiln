@@ -61,7 +61,7 @@ A read can inspect retained work after the document/worktree disappears: normali
 
 Add authenticated `GET /api/control/v1/capabilities`, returning `{ protocol_major: 1, protocol_minor, kiln_version, execution_id, prd_path, instance: { pid, process_start_time }, features }`. An older controller's 404, unknown/newer major, mismatched identity or unsupported saved schema yields an explicit incompatible/unavailable row and exit 4. Never try its legacy mutation routes. Compatible readers tolerate additional optional response fields, refuse unknown mutation kinds and never interpret unknown states as eligible.
 
-New controller startup upgrades saved records under the existing exclusive PRD lock. CLI reads use pure versioned projections; the existing migration-writing read path must not be used for inventory. Older readers already reject newer PRD schemas. The implementation chooses the next available schema version after integrating concurrent billing work, rather than reserving a conflicting integer here.
+New controller startup upgrades saved records under the existing exclusive PRD lock. CLI reads use pure versioned projections; the existing migration-writing read path must not be used for inventory. The implementation chooses the next available schema version after integrating concurrent billing work, rather than reserving a conflicting integer here.
 
 ## CLI and Help Contracts
 
