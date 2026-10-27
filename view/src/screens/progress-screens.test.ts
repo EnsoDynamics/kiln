@@ -195,10 +195,10 @@ describe("Paused before the pull request (UI-008)", () => {
 describe("a Needs you stop seen while disconnected (UI-006)", () => {
   it("uses the Disconnected progress layout: the header, the banner, the plan with the stopped phase, and the settings", () => {
     const words = text(running(needsYouMessageSnapshot(), false));
-    expect(words).toContain("Customer returns Needs you Phase 2b · Store credit · Stopped 11:52 AM Kiln isn’t running");
-    expect(words).toContain("This page shows what Kiln last saw, at 11:47 AM, in phase 2b. Its work is kept.");
+    expect(words).toContain("Customer returns Needs you Phase 2b · Store credit · Stopped 11:52 AM Connection to Kiln lost");
+    expect(words).toContain("Last-known state, observed at 11:47 AM, in phase 2b. Work may still be running. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal.");
     expect(words).toContain("2b Store credit phase-2b-store-credit.md Needs you");
-    expect(words).toContain("Settings can be changed again once Kiln is running.");
+    expect(words).toContain("Reconnect to Kiln before changing settings.");
     for (const absent of ["Now implementing", "Last seen ·", "Claude account", "Pause Kiln", "Check again"]) expect(words).not.toContain(absent);
   });
 });
@@ -227,16 +227,16 @@ describe("Needs you says nothing of its own about why (AC-STOP-04, AC-STOP-02)",
 
 describe("the disconnected view on every screen (AC-VIEW-07)", () => {
   const lastSeenAt = RUNNING_NOW - 5 * 60_000;
-  const banner = "Kiln isn’t running Nothing is being worked on. This page shows what Kiln last saw, at 11:42 AM.";
-  const pickUp = "To pick up where it left off, run this in a terminal: kiln run docs/prds/customer-returns/";
-  const kilnPanel = "Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again.";
+  const banner = "Connection to Kiln lost Last-known state, observed at 11:42 AM.";
+  const reconnect = "Work may still be running. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal.";
+  const kilnPanel = "Kiln Disconnected The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting.";
 
-  it("says plainly on Paused and Complete that nothing is running, how to pick up, and shows Kiln as disconnected", () => {
+  it("labels Paused and Complete as last-known information and requires reconnection", () => {
     for (const words of [
       text(strip(render(Paused, { props: { snapshot: pausedSnapshot(), connected: false, now: RUNNING_NOW, lastSeenAt } }).body)),
       text(strip(render(Complete, { props: { snapshot: completeSnapshot(), connected: false, now: RUNNING_NOW, lastSeenAt } }).body)),
     ]) {
-      expect(words).toContain(`${banner} Its work is kept. ${pickUp}`);
+      expect(words).toContain(`${banner} ${reconnect}`);
       expect(words).toContain(kilnPanel);
       expect(words).not.toContain("Kiln Connected");
     }
@@ -244,7 +244,7 @@ describe("the disconnected view on every screen (AC-VIEW-07)", () => {
 
   it("says so on Documents found too, without claiming any work is kept, since none has started", () => {
     const words = text(strip(render(DocumentsFound, { props: { snapshot: documentsFoundSnapshot(), config: { token: "t", base: "/customer-returns" }, connected: false, now: RUNNING_NOW, lastSeenAt } }).body));
-    expect(words).toContain(`${banner} ${pickUp}`);
+    expect(words).toContain(`${banner} ${reconnect}`);
     expect(words).not.toContain("Its work is kept.");
   });
 });
@@ -296,8 +296,8 @@ describe("Running's current-phase panel and phase plan (AC-WATCH-03, AC-WATCH-01
   it("stops an interrupted phase's time when the view lost Kiln, however long ago that was", () => {
     const lostAt = RUNNING_NOW;
     const later = (minutes: number) => text(strip(render(Running, { props: { snapshot: runningSnapshot(), connected: false, now: RUNNING_NOW + minutes * 60_000, lastSeenAt: lostAt } }).body));
-    expect(later(0)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
-    expect(later(90)).toContain("2b Store credit phase-2b-store-credit.md 49m Interrupted");
+    expect(later(0)).toContain("2b Store credit phase-2b-store-credit.md 49m Last known: Implementing");
+    expect(later(90)).toContain("2b Store credit phase-2b-store-credit.md 49m Last known: Implementing");
   });
 });
 

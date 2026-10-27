@@ -507,6 +507,8 @@ All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local 
 
 **Connection (AC-VIEW-04, AC-VIEW-07).** The view shows "updated <n>s ago" from the last event. On a stream error, or no heartbeat for 15 seconds, it shows Disconnected and keeps the last snapshot on screen, with a phase that was Implementing shown as Interrupted (AC-WATCH-01, AC-WATCH-02). `EventSource` keeps retrying; when `kiln run` is back on the same address, the first `snapshot` restores the live view.
 
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (last-known disconnected presentation and reconnect guidance; transport loss does not establish process exit or enable terminal recovery).
+
 While disconnected, every screen renders from that last snapshot by the rules the Disconnected mockup applies to Running:
 
 - **Header and layout.** Each screen keeps its header and layout, except that Implementing phase <n> becomes Interrupted in phase <n>. Not started (Documents found), Paused and PR ready for review stay as they are. Needs you switches to the Disconnected progress layout (UI-006): the Needs you header with the stopped phase and time, no current-phase panel, the plan with that phase's row in Needs you, and the settings.
@@ -516,6 +518,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the view no longer derives interruption from transport loss).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
 

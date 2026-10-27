@@ -50,7 +50,7 @@
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
   <DevelopmentDelivery {snapshot} {connected} {config} />
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}
     <section class="pr">
       <div class="which"><Icon name="pull-request" size={20} strokeWidth={1.6} /><span class="mono number">{pullRequests.length} {pullRequests.length === 1 ? "pull request" : "pull requests"}</span><span class="dot" aria-hidden="true">·</span><span class="mono branches">{snapshot.settings.featureBranch}</span></div>

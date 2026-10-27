@@ -86,7 +86,7 @@
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
-  <p>Resolve it here or in your terminal. Then choose who finishes the phase.</p>
+  <p>Resolve it here or in your terminal. Then choose who finishes {activity}.</p>
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
       <span class="eyebrow">Last message from {agent}</span>
@@ -114,7 +114,7 @@
   {#if savedUnsent.length}
     <section class="card" aria-label="Preserved unsent replies">
       <h2>Replies that were not sent</h2>
-      <p>These replies were preserved because the phase was already complete. Advancing will leave them unsent.</p>
+      <p>These replies were preserved because {activity} was already complete. Advancing will leave them unsent.</p>
       {#each savedUnsent as reply (reply.id)}<pre>{reply.text}</pre>{/each}
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
@@ -177,14 +177,14 @@
           {#if stop.resumeOffered}
             <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in {activity}. You don’t need to repeat your answer.</p>
             <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume {activity} in Kiln</button>
-            <p class="hint">The phase can still be open, with uncommitted or unpushed work. Kiln finishes this phase before following the rest of the plan.</p>
-          {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish the phase, then verify it.</p>{/if}
+            <p class="hint">{activity} can still be unfinished, with uncommitted or unpushed work. Kiln finishes {activity} before following the rest of the plan.</p>
+          {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {activity}, then verify it.</p>{/if}
         </section>
         <section class="finished">
           <h3>I finished the entire activity myself.</h3>
           <p>Check that {activity} is complete, then move to the next step in the plan.</p>
           <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
-          <ul class="checks" aria-label="Phase completion requirements" aria-busy={!!stop.checking}>
+          <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
             {#each stop.checks as check (check.name)}
               <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? "Passed" : "Not yet"}</span></div>{#each check.facts as fact, index (index)}<p>{fact}</p>{/each}</li>
             {/each}

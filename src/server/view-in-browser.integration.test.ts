@@ -235,6 +235,20 @@ const USE_VIEW_FONTS = `(async () => {
 // Codex support AC-AGENT-01/MODEL-02 change these exact controls. Adapt the
 // earlier reference before measuring; all unaffected boxes still use the original layout.
 const WITH_AGENT_METADATA = `(() => {
+  // AC-LIVE-02 replaces transport-loss claims in the earlier disconnected reference.
+  // Adapt only that copy/command region; continue comparing every unaffected text box.
+  const disconnected = document.querySelector('[aria-labelledby="disc-h"]');
+  if (disconnected) {
+    disconnected.querySelector('h2').textContent = 'Connection to Kiln lost';
+    disconnected.querySelector('p').textContent = 'Last-known state, observed at 11:47 AM, in phase 2b. Work may still be running. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal.';
+    disconnected.lastElementChild.remove();
+    for (const node of document.querySelectorAll('span')) {
+      if (node.textContent === 'Interrupted in phase 2b') node.textContent = 'Last known: phase 2b';
+      if (node.textContent === 'Interrupted') node.textContent = 'Last known: Implementing';
+      if (node.textContent === 'Settings can be changed again once Kiln is running.') node.textContent = 'Reconnect to Kiln before changing settings.';
+    }
+    document.querySelector('[aria-labelledby="kiln-h"] p').textContent = 'The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting.';
+  }
   // AC-LIVE-01 replaces only this live-output link label; retain its existing layout.
   const liveLink = [...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'Watch live');
   if (liveLink) liveLink.firstChild.textContent = 'Control live session';
@@ -671,7 +685,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
 });
 
 describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
-  it("says plainly it is disconnected, keeps the last snapshot with the phase shown as Interrupted, and restores the live view when Kiln returns", async () => {
+  it("says plainly it is disconnected, keeps the last snapshot with the phase labeled last known, and restores the live view when Kiln returns", async () => {
     const thePort = await nextPort();
     let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
@@ -683,12 +697,12 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
       expect(lost).toMatch(/Disconnected from Kiln · last seen 11:4\d AM/i);
-      expect(lost).toContain(flat("Interrupted in phase 2b 2 of 5 phases done"));
-      expect(lost).toMatch(/Kiln isn’t running Nothing is being worked on\. This page shows what Kiln last saw, at 11:4\d AM, in phase 2b\. Its work is kept\. To pick up where it left off, run this in a terminal: kiln run docs\/prds\/customer-returns\/ Copy command/i);
+      expect(lost).toContain(flat("Last known: phase 2b 2 of 5 phases done"));
+      expect(lost).toMatch(/Connection to Kiln lost Last-known state, observed at 11:4\d AM, in phase 2b\. Work may still be running\. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal\./i);
       expect(lost).toContain(flat("Last seen · phase 2b of 5 Store credit"));
-      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md 49m Interrupted"));
-      expect(lost).toContain(flat("Settings for this PRD Settings can be changed again once Kiln is running."));
-      expect(lost).toContain(flat("Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again."));
+      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md 49m Last known: Implementing"));
+      expect(lost).toContain(flat("Settings for this PRD Reconnect to Kiln before changing settings."));
+      expect(lost).toContain(flat("Kiln Disconnected The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting."));
       expect(await largestText(page)).toBe("Customer returns");
       // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
       expect(lost).not.toContain(flat("When should Kiln pause?"));
@@ -702,14 +716,14 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       const back = await words(page);
       expect(back).toContain(flat("Implementing phase 2b"));
       expect(back).toContain(flat("When should Kiln pause?"));
-      expect(back).not.toContain(flat("Kiln isn’t running"));
+      expect(back).not.toContain(flat("Connection to Kiln lost"));
     } finally {
       await page.close();
       await server.close();
     }
   });
 
-  it("shows a waiting phase as Interrupted in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
+  it("shows a waiting phase as last known in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
     const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: waitingSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: USAGE_LIMIT_NOW, timeZone: TIME_ZONE });
     try {
@@ -717,10 +731,10 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
-      expect(lost).toContain(flat("Interrupted in phase 2b"));
-      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
-      expect(lost).toMatch(/2b store credit phase-2b-store-credit\.md [\dhm ]+ interrupted/);
-      expect(lost).not.toContain(flat("Waiting for usage"));
+      expect(lost).toContain(flat("Last known: phase 2b"));
+      expect(lost).toContain(flat("Connection to Kiln lost"));
+      expect(lost).toMatch(/2b store credit phase-2b-store-credit\.md [\dhm ]+ last known: waiting for usage/);
+      expect(lost).toContain(flat("Last known: Waiting for usage"));
       expect(lost).not.toContain(flat("Resume now"));
     } finally {
       await page.close();
@@ -738,7 +752,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
-      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
+      expect(lost).toContain(flat("Connection to Kiln lost"));
       expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md Needs you"));
       expect(lost).not.toContain(flat("Check again"));
       expect(lost).not.toContain(flat("Pick it up yourself"));
@@ -747,7 +761,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
       const back = await words(page);
       expect(back).toContain(flat("Check again"));
-      expect(back).not.toContain(flat("Kiln isn’t running"));
+      expect(back).not.toContain(flat("Connection to Kiln lost"));
     } finally {
       await page.close();
       await server.close();
@@ -766,7 +780,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const text = await words(page);
-      expect(text).toContain(flat("All phases 2b Store credit Interrupted"));
+      expect(text).toContain(flat("All phases 2b Store credit Last known: Implementing"));
       expect(text).toContain(flat("23 passed in 4.81s"));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
       expect(text).not.toContain(flat("Load earlier"));
@@ -1497,7 +1511,7 @@ describe("the look (AC-LOOK-04)", () => {
       // Green: done and connected.
       expect(await style("[data-phase='1'] .pill", "color")).toBe("rgb(156, 196, 154)");
       expect(await style(".dot.connected", "backgroundColor")).toBe("rgb(156, 196, 154)");
-      // Amber, once Kiln is gone: the disconnected Kiln and the phase it was working on, now Interrupted.
+      // Amber, once Kiln is gone: the disconnected Kiln and the last-known phase it was working on.
       await running.server.close();
       await running.page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`);
       expect(await style(".lost", "color")).toBe(AMBER);
@@ -1554,7 +1568,7 @@ describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
       const connectedAt = Date.now();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 25_000);
       expect(Date.now() - connectedAt).toBeGreaterThan(12_000);
-      expect(await words(page)).toContain(flat("Interrupted in phase 2b"));
+      expect(await words(page)).toContain(flat("Last known: phase 2b"));
     } finally {
       await page.close();
       await server.close();

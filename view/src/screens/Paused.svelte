@@ -36,7 +36,7 @@
 
 <main class="page-main">
   <StateHeader {snapshot} {connected} now={connected ? now : (lastSeenAt ?? now)} />
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   <section class="held" aria-labelledby="now-h">
     <div class="words">
       <span class="eyebrow">{after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>

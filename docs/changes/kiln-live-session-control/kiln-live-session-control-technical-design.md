@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** The three original implementation phases closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` found two browser presentation gaps; [Phase 4](phase-4-live-control-state-copy.md) completes the existing connection and activity-naming contracts below. The runtime design and Phase 3 verification portfolio remain unchanged. Repeat whole-PRD delivery audit after Phase 4, then test audit when delivery is clean.
+**Status:** The three original implementation phases were published on 2026-10-27. [Phase 4](phase-4-live-control-state-copy.md) is closed locally and completes the presentation gaps from the audit at `d7c59a2`; current-build full verification and package checks pass. Its publication is held. The runtime design and historical Phase 3 verification limits remain unchanged. Repeat whole-PRD delivery audit after publication, then test audit when delivery is clean.
 
 ## Overview
 
@@ -174,6 +174,10 @@ Errors use `{ ok: false, code, reason, instructionId?, observedAt, remedy }`: `4
 ### Snapshot and browser
 
 Add `liveControl` with target, activity label/round/provider, observed time, input state/reason, action availability, latest receipt summaries/unresolved IDs, takeover progress/reason, terminal readiness/observation, and independently requested deferred pause. Full texts/history are paged rather than copied into every SSE update. Capability projection is provider-specific and cannot infer live safety from a historical schema upgrade or the presence of a writable input pipe. Preserve the normal phase/activity/session facts. Disconnected views label last-known observation times and disable all mutations.
+
+Browser transport loss alone does not establish controller or provider exit. The shared banner, activity header/rows, session detail and Kiln panel retain last-known information with reconnect guidance; they do not claim interruption, stopped work or terminal readiness, or offer a restart command on that evidence. Existing completed/stopped facts stay dated facts. Reconnecting restores current state and the exact-attempt draft through the existing connection flow.
+
+Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Connection and §Snapshot, and `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Snapshot and §Screens (disconnected presentation only; transport error/heartbeat detection, retry and state-specific recovery authority remain).
 
 The running overview links **Control live session** to the current session. Detail order is output, **Message Claude**, **When should Kiln pause?**, then progress/session facts. Both pause choices remain visible together: **Take over this session — At the next safe stopping point**, and **Let {actual activity} finish first — After the whole phase/audit**. Use all timing/consequence text from AC-LIVE-03 and the approved mockup. Narrow layout preserves composer, takeover, deferred-pause order.
 

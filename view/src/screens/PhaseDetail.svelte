@@ -55,13 +55,13 @@
 
 <main class="page-main detail-page">
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} {now} />{/if}
   <section class="phase">
     <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
       <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{row?.title ?? ""}</h2>
-      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Interrupted</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">Done</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
+      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">Done</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>

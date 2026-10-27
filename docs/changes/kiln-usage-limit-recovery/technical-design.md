@@ -161,6 +161,8 @@ Every new route carries v1's Host, Origin and token checks.
 
 ### Snapshot
 
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (disconnected waiting facts are labeled last known; transport loss alone is not interruption evidence).
+
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Local Interfaces (manual implementation-phase evidence and recovery target).
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Interfaces and Records → Local API and snapshot changes (Codex session facts; Claude behavior retained).
@@ -212,6 +214,8 @@ SessionRecord (schema 3):
 `wait.run` is the index of the refused run. The account shown on both screens is never stored: it is the reading Kiln holds in memory, so a reading from before a restart is never shown as current. **Migration from schema 2**, on read: `resumeAfterUsageLimit: true`; nothing else, since no record before this change holds a wait or a refusal. A v1 record is migrated to 2, then to 3.
 
 ## Screens
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (disconnected waiting facts are labeled last known; transport loss alone is not interruption evidence).
 
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Needs you Layout (implementation-phase Needs you arrangement).
 

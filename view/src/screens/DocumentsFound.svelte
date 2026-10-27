@@ -110,7 +110,7 @@
     <span class="pill">Not started</span>
     <span class="lead">Review what Kiln found and how it will deliver, then start.</span>
   </FeatureHeader>
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept={false} prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
 
   <div class="columns">
     <section class="panel found" aria-labelledby="found-h">

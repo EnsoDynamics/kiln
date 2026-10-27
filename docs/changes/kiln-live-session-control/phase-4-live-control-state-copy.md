@@ -1,5 +1,7 @@
 # Phase 4: Complete live connection and audit return wording
 
+**Closed:** 2026-10-27
+
 **Added by delivery audit:** 2026-10-27, after all three planned implementation phases closed. Completes the two presentation gaps confirmed against `d7c59a2`.
 
 **Parent PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md)
@@ -32,3 +34,24 @@ No later-built criterion supersedes either requirement. Kiln v1 AC-VIEW-07 condi
 One bounded browser presentation slice; keep both gaps together. Prove each whole criterion, including the existing availability and hand-back safeguards, rather than only replacing the cited strings. Use built browser checks for transport loss while the controller/attempt remains alive, reconnect and retained drafts, plus delivery-audit and test-audit return with their actual rounds. Preserve ordinary phase recovery and the existing provider/process-release boundary. This phase adds no runtime capability, permission, universal ownership guarantee or new business rule.
 
 After closure, obtain a fresh whole-PRD delivery audit, then the whole-PRD test audit only when delivery is clean. The Phase 3 leaf's Verification run details remain the source for the inherited full-run/focused-retest limits; this audit did not rerun or grade those tests.
+
+## Implementation and acceptance evidence
+
+Transport loss now labels retained information as last known across the shared banner, activity header/rows, session detail, settings and Kiln panel. The browser offers reconnect guidance without claiming controller/provider exit or suggesting that an unobserved attempt is released. Existing connection detection, disabled mutations and exact-attempt draft storage are unchanged. The terminal return introduction, preserved-reply explanation, Resume/unavailable guidance and accessible completion list use the same actual activity label as its action buttons.
+
+| Criterion | Current evidence |
+|---|---|
+| AC-LIVE-02 | `src/server/live-connection-browser.integration.test.ts`: built Chrome at 1200px/390px, real assembled controller and a scripted provider subprocess, with only the browser SSE transport broken by a loopback proxy. It proves the attempt stays alive, retained output/state/time, disabled Send/takeover/deferred pause, no false stopped/released claim or restart command, exact draft retention and reconnect without a second attempt. `live-control-browser.integration.test.ts` adds Codex's Claude-only explanation, absent composer, disabled takeover and working deferred pause. Existing `live-message-browser.integration.test.ts`, `view-in-browser.integration.test.ts`, live engine suites and bot command tests retain pending-send/input-loss, heartbeat, historical, waiting/stopped/completed and recovery-state evidence. |
+| AC-BACK-01 | `src/server/live-control-browser.integration.test.ts`: delivery audit Round 3 and test audit Round 2 at 1200px/390px, checking actual activity wording throughout return, preserved replies, unavailable recovery and accessible completion labels, plus exit-first/requirements/no-special-phrase guidance. Existing `phase-handoff-browser.integration.test.ts`, `phase-handoff.integration.test.ts` and `live/takeover.integration.test.ts` retain ordinary phase/Codex recovery, stopped reply versus no-message Resume, same-conversation audit rounds, explicit already-complete choice, release/ownership and uncertain-message safeguards. |
+
+The network/provider-event fixtures prove the changed presentation, not a new provider qualification or universal ownership guarantee. Earlier real-provider proof remains governed by Phases 1–3 and the technical design. Independent deliverable review found no remaining product gap. Test hardening added the missing Codex availability case; both criteria's scoped evidence is adequate. No new business assumption was introduced.
+
+## Publication and successor
+
+Doug authorized the Phase 4 implementation launch in Codex chat `01a17f2a-6ba2-7cf2-9f5e-aaa2a49c6f46`: “Go ahead and push the audit commit, then launch the Phase 4 implementation chat.” That audit publication and launch are complete. This phase uses the implement chain's scoped commit default; its publication, production changes and messages to other chats remain unauthorized. After authorized publication, the next unit is a fresh whole-PRD delivery audit, then test audit only after delivery is clean. Bot-control and plan-continuation remain separate tracks.
+
+## Repository validation
+
+Validation uses a fresh build after the concurrent bot-control publication at `6ced34a`. Dependency audit, ESLint, TypeScript/Svelte checks, all 624 unit tests, all 17 Codex contract proofs and all 7 installed-package checks pass. The earlier broad invocation crossed that publication and loaded mixed baselines; it is not claimed as the final current-build gate. The stale disconnected-detail expectation found during that invocation was corrected to the required last-known wording, retaining its output and disabled-control checks.
+
+The fresh complete integration invocation passed all 74 files: **856 passed, 2 platform skips**, 858 cases, in **848.48 seconds**. Runtime/test source hashes remained unchanged during that invocation. The built-browser portfolio covers 22 focused cases across live-control, transport loss, messaging and ordinary terminal hand-back; the complete run includes the added Codex availability case. This is a green complete current-build run, without reclassifying Phase 3's historical full-run/focused-retest portfolio. No application timeout or safety assertion was weakened.

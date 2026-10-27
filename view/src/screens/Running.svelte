@@ -5,7 +5,7 @@
   // AC-WATCH-01 to 08, AC-VIEW-03). Once the view has lost Kiln it becomes the Disconnected
   // screen (kiln-screen-disconnected.html), and a Needs you stop seen while disconnected shows
   // this layout with no current-phase panel (UI-006; technical design, "Connection"), as does a
-  // wait for usage, its phase Interrupted (usage-limit recovery AC-LIMIT-04).
+  // wait for usage, its phase labeled last known (live-session control AC-LIVE-02).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import AccountPanel from "../components/AccountPanel.svelte";
   import CurrentPhase from "../components/CurrentPhase.svelte";
@@ -28,7 +28,7 @@
 <main class="page-main">
   <StateHeader {snapshot} {connected} now={shownNow} />
   {#if !connected && lastSeenAt !== undefined}
-    <DisconnectedBanner {lastSeenAt} phaseClause={phaseInView === undefined ? undefined : phaseName(phaseInView, snapshot)} workKept prdFolder={snapshot.feature.prdFolder} {now} />
+    <DisconnectedBanner {lastSeenAt} phaseClause={phaseInView === undefined ? undefined : phaseName(phaseInView, snapshot)} {now} />
   {/if}
   {#if snapshot.current}<CurrentPhase {snapshot} {connected} now={shownNow} />{/if}
   <div class="columns-main">

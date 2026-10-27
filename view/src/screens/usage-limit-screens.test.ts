@@ -200,12 +200,12 @@ describe("a wait on the other screens", () => {
     expect(words).toContain("Commits None for this phase.");
   });
 
-  it("shows a waiting phase as Interrupted once the view has lost Kiln, as for Implementing (AC-LIMIT-04)", () => {
+  it("shows a waiting phase as last known once the view has lost Kiln, as for Implementing (AC-LIMIT-04)", () => {
     const words = text(strip(render(Running, { props: { snapshot: waitingSnapshot(), connected: false, now: USAGE_LIMIT_NOW, lastSeenAt: USAGE_LIMIT_NOW } }).body));
-    expect(words).toContain("Customer returns Interrupted in phase 2b 2 of 5 phases done Kiln isn’t running");
-    expect(words).toContain("This page shows what Kiln last saw, at 2:28 PM, in phase 2b. Its work is kept.");
-    expect(words).toContain("2b Store credit phase-2b-store-credit.md 3h 30m Interrupted");
-    expect(words).not.toContain("Waiting for usage");
+    expect(words).toContain("Customer returns Last known: phase 2b 2 of 5 phases done Connection to Kiln lost");
+    expect(words).toContain("Last-known state, observed at 2:28 PM, in phase 2b. Work may still be running. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal.");
+    expect(words).toContain("2b Store credit phase-2b-store-credit.md 3h 30m Last known: Waiting for usage");
+    expect(words).not.toContain("Resume now");
   });
 });
 

@@ -1,8 +1,7 @@
 // What the progress screens say, worked out from the snapshot: the header's state (PRD
 // AC-WATCH-02), how a phase is named (AC-PR-05), each plan row's facts (AC-WATCH-01), and the
 // Needs you screen's copy for every kind of stop (AC-STOP-02, AC-STOP-03; assumptions UI-007).
-// The view derives "Interrupted" itself: Kiln is never running while a phase is interrupted, so
-// a snapshot never says it (technical design, "Snapshot").
+// A disconnected view retains last-known activity facts; transport loss is not interruption evidence.
 
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
@@ -41,8 +40,8 @@ export type HeaderKind = "implementing" | "interrupted" | "paused" | "needs_you"
 
 /**
  * The pill under the feature name and the facts beside it (AC-WATCH-02). A wait reads Waiting
- * for usage, and once the view has lost Kiln, Interrupted, as Implementing does (usage-limit
- * recovery AC-LIMIT-04).
+ * for usage. Disconnected views label it last known without asserting the work stopped
+ * (live-session control AC-LIVE-02).
  */
 export function headerState(snapshot: Snapshot, connected: boolean, now: Date): { kind: HeaderKind; label: string; facts: string[] } {
   const { feature } = snapshot;
@@ -56,7 +55,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
     }
     case "waiting": {
-      if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
+      if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
       const waiting = snapshot.waiting!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === waiting.phaseId);
       const which = waiting.phaseId.startsWith("audit-") ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
@@ -71,7 +70,7 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
       return { kind: "complete", label: snapshot.developmentDelivery?.authorization.enabled ? (snapshot.developmentDelivery.repositoryResults.some(one => one.state === "mixed") || snapshot.developmentDelivery.repositoryResults.some(one => one.state === "delivered") && snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Development delivered; review remaining" : snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Ready for review" : "Development delivered") : snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
     }
     default:
-      if (!connected) return { kind: "interrupted", label: `Interrupted in ${phaseName(current ?? "")}`, facts: [done] };
+      if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
       return { kind: "implementing", label: current?.startsWith("audit-") ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
 }
@@ -79,8 +78,8 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
 export type RowState = PhaseView["state"] | "interrupted";
 
 /**
- * A row's state as drawn: an Implementing phase shows as Interrupted once the view has lost Kiln
- * (AC-WATCH-01), and so does a waiting one (usage-limit recovery AC-LIMIT-04).
+ * The interrupted visual tone marks a stale row while disconnected. Its words retain the
+ * last-known state rather than claiming the attempt stopped (AC-LIVE-02).
  */
 export function rowState(row: PhaseView, connected: boolean): RowState {
   return (row.state === "implementing" || row.state === "waiting") && !connected ? "interrupted" : row.state;
@@ -109,7 +108,7 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
     case "implementing":
       return row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
     case "interrupted":
-      return "Interrupted";
+      return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
     case "needs_you":
       return "Needs you";
     case "waiting":
