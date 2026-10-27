@@ -52,6 +52,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # Bound a stalled native test run without shortening individual test deadlines.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 45 || 10 }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
