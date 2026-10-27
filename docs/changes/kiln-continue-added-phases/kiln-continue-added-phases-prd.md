@@ -10,9 +10,9 @@ When the run is still underway and the person takes over an agent session, phase
 
 Stakeholder feedback can change assumptions after a feature has shipped. A separate Claude Code or Codex session then amends the requirements and writes additional phases. Today a recorded completion can take Kiln straight back to Complete, while its plan reader uses the earlier worktree. New documents in the shared checkout can therefore be absent from the page.
 
-The motivating example is `pricing`, `docs/prds/competitive-pricing-national-brand/`: the supplied screenshot shows seven completed phases and “Already merged.” The current local plan, inspected on 2026-10-27, adds phases 9–15 and says phase 8 was completed separately on another branch. Phase 9 explicitly includes integrating that work as its first step, with recorded authorization. There are seven new unfinished phases, not necessarily eight because the highest number is 15. Kiln must discover real work and its prerequisites, rather than infer it from the highest phase number.
+The fictional **Comet Library** example uses repository `comet-library` and `docs/prds/library-catalog/`. Seven phases were delivered, phase 8 was completed separately, and phases 9–15 add catalog and lending features. Phase 9 explicitly includes integrating phase 8 as its first step, with applicable authorization. There are seven new unfinished phases, not eight just because the highest number is 15. Kiln must discover real work and its prerequisites, rather than infer it from the highest phase number.
 
-Source: Doug's request in chat `01a17c67-4f1d-7950-aa77-f1e682aeeec8`, the attached completed-run screenshot, and the pricing phase plan. Current-behavior references: `src/engine/engine.ts` (`prepare`, `decideQuietly`, `readPlan`) and `src/engine/plan-reading.ts` (`nextLeaf`, `recordedPlan`).
+All project names, phase titles, branches and sample revisions in this example are invented. Current-behavior references within Kiln: `src/engine/engine.ts` (`prepare`, `decideQuietly`, `readPlan`) and `src/engine/plan-reading.ts` (`nextLeaf`, `recordedPlan`).
 
 ## Acceptance Criteria
 
@@ -76,7 +76,7 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | Plan found | Result |
 |---|---|
 | Seven finished phases plus eight new unfinished phases, all prerequisites present | “8 new phases found”; Continue with 8 phases. |
-| Pricing’s phases 9–15 present; phase 9 includes authorized integration of available phase 8 work | “7 new phases found”; Continue with 7 phases starts phase 9’s preparation. Phase 8 is shown as awaiting integration until that work is verified. |
+| Comet Library’s phases 9–15 present; phase 9 includes authorized integration of available phase 8 work | “7 new phases found”; Continue with 7 phases starts phase 9’s preparation. Phase 8 is shown as awaiting integration until that work is verified. |
 | The phase 8 source cannot be accessed, or required preparation is not authorized | “7 new phases found”; explain the blocker, with continuation unavailable until resolved. |
 | Phase 8 subsequently integrated and verified complete; phases 9–15 unfinished | “7 new phases found”; eight completed, fifteen total; Continue with 7 phases, beginning at phase 9. |
 | Added phases saved locally but not committed in the delivery base | Show the additions as not ready and identify which documents must be committed/integrated. |
@@ -91,14 +91,14 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | Preview state | What it illustrates |
 |---|---|
 | Return from manual session | An unfinished run accepts newly added work and automatically continues after the current phase passes; AC-HANDBACK-01/02/03/04. |
-| New phases | Pricing’s ready-to-prepare scenario, with phase 9 integrating phase 8; AC-FIND-03, AC-OFFER-01/02. |
+| New phases | Comet Library’s ready-to-prepare scenario, with phase 9 integrating phase 8; AC-FIND-03, AC-OFFER-01/02. |
 | Missing prerequisite | Illustrative unavailable phase 8 source; AC-CONTINUE-02. |
 | Permission required | A planned delivery-base integration needs the existing target grant; authorizing updates readiness but work still waits for Continue; AC-CONTINUE-04. |
 | Continuing | Phase 9 active with the earlier delivery preserved; AC-CONTINUE-01/04/05. |
 | No new work | The completed view after an unchanged-plan check; AC-OFFER-02. |
 | Check failed | A failed source read with prior results labelled; AC-FIND-04. |
 
-The ready and continuing scenarios assume the documented preparation source and authority have been checked; they are proposed future states, not claims about current pricing readiness. The mock-up uses real phase titles, with simulated check times and execution state. Preview controls are not product controls.
+The ready and continuing scenarios assume the documented preparation source and authority have been checked. Every project detail and phase title is fictional; check times and execution state are simulated. Preview controls are not product controls.
 
 ## Assumptions
 
