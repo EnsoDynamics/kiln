@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** The three original implementation phases were published on 2026-10-27. [Phase 4](phase-4-live-control-state-copy.md) is closed locally, completing the presentation gaps from the delivery audit at `d7c59a2`; its current-build full verification and package checks pass. Phase 4 publication is held. A fresh whole-PRD delivery audit is next, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** The three original implementation phases were published on 2026-10-27. [Phase 4](phase-4-live-control-state-copy.md) is closed and published as `731c591`, completing the presentation gaps from the delivery audit at `d7c59a2`; its current-build full verification and package checks pass. Doug authorized a fresh whole-PRD delivery-audit launch, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Next: fresh whole-PRD delivery audit
 
-The [prior whole-PRD delivery audit](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit--2026-10-27) found two partly implemented presentation requirements. [Phase 4](phase-4-live-control-state-copy.md) completes them. After authorized publication, obtain a fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) retain the publication approval and full-run/focused-retest limits. Implementation closure is not a clean whole-PRD audit or production-release claim.
+The [prior whole-PRD delivery audit](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit--2026-10-27) found two partly implemented presentation requirements. [Phase 4](phase-4-live-control-state-copy.md) completes them. Obtain the authorized fresh whole-PRD `delivery-audit`, then `test-audit` only when delivery is clean. Phase 3's [publication and verification notes](phase-3-bot-live-controls.md#publication-and-successor) retain the publication approval and full-run/focused-retest limits. Implementation closure is not a clean whole-PRD audit or production-release claim.
 
 ## Out of scope
 

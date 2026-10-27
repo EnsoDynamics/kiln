@@ -11,7 +11,7 @@ Build and verify each phase in this order before starting the next. The three or
 | [1: Safe terminal takeover and return](phase-1-safe-takeover-return.md) — **closed 2026-10-27** | Pause a Claude phase or audit at a safe completed operation, release it for terminal use and hand it back through the browser's existing recovery flow. | None; uses the already implemented handoff and completion-audit prerequisites. |
 | [2: Live messages and delivery recovery](phase-2-live-message-recovery.md) — **closed 2026-10-27** | Send exact live instructions, show honest receipts and resolve uncertain delivery through the working takeover/return flow. | 1 (shared durable authority, safe release, terminal ownership and phase/audit return). |
 | [3: Bot commands for live session control](phase-3-bot-live-controls.md) — **closed 2026-10-27** | Expose live messages, takeover and reviewed-message return through the existing bot interface. | 1 (takeover/return and shared authority); 2 (message accounting/review); external bot-control Phases 1–2 (read/authentication and durable mutation framework). |
-| [4: Complete live connection and audit return wording](phase-4-live-control-state-copy.md) — **closed 2026-10-27; publication held** | Added by delivery audit: describe disconnected live information honestly and name the actual audit throughout terminal return. | 1 (phase/audit return); 2 (live browser availability); 3 (integrated baseline). |
+| [4: Complete live connection and audit return wording](phase-4-live-control-state-copy.md) — **closed and published 2026-10-27** | Added by delivery audit: describe disconnected live information honestly and name the actual audit throughout terminal return. | 1 (phase/audit return); 2 (live browser availability); 3 (integrated baseline). |
 
 ## Criterion ownership
 
@@ -45,10 +45,10 @@ Assessed published implementation `d7c59a2` (`14a15ce` plus the publication reco
 
 This was a delivery/code-reachability audit. No implementation or test file was changed, no product tests were run, and no test-evidence grade is claimed. The validated Claude Code 2.1.311/macOS profile, tracked-operation release boundary and Kiln-controlled terminal-admission limits remain as documented. Phase 3's full-run-plus-focused-retest portfolio is not reclassified as a single green full run.
 
-**Audit outcome:** Phase 4 was added and has since closed locally, as recorded below. This historical audit does not establish that those repairs satisfy the whole PRD.
+**Audit outcome:** Phase 4 was added and has since closed and been published, as recorded below. This historical audit does not establish that those repairs satisfy the whole PRD.
 
 ## Phase 4 closeout — 2026-10-27
 
-[Phase 4](phase-4-live-control-state-copy.md) completes AC-LIVE-02 and AC-BACK-01, with independent deliverable review and test hardening. Its Repository validation section records a fresh complete current-build integration pass after the concurrent bot-control publication, plus the other verification gates. Scoped implementation is closed; publication remains held under its launch scope.
+[Phase 4](phase-4-live-control-state-copy.md) completes AC-LIVE-02 and AC-BACK-01, with independent deliverable review and test hardening. Its Repository validation section records a fresh complete current-build integration pass after the concurrent bot-control publication, plus the other verification gates. Scoped implementation is closed and published as `731c591`. The leaf’s Publication and successor section records Doug’s authorization and the unchanged-patch publication check.
 
-**Next unit:** after authorized Phase 4 publication, a fresh whole-PRD delivery audit in a new chat; only a clean delivery audit hands off to whole-PRD test audit. Bot-control and plan-continuation remain separate tracks.
+**Next unit:** the authorized fresh whole-PRD delivery audit in a new chat using GPT 6.1 Sol at High effort; only a clean delivery audit hands off to whole-PRD test audit. Bot-control and plan-continuation remain separate tracks.

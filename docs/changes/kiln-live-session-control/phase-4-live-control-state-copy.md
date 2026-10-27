@@ -48,7 +48,9 @@ The network/provider-event fixtures prove the changed presentation, not a new pr
 
 ## Publication and successor
 
-Doug authorized the Phase 4 implementation launch in Codex chat `01a17f2a-6ba2-7cf2-9f5e-aaa2a49c6f46`: “Go ahead and push the audit commit, then launch the Phase 4 implementation chat.” That audit publication and launch are complete. This phase uses the implement chain's scoped commit default; its publication, production changes and messages to other chats remain unauthorized. After authorized publication, the next unit is a fresh whole-PRD delivery audit, then test audit only after delivery is clean. Bot-control and plan-continuation remain separate tracks.
+The original implementation launch in Codex chat `01a17f2a-6ba2-7cf2-9f5e-aaa2a49c6f46` held Phase 4 publication for Doug. Doug lifted that hold on 2026-10-27 in this implementation chat `01a17f38-170a-7e40-9592-6daa88192bed`: “Go ahead and push Phase 4, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.”
+
+Phase 4 is published as `731c591`. Its original local commit `e99fd7d` was replayed over two remote documentation-only bot-control commits; `git range-diff` confirms its patch is unchanged, and runtime/test files match the validated implementation. The shared checkout is current and clean after publication. This approval authorizes the fresh whole-PRD delivery-audit launch with GPT 6.1 Sol at High effort. The successor uses the delivery-audit scoped commit default; its publication, production changes and messages to other chats remain unauthorized. Test audit follows only after delivery is clean. Bot-control and plan-continuation remain separate tracks.
 
 ## Repository validation
 
