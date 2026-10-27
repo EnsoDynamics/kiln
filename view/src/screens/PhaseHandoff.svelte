@@ -10,6 +10,7 @@
   import { clockTime, earlier } from "../lib/time.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
+  import LiveMessages from "../components/LiveMessages.svelte";
   import PausePanel from "../components/PausePanel.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
@@ -29,7 +30,7 @@
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
-  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover);
+  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover || !!snapshot.liveControl?.reviewRequired?.length);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -84,7 +85,7 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
-  <h1>{snapshot.liveControl?.takeover ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
+  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
   <p>Resolve it here or in your terminal. Then choose who finishes the phase.</p>
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
@@ -118,6 +119,7 @@
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
   {/if}
+  {#if (pendingTakeover || page.choice) && stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} />{/if}
   {#if snapshot.liveControl?.takeover}<PausePanel {snapshot} {connected} />{/if}
   {#if pendingTakeover}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
   {:else if page.choice}
@@ -166,6 +168,8 @@
     </div>
     <section class="card return">
       <h2>Back from your terminal?</h2>
+      {#if stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review />{/if}
+      {#if snapshot.liveControl?.reviewRequired?.length}<p>Review each uncertain message in the conversation before Resume or Verify. Acknowledgement alone keeps the execution held.</p>{/if}
       <p>Exit the {agent} session first. Choose based on how much work you finished.</p>
       <div class="peer-choices">
         <section>

@@ -74,7 +74,7 @@ export async function serveViewFixture(options: {
       request.setEncoding("utf8").on("data", (chunk: string) => (body += chunk));
       request.on("end", async () => {
         const command = `${request.method} ${url.pathname}`;
-        commands.push(body ? `${command} ${body}` : command);
+        if (request.method !== "GET") commands.push(body ? `${command} ${body}` : command);
         if (options.respond) {
           const answer = await options.respond(command, body, request.headers);
           if (!answer) { response.destroy(); return; }
@@ -82,7 +82,7 @@ export async function serveViewFixture(options: {
         }
         const refused = options.refuse?.[command];
         response.writeHead(refused ? 409 : 200, headers("application/json"));
-        response.end(JSON.stringify(refused ? { ok: false, reason: refused } : { ok: true }));
+        response.end(JSON.stringify(refused ? { ok: false, reason: refused } : url.pathname === "/api/live/messages" ? { ok: true, receipts: [] } : { ok: true }));
       });
       return;
     }

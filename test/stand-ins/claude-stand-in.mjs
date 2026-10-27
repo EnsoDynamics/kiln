@@ -154,6 +154,9 @@ const toolResult = (id, content, isError = false) => {
 };
 
 let stdinText = "";
+let stdinBuffer = "";
+const liveInputs = [];
+let firstInput = true;
 let stdinClosed = false;
 let interruptBy;
 let onInterrupt = () => {};
@@ -172,10 +175,13 @@ const exitAfterFlush = (code) =>
 const firstLine = new Promise((resolve) => {
   process.stdin.on("data", (chunk) => {
     stdinText += chunk.toString("utf8");
-    const lines = stdinText.split("\n");
-    if (lines.length > 1) resolve(lines[0]);
-    for (const line of lines.slice(1, -1)) {
-      if (line.includes('"control_request"') && line.includes('"interrupt"')) interrupt("request");
+    stdinBuffer += chunk.toString("utf8");
+    const lines = stdinBuffer.split("\n"); stdinBuffer = lines.pop();
+    for (const line of lines) {
+      if (firstInput) { firstInput = false; resolve(line); continue; }
+      const input = JSON.parse(line);
+      if (input.type === "control_request") interrupt("request");
+      if (input.type === "user") { liveInputs.push(input); appendFileSync(`${scenarioPath}.live-inputs.jsonl`, `${JSON.stringify(input)}\n`); }
     }
   });
   process.stdin.on("end", () => {
@@ -369,9 +375,22 @@ for (const action of session.actions) {
     emit({ type: "assistant", parent_tool_use_id: null, error: "rate_limit", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your limit" }] } });
     emit({ type: "result", subtype: "success", is_error: true, result: "You've hit your limit" });
     resultSent = true;
+  } else if (action.liveMessages) {
+    const until = Date.now() + 15000;
+    while (liveInputs.length < action.liveMessages && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20));
+    if (liveInputs.length < action.liveMessages) throw new Error("Live fixture did not receive its expected inputs.");
+    const inputs = liveInputs.splice(0, action.liveMessages);
+    const uuids = inputs.map(input => input.uuid);
+    if (action.reverseOrder) uuids.reverse();
+    for (const input of inputs) { keepRecord("user", input.message); emit(input); }
+    if (action.readOnly) emit({ type: "assistant", user_message_uuids: uuids, message: { content: [{ type: "text", text: "Read the live inputs." }] } });
+    else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: uuids, queued_turn_count: 0, result: "Live instructions accounted." });
+    if (action.exitAfter) await exitAfterFlush(0);
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
     resultSent = true;
+  } else if (action.exitNow !== undefined) {
+    await exitAfterFlush(action.exitNow);
   } else if (action.exit !== undefined) {
     exitCode = action.exit;
   }

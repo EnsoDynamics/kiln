@@ -75,6 +75,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
       finally { clearTimeout(timeout); reader.releaseLock(); }
       let body: unknown; try { body = strictJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new ControlFailure("invalid_input", "A valid UTF-8 JSON command is required.", 2); }
       if (body && typeof body === "object" && "command_id" in body && typeof body.command_id === "string") commandId = body.command_id;
+      if (body && typeof body === "object" && "action" in body && ["message", "message-review"].includes(String(body.action))) throw new ControlFailure("control_unavailable", "Live-message bot commands are not available in this release. Use the browser session controls.", 3);
       const answer = engine.commands.submit(body);
       return c.json(answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
     } catch (error) { return send(c, { ...failed(error), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId!, command_id: commandId }); }

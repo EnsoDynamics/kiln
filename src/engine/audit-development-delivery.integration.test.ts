@@ -91,7 +91,7 @@ describe("audit development owners", () => {
     for (const assessment of f.record.developmentDelivery!.assessments) delete assessment.owner;
     const path = join(f.h.stateDirectory, "prd.json"); const bytes = JSON.stringify(f.record); writeFileSync(path, bytes);
     const migrated = readPrdRecord(f.h.stateDirectory)!;
-    expect(migrated.schemaVersion).toBe(11); expect(migrated.executionId).toBe(f.record.executionId);
+    expect(migrated.schemaVersion).toBe(12); expect(migrated.executionId).toBe(f.record.executionId);
     expect(migrated.developmentDelivery!.checkpoints[0]?.owner).toEqual({ kind: "phase", phaseId: "1" });
     expect(migrated.developmentDelivery!.checkpoints[0]?.operations).toEqual(f.checkpoint.operations);
     expect(readFileSync(path, "utf8")).toBe(bytes);

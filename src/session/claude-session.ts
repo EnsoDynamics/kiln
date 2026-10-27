@@ -1,5 +1,6 @@
+import { consumedUuids } from "../live/target.js";
 import { LiveOwnedProcesses } from "../live/owned-processes.js";
-import { observeGate, readGate, unsettled } from "../live/gate.js";
+import { observeGate, withGate, unsettled } from "../live/gate.js";
 import type { BillingSummary } from "../billing/inspection.js";
 // Starts one headless Claude Code session and supervises it: the launch flags, the prompt on
 // stdin, every event saved as received, output lines and progress steps derived from them,
@@ -79,6 +80,8 @@ export function modelNameFromId(id: string): string {
 
 export interface SessionProcessOptions {
   live?: SessionRun["live"];
+  onLiveEvent?: (event: StreamEvent, at: string) => void;
+  onLiveExit?: () => void;
   beforePrompt?: (identity: { pid: number; startTime: string }) => Promise<void>;
   control?: NonNullable<SessionRun["control"]>;
   billing?: BillingSummary;
@@ -124,6 +127,8 @@ export interface SessionProcessOptions {
 /** What Kiln can do to a session's live process (technical design, "Stopping a session"). */
 export interface SessionControl {
   pid: number;
+  sendMessage?: (text: string, uuid: string) => Promise<"written" | "uncertain">;
+  inputOpen?: () => boolean;
   /**
    * Writes the interrupt control request to the session's stdin, the message the Agent SDK's
    * `interrupt()` sends, then closes stdin: Claude Code ends the turn, stops the tool it was
@@ -218,9 +223,21 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   child.stdin!.on("error", () => {
     // The process exited before reading its input; its exit is recorded below.
   });
+  let openingSubmitted = false;
+  let writing = false;
   // The controls are handed over at once, so a stop from here on can always reach the process.
   options.onSpawned?.({
     pid,
+    ...(options.live?.literalInput ? {
+      inputOpen: () => openingSubmitted && !child.stdin!.writableEnded && !child.stdin!.destroyed && !writing,
+      sendMessage: (text: string, uuid: string) => new Promise<"written" | "uncertain">(resolve => {
+        writing = true;
+        const timer = setTimeout(() => { resolve("uncertain"); }, 5000);
+        const settle = (error?: Error | null) => { clearTimeout(timer); writing = false; resolve(error ? "uncertain" : "written"); };
+        try { child.stdin!.write(`${JSON.stringify({ type: "user", uuid, session_id: record.sessionId, text_not_typed: true, message: { role: "user", content: text } })}\n`, settle); }
+        catch { settle(new Error("Input pipe failed.")); }
+      }),
+    } : {}),
     interrupt: () => {
       if (child.stdin!.writableEnded || child.stdin!.destroyed) return;
       child.stdin!.write(`${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`);
@@ -237,10 +254,15 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   let observations = Promise.resolve();
   let resultSeen = false;
-  const maybeDrain = () => {
+  const maybeDrain = async () => {
     if (!options.live || !resultSeen || child.stdin!.writableEnded) return;
-    const gate = readGate(options.live.gateDirectory);
-    if (!gate.held || unsettled(gate).length === 0) child.stdin!.end();
+    await withGate(options.live.gateDirectory, gate => {
+      const accounted = Object.values(gate.inputs ?? {}).every(input => input.terminal);
+      if ((gate.held || accounted) && unsettled(gate).length === 0 && !writing) {
+        gate.sealed = true;
+        child.stdin!.end();
+      }
+    });
   };
   const drainTimer = options.live ? setInterval(() => { observations = observations.then(maybeDrain); }, 250) : undefined;
   drainTimer?.unref();
@@ -261,8 +283,15 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       if (partial) options.onPartial?.(partial);
       return;
     }
-    appendJsonLine(files.events, { at, event });
-    if (options.live) observations = observations.then(async () => { await observeGate(options.live!.gateDirectory, event); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
+    let resultAccounting: { index: number; inputUuids: string[]; cumulativeCostUsd?: number; costDeltaUsd?: number } | undefined;
+    if (event.type === "result" && options.live) {
+      const previous = run.claudeResults;
+      const cumulative = typeof event.total_cost_usd === "number" && Number.isFinite(event.total_cost_usd) ? event.total_cost_usd : undefined;
+      resultAccounting = { index: (previous?.count ?? 0) + 1, inputUuids: consumedUuids(event), ...(cumulative === undefined ? {} : { cumulativeCostUsd: cumulative, costDeltaUsd: cumulative - (previous?.cumulativeCostUsd ?? 0) }) };
+      run.claudeResults = { count: resultAccounting.index, ...(cumulative === undefined ? previous?.cumulativeCostUsd === undefined ? {} : { cumulativeCostUsd: previous.cumulativeCostUsd } : { cumulativeCostUsd: cumulative }) };
+    }
+    appendJsonLine(files.events, { at, event, ...(resultAccounting ? { resultAccounting } : {}) });
+    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
     if (isModelResponse(event)) modelResponses.push(at);
     if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 
@@ -284,7 +313,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       changed = true;
     }
     if (event.type === "result") {
-      run.result = { subtype: String(event.subtype ?? ""), isError: event.is_error === true };
+      run.result = { subtype: String(event.subtype ?? ""), isError: run.result?.isError === true || event.is_error === true };
       if (typeof event.result === "string") run.result.text = event.result;
       changed = true;
       // Closing stdin ends the session once its turn is over.
@@ -336,6 +365,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       await options.beforePrompt({ pid, startTime });
     }
   child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
+  openingSubmitted = true;
   if (run.control) {
     run.control.submitted = true;
     try { saveRecord(); } catch (error) { if (options.live) child.stdin!.end(); else endProcessTree(pid, "SIGKILL"); await closed; throw error; }
@@ -350,8 +380,10 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   await observations;
   clearInterval(drainTimer);
 
-  if (outputFailure) throw outputFailure;
+  if (outputFailure) { options.onLiveExit?.(); throw outputFailure; }
   readStdoutLine(stdoutBuffer);
+  await observations;
+  options.onLiveExit?.();
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
 
   if (options.exitGraceMs) await new Promise((resolve) => setTimeout(resolve, options.exitGraceMs));

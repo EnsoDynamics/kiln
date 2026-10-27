@@ -54,7 +54,7 @@
   {#if current.seenInSession || connected}
     <div class="seen">
       {#if current.seenInSession}<span class="seen-text">{current.followUp ? "Previously seen" : "Seen in the session"}: <strong>{current.seenInSession.text}</strong> · {ago(current.seenInSession.at, nowDate)}</span>{:else}<span></span>{/if}
-      {#if connected}<a class="watch" href={link} onclick={(event) => routedClick(event, router, link)}>Watch live<Icon name="arrow" strokeWidth={1.9} /></a>{/if}
+      {#if connected}<a class="watch" href={link} onclick={(event) => routedClick(event, router, link)}>{isPr ? "Watch live" : "Control live session"}<Icon name="arrow" strokeWidth={1.9} /></a>{/if}
     </div>
   {/if}
   {#if current.deliveryActivity}<p class="seen-text">{current.deliveryActivity.label}{#if current.deliveryActivity.repository} · {current.deliveryActivity.repository} · {current.deliveryActivity.environment}{/if}</p>{/if}

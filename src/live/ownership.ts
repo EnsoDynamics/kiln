@@ -6,7 +6,7 @@ import { processStartTime } from "../platform/process-start-time.js";
 import { claudeConfigFolder, findTranscripts, readTranscript } from "../session/transcripts.js";
 import type { SessionRun } from "../state/records.js";
 export class OwnershipError extends Error {
-  constructor(readonly code: "terminal_in_use" | "ownership_unknown" | "history_unavailable" | "takeover_pending", message: string) { super(message); }
+  constructor(readonly code: "terminal_in_use" | "ownership_unknown" | "history_unavailable" | "takeover_pending" | "message_review_required", message: string) { super(message); }
 }
 export async function requireExited(identity: Pick<SessionRun, "pid" | "processStartTime">): Promise<void> {
   if (!identity.pid || !identity.processStartTime) throw new OwnershipError("ownership_unknown", "The old process PID/start identity is unavailable.");

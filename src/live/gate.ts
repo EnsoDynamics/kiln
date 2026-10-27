@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
+import { consumedUuids } from "./target.js";
 import type { LiveTarget } from "./target.js";
 
 export interface GateState {
   version: 1; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
+  inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
   operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown }>;
   tasks: Record<string, { toolId?: string; settled: boolean }>;
@@ -91,6 +93,7 @@ export function unsettled(state: GateState): string[] {
 export async function observeGate(directory: string, event: Record<string, unknown>): Promise<void> {
   await withGate(directory, state => {
     state.observedAt = new Date().toISOString();
+    if (event.type === "result" && event.session_id === state.target.providerSessionId) for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
     if (event.type === "system" && typeof event.task_id === "string" && typeof event.run_id === "string") {
       const key = `${event.task_id}:${event.run_id}`;
       if (event.subtype === "task_started") state.tasks[key] ??= { ...(typeof event.tool_use_id === "string" ? { toolId: event.tool_use_id } : {}), settled: false };

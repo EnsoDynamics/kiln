@@ -2,12 +2,14 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { keepGoing, pause, takeOver } from "../lib/api.js";
   import { capitalized, phaseName } from "../lib/progress.js";
+  import { liveDraft } from "../lib/live-drafts.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   let { snapshot, connected = true }: { snapshot: Snapshot; connected?: boolean } = $props();
   const { config } = viewContext();
   const id = $derived(snapshot.liveControl?.target.activityKey ?? snapshot.current?.phaseId ?? snapshot.needsYou?.phaseId ?? "");
   const activity = $derived(snapshot.liveControl?.label ?? capitalized(phaseName(id, snapshot)));
   const audit = $derived(id.startsWith("audit-"));
+  const submitting = $derived(snapshot.liveControl && (liveDraft(snapshot.liveControl.target).submitting || !!liveDraft(snapshot.liveControl.target).instructionId || snapshot.liveControl.messages?.some(m => m.delivery === "submitting")));
   const held = $derived(snapshot.liveControl?.takeover);
   let pressing = $state(false);
   let reason = $state<string | undefined>();
@@ -24,11 +26,12 @@
     <section>
       <h3>Take over this session</h3>
       <p><strong>At the next safe stopping point.</strong> Finish the current operation, then stop before starting more work. Open the same conversation in your terminal; the phase/audit can remain unfinished.</p>
-      {#if held}
+      {#if held && held.kind !== "delivery_recovery"}
         <p role="status"><strong>{held.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation."}</strong></p>
         {#if held.state !== "released"}<p>Wait before opening Claude. Terminal access becomes available after Kiln releases the conversation.</p><p>{held.reason}</p>{#if held.latestActivityAt && Date.parse(held.observedAt) - Date.parse(held.latestActivityAt) >= 30000}<p>Waiting {Math.floor((Date.parse(held.observedAt) - Date.parse(held.latestActivityAt)) / 1000)} seconds since the last observed activity. There is no automatic cancellation deadline.</p>{/if}{/if}
       {:else}
-        <button class="button wide" disabled={!connected || pressing || !snapshot.liveControl?.available} onclick={() => press(true)}>Pause &amp; take over</button>
+        <button class="button wide" disabled={!connected || pressing || submitting || !snapshot.liveControl?.available} onclick={() => press(true)}>Pause &amp; take over</button>
+        {#if submitting}<p>Wait for this message submission’s outcome before pausing.</p>{/if}
         {#if !snapshot.liveControl?.available}<p>{snapshot.liveControl?.reason ?? "Live takeover is available for running Claude phases and audits."}</p>{/if}
       {/if}
     </section>

@@ -235,6 +235,9 @@ const USE_VIEW_FONTS = `(async () => {
 // Codex support AC-AGENT-01/MODEL-02 change these exact controls. Adapt the
 // earlier reference before measuring; all unaffected boxes still use the original layout.
 const WITH_AGENT_METADATA = `(() => {
+  // AC-LIVE-01 replaces only this live-output link label; retain its existing layout.
+  const liveLink = [...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'Watch live');
+  if (liveLink) liveLink.firstChild.textContent = 'Control live session';
   const model = document.querySelector('#model');
   if (model) {
     const pair = model.parentElement.parentElement;
@@ -371,7 +374,7 @@ const SCREENS: {
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Implementing phase 2b 2 of 5 phases done",
       "2b Now implementing · phase 2b of 5 Store credit Claude Code · Opus 5.5 · high effort Started 10:58 AM · 49 min",
       "Build Deliverable review Test hardening Commit Refactor pass Push",
-      "Seen in the session: deliverable-review skill started · 2 min ago Watch live",
+      "Seen in the session: deliverable-review skill started · 2 min ago Control live session",
       "● The credit multiplier is applied before rounding; checking that against… · reviewer Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
@@ -690,7 +693,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
       expect(lost).not.toContain(flat("When should Kiln pause?"));
       expect(lost).not.toContain(flat("Claude account"));
-      expect(lost).not.toContain(flat("Watch live"));
+      expect(lost).not.toContain(flat("Control live session"));
       expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter((b) => ["Change"].includes(b.textContent.trim())).map((b) => b.disabled)`)).toEqual([true]);
       expect(await page.evaluate<boolean>(`document.querySelector('input[type="checkbox"]').disabled`)).toBe(true);
 
@@ -1388,7 +1391,7 @@ describe("the controls, in a real browser", () => {
   it("links to the live output, the full output and the pull request (AC-WATCH-03, AC-WATCH-10, AC-PR-04)", async () => {
     const hrefOf = (page: BrowserPage, label: string) => page.evaluate<string>(`[...document.querySelectorAll("a")].find((a) => a.textContent.trim().startsWith(${JSON.stringify(label)})).getAttribute("href")`);
     for (const [snapshot, label, href] of [
-      [runningSnapshot(), "Watch live", "/customer-returns/phase/2b"],
+      [runningSnapshot(), "Control live session", "/customer-returns/phase/2b"],
       [needsYouMessageSnapshot(), "Full session output", "/customer-returns/phase/2b"],
       [completeSnapshot(), "Open on GitHub", "https://github.com/acme/acme-shop/pull/218"],
     ] as const) {

@@ -138,7 +138,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine?.controlView(); }
   catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
-  const controls = control ? control.controls.map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  const controls = control ? control.controls.filter(c => c.name !== "message" && c.name !== "message-review").map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active);
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity);

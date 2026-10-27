@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phase 1 takeover/return implemented and verified on 2026-10-27; see **Phase 1 implementation facts** and the closed phase leaf. The shared design remains authoritative for Phases 2–3, whose message accounting, uncertainty review and bot live actions are not yet implemented. The [phase plan](kiln-live-session-control-phase-plan.md) names Phase 2 next.
+**Status:** Phases 1–2 takeover/return and live messages/recovery implemented and verified on 2026-10-27; see their implementation facts and closed phase leaves. Shared-branch publication is separate from implementation closure. The shared design remains authoritative for Phase 3, whose bot live actions are not yet implemented. The [phase plan](kiln-live-session-control-phase-plan.md) names Phase 3 next.
 
 ## Overview
 
@@ -210,6 +210,14 @@ New attempts advertise safe takeover only on Claude Code **2.1.311/macOS**, inde
 Manual return extends existing phase recovery with live identity, preserving assigned delivery/test audit rounds and their real report/currentness/delivery checks. Verify captures completion material, repeats terminal ownership admission, then checks local material synchronously before acceptance. Resume repeats completion and ownership checks after preflight and immediately before the first input; a newly complete activity sends nothing and retains an explicit advance choice. The hold clears only after durable successful hand-back evidence. Separately requested end-of-activity pause remains independent.
 
 The Phase 1 leaf and investigation record assembled proof. Message accounting, review receipts and bot live actions remain owned by Phases 2 and 3; the design sections describing those capabilities are requirements for subsequent work.
+
+## Phase 2 implementation facts
+
+Private schema **12** adds literal-input eligibility to newly validated attempts and message evidence/effects to the existing instruction journal. Immutable text, provider UUID, write intent/settlement, correlated read/result evidence and human review remain in that receipt. The attempt gate's input UUID projection is used only for admission and draining: accepted inputs await correlated terminal results, including after assistant-only read evidence, with a maximum of 32. Result processing and sealing use the same lock as input/takeover admission.
+
+Uncertainty reuses the existing release/ownership and hand-back path with a `delivery_recovery` kind on the release hold; it does not request a checkpoint or pretend takeover was requested. Running uncertain attempts still offer the explicit safe takeover action. Each uncertain receipt retains its own acknowledgement. Successful explicit hand-back records `resolvedBy` against the hand-back operation before removing the hold, so restart neither resurrects resolved uncertainty nor treats acknowledgement alone as release. Correlated evidence arriving after uncertainty is retained without clearing the recovery hold.
+
+The browser keeps exact-attempt drafts in page memory across routes. Text and receipt history use the authenticated 50-receipt paging route, rather than full texts in SSE. The receipt lookup remains PRD-scoped across execution replacement. Real-provider release proof is `scripts/proof-run/live-messages.mjs`; fault and engine proofs complement it with disposable Git, HTTP and real subprocesses. Bot live commands remain Phase 3.
 
 ## Evidence and Verification Gates
 

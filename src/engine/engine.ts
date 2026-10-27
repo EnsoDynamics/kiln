@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
-import { sameLiveTarget, validLiveTarget, type LiveTarget, type LiveView } from "../live/target.js";
+import { sameLiveTarget, validLiveTarget, consumedUuids, messageProblem, type LiveTarget, type LiveView } from "../live/target.js";
 import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from "../live/ownership.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, type Receipt, type Action, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, readReceipts, type Receipt, type Action, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -415,6 +415,7 @@ export class Engine {
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
       reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
     });
+    this.recoverLiveMessages();
     this.record.controlEpoch = this.controlEpoch;
     this.save();
     if (this.record.liveControl) this.watchTakeover();
@@ -447,6 +448,8 @@ export class Engine {
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
     const paused = !!this.record.pause.activeSince;
     const available: Record<Action, boolean> = {
+      message: !!this.liveView()?.input?.available && !this.commands?.busy,
+      "message-review": !!this.record.liveControl && !this.commands?.busy,
       "take-over": !!this.liveView()?.available && !this.commands?.busy,
       reply: !!key && this.resumeOffered(key) && !busy,
       resume: !!(wait || key && this.resumeOffered(key)) && !busy,
@@ -459,6 +462,7 @@ export class Engine {
       "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
     };
     const unavailable: Partial<Record<Action, string>> = {
+      message: this.liveView()?.input?.reason ?? "No active supported Claude input is available.",
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
       "outside-confirmation": "Stayed in the workspace hasn't failed, so there is nothing to confirm.",
@@ -470,6 +474,20 @@ export class Engine {
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (receipt.instruction.action === "message-review") {
+      // Constructor reconciliation precedes Engine.commands assignment. Read the
+      // same authoritative journal directly, never dispatch or replay a review.
+      const inputs = receipt.instruction.inputs;
+      const retained = readReceipts(this.stateDirectory);
+      const selected = Array.isArray(inputs.receipt_ids) ? inputs.receipt_ids.map(id => retained.find(r => (r.id === id || r.command_id === id) && sameLiveTarget(r.live_target, inputs.target as LiveTarget))) : [];
+      const complete = selected.length > 0 && selected.every(r => r?.message?.delivery === "uncertain" && !!r.message.reviewedAt);
+      return { ...receipt, state: complete ? "completed" : "failed", stage: "settled", outcome: complete ? "message_reviewed" : "message_review_incomplete", reason: complete ? null : "Not all acknowledgements were saved. Review the remaining messages; nothing resumed or advanced." };
+    }
+    if (receipt.instruction.action === "message") {
+      if (!receipt.message?.writeStartedAt) return { ...receipt, state: "failed", stage: "settled", outcome: "not_sent", ...(receipt.message ? { message: { ...receipt.message, delivery: "not_sent" } } : {}), effects: { ...receipt.effects, message: "not_sent" } };
+      // Never repeat external input after a controller crash. Full replay happens once the journal exists.
+      return { ...receipt, state: receipt.message.resultAt ? "completed" : "indeterminate", stage: "settled", outcome: receipt.message.resultAt ? "message_received" : "delivery_uncertain", message: { ...receipt.message, delivery: receipt.message.resultAt ? "received" : "uncertain" }, effects: { ...receipt.effects, message: receipt.message.resultAt ? "received" : "unknown" } };
+    }
     if (receipt.instruction.action === "take-over" && validLiveTarget(receipt.instruction.inputs.target)) {
       const target = receipt.instruction.inputs.target;
       const session = this.sessionRecord(target.activityKey, target.sessionId);
@@ -502,7 +520,10 @@ export class Engine {
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
+    if (["reply", "resume", "verify-and-advance"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
     switch (action) {
+      case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
+      case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
@@ -539,6 +560,114 @@ export class Engine {
     return createHash("sha256").update(`${this.record.executionId}:${session.sessionId}:${index}`).digest("hex");
   }
 
+  messageReceipts(target?: LiveTarget): Receipt[] {
+    return this.commands.all().filter(r => r.message && (!target || sameLiveTarget(r.live_target, target)));
+  }
+
+  private projectMessage(r: Receipt, event: Record<string, unknown>, at: string): void {
+    if (!r.message?.writeStartedAt || event.session_id !== r.live_target?.providerSessionId || !consumedUuids(event).includes(r.message.uuid)) return;
+    const m = r.message;
+    const uuids = consumedUuids(event);
+    m.evidence ??= [];
+    if (!m.evidence.some(e => e.result === (event.type === "result"))) m.evidence.push({ uuids, at, result: event.type === "result", ...(typeof event.uuid === "string" ? { eventUuid: event.uuid } : {}) });
+    m.receivedAt ??= at;
+    if (event.type === "result") m.resultAt ??= at;
+    // Evidence arriving late is retained; explicit recovery still owns an uncertain receipt.
+    if (m.delivery !== "uncertain") { m.delivery = "received"; r.effects.message = "received"; }
+  }
+
+  private holdMessage(r: Receipt): void {
+    if (!r.live_target || r.execution_id !== this.record.executionId) return;
+    const m = r.message!;
+    m.delivery = "uncertain"; r.state = "indeterminate"; r.outcome = "delivery_uncertain"; r.effects.message = "unknown";
+    r.reason = "Delivery uncertain. Review this exact message in the conversation; it will never be resent automatically.";
+    this.record.liveControl ??= { version: 1, revision: 1, takeover: { kind: "delivery_recovery", target: r.live_target, operationId: r.id, instructionId: r.command_id, requestedAt: r.accepted_at, state: "pending", observedAt: this.now().toISOString(), reason: "Message delivery is uncertain. Review the conversation before explicit hand-back; wait for safe release before opening Claude." } };
+    this.save();
+  }
+
+  private recoverLiveMessages(): void {
+    for (const r of this.messageReceipts()) {
+      if (!r.live_target || r.execution_id !== this.record.executionId || !r.message!.writeStartedAt || r.message!.resolvedBy) continue;
+      const session = this.sessionRecord(r.live_target.activityKey, r.live_target.sessionId);
+      const index = session?.runs.findIndex((run, i) => (run.control?.attemptId ?? this.legacyAttempt(session!, i)) === r.live_target!.attemptId);
+      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.projectMessage(r, saved.event, saved.at);
+      if (!r.message!.resultAt || r.message!.delivery === "uncertain") this.holdMessage(r);
+      else { r.message!.delivery = "received"; r.effects.message = "received"; r.state = "completed"; }
+      this.commands.checkpoint(r);
+    }
+  }
+
+  private observeLiveMessage(target: LiveTarget, event: Record<string, unknown>, at: string): void {
+    const messages = this.messageReceipts(target);
+    const observed = consumedUuids(event).filter(uuid => messages.some(r => r.message!.uuid === uuid));
+    const accepted = messages.filter(r => observed.includes(r.message!.uuid)).map(r => r.message!.uuid);
+    if (JSON.stringify(observed) !== JSON.stringify(accepted) || observed.length && event.session_id !== target.providerSessionId) {
+      for (const r of messages.filter(r => observed.includes(r.message!.uuid))) { this.holdMessage(r); this.commands.checkpoint(r); }
+      return;
+    }
+    for (const r of messages) {
+      if (!consumedUuids(event).includes(r.message!.uuid)) continue;
+      this.projectMessage(r, event, at); this.commands.checkpoint(r);
+    }
+    this.changed();
+  }
+
+  private endLiveMessages(target: LiveTarget): void {
+    for (const r of this.messageReceipts(target)) if (r.message!.writeStartedAt && !r.message!.resultAt) {
+      this.holdMessage(r); this.commands.checkpoint(r);
+    }
+    if (this.record.liveControl) this.watchTakeover();
+  }
+
+  private async acceptLiveMessage(raw: unknown, text: unknown, receipt: Receipt) {
+    const fail = (code: string, reason: string) => { receipt.message!.delivery = "not_sent"; receipt.effects.message = "not_sent"; return { ok: false, code, reason }; };
+    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget())) return fail("stale_target", "This attempt ended or changed; the message was not sent.");
+    if (messageProblem(text)) return fail("invalid_request", messageProblem(text)!);
+    const run = this.latestSession(raw.activityKey)?.runs.at(-1);
+    if (!run?.live?.literalInput || !this.control?.sendMessage || !this.liveView()?.input?.available) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
+    const control = this.control;
+    let admitted = false;
+    let writing: Promise<"written" | "uncertain"> | undefined;
+    try { await withGate(run.live.gateDirectory, gate => {
+      if (gate.sealed || gate.held || this.record.liveControl || !sameLiveTarget(raw, this.liveTarget()) || !control.inputOpen?.()) return;
+      const inputs = gate.inputs ??= {};
+      if (Object.values(inputs).filter(i => !i.terminal).length >= 32) return;
+      receipt.live_target = raw;
+      receipt.message!.writeStartedAt = this.now().toISOString();
+      receipt.effects.message = "unknown";
+      this.commands.checkpoint(receipt); // fsync before any bytes can be supplied to stdin.
+      inputs[receipt.message!.uuid] = { terminal: false };
+      writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), gate);
+      admitted = true;
+      writing = control.sendMessage!(text as string, receipt.message!.uuid);
+    }); } catch (error) {
+      if (!receipt.message!.writeStartedAt) return fail("state_unavailable", `Message admission failed before writing: ${(error as Error).message}`);
+      this.holdMessage(receipt); this.commands.checkpoint(receipt); this.watchTakeover();
+      return { ok: true, outcome: "delivery_uncertain" };
+    }
+    if (!admitted) return fail("busy", "Input admission closed or reached 32 unsettled messages. Nothing was sent.");
+    const outcome = await writing!;
+    receipt.message!.writeSettledAt = this.now().toISOString();
+    if (outcome === "uncertain") { this.holdMessage(receipt); this.watchTakeover(); }
+    else {
+      receipt.message!.writeCompletedAt = receipt.message!.writeSettledAt;
+      if (receipt.message!.delivery === "submitting") { receipt.message!.delivery = "submitted"; receipt.effects.message = "submitted"; }
+    }
+    this.commands.checkpoint(receipt); this.changed();
+    return { ok: true, outcome: outcome === "uncertain" ? "delivery_uncertain" : "message_submitted" };
+  }
+
+  reviewMessages(raw: unknown, ids: unknown) {
+    const hold = this.record.liveControl?.takeover;
+    if (!validLiveTarget(raw) || !sameLiveTarget(hold?.target, raw) || !Array.isArray(ids) || !ids.length) return { ok: false, code: "stale_target", reason: "Review belongs to another held conversation." };
+    const receipts = this.messageReceipts(raw);
+    const selected = ids.map(id => receipts.find(r => r.id === id || r.command_id === id));
+    if (selected.some(r => !r || r.message?.delivery !== "uncertain")) return { ok: false, code: "invalid_request", reason: "A selected receipt is not an uncertain message for this attempt." };
+    for (const r of selected) { r!.message!.reviewedAt ??= this.now().toISOString(); this.commands.checkpoint(r!); }
+    this.changed();
+    return { ok: true, outcome: "message_reviewed" };
+  }
+
   liveTarget(): LiveTarget | undefined {
     if (this.record.liveControl) return this.record.liveControl.takeover.target;
     const current = this.current;
@@ -557,11 +686,18 @@ export class Engine {
     const hold = this.record.liveControl?.takeover;
     const run = this.latestSession(target.activityKey)?.runs.at(-1);
     const capable = process.platform === "darwin" && (!!run?.live || this.recoveredLive);
-    return { target, label, observedAt: this.now().toISOString(), available: capable && !hold && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    const messages = this.messageReceipts(target);
+    let sealed = true;
+    try { sealed = !run?.live || !!readGate(run.live.gateDirectory).sealed; } catch { /* unknown input is unavailable */ }
+    const pending = messages.filter(r => r.message?.writeStartedAt && !r.message.resultAt).length;
+    const uncertain = messages.some(r => r.message?.delivery === "uncertain");
+    const inputAvailable = !!run?.live?.literalInput && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
+    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : !run?.live?.literalInput ? "Live messages require the validated Claude Code 2.1.311/macOS profile." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: capable && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
-    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget()) || this.record.liveControl || !this.current?.processRunning || !this.liveView()?.available) return { ok: false, code: "stale_target", reason: "This attempt ended or changed. Refresh the active session." };
+    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget()) || this.record.liveControl?.takeover.kind !== "delivery_recovery" && !!this.record.liveControl || !this.current?.processRunning || !this.liveView()?.available) return { ok: false, code: "stale_target", reason: "This attempt ended or changed. Refresh the active session." };
     const session = this.latestSession(raw.activityKey)!; const run = session.runs.at(-1)!;
     const held = { operationId: receipt.id, instructionId: receipt.command_id, requestedAt: this.now().toISOString() };
     const persist = () => {
@@ -637,7 +773,7 @@ export class Engine {
           });
         }
         const gate = readGate(run.live.gateDirectory);
-        if (!sameLiveTarget(gate.target, hold.target) || gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
+        if (!sameLiveTarget(gate.target, hold.target) || hold.kind !== "delivery_recovery" && gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
         if (gate.obstacle) {
           const inventory = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
           if (inventory.failure || inventory.exitCode !== 0) throw new Error(gate.obstacle);
@@ -649,7 +785,7 @@ export class Engine {
       }
       requireHistory(this.environment, hold.target.providerSessionId);
       await requireNoTerminal(this.environment, hold.target.providerSessionId);
-      hold.state = "released"; hold.reason = "Paused for terminal takeover.";
+      hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
     } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
     finally {
       hold.observedAt = this.now().toISOString();
@@ -700,9 +836,18 @@ export class Engine {
     return createHash("sha256").update(JSON.stringify({ repositories, report, authorization: this.record.developmentAuthorization, settings: this.record.settings, confirmations: this.record.phases[key]?.outsideConfirmations })).digest("hex");
   }
 
+  private resolveMessageHold(): void {
+    const target = this.record.liveControl?.takeover.target;
+    const operation = this.controlDispatch ?? this.commands.active;
+    if (!target) return;
+    const operationId = operation?.id ?? randomUUID();
+    for (const r of this.messageReceipts(target)) if (r.message?.delivery === "uncertain" && r.message.reviewedAt) { r.message.resolvedBy = operationId; this.commands.checkpoint(r); }
+  }
+
   private async requireTakeoverReturn(): Promise<void> {
     const hold = this.record.liveControl?.takeover;
     if (!hold) return;
+    if (this.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt)) throw new OwnershipError("message_review_required", "Review each uncertain message in the conversation before Resume or Verify.");
     await this.reconcileTakeover();
     if (hold.state !== "released") throw new OwnershipError("takeover_pending", hold.reason);
     requireHistory(this.environment, hold.target.providerSessionId);
@@ -1072,7 +1217,7 @@ export class Engine {
         try {
           if (this.record.liveControl) await this.requireTakeoverReturn();
           await this.recordDone(key, outcome, true, true, evaluatedMaterial);
-          if (this.record.liveControl) { delete this.record.liveControl; this.save(); }
+          if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
         } catch (error) {
           Object.assign(this.record, before);
           throw error;
@@ -1087,6 +1232,7 @@ export class Engine {
       return { ok: true, outcome: "resume_requested", target: target! };
     } catch (error) {
       const reason = (error as Error).message;
+      if (error instanceof OwnershipError && error.code === "message_review_required") return fail("message_review_required", reason);
       this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
       return fail(error instanceof RecoveryStateWriteFailed ? "state_write_failed" : "check_unavailable", reason, error instanceof RecoveryStateWriteFailed ? 500 : 503);
     } finally {
@@ -2351,9 +2497,9 @@ export class Engine {
         const target: LiveTarget = { executionId: this.record.executionId!, activityId: activity.activityId, activityKey: phaseKey, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId };
         const directory = gateDirectory(this.stateDirectory, attemptId);
         createGate(directory, target);
-        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin" };
+        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin", literalInput: true };
         const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
-        args = [...args, "--settings", JSON.stringify({ hooks })];
+        args = [...args, "--replay-user-messages", "--settings", JSON.stringify({ hooks })];
       }
     }
     if (this.record.liveControl) {
@@ -2383,7 +2529,7 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
-      ...(live ? { live } : {}),
+      ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(readGate(live.gateDirectory).target) } : {}),
       ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => { const local = this.takeoverLocalMaterial(phaseKey); if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); await requireNoTerminal(launchEnv, session.sessionId, identity); if (local !== this.takeoverLocalMaterial(phaseKey)) { if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back."); } } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
@@ -2439,7 +2585,7 @@ export class Engine {
     if (!receipt) return;
     const run = session.runs.find(r => r.control?.operationId === receipt.id);
     if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
-    if (this.returningTakeover && this.record.liveControl) { delete this.record.liveControl; this.returningTakeover = false; this.save(); }
+    if (this.returningTakeover && this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.returningTakeover = false; this.save(); }
     receipt.effects.session = "resumed";
     if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
     this.commands.checkpoint(receipt);

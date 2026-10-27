@@ -18,6 +18,8 @@
   import ProgressSteps from "../components/ProgressSteps.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import SessionOutput from "../components/SessionOutput.svelte";
+  import LiveComposer from "../components/LiveComposer.svelte";
+  import LiveMessages from "../components/LiveMessages.svelte";
   import PausePanel from "../components/PausePanel.svelte";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
@@ -64,6 +66,11 @@
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} />{/key}
+  {#if current && !isPr}
+    {#if snapshot.liveControl && snapshot.liveControl.target.sessionId === session.id}<LiveComposer view={snapshot.liveControl} {connected} />
+    {:else}<section class="card"><p>Live messages and terminal takeover are available for supported Claude phase and audit attempts.</p></section>{/if}
+  {/if}
+  {#if session.id}<LiveMessages sessionId={session.id} {connected} view={snapshot.liveControl?.target.sessionId === session.id ? snapshot.liveControl : undefined} />{/if}
   {#if current && !isPr}<PausePanel {snapshot} {connected} />{/if}
   {#if row?.audit}
     <section class="card">

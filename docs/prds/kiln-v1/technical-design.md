@@ -176,6 +176,8 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (task-specific audit skill launch and recovery), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (additive audit session kinds and `audit-<activityId>` storage, implemented in Phase 1; automatic dispatch remains Phase 2).
@@ -249,6 +251,8 @@ The Needs you resume command is `cd <worktree>` then `claude --resume <session I
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (observed delivery activity; existing six steps and Follow-up retained). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Workspace Evidence, Output and Progress → Live and saved output (Codex-native output, child visibility and observed progress; Claude behavior retained).
@@ -309,6 +313,8 @@ A signal Kiln sends itself is an interruption and the session is resumed ([Stopp
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex tracked-process cleanup and visible native limitation; Claude behavior retained).
 
 Kiln handles SIGINT (Ctrl+C), SIGHUP (the terminal closed) and SIGTERM the same way (AC-KEEP-02). On Windows, Node raises SIGINT for Ctrl+C and SIGHUP for a closed console window, which Windows follows with ending Kiln about 5 seconds later; the interrupt below finishes well within that:
@@ -328,6 +334,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 ### Interruptions, sleep and resume
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
+
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 

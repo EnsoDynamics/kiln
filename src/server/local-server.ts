@@ -1,8 +1,8 @@
-import { validLiveTarget, sameLiveTarget, canonicalLiveTarget } from "../live/target.js";
+import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
 import { randomUUID } from "node:crypto";
 import { type Action, type Receipt } from "../control/commands.js";
 import { sameRecoveryTarget, validRecoveryTarget } from "../engine/phase-recovery.js";
-import { errorFact, result as controlResult } from "../control/result.js";
+import { ControlFailure, errorFact, result as controlResult } from "../control/result.js";
 import { installInspectionRoutes } from "../control/server.js";
 import { bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { BillingError } from "../billing/authority.js";
@@ -219,6 +219,42 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ lines: earlier.slice(-limit), total: lines.length });
   });
 
+  app.post("/api/live/message", async c => {
+    const body = await liveBody(c);
+    const problem = messageProblem(body?.text);
+    if (!body || Object.keys(body).sort().join() !== "instructionId,target,text" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target) || problem) return c.json({ ok: false, code: typeof body?.text === "string" && body.text.length > 4000 ? "input_too_large" : "invalid_request", reason: problem ?? "Supply instructionId, exact target and plain text.", observedAt: new Date().toISOString(), remedy: "Revise the message or refresh the session." }, typeof body?.text === "string" && body.text.length > 4000 ? 413 : 400);
+    try {
+      const answer = engine.commands.submit({ command_id: body.instructionId, execution_id: body.target.executionId, status_token: JSON.stringify(canonicalLiveTarget(body.target)), action: "message", inputs: { target: body.target, text: body.text } });
+      const receipt = answer.operation as Receipt | undefined;
+      if (!answer.ok && receipt?.state === "refused") return c.json({ ok: false, code: answer.errors[0]?.code === "stale_status_token" ? "stale_target" : answer.errors[0]?.code === "control_unavailable" ? "input_unavailable" : answer.errors[0]?.code, reason: answer.errors[0]?.message, receipt, observedAt: new Date().toISOString(), remedy: "Retain the text and refresh this conversation before a new instruction." }, 409);
+      // A replay of accepted but uncertain delivery is still that original receipt,
+      // never a pre-admission refusal and never a new write.
+      return c.json({ ok: true, receipt }, 202);
+    } catch (error) { const conflict = error instanceof ControlFailure && error.code === "command_id_conflict"; return c.json({ ok: false, code: conflict ? "instruction_conflict" : "state_unavailable", reason: (error as Error).message, instructionId: body.instructionId, observedAt: new Date().toISOString(), remedy: "Inspect this same instruction before retrying." }, conflict ? 409 : 503); }
+  });
+  app.get("/api/live/messages", c => {
+    const sessionId = c.req.query("sessionId");
+    if (!sessionId || !Object.values(engine.record.phases).some(f => f.sessionIds.includes(sessionId)) && !engine.messageReceipts().some(r => r.live_target?.sessionId === sessionId)) return c.json({ ok: false, code: "invalid_request", reason: "Select a conversation belonging to this PRD." }, 400);
+    const before = c.req.query("before");
+    const cursor = before && /^[A-Za-z0-9_-]{1,32}$/.test(before) ? Number(Buffer.from(before, "base64url").toString("utf8")) : undefined;
+    if (before && (!Number.isSafeInteger(cursor) || cursor! < 1)) return c.json({ ok: false, code: "invalid_request", reason: "Invalid message cursor." }, 400);
+    const all = engine.messageReceipts().filter(r => r.live_target?.sessionId === sessionId && (cursor === undefined || r.sequence < cursor));
+    const page = all.slice(-50).reverse();
+    return c.json({ ok: true, receipts: page.map(r => engine.commands.lookup(r.command_id).operation), ...(all.length > 50 ? { before: Buffer.from(String(page.at(-1)!.sequence)).toString("base64url") } : {}) });
+  });
+  app.post("/api/live/message-review", async c => {
+    const body = await liveBody(c);
+    if (!body || Object.keys(body).sort().join() !== "instructionId,receiptIds,target" || typeof body.instructionId !== "string" || !validLiveTarget(body.target)) return c.json({ ok: false, code: "invalid_request", reason: "Supply exact target and uncertain receipt IDs." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: body.instructionId, execution_id: body.target.executionId, status_token: JSON.stringify(canonicalLiveTarget(body.target)), action: "message-review", inputs: { target: body.target, receipt_ids: body.receiptIds } });
+      if (!answer.ok) return c.json({ ok: false, code: answer.errors[0]?.code, reason: answer.errors[0]?.message }, 409);
+      await engine.commands.settled();
+      const receipt = engine.commands.lookup(body.instructionId).operation as Receipt;
+      if (receipt.state !== "completed") return c.json({ ok: false, code: receipt.outcome ?? "state_unavailable", reason: receipt.reason }, 409);
+      return c.json({ ok: true, receipt, receipts: engine.messageReceipts(body.target).map(r => engine.commands.lookup(r.command_id).operation) });
+    } catch { return c.json({ ok: false, code: "state_unavailable", reason: "Review could not be durably recorded. Inspect this instruction." }, 503); }
+  });
+
   app.post("/api/live/take-over", async c => {
     const body = await liveBody(c);
     if (!body || Object.keys(body).sort().join() !== "instructionId,target" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target)) return c.json({ ok: false, code: "invalid_request", reason: "Supply instructionId and the exact live target.", observedAt: new Date().toISOString(), remedy: "Refresh the current session." }, 400);
@@ -249,14 +285,14 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const liveTarget = validLiveTarget(body?.target) ? body.target : undefined;
     if (liveTarget) {
       if (!engine.commands.has(id) && !sameLiveTarget(target?.live, liveTarget)) return c.json({ ok: false, code: "stale_target", reason: "This hand-back belongs to another attempt." }, 409);
-      inputs = { ...inputs, live_target: liveTarget };
+      inputs = { ...inputs, live_target: liveTarget, ...(body?.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}) };
       const { instructionId: _id, ...fields } = body!;
       void _id;
       body = { ...fields, target: target ?? { executionId: liveTarget.executionId, phaseKey: liveTarget.activityKey, sessionId: liveTarget.sessionId, stoppedAt: "previous", live: liveTarget } };
     }
     if (body?.note !== undefined && typeof body.note !== "string") return c.json({ ok: false, reason: "The note must be text." }, 400);
     if (body && (target || "target" in body || "intent" in body)) {
-      const allowed = action === "verify-and-advance" ? ["target", "intent", "withoutSendingReply"] : ["target", "note"];
+      const allowed = action === "verify-and-advance" ? ["target", "intent", "withoutSendingReply", "reviewedReceiptIds"] : ["target", "note", "reviewedReceiptIds"];
       if (Object.keys(body).some(k => !allowed.includes(k)) || body.target !== undefined && !validRecoveryTarget(body.target) || body.note !== undefined && typeof body.note !== "string" || typeof body.note === "string" && body.note.trim().length > 4000 || action === "verify-and-advance" && body.intent !== undefined && !["verify", "advance"].includes(String(body.intent))) return c.json({ ok: false, code: "invalid_request", reason: "Invalid recovery request." }, 400);
       if (!engine.commands.has(id) && !sameRecoveryTarget(target, body.target as typeof target)) return c.json({ ok: false, code: "stale_target", reason: "Refresh the stopped conversation before acting." }, 409);
       if (action === "verify-and-advance" && !body.intent) return c.json({ ok: false, code: "invalid_request", reason: "Choose verify or advance." }, 400);
