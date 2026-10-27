@@ -4,16 +4,19 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. Both implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration. Integration/push remains held; whole-PRD delivery and test audits follow integration.
+Build and verify each phase in this order before starting the next. Both original implementation phases closed on 2026-10-27, including Phase 2’s required Grok Bot demonstration, and are integrated through `c25bf89`. The [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) found three partly implemented criteria and added completion Phase 3. Build it before repeating delivery audit and then test audit.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
 | [1: Inspect existing work](phase-1-inspect-existing-work.md) | Find existing Kiln work and read its progress, stops, conversations, recovery instructions, accounts and bounded logs through a documented command interface. | None | Closed 2026-10-27 |
 | [2: Control existing work safely](phase-2-control-existing-work.md) | Apply existing-run controls with durable retry and restart protection, then demonstrate the complete bot-driven workflow. | 1 (authenticated discovery, execution/session identity, read commands, result/help contracts and bounded logs) | Closed 2026-10-27 |
+| [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Open |
 
 ## Criterion ownership
 
 Phase 1 owns AC-SEE-01–08, AC-ACT-01, AC-ACCOUNT-01 and AC-CLI-01–03. Phase 2 owns AC-ACT-02–05 and AC-CLI-04. All 18 active criteria have exactly one owner; retired AC-ACCOUNT-02–04 stay retired. AC-SEE-03, AC-SEE-07, AC-ACT-01 and AC-CLI-01–03 also constrain Phase 2's additions, as labelled in its phase document. No criteria or product scope changed during planning.
+
+Completion Phase 3 completes AC-SEE-02, AC-ACT-01 and AC-CLI-01; Phase 1 retains ownership and its Closed line. The audit added no scope.
 
 ## Sizing decision
 
@@ -24,3 +27,5 @@ The second phase carries one coupled control capability: all entry points share 
 ## Validation and closeout
 
 Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After both leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
+
+The 2026-10-27 delivery audit is complete with gaps, not clean. Next: implement Phase 3, repeat whole-PRD delivery audit, then whole-PRD test audit. See the audit record for all criterion outcomes and the completion phase for the exact missing behavior.
