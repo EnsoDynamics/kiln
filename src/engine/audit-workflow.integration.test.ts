@@ -37,6 +37,8 @@ async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession
   return h;
 }
 const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
+// Multi-cycle scenarios below run several real provider/Git/audit boundaries. Their
+// two-minute budgets cover that complete workflow, not an individual operation.
 describe("automatic completion activities", () => {
   it.each([
     { entry: "completed", stopping: true },
@@ -109,7 +111,7 @@ describe("automatic completion activities", () => {
     { beyondDelivery: true, recordedHumanResult: false },
     { beyondDelivery: false, recordedHumanResult: false },
     { beyondDelivery: true, recordedHumanResult: true },
-  ])("keeps human work behind the completion boundary and discloses allowed actions in the browser (%j)", async ({ beyondDelivery, recordedHumanResult }) => {
+  ])("keeps human work behind the completion boundary and discloses allowed actions in the browser (%j)", { timeout: 120_000 }, async ({ beyondDelivery, recordedHumanResult }) => {
     const action = "Approve and perform the separately authorized production release.";
     const documentFiles = { ...files, "proof-prd.md": files["proof-prd.md"] + "  - Production release is a separate human action after Kiln delivery.\n" };
     const h = await fixture([auditSession({ humanAction: action, beyondDelivery }), auditSession({ humanAction: action, beyondDelivery, recordedHumanResult })], [pullRequestSession()], documentFiles);
@@ -203,7 +205,7 @@ describe("automatic completion activities", () => {
       expect(current.engine.record.completedAt).toBeDefined(); expect(current.claudeCalls()).toHaveLength(3);
     } finally { off(); }
   });
-  it("implements two appended repair rounds including split children before the clean test audit", async () => {
+  it("implements two appended repair rounds including split children before the clean test audit", { timeout: 120_000 }, async () => {
     const firstRepair=landingSession(`${directory}/value.mjs`,files["value.mjs"]);
     firstRepair.actions.splice(1,0,{split:[{id:"2a",slug:"first",title:"First repair",closed:true,criteria:"AC-PROOF-01"},{id:"2b",slug:"second",title:"Second repair",criteria:"AC-PROOF-01"}]});
     const h = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession(), auditSession()], [firstRepair,landingSession(`${directory}/value.mjs`, files["value.mjs"]), landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
@@ -214,7 +216,7 @@ describe("automatic completion activities", () => {
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
     expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
   });
-  it("continues test-only work in a fresh conversation in the same round and retains both immutable records", async () => {
+  it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
@@ -239,7 +241,7 @@ describe("automatic completion activities", () => {
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(3);
   });
 
-  it.each(["completion phase", "direct fix"])("returns a test-discovered %s through delivery and whole-test reassessment", async mode => {
+  it.each(["completion phase", "direct fix"])("returns a test-discovered %s through delivery and whole-test reassessment", { timeout: 120_000 }, async mode => {
     const h = await fixture([auditSession(), auditSession(mode === "direct fix" ? { directFix: true } : { gap: true }), auditSession(), auditSession()], mode === "direct fix" ? [pullRequestSession()] : [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
@@ -251,7 +253,7 @@ describe("automatic completion activities", () => {
     expect(buildSnapshot(h.engine).feature.phasesTotal).toBe(mode === "direct fix" ? 1 : 2);
   });
 
-  it("persists the pending continuation across a boundary pause and restart without a duplicate activity", async () => {
+  it("persists the pending continuation across a boundary pause and restart without a duplicate activity", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(),auditSession({ continueTest:true }),auditSession()]); let requested=false;
     const off=h.engine.onChange(()=>{if(!requested&&h.engine.current?.session?.kind==="test_audit"){requested=true;h.engine.pause();}});
     await h.engine.start({refinementConfirmed:true});await h.engine.settled();off();
@@ -265,12 +267,13 @@ describe("automatic completion activities", () => {
     expect(again.record.completionAudits!.activities.at(-1)!.activityId).toBe(pending.activityId);
   });
 
-  it("shows and opens the fresh test continuation in the real browser", async () => {
+  it("shows and opens the fresh test continuation in the real browser", { timeout: 120_000 }, async () => {
     const h=await fixture();const marker=join(h.sandbox.root,"test-continuation-ready");
     writeFileSync(h.scenarioPath,JSON.stringify({sessions:[pullRequestSession()],auditSessions:[auditSession(),auditSession({continueTest:true}),auditSession({beforeSubmitFile:marker})]}));
     const chrome=await launchChrome();
     try {
-      await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker));
+      // The marker follows three real audit turns and their committed/pushed reports.
+      await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker), 60_000);
       const activity=h.engine.record.completionAudits!.activities.at(-1)!;const key=auditKey(activity);
       expect(activity).toMatchObject({round:1,continuationIndex:2});
       const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
@@ -316,7 +319,7 @@ describe("automatic completion activities", () => {
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.completionAudits!.activities).toHaveLength(1); expect(h.engine.record.completedAt).toBeUndefined();
   });
-  it("recovers a committed report without submission and pauses at the audit boundary", async () => {
+  it("recovers a committed report without submission and pauses at the audit boundary", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession({ skipSubmit: true })]);
     let requested = false;
     const off = h.engine.onChange(() => { if (!requested && h.engine.current?.session?.kind === "delivery_audit") { requested = true; h.engine.pause(); } });
@@ -442,7 +445,7 @@ describe("automatic completion activities", () => {
     expect(calls[1]!.prompt).toContain(original.reportPath);
   });
 
-  it.each(["automatic", "Resume now"])("recovers the recorded weekly refusal through %s after switching accounts, with no reply required", async mode => {
+  it.each(["automatic", "Resume now"])("recovers the recorded weekly refusal through %s after switching accounts, with no reply required", { timeout: 120_000 }, async mode => {
     const started = Date.now();
     const now = () => new Date(Date.parse("2026-10-26T09:30:00Z") + Date.now() - started);
     const claude = new ScriptedClaude(now);
@@ -474,7 +477,8 @@ describe("automatic completion activities", () => {
       claude.queue(...Array.from({ length: 8 }, () => fresh));
       if (mode === "automatic") await claude.refreshAccount();
       else await page.evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Resume now')).click()`);
-      await waitFor(() => !!h.engine.record.completedAt); await h.engine.settled();
+      // Recovery still completes the remaining audits and final pull request.
+      await waitFor(() => !!h.engine.record.completedAt, 60_000); await h.engine.settled();
       const calls = h.claudeCalls();
       expect(calls[1]!.args).toContain("--resume");
       expect(calls[1]!.args).toContain(original.sessionIds[0]);
@@ -486,7 +490,7 @@ describe("automatic completion activities", () => {
     } finally { await chrome.close(); }
   });
 
-  it("automatically reaudits material finalization changes and reuses the existing final pull request", async () => {
+  it("automatically reaudits material finalization changes and reuses the existing final pull request", { timeout: 120_000 }, async () => {
     const final = pullRequestSession(); final.actions.unshift({ write: { path: `${directory}/value.mjs`, content: files["value.mjs"] + "// Finalization changed tracked implementation.\n" } }, { commit: "fix(value): retain final source update" }, { push: true });
     const h = await fixture(undefined, [final]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
@@ -507,7 +511,7 @@ describe("automatic completion activities", () => {
     expect(h.claudeCalls()).toHaveLength(1);
   });
 
-  it("shows a durable next final-delivery row when paused after the clean test audit", async () => {
+  it("shows a durable next final-delivery row when paused after the clean test audit", { timeout: 120_000 }, async () => {
     const h = await fixture(); let requested = false;
     const off = h.engine.onChange(() => { if (!requested && h.engine.current?.session?.kind === "test_audit") { requested = true; h.engine.pause(); } });
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); off();

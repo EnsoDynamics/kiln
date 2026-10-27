@@ -25,6 +25,8 @@ This is an extension of the local TypeScript application; no new service, databa
 
 ### One completion decision
 
+Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (reconcile active additions before finalization).
+
 Every startup, loop continuation, session settlement, Check again and Resume uses one next-activity decision. Evaluate outstanding workspace, plan and required development evidence first. Then select the first applicable row:
 
 | Current facts | Next work |
@@ -146,6 +148,7 @@ A checkpoint's origin owner is immutable. Retained obligation assignments map `(
 ## Recovery and Upgrade
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
+Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-run reconciliation before resuming scheduling; completed-run continuation remains separate).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 

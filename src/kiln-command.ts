@@ -357,6 +357,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
+    case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit": return formatPhaseLine(event.at, "", `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`, event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":

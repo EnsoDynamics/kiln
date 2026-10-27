@@ -17,3 +17,9 @@ Continue and Not now interactions, pre-acceptance target grants, durable accepta
 
 ## Phase-specific notes
 Ship a read-only discovery panel and CLI result through the real foreground engine/server/browser. Preparation/authority evaluation belongs here so readiness is independently verifiable; grant and continuation mutations follow in Phase 3. Own the corresponding discovery/classification proof rows and synthetic fixture inputs in the design, including legacy-baseline recovery; add only the supersession pointers made true here.
+
+## Phase 1 handoff
+
+Phase 1 establishes private schema 12, after integrating the live-session-control schema 11 change. Reuse the immutable retained-plan and coherent-source contracts in `src/engine/plan-reconciliation.ts`; do not replace the accepted pointer before comparing candidates. Historical completed-feature recovery remains this phase's responsibility. Active legacy recovery verifies earlier Kiln phase documents against their recorded published revisions; an initial active observation is not historical scope proof.
+
+[Active-plan validation](kiln-active-plan-handback-validation.md) records the actual Claude/Codex, Git, browser and workflow evidence. Keep the existing terminal-ownership admission ahead of handback checks and dispatch. Split-parent repository additions retain Multi-Repo Delivery AC-ADD-04 behavior for remaining children.

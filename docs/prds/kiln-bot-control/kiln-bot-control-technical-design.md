@@ -59,6 +59,8 @@ A read can inspect retained work after the document/worktree disappears: normali
 
 ### Version compatibility
 
+Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (private schema 12 for active-plan reconciliation; existing command admission remains unchanged).
+
 Add authenticated `GET /api/control/v1/capabilities`, returning `{ protocol_major: 1, protocol_minor, kiln_version, execution_id, prd_path, instance: { pid, process_start_time }, features }`. An older controller's 404, unknown/newer major, mismatched identity or unsupported saved schema yields an explicit incompatible/unavailable row and exit 4. Never try its legacy mutation routes. Compatible readers tolerate additional optional response fields, refuse unknown mutation kinds and never interpret unknown states as eligible.
 
 New controller startup upgrades saved records under the existing exclusive PRD lock. CLI reads use pure versioned projections; the existing migration-writing read path must not be used for inventory. The durable-control implementation uses PRD schema 10 after billing schema 9. Receipt envelopes remain independently versioned at 1; inspection sidecars remain version 1.

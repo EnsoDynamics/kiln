@@ -18,7 +18,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -238,6 +238,7 @@ export interface RepositoryEntry {
 
 export interface PrdRecord {
   liveControl?: { version: 1; revision: number; takeover: import("../live/target.js").TakeoverHold };
+  planReconciliation?: import("../engine/plan-reconciliation.js").PlanReconciliationState;
   controlEpoch?: string;
   controlRevision?: number;
   controlFingerprint?: string;
@@ -456,8 +457,15 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.controlEpoch !== undefined && typeof record.controlEpoch !== "string" || record.controlRevision !== undefined && (!Number.isSafeInteger(record.controlRevision) || record.controlRevision < 0) || record.controlFingerprint !== undefined && !/^[a-f0-9]{64}$/.test(record.controlFingerprint) || record.controlApplied !== undefined && (typeof record.controlApplied.operationId !== "string" || typeof record.controlApplied.outcome !== "string")) throw new Error("Malformed durable control metadata.");
   if (record.controlApplied?.settings && (typeof record.controlApplied.settings.keep_awake !== "boolean" || typeof record.controlApplied.settings.resume_after_usage_limit !== "boolean")) throw new Error("Malformed durable control settings.");
   for (const phase of Object.values(record.phases ?? {})) if (phase.completedByOperation !== undefined && typeof phase.completedByOperation !== "string") throw new Error("Malformed completion operation reference.");
+  const reconciliation = record.planReconciliation;
+  if (reconciliation) {
+    if (reconciliation.baselineId !== undefined && !/^[a-f0-9]{64}$/.test(reconciliation.baselineId)) throw new Error("Malformed retained plan reference.");
+    const notice = reconciliation.handback;
+    if (notice && (typeof notice.source !== "string" || !Array.isArray(notice.addedPhaseIds) || !notice.addedPhaseIds.every(id => typeof id === "string") || !Number.isSafeInteger(notice.remainingCount) || notice.remainingCount < 0 || !Number.isFinite(Date.parse(notice.acceptedAt)))) throw new Error("Malformed handback notice.");
+    if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
+  }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);

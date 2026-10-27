@@ -41,6 +41,8 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 
 `kiln run` again, after Ctrl+C or a restart, picks the feature up wherever it stopped.
 
+For an unfinished run, Kiln rereads the PRD and phase plan when control returns. Appended phases and split leaves join the remaining plan automatically after the current activity passes its completion checks; a notice shows their identifiers and remaining count. If the shared checkout contains a different plan, Kiln identifies that source and holds advancement. Reconcile the documents into the active workspace, commit/push under the normal execution rules, then use Verify or Resume. Kiln never imports or overwrites the other checkout's work.
+
 By default, work stays on feature branches for review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may merge there early when a PRD criterion needs deployment or verification; the repository’s existing CI/CD controls deployment. No environment name or non-production declaration is needed. Required checks and reviews still apply, and remaining work ends in a review PR. Other branches, separate release workflows and destructive actions remain unauthorized.
 
 `kiln run` starts or reopens the controller. The browser and documented local CLI can control existing work. Use `kiln status --json` to discover runs, `kiln status <PRD-path> --json` to inspect one, and command-specific `--help` for replies, no-message resume, verification, pause and settings. Help is available without a running controller. Sessions also use helper commands for repository setup, audit evidence and delivery.

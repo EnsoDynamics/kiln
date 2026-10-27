@@ -45,6 +45,8 @@ The local API is the existing trusted machine-user boundary, not a new claim tha
 
 ### Record contract
 
+Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (retained active-plan baseline reference and private schema 12; delivery evidence and grants remain unchanged).
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (durable audit allocation and retained assignment decisions), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery and §Recovery and Upgrade (schema 7 phase/audit owners, manifest-bound audit assessments, criterion-scoped retained assignments and ordered first-grant recovery, implemented in Phase 2a; existing grants, evidence and final-reconciliation protections remain).

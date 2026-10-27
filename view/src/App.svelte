@@ -84,6 +84,12 @@
   <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} />
   {#if connection.notice}<div class="command-notice" role="status">{connection.notice}<button type="button" onclick={() => { connection.notice = undefined; }}>Dismiss</button></div>{/if}
   {#if snapshot}
+    {#if snapshot.continuation?.planCheck}
+      <div class="command-notice" role="alert"><div><strong>Plan needs reconciliation</strong><p>{snapshot.continuation.planCheck.problem}</p></div></div>
+    {:else if snapshot.continuation?.handback}
+      {@const notice = snapshot.continuation.handback}
+      <div class="command-notice" role="status"><div><strong>Added work accepted</strong><p>Phases {notice.addedPhaseIds.join(", ")} added · {notice.remainingCount} unfinished phases remain.</p><p>Plan: {notice.source}</p></div></div>
+    {/if}
     {#if phaseScreen !== undefined}
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
@@ -103,6 +109,6 @@
 </div>
 
 <style>
-  .command-notice { margin: 16px 28px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); display: flex; justify-content: space-between; gap: 16px; }
+  .command-notice { overflow-wrap: anywhere; margin: 16px 28px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); display: flex; justify-content: space-between; gap: 16px; }
   .page { min-height: 100vh; }
 </style>

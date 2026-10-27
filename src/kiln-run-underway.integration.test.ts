@@ -4,7 +4,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -134,9 +134,10 @@ describe("kiln run on a feature underway", () => {
     expect(h.claudeCalls()).toHaveLength(1);
 
     git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
-    // A feature underway skips the start checks (AC-START-02): the main checkout's own changes and a missing design don't stop it.
+    // Unrelated shared-checkout edits still bypass startup checks (AC-START-02).
+    // HANDBACK-03 now requires a coherent readable plan; missing required documents
+    // are covered by added-plan-handback.integration.test.ts and cannot be ignored.
     writeFileSync(join(h.repository, "scratch.txt"), "the person's own work\n");
-    rmSync(join(h.repository, "docs", "prds", "customer-returns", "technical-design.md"));
     const result = await kilnRunUntil(h, (stdout) => stdout.includes("Returns dashboard  stopped"));
     expect(result.stderr).toBe("");
     const lines = result.stdout.trimEnd().split("\n");

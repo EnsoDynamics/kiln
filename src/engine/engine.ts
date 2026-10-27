@@ -54,6 +54,7 @@ import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path"
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
+import { readPhaseDocument } from "../plan/phase-document.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -113,6 +114,7 @@ import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
 import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
+import { phaseScopeDigest, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -149,6 +151,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
+  | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
   | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
   | {
@@ -1058,6 +1061,7 @@ export class Engine {
       const outcome = await this.doneCheck(key);
       if (outcome === "stopping" || this.stopping) throw new CompletionCheckUnavailable("The completion check was interrupted. No work was started.");
       if (outcome.unavailable) throw new CompletionCheckUnavailable(outcome.unavailable);
+      if (!outcome.plan.ok) throw new CompletionCheckUnavailable(outcome.plan.problem);
       // A hold may precede a normal stop. Save actual completion evidence separately from billing.
       const facts = this.record.phases[key]!;
       const previousStop = structuredClone(facts.stop);
@@ -1743,7 +1747,7 @@ export class Engine {
       const setup = await this.finishSetup();
       if (!setup.ok) return setup;
     }
-    this.readPlan();
+    await this.readPlan();
     return { ok: true };
   }
 
@@ -1784,7 +1788,7 @@ export class Engine {
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
     if (deliveryEnabled(record) && record.completedAt) {
-      this.readPlan();
+      await this.readPlan();
       const earlier = await this.unresolvedDeliveryLeaf();
       if (earlier) { record.completionAudits!.policy = "required"; this.save(); return { kind: "needs_you", phaseKey: earlier, again: true }; }
       const result = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -1852,7 +1856,7 @@ export class Engine {
 
     if (record.pause.activeSince !== undefined) return withDone({ kind: "paused" as const, beforePhaseKey: this.nextKeyFromRecordedPlan() });
     // What the engine loop does next, in its order.
-    const read = this.readPlan();
+    const read = await this.readPlan();
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
     const unresolved = await this.unresolvedDeliveryLeaf();
     if (unresolved) return withDone({ kind: "needs_you" as const, phaseKey: unresolved, again: true });
@@ -1926,7 +1930,7 @@ export class Engine {
       }
       if (record.pause.activeSince !== undefined) return;
 
-      const read = this.readPlan();
+      const read = await this.readPlan();
       if (!read.ok) {
         this.recordPlanStop(read.problem);
         return;
@@ -2081,7 +2085,7 @@ export class Engine {
       const activity = this.auditActivity(key)!; const context = this.admissionContext();
       if (deliveryEnabled(this.record)) context.developmentChecks = () => [ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId })];
       const stayed = await this.readWorkspaceEvidence(key);
-      const plan = this.readPlan(); const checks: CheckResult[] = [];
+      const plan = await this.readPlan(); const checks: CheckResult[] = [];
       if (!plan.ok) checks.push(planCheck(plan));
       if (deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext(key));
       try {
@@ -2116,10 +2120,19 @@ export class Engine {
   }
 
   private async requireCurrentAudits(outcome: { passed: boolean; checks: CheckResult[] }): Promise<void> {
+    if (!this.record.completedAt) {
+      const read = await this.readPlan();
+      if (!read.ok) { outcome.checks.push(planCheck(read)); outcome.passed = false; return; }
+    }
     if (this.record.completedAt && this.record.completionAudits?.policy === "legacy_complete") return;
     try {
+      const baseline = this.record.planReconciliation?.baselineId;
       const next = await auditNext(this.admissionContext());
-      if (next === "final_delivery" && !nextLeaf(this.plan!)) return;
+      if (!this.record.completedAt) {
+        const read = await this.readPlan();
+        if (!read.ok) { outcome.checks.push(planCheck(read)); outcome.passed = false; return; }
+      }
+      if (next === "final_delivery" && !nextLeaf(this.plan!) && baseline === this.record.planReconciliation?.baselineId) return;
       outcome.checks.push({ name: "Current completion audits", passed: false, facts: [`${next === "final_delivery" ? "Implementation" : auditLabel(next === "continue_test" ? "test_audit" : next)} is required before final completion.`] });
     } catch (error) { outcome.checks.push({ name: "Current completion audits", passed: false, facts: [(error as Error).message] }); }
     outcome.passed = false;
@@ -2211,6 +2224,12 @@ export class Engine {
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
     } else await this.stopLiveProcess(session);
     if (this.stopping) return;
+    const reconciled = await this.readPlan();
+    if (!reconciled.ok) {
+      this.checking = false;
+      if (!this.record.phases[phaseKey]?.stop && !this.record.phases[phaseKey]?.wait) this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", [planCheck(reconciled)]);
+      this.current = undefined; this.changed(); return;
+    }
     if (session.agentId === "codex") {
       await this.readCodexAvailability(session);
       if (this.codexSafetyProblems(phaseKey, false).length || this.transcriptMissing(session)) {
@@ -2724,7 +2743,7 @@ export class Engine {
       return "cleared";
     }
     if (stop.kind === "plan") {
-      const read = this.readPlan();
+      const read = await this.readPlan();
       if (!read.ok) {
         this.updateStop(phaseKey, [planCheck(read)]);
         return "still_stopped";
@@ -2836,6 +2855,8 @@ export class Engine {
     this.activeCheck = phaseKey;
     await this.deliveryPending;
     await this.additionChain;
+    const beforePlan = await this.readPlan();
+    const beforeBaseline = this.record.planReconciliation?.baselineId;
     // A wake during the check restarts its origin retry, so the sleep watch runs through it.
     this.watchSleep();
     try {
@@ -2856,7 +2877,15 @@ export class Engine {
         const delivery = phaseDeliveryCheck(this.deliveryContext(phaseKey), outcome.judgedLeafId);
         outcome.checks.push(delivery, ...this.activationChecks().filter(check => !check.passed)); outcome.passed = outcome.passed && outcome.checks.every(check => check.passed); this.save(); this.announceDelivery();
       }
-      if (outcome.plan.ok && !this.stopping) this.acceptPlan(outcome.plan.plan);
+      if (!this.stopping) {
+        const reconciled = await this.readPlan();
+        if (!reconciled.ok) { outcome.passed = false; outcome.checks.push(planCheck(reconciled)); }
+        else if (!beforePlan.ok || beforeBaseline !== this.record.planReconciliation?.baselineId) {
+          outcome.passed = false;
+          outcome.checks.push({ name: CHECK_NAMES.plan, passed: false, facts: [!beforePlan.ok ? beforePlan.problem : "source_changed: the plan changed during completion checks. Retry Verify or Resume."] });
+        }
+        outcome.plan = reconciled;
+      }
       return this.withCodexSafety(phaseKey, outcome);
     } finally {
       this.activeCheck = undefined;
@@ -2870,6 +2899,7 @@ export class Engine {
   private async pullRequestCheck(phaseKey?: string) {
     if (phaseKey !== undefined) this.activeCheck = phaseKey;
     await this.deliveryPending;
+    if (!this.record.completedAt) await this.readPlan();
     try {
       if (deliveryEnabled(this.record)) {
         const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
@@ -3027,6 +3057,7 @@ export class Engine {
     if (mergedBranches.length) record.mergedBranches = mergedBranches;
     else delete record.mergedBranches;
     record.completedAt ??= at;
+    if (record.planReconciliation) delete record.planReconciliation.handback;
     if (record.billing) { delete record.billing.approval; delete record.billing.current; delete record.billing.hold; }
     // A pending pause is dropped, since nothing would start (UI-008).
     record.pause = {};
@@ -3683,8 +3714,7 @@ export class Engine {
     this.save();
     // The added line names the session's judged leaf, from the latest read of the plan.
     const read = readPlanAt(this.worktreePath, this.paths.prdDirectoryFromRoot);
-    if (read.ok) this.acceptPlan(read.plan);
-    const judged = this.judgedId(phaseKey);
+    const judged = read.ok ? judgedPhase(read.plan.phases, phaseKey)?.id ?? phaseKey : this.judgedId(phaseKey);
     this.emit({ kind: "repository_added", at: this.now(), phaseId: judged, title: this.titleOf(judged), name });
     return answer(entry, true);
   }
@@ -3969,16 +3999,108 @@ export class Engine {
     return `${this.paths.prdDirectoryFromRoot}/${this.paths.folderName}-prd.md`;
   }
 
-  private readPlan(): PlanRead {
-    const read = readPlanAt(this.worktreePath, this.paths.prdDirectoryFromRoot);
-    if (read.ok) this.acceptPlan(read.plan);
-    return read;
-  }
-
-  private acceptPlan(plan: PhasePlan): void {
-    this.plan = plan;
-    this.record.plan = recordedPlan(plan);
-    this.save();
+  private async readPlan(): Promise<PlanRead> {
+    // Completed-run discovery belongs to a separate, explicit observation path.
+    if (this.record.completedAt) {
+      const read = readPlanAt(this.worktreePath, this.paths.prdDirectoryFromRoot);
+      if (read.ok) this.plan = read.plan;
+      return read;
+    }
+    const attemptedAt = this.now().toISOString();
+    let baseline: Omit<PlanBaseline, "id">;
+    let added: string[];
+    try {
+      const previous = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
+      const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
+      const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
+        ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
+        ...(previous?.sources.map(source => source.path) ?? [])].map(path => expandHome(path)))];
+      const sources = sourcePaths.filter(path => path !== active.path).map(path => observePlan(path, this.paths.prdDirectoryFromRoot));
+      if (!previous) for (const [key, facts] of Object.entries(this.record.phases)) {
+        if (!facts.doneAt || !facts.sessionIds.length || key === PR_PHASE_KEY || this.auditActivity(key)) continue;
+        const recorded = judgedPhase(this.record.plan ?? [], key);
+        const current = recorded && active.plan.phases.find(p => p.id === recorded.id);
+        if (!recorded || !current || !current.closed || current.splitInto) throw new Error(`baseline_unavailable: Phase ${recorded?.id ?? key} was previously completed but is now removed, reopened or split. Reconcile that historical completion before returning control.`);
+      }
+      if (previous) {
+        const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))]);
+        const problems = completedScopeProblems({ ...previous.active, plan: { ...previous.active.plan, phases: previous.active.plan.phases.map(p => ({ ...p, closed: p.closed && completed.has(p.id) })) } }, active);
+        if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
+      }
+      for (const source of sources) {
+        const changed = sourceDiscrepancies(active, source, previous?.sources.find(old => old.path === source.path));
+        if (changed.length) throw new Error(`Plan discrepancy in ${source.path} (saved documents ${source.digest.slice(0, 12)}): ${changed.map(id => id === "requirements" ? id : `Phase ${id}`).join(", ")} differ from the active workspace ${active.path}. Reconcile those documents into the active workspace without overwriting work, commit/push under the normal execution rules, then use Verify or Resume in Kiln.`);
+      }
+      const completions = { ...previous?.completions };
+      for (const phase of active.plan.phases.filter(p => p.closed && !p.splitInto)) {
+        const owner = Object.entries(this.record.phases).find(([key, facts]) => judgedPhase(active.plan.phases, key)?.id === phase.id && facts.sessionIds.length);
+        if (owner) {
+          if (owner[1].doneAt) {
+            const revision = owner[1].repositories[this.paths.repositoryName]?.pushedSha;
+            if (!previous) {
+              const historicalFile = this.record.plan?.find(p => p.id === phase.id)?.file;
+              if (!revision || !historicalFile) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
+              const original = await runGit(this.git, this.worktreePath, ["show", `${revision}:${this.paths.prdDirectoryFromRoot}/${historicalFile}`]);
+              const links = new Map<string, string>((this.record.plan ?? []).flatMap(p => [[p.file, p.id], [`./${p.file}`, p.id]]));
+              if (original.exitCode !== 0 || !readPhaseDocument(historicalFile, original.stdout).closed || phaseScopeDigest(original.stdout, historicalFile, links) !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+            }
+            completions[phase.id] = { kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+          }
+          continue;
+        }
+        if (completions[phase.id]) continue;
+        // A Closed phase already published on the setup base needs no feature-branch push.
+        // Prove exact document bytes, clean assigned workspace and published base independently.
+        if (!previous) {
+          const file = `${this.paths.prdDirectoryFromRoot}/${phase.fileName}`;
+          const entries = this.setUpRepositories;
+          const proofs = await Promise.all(entries.map(async entry => {
+            const cwd = expandHome(entry.worktreePath);
+            const [status, head, branch, published] = await Promise.all([
+              runGit(this.git, cwd, ["status", "--porcelain"]), runGit(this.git, cwd, ["rev-parse", "HEAD"]),
+              runGit(this.git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]), runGit(this.git, cwd, ["ls-remote", "origin", `refs/heads/${entry.baseBranch}`]),
+            ]);
+            return [status, head, branch, published].every(result => result.exitCode === 0) && !status.stdout.trim() && head.stdout.trim() === entry.baseCommit && branch.stdout.trim() === this.record.settings.featureBranch && published.stdout.trim().split(/\s/)[0] === entry.baseCommit;
+          }));
+          const prd = entries.find(entry => entry.kind === "prd");
+          const blob = prd?.baseCommit ? await runGit(this.git, this.worktreePath, ["show", `${prd.baseCommit}:${file}`]) : undefined;
+          if (entries.length && proofs.every(Boolean) && blob?.exitCode === 0 && blob.stdout === active.documents[file]) {
+            completions[phase.id] = { kind: "external", revision: prd!.baseCommit!, repositories: Object.fromEntries(entries.map(entry => [entry.name, { identity: entry.github, revision: entry.baseCommit! }])) }; continue;
+          }
+        }
+        const outcome = await runDoneCheck({ git: this.git, prdWorktreePath: this.worktreePath, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
+          repositories: this.setUpRepositories.map(entry => this.checkedRepository(entry)), branch: this.record.settings.featureBranch, launchedLeafId: phase.id,
+          stayed: { passed: true, check: { name: STAYED_CHECK_NAME, passed: true, facts: ["No Kiln session owned this external work; provider provenance is not applicable."] }, changes: [], transcripts: [] },
+          ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }) });
+        if (!outcome.passed) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence: ${outcome.checks.filter(c => !c.passed).flatMap(c => c.facts).join(" ")}`);
+        if (deliveryEnabled(this.record)) {
+          const delivery = phaseDeliveryCheck(this.deliveryContext(phase.id), phase.id);
+          if (!delivery.passed) throw new Error(`Externally closed Phase ${phase.id}: ${delivery.facts.join(" ")}`);
+        }
+        completions[phase.id] = { kind: "external", revision: outcome.pushedShas![this.paths.repositoryName]!, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: outcome.pushedShas![entry.name]! }])) };
+      }
+      // Remote/provenance checks can take time. Recheck all candidate membership and bytes.
+      for (const source of [active, ...sources]) if (observePlan(source.path, this.paths.prdDirectoryFromRoot).digest !== source.digest) throw new Error(`source_changed: ${source.path} changed during plan reconciliation. Retry the handback.`);
+      added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
+      // Publish sidecar before its record pointer; never roll back an uncertain durable write.
+      baseline = { formatVersion: 1, normalizerVersion: 1, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
+      if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
+    } catch (error) {
+      const problem = (error as Error).message;
+      this.record.planReconciliation = { ...this.record.planReconciliation, check: { status: "failed", attemptedAt, problem } };
+      this.save();
+      return { ok: false, problem, unavailable: true };
+    }
+    const retained = retainBaseline(this.stateDirectory, baseline);
+    const earlier = this.record.planReconciliation;
+    this.record.planReconciliation = { baselineId: retained.id, check: { status: "accepted", attemptedAt },
+      ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
+    this.plan = baseline.active.plan;
+    this.record.plan = recordedPlan(baseline.active.plan);
+    try { this.save(); }
+    catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }
+    if (added.length) this.emit({ kind: "plan_updated", at: this.now(), addedPhaseIds: added, remainingCount: this.record.planReconciliation.handback!.remainingCount, source: baseline.active.path });
+    return { ok: true, plan: baseline.active.plan };
   }
 
   /** The latest session across every phase: the greatest `createdAt`. */
@@ -4019,7 +4141,7 @@ export class Engine {
 
   private emit(event: TerminalEvent): void {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
-    if (!this.quiet || event.kind === "repository_added") this.options.onTerminal?.(event);
+    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated") this.options.onTerminal?.(event);
   }
 }
 

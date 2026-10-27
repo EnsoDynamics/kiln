@@ -41,6 +41,8 @@ All recovery submissions share the engine’s existing exclusive checking/dispat
 
 ### Evaluate, then act
 
+Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan reconciliation before handback advancement).
+
 An evaluation returns one of: **complete**, **incomplete**, or **check unavailable**, with an authoritative result time for completed evaluations. It may refresh the accepted plan and evidence records as existing checks require, but does not delete a stop, mark Done, clear a billing hold, activate a pause or kick subsequent work merely because it passed.
 
 | Person’s intent | Complete | Incomplete | Check unavailable |
@@ -105,6 +107,7 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 ## Completion Evidence and Errors
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
+Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan/source failures prevent advancement while preserving session facts).
 
 Use every applicable existing completion obligation, including all repositories, workspace history/confirmations, Codex cleanup/dispatch safety and required development delivery. Preserve first-child judgement after a phase split and existing retained workspace-check rows. Render the evaluator’s requirement rows, facts and repository names beside Verify; derive passed/total from those rows rather than a literal three or a repository count. Do not create a second browser predicate for completion.
 

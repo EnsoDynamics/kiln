@@ -185,7 +185,8 @@ describe("the engine from Start to the pull request", () => {
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     // AC-RUN-04: "1 started" is followed by "1a done", and Kiln carries on with 1b.
-    expect(phaseEvents(h).slice(1, 5)).toEqual(["1 started", expect.stringMatching(/^1a done /), "1b started", expect.stringMatching(/^1b done /)]);
+    expect(h.events.filter(event => event.kind === "plan_updated")).toEqual([expect.objectContaining({ addedPhaseIds: ["1b"], remainingCount: 3 })]);
+    expect(phaseEvents(h).filter(event => event !== "plan_updated").slice(1, 5)).toEqual(["1 started", expect.stringMatching(/^1a done /), "1b started", expect.stringMatching(/^1b done /)]);
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.claudeCalls()[1]!.prompt).toContain("implement `docs/prds/customer-returns/phase-1b-intake-email.md`");
     const rows = buildSnapshot(h.engine).phases.map((phase) => [phase.id, phase.state]);
@@ -959,9 +960,13 @@ describe("the done check's facts", () => {
     const text = readFileSync(join(prdDirectory, "phase-1-return-intake.md"), "utf8");
     rmSync(join(prdDirectory, "phase-1-return-intake.md"));
     writeFileSync(join(prdDirectory, "phase-4-return-intake.md"), text.replace("Phase 1:", "Phase 4:"));
-    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const beforePlanFailure = structuredClone(h.engine.record.phases["1"]!.stop!);
+    // AC-HANDBACK-04 retains accepted completion scope even when a live fact was reset.
+    // Removing that completed identity now requires plan reconciliation, not a fresh receipt.
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable" });
     const after = structuredClone(h.engine.record.phases["1"]!.stop!);
-    expect(after.checks[0]!.facts[0]).toBe("Phase 1 is no longer in the plan");
+    expect(after).toEqual(beforePlanFailure);
+    expect(h.engine.record.planReconciliation?.check?.status).toBe("failed");
     git(h.sandbox, worktree, "remote", "set-url", "origin", join(h.sandbox.root, "missing.git"));
     expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable", reason: expect.stringMatching(/^Couldn't reach origin: /) });
     expect(h.engine.record.phases["1"]!.stop).toEqual(after);

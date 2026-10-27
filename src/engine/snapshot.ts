@@ -164,6 +164,7 @@ export interface RepositoryRow {
 
 export interface Snapshot {
   liveControl?: import("../live/target.js").LiveView;
+  continuation?: { handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
   billing?: BillingView;
@@ -359,6 +360,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
 
   const views = phaseViews(engine, state);
   const snapshot: Snapshot = {
+    ...(record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
+      ...(record.planReconciliation.handback ? { handback: record.planReconciliation.handback } : {}),
+      ...(record.planReconciliation.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
+    } } : {}),
     activities: activityViews(engine, state, views),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {

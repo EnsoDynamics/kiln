@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order. This planning change implements no product behavior and closes no acceptance criterion.
+Build and verify each phase in this order. Phase 1 is implemented and closed; Phases 2 and 3 remain planned.
 
 | Phase | What it does | Depends on |
 |---|---|---|
@@ -32,10 +32,10 @@ Phase 3 owns six criteria and is the largest phase. Its single capability is acc
 
 ## Proof allocation and closeout
 
-The single design's [Validation and Criteria Coverage](kiln-continue-added-phases-technical-design.md#validation-and-criteria-coverage) owns the proof requirements. Each phase runs its assigned boundary proofs and the repository's current required full verification gate before its implementation commit. Deterministic fixtures supplement the required real provider, browser, Git and non-production integration evidence; this plan claims none of that runtime evidence has run.
+The single design's [Validation and Criteria Coverage](kiln-continue-added-phases-technical-design.md#validation-and-criteria-coverage) owns the proof requirements. Each phase runs its assigned boundary proofs and the repository's current required full verification gate before its implementation commit. Deterministic fixtures supplement the required real provider, browser, Git and non-production integration evidence; Phase 1's [validation record](kiln-active-plan-handback-validation.md) contains its completed runtime evidence; later phases must supply their own.
 
 Phase 1 proves active handback, split/append recognition, known-source discrepancies and finalization ordering. Phase 2 proves completed discovery triggers, classification/readiness, original-authority evaluation, failure/currentness feedback and the read-only panel. Phase 3 proves the remaining offer interactions, grants, acceptance/setup/activation replay, historical reads, actual-provider preparation/verification admission and new delivery. Keep all examples and fixtures fictional. Add reverse supersession pointers to earlier PRDs/designs only in the implementation commit that changes their behavior.
 
 Use the existing shared engine command owner; this plan neither creates a second journal nor depends on unfinished work from another PRD. Recheck the current private schema and shared control contracts at implementation time. CONTINUE-001/002 retain their declared proposed status and do not block implementation unless corrected.
 
-After all three leaves close, run whole-PRD delivery audit, then whole-PRD test audit and any completion work they require. Those are this PRD's closeout, not extra planned implementation phases. The next implementation unit is Phase 1.
+After all three leaves close, run whole-PRD delivery audit, then whole-PRD test audit and any completion work they require. Those are this PRD's closeout, not extra planned implementation phases. The next implementation unit is Phase 2, after Phase 1 is landed.

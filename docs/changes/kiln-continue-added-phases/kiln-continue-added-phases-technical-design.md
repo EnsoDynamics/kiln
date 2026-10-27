@@ -45,7 +45,7 @@ Phase identity is the existing parsed phase ID, not a title, filename or highest
 
 ### Comparison rules
 
-Use a versioned Markdown structural normalization: normalize line endings, equivalent Markdown emphasis/list formatting and prose line wrapping; preserve words, numbers, code spans/fences, link targets and section structure. Resolve phase-document links to phase IDs before comparing renames. Ignore checkbox state and parsed historical Closed metadata when comparing scope, but compare closure state separately. All other phase content, including phase-specific notes and inherited work, participates. A title wording change is material; changing only its Markdown styling is not.
+Use a versioned Markdown structural normalization: normalize line endings, equivalent Markdown emphasis/list formatting and prose line wrapping; preserve words, numbers, code spans/fences, link targets and section structure. Resolve phase-document links to phase IDs before comparing renames. Ignore checkbox state and parsed historical Closed metadata when comparing scope, but compare closure state separately. All other phase content, including phase-specific notes and inherited work stated in the leaf, participates. Existing split-parent repository additions (Multi-Repo Delivery AC-ADD-04) apply to remaining children without retroactively assigning new repositories to earlier completed receipts. A title wording change is material; changing only its Markdown styling is not.
 
 Carry an earlier completed phase forward only when its ID, normalized scope, repositories, dependencies and split structure remain intact and it is still closed. Removal, ID reuse, reopening, splitting a previously completed leaf or unexplained material edits are unresolved earlier-work changes. Show the affected IDs and source differences; do not rerun them or silently call them additions. Unfinished leaves may split through the normal split contract, including judging the first descendant of a splitting session.
 
@@ -82,6 +82,8 @@ An addition, reopened leaf, changed dependency or material scope edit in a known
 After a coherent compatible plan is accepted, atomically record its baseline, added IDs and remaining count before another activity is selected. Require the current activity's normal completion checks before advancing. Once they pass, run the next eligible unfinished leaf automatically; no completed-feature Continue action is involved. Preserve pending/active pauses and usage/billing holds. A plan edit or page load while the person controls the stopped session is observational only and cannot release that stop.
 
 Keep a short handback notice in the snapshot until the next accepted handback or execution end: added IDs, accepted source and remaining leaf count. If reconciliation fails, leave current session facts and earlier done receipts intact, publish a recoverable plan check, and prevent finalization. A stopped, running or interrupted audit is settled under its existing recovery contract; new leaves invalidate its ability to authorize final delivery. After settlement, unfinished leaves precede new whole-PRD audits. Old pending final-delivery work cannot complete ahead of the revised plan.
+
+Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does and §The Plan Reader (required coherent document reads at active handback, including known-source failures; unrelated startup-only checks stay skipped).
 
 Replaces in part: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Evaluate, then act and §Completion Evidence and Errors (revised-plan reconciliation before advancement; the already-complete choice and manual recovery predicates remain).
 
@@ -216,7 +218,7 @@ Render the seven mock-up states with the same titles, order and control emphasis
 
 ## Data Models and Migration
 
-Retain the same PRD private directory, token, instance lock and session storage paths. Advance the persisted schema from current version 10 to the next available version at implementation time; coordinate that number with other Kiln work rather than assume 11 remains free. The schema reader must reject a newer version before any write.
+Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 11 to 12 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
 
 | Record | Authoritative fields and lifecycle |
 |---|---|

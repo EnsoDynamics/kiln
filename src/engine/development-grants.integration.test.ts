@@ -204,7 +204,7 @@ it("grants a branch without environment or attestation, survives restart, and re
   expect(() => readPrdRecord(h.stateDirectory)).toThrow("development environment");
   writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(original));
   const upgraded = readPrdRecord(h.stateDirectory)!;
-  expect(upgraded.schemaVersion).toBe(11);
+  expect(upgraded.schemaVersion).toBe(12);
   expect(upgraded.developmentAuthorization).toEqual(original.developmentAuthorization);
   expect(upgraded.developmentDelivery).toEqual(original.developmentDelivery);
   expect(upgraded.phases).toEqual(original.phases);

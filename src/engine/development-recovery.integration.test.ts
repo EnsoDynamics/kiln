@@ -12,7 +12,9 @@ import { buildSnapshot } from "./snapshot.js";
 let fixture: Awaited<ReturnType<typeof deliveryFixture>> | undefined;
 afterEach(async () => { await fixture?.h.cleanup(); fixture = undefined; });
 
-it("resumes only description repair after every source change is delivered, then completes without a duplicate PR", async () => {
+// Budget the complete real Git/provider workflow spanning initial delivery,
+// description repair, historical reopening and later review.
+it("resumes only description repair after every source change is delivered, then completes without a duplicate PR", { timeout: 120_000 }, async () => {
   fixture = await deliveryFixture();
   const f = fixture;
   f.synchronize();

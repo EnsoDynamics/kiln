@@ -217,13 +217,17 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
   });
 
   it("takes a reading a minute after the limit's reset time", async () => {
-    // The reset was 55 seconds ago, so the reset reading is due a few seconds from now.
-    const clock = testClock();
+    // Hold setup time still: real Git/worktree admission can itself exceed five seconds
+    // under load, consuming the timer window before this test starts observing it.
+    // Once waiting, let the clock run normally; the reset reading is then due in five seconds.
+    const initial = Date.now(); const observation: { at?: number } = {};
+    const clock = { now: () => new Date(initial + (observation.at === undefined ? 0 : Date.now() - observation.at)), advance: () => undefined };
     const claude = scriptedClaude(clock);
     const reset = Math.floor(clock.now().getTime() / 1000) - 55;
     harness = await createHarness({ sessions: [refusedSession({ rateLimitType: "five_hour", resetsAt: reset })], engineOptions: { claude, now: clock.now } });
     const s: Setup = { h: harness, claude, clock, reset };
     await startToWait(s);
+    observation.at = Date.now();
     claude.deliver(signedIn([usageRow("session", 100)]));
     const asked = claude.asked;
     await waitFor(() => claude.asked > asked, 10_000);

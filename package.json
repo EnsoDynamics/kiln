@@ -44,7 +44,6 @@
     "@types/node": "^22",
     "ajv": "6.15.0",
     "eslint": "^10.13.0",
-    "markdown-it": "^15.0.3",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.7",
     "typescript": "^6.0.3",
@@ -56,6 +55,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.310",
     "@hono/node-server": "^2.1.5",
     "acorn": "8.19.0",
-    "hono": "^4.13.14"
+    "hono": "^4.13.14",
+    "markdown-it": "^15.0.3"
   }
 }

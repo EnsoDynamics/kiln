@@ -55,6 +55,11 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     h.engine.record.settings.worktreePath=h.repository;
     h.engine.record.startedAt=new Date().toISOString();
     h.engine.record.setupCompletedAt=h.engine.record.startedAt;
+    // A restored setup includes the published repository binding. Closed fixture
+    // phases now need that immutable base proof before the first session exists.
+    const baseCommit=git(h.sandbox,h.repository,'rev-parse','HEAD').trim();
+    git(h.sandbox,h.repository,'switch','-qc',h.engine.record.settings.featureBranch);
+    h.engine.record.repositories=[{name:'acme-shop',kind:'prd',mainCheckoutPath:h.repository,github:'acme/acme-shop',baseBranch:'develop',worktreePath:h.repository,baseCommit,setupCompletedAt:h.engine.record.startedAt}];
     expect(await h.engine.decide()).toMatchObject({kind:'start_phase',phaseId:'1'});
     rmSync(join(h.engine.worktreePath,`docs/prds/${FOLDER}/phase-2b-store-credit.md`));
     expect(await h.engine.decide()).toEqual({kind:'plan_stop',phaseKey:'1'});
