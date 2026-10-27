@@ -1,7 +1,7 @@
 <!-- Before editing, read assumptions-document-writing, including Editing an Existing Document. -->
 # Live session control — business assumptions
 
-**Last Updated:** 2026-10-26
+**Last Updated:** 2026-10-27
 
 This proposed choice accompanies the [PRD](kiln-live-session-control-prd.md). Work proceeds on it unless corrected; it is not recorded as stakeholder-approved.
 
@@ -9,7 +9,7 @@ This proposed choice accompanies the [PRD](kiln-live-session-control-prd.md). Wo
 
 **Assumption:** This bounded change covers Claude implementation phases, delivery audits and test audits. Codex and final-delivery sessions keep their current controls, with an explicit reason when live controls are unavailable.
 
-**Evidence:** Doug named those three activities, the Claude input pipe, and the exact `claude --resume` command. The earlier Needs you flow supports both providers, but that alone does not establish live input support or equivalent interruption behavior for Codex. Including it without a provider investigation would enlarge this change beyond the evidence supplied.
+**Evidence:** Doug requested live control of those three Claude activities and continuing the same conversation in a terminal. Existing support for ordinary Codex hand-back does not establish equivalent live controls. Including Codex would enlarge this change beyond the request's evidence.
 
 **Example:** A running Claude test audit offers both live actions; a Codex test audit retains its existing deferred pause and recovery controls.
 
