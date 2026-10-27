@@ -132,3 +132,14 @@ Next unit: `test-audit` across all 20 criteria and all four phases, including th
 Read every Markdown document in this directory, follow the technical design's Required implementation evidence and supersession links, and independently assess the existing evidence and explicit limitations. The phase plan's earlier audits are historical; the section above is the current delivery baseline. No new completion phase is needed before test audit.
 
 Doug's restriction remains: “Do not push without Doug's approval.” Source: chat `01a1798c-ffcd-7d62-8283-d671b281a8e5`, carried through Phase 4 chat `01a17a5c-fd98-7932-9655-7cc9d93ca222` into this audit chat `01a17a99-8769-7103-873f-c813783fdd63`. Doug's separate authorization in the Phase 4 chat to commit/push that implementation and launch its delivery audit was fulfilled by the published `8a3c12a` and this assessment; it does not authorize pushing this audit commit or launching test audit. Scoped audit commits follow the skill default. No release, publication, paid inference or production change is authorized.
+
+
+## Current whole-PRD test audit — 2026-10-27
+
+**Outcome:** [Test audit Done](test-audit.md). All 20 criteria across all four closed phases are Adequate. Twelve criteria had test gaps; all are repaired and independently regraded. No delivery gap, waiting item or completion phase remains. Earlier handoffs above are historical.
+
+The audit changed tests, their Codex process fixture and audit/status records only. It strengthens exact billing/usage presentation, settings preservation, changed-context phase/audit/final dispatch, wake/restart/Resume-now recovery, saved Codex eligibility and historical neutral billing. Fifteen safe deliberate mutations failed criterion assertions twice and passed after restoration. Authorization/dispatch guards were not weakened; no Strong grade is claimed.
+
+Final verification passes: dependency audit, lint, TypeScript/Svelte, 623 units, 17 Codex protocol proofs, 747 integration tests with two existing Windows browser-opening skips (749 collected; 463.69 seconds), and four installed-package checks. The native passive proof selected existing Claude 2.1.307 with SDK 0.3.310 through a temporary PATH entry; default Claude 2.1.311 remains unqualified by design. A new metadata-only Codex 0.162.1 schema/account/usage/account qualification also passed. The test audit preserves every prior platform/provider/paid-use/hidden-policy proof limit and distinguishes Phase 4's historical failure/recheck from this new passing gate.
+
+**Next unit:** None in this PRD track. Every phase is closed, the whole-PRD delivery audit remains current because production implementation is unchanged, and whole-PRD test audit is Done. Pushing this audit's local commit still requires Doug's approval under the existing restriction. No release, package publication, paid inference or production change is authorized.
