@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Implementation leaves 1–5 are closed on 2026-10-27. Leaves 1–4 are published through `8a2975d`; completion Phase 5’s new commits remain held for Doug’s explicit publication authorization. Run a fresh whole-PRD delivery audit after Phase 5 closes; whole-PRD test audit follows only when delivery is clean. The prior [delivery audit](kiln-bot-control-delivery-audit.md) remains a historical gap baseline. Phase 5’s [validation and known baseline failures](phase-5-complete-attempt-account-provenance.md#implementation-and-validation) record its evidence and the full gate’s limits.
+Implementation leaves 1–5 are closed and published through `2fe5777` on 2026-10-27. The fresh [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) found three remaining defects affecting four active criteria and added completion Phase 6. Build Phase 6, repeat whole-PRD delivery audit, then run whole-PRD test audit only when delivery is clean. Phase 5's [validation and known baseline failures](phase-5-complete-attempt-account-provenance.md#implementation-and-validation) retain the full gate's actual limits.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -13,12 +13,13 @@ Implementation leaves 1–5 are closed on 2026-10-27. Leaves 1–4 are published
 | [3: Complete activity reporting and command help](phase-3-complete-bot-inspection.md) | Added by delivery audit: retain latest activity after pause/completion and accurately document implemented controls and results. | 1 (inspection and help); 2 (live controls and durable receipts) | Closed 2026-10-27 |
 | [4: Complete recovery instructions without a saved conversation](phase-4-complete-no-session-handoff.md) | Added by delivery audit: return available fresh-session instructions when work stops before any conversation is saved. | 1 (handoff/history projections and retained browser instructions) | Closed 2026-10-27 |
 | [5: Complete attempt account provenance](phase-5-complete-attempt-account-provenance.md) | Added by delivery audit: keep the last attempt’s account, plan and observation time tied to that attempt when a later launch fails before starting. | 1 (account/status projections); 2 (durable launch admission and failure handling) | Closed 2026-10-27 |
+| [6: Complete inspection freshness and helper help](phase-6-complete-inspection-freshness-help.md) | Added by delivery audit: keep usage readings tied to their observation, report unavailable recent logs honestly, and document helper JSON inputs. | 1 (inspection/selection/account projections); 3 (packaged help); 5 (preserved actual-attempt provenance) | Not started |
 
 ## Criterion ownership
 
 Phase 1 owns AC-SEE-01–08, AC-ACT-01, AC-ACCOUNT-01 and AC-CLI-01–03. Phase 2 owns AC-ACT-02–05 and AC-CLI-04. All 18 active criteria have exactly one owner; retired AC-ACCOUNT-02–04 stay retired. AC-SEE-03, AC-SEE-07, AC-ACT-01 and AC-CLI-01–03 also constrain Phase 2's additions, as labelled in its phase document. No criteria or product scope changed during planning.
 
-Completion Phase 3 completes AC-SEE-02, AC-ACT-01 and AC-CLI-01; Phase 1 retains ownership and its Closed line. Completion Phase 4 completes AC-SEE-05; Phase 1 retains ownership and its Closed line. Completion Phase 5 completes AC-SEE-03 and AC-ACCOUNT-01; Phase 1 retains ownership and its Closed line. No completion phase adds scope.
+Completion Phase 3 completes AC-SEE-02, AC-ACT-01 and AC-CLI-01; Phase 1 retains ownership and its Closed line. Completion Phase 4 completes AC-SEE-05; Phase 1 retains ownership and its Closed line. Completion Phase 5 completes AC-SEE-03 and AC-ACCOUNT-01; Phase 1 retains ownership and its Closed line. Completion Phase 6 completes AC-SEE-03, AC-SEE-06, AC-ACT-01 and AC-ACCOUNT-01; Phase 1 retains ownership and its Closed line. No completion phase adds scope.
 
 ## Sizing decision
 
@@ -30,4 +31,4 @@ The second phase carries one coupled control capability: all entry points share 
 
 Use the technical design's [Validation Boundaries](kiln-bot-control-technical-design.md#validation-boundaries), assigned by each phase's notes. The design-stage serializer experiment is not implementation proof. Complete the repository's normal verification gate for each implementation commit. After all implementation leaves close, run whole-PRD delivery audit, then test audit; those audits are closeout of this PRD, not additional planned implementation phases.
 
-Completion Phase 4 is published at `8a2975d`; the prior delivery audit confirms its recovery-instruction repair. Phase 5 closes the account-provenance completion work with evidence in its phase document. Repeat whole-PRD delivery audit after Phase 5 closes, then whole-PRD test audit only when delivery is clean. Scoped commits follow their skills’ defaults; publishing new implementation or audit commits remains held for Doug’s explicit authorization. No production release is authorized.
+Completion Phase 4 is published at `8a2975d`; Phase 5 is published at `2fe5777`. The current audit confirms both repairs and records the remaining Phase 6 gaps. Phase 6 groups bounded corrections to existing inspection/help behavior into one session; no new dispatch capability, account management or authority is required. After Phase 6 closes, repeat whole-PRD delivery audit, then whole-PRD test audit only when delivery is clean. Scoped commits follow their skills' defaults; publishing new implementation or audit commits requires Doug's explicit authorization. No production release is authorized.

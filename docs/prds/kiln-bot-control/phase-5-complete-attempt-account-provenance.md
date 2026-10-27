@@ -57,4 +57,4 @@ Baseline/current comparison logs are under `/private/tmp/kiln-botcontrol-ph5-{ba
 
 ## Audit handoff
 
-The prior delivery audit is a historical gap baseline. After Phase 5 closes, run a fresh whole-PRD delivery audit in a separate chat; only a clean delivery audit proceeds to the whole-PRD test audit. Scoped commits are authorized by the implementation skill. Publishing Phase 5 commits remains held for Doug’s explicit authorization, and no production release is authorized.
+Phase 5 was published at `2fe5777` under Doug's explicit authorization in source chat `01a17e0b-113b-7893-b29f-fc9b688b2b88`: “Go ahead and push, then launch a new chat using GPT 6.1 Sol High Effort for the fresh whole-PRD delivery audit.” Its earlier publication hold is satisfied. The fresh audit confirms Phase 5's actual-attempt repair and records separate remaining inspection/help gaps in Phase 6. Build that phase, then repeat whole-PRD delivery audit; whole-PRD test audit follows only when delivery is clean. Publishing new implementation or audit commits still requires Doug's explicit authorization. No production release is authorized.
