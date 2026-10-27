@@ -131,7 +131,7 @@ describe("the installed package", () => {
     const inventory = collect(runInstalled(["status", "--json"], sandbox.root));
     expect(await inventory.exit).toBe(0);
     expect(JSON.parse(inventory.text())).toMatchObject({ schema_version: "1", ok: true, inventory_complete: true, counts: { live_controllers: 0 }, runs: [] });
-    for (const path of [["handoff"], ["reply"], ["audit", "submit"], ["delivery", "evidence"]]) {
+    for (const path of [["handoff"], ["message"], ["take-over"], ["reply"], ["audit", "submit"], ["delivery", "evidence"]]) {
       const help = collect(runInstalled([...path, "--help", "--json"], sandbox.root));
       expect(await help.exit).toBe(0);
       expect(JSON.parse(help.text())).toMatchObject({ schema_version: "1", command: { path } });
@@ -147,14 +147,14 @@ describe("the installed package", () => {
       return child.stdout;
     };
     const root = JSON.parse(help([]));
-    expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["reply", "resume", "verify-and-advance", "command-status", "settings"]));
+    expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["message", "take-over", "reply", "resume", "verify-and-advance", "command-status", "settings"]));
     for (const c of root.commands.filter((c: {path: string[]}) => !['run', 'add-repository', 'audit', 'delivery'].includes(c.path[0]!))) {
       for (const code of c.errors) expect(c.error_meanings[code], `${c.path.join(' ')} ${code}`).toMatch(/^Exit [234]:/);
     }
     const status = JSON.parse(help(["status"])).command;
     expect(status.result_fields.status_token).toContain("Opaque current");
     expect(status.result_fields.controls).toContain("live controller");
-    for (const name of ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "settings"]) {
+    for (const name of ["message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "settings"]) {
       const c = JSON.parse(help([name])).command;
       const text = help([name], false);
       for (const code of ["stale_status_token", "busy", "command_id_conflict", "operation_indeterminate"]) {

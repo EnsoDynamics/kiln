@@ -21,8 +21,8 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
   const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); } });
   };
-  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 1, kiln_version: "1.0.0", execution_id: engine.record.executionId,
-    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status"] }));
+  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: engine.record.executionId,
+    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review"] }));
   route("status", ["detail"], c => {
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
     const answer = statusProjection(work(), engine, detail === "full");
@@ -75,8 +75,28 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
       finally { clearTimeout(timeout); reader.releaseLock(); }
       let body: unknown; try { body = strictJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new ControlFailure("invalid_input", "A valid UTF-8 JSON command is required.", 2); }
       if (body && typeof body === "object" && "command_id" in body && typeof body.command_id === "string") commandId = body.command_id;
-      if (body && typeof body === "object" && "action" in body && ["message", "message-review"].includes(String(body.action))) throw new ControlFailure("control_unavailable", "Live-message bot commands are not available in this release. Use the browser session controls.", 3);
-      const answer = engine.commands.submit(body);
+      if (body && typeof body === "object" && !Array.isArray(body)) {
+        const command = body as Record<string, unknown>;
+        // Public spelling; the browser and journal retain their existing action identity.
+        if (command.action === "take_over") command.action = "take-over";
+        if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume or verify-and-advance with reviewed receipt IDs.", 2);
+        const old = engine.commands.all().find(r => r.command_id === command.command_id);
+        if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
+        // Deduplication precedes current eligibility. Never reconstruct an old target from a successor.
+        if (command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          const inputs = command.inputs as Record<string, unknown>;
+          const target = old ? old.instruction.inputs.target ?? old.instruction.inputs.live_target : engine.liveTarget();
+          if (command.action === "message" || command.action === "take-over") {
+            if (inputs.target === undefined) inputs.target = target;
+            if (!inputs.target) throw new ControlFailure("control_unavailable", "No active supported Claude attempt is available. Refresh status.", 3);
+          } else if (["resume", "verify-and-advance", "reply"].includes(String(command.action)) && target) {
+            if (inputs.live_target === undefined) inputs.live_target = target;
+          }
+        }
+      }
+      // The bot guard runs inside journal admission, after deduplication and
+      // before exact-target admission; valid refusals are durable receipts too.
+      const answer = engine.commands.submit(body, "caller", true);
       return c.json(answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
     } catch (error) { return send(c, { ...failed(error), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId!, command_id: commandId }); }
   });

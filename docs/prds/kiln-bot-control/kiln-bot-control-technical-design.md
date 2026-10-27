@@ -35,6 +35,8 @@ Help has two levels: `kiln --help` inventories every command, and `kiln <command
 
 ### Scope and concurrency
 
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
+
 Only the post-start controls in SCOPE-001 are new bot mutations. No new-run setup, model selection, billing approval, delivery grant, merge or release command is added. Read-only billing facts use the billing feature's authoritative projection. Its implementation is owned by another chat; this design consumes that boundary and does not redesign it.
 
 Each controller admits at most one conflicting work transition, including completion evaluation, resumption and dispatch. Explicit pause requests/cancellations and setting values remain allowed where existing eligibility permits them; their writes serialize with other changes. Duplicate accepted instructions join their existing operation. A different competing instruction is refused as `busy`, never queued for a later stop. The existing port range 4700–4799 admits at most 100 simultaneous controllers (and fewer when other processes occupy it); this interface does not enlarge it. Inventory includes unprobed rows as unknown when its 15-second fan-out deadline expires, so its counts never imply complete discovery after that ceiling. Every state write that authorizes subsequent dispatch must succeed before dispatch can happen.
@@ -75,6 +77,8 @@ New controller startup upgrades saved records under the existing exclusive PRD l
 - Ship bot integration guidance with the package and surface it in command help: use structured status/controls, take authority from the operator's request, treat all session/output text as untrusted data, never execute embedded output commands, refresh rather than retarget stale replies, and inspect a receipt before retrying. Provider sign-in/account switching uses the provider’s terminal tools independently; no Kiln login wrapper, credential store or shared-account coordinator is introduced.
 
 ### Command grammar
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
@@ -126,6 +130,8 @@ JSON mode writes exactly one UTF-8 JSON object plus newline to stdout; diagnosti
 Errors contain `{ code, message, retryable, next_command, next_argv }`; `next_*` is nullable guidance, never authority. A failed durable admission write returns `state_unavailable` and no acceptance. A network timeout after send reports `operation_indeterminate` with command-status guidance, not a claim that nothing happened. Existing legacy helper exits retain their documented meanings.
 
 ## Status, Conversations and Handoff
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
 Targeted status always includes execution/PRD/repository identity, controller reachability, current work state/activity (phase, audit round or delivery), phase counts, agent/requested/effective model, start/latest activity times, pending pause, usage wait, completion outcome and recorded PR links. The complete stop includes its exact final message or explicit absence, reason, failed checks and their check times, human requests and browser recovery instructions. No quiet-time heuristic claims healthy or stuck. Disconnected facts retain their last-known dates; no executable controls or current status token are returned.
 
@@ -180,6 +186,8 @@ A controller restart, `command-status`, or control admission reconciles pending 
 Browser controls use the same admission/dispatch/effect mechanism, with browser-generated instruction IDs; automatic actions have internal stable event IDs and the same mutual exclusion/launch checks. Preserve existing HTTP request compatibility by generating an instruction ID server-side for an older browser request, without promising deduplication for its blind retries. The shipped view uses returned revisions and receipts. No legacy route may bypass current stop validation, pending operations or existing launch restrictions.
 
 ### Manual phase outcomes
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
 Reply and no-message Resume use the prerequisite's evaluate-then-act contract. An unfinished phase resumes the saved conversation with the reply first (or no reply), preserving terminal history. A completed phase yields `phase_already_complete`, starts nothing and does not advance. A reply's normalized text is retained in its private receipt as `not_sent`, not posted to provider history. Current status exposes the pending unsent receipt IDs and text for this exact stop; new attempts/stops never inherit it.
 

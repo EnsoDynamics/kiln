@@ -51,7 +51,8 @@
         "status_token": "Opaque current execution/controller/control-state token from reachable status; copy unchanged to --only-if-status-matches. Null when disconnected. Ordinary output alone does not invalidate it.",
         "session_history": "complete/errors/phases; Kiln selectors and provider IDs are separate; every attempt is retained.",
         "last_activity": "Latest dated saved output, session/skill or run transition, retained after pause/completion; observed_at and description with current/stale/unavailable state. Fragment metadata marks bounded output text.",
-        "unsent_replies": "Current stop-bound unsent command IDs and literal text, marked not_sent; inspect receipts before explicitly advancing."
+        "unsent_replies": "Current stop-bound unsent command IDs and literal text, marked not_sent; inspect receipts before explicitly advancing.",
+        "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause."
       },
       "errors": [
         "invalid_input",
@@ -274,7 +275,8 @@
       },
       "required_exclusive_groups": [],
       "limits": [
-        "Local saved reads 5 seconds; selected provider history at most 30 seconds. Active conversation cannot be concurrently resumed."
+        "Local saved reads 5 seconds; selected provider history at most 30 seconds. Active conversation cannot be concurrently resumed.",
+        "Takeover instructions require current reconciled release/readiness facts; readable history or a provider result alone is insufficient. Pending release, tracked work or a disconnected controller exposes no executable recovery command. This read never starts a terminal."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -552,6 +554,162 @@
     },
     {
       "path": [
+        "message"
+      ],
+      "purpose": "Send exact plain text to the active Claude attempt. Claude reads this at its next opportunity. The current tool may finish first.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln message <PRD-path> (--message-file <path> | --message-from-stdin) --only-if-status-matches <status_token> --command-id <id> [--json]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        },
+        "message-file": {
+          "value": "path",
+          "source": "Caller writes literal UTF-8 message contents into this file, not an attachment. Read relative to caller cwd."
+        },
+        "message-from-stdin": {
+          "value": null,
+          "source": "Command runner supplies literal UTF-8 message bytes on standard input; no shell interpolation."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "exactly_one": [
+            "message-file",
+            "message-from-stdin"
+          ]
+        },
+        {
+          "required": [
+            "only-if-status-matches",
+            "command-id"
+          ]
+        }
+      ],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Exactly one UTF-8 file/stdin source, at most 32 KiB within 5 seconds. Nonempty plain text, at most 4,000 UTF-16 code units BEFORE normalization; outer whitespace is preserved. Reject malformed UTF-8, Unicode, NUL and oversize input; never truncate. No restart, new conversation, tool interruption or shell interpretation.",
+        "message sends to running Claude; reply resumes a stopped conversation. take-over waits for a safe stopping point; request-pause waits for the whole phase/audit and its completion checks. Only the validated Claude Code 2.1.311/macOS profile currently offers live messages.",
+        "Delivery uncertain holds progression. Inspect command-status and session output; never automatically resend or interpret receipt acceptance as compliance."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | resumed | unknown. resumed requires a correlated saved attempt and provider start; it does not mean the phase finished.",
+        "operation.effects.plan": "not_advanced | advanced | unknown. advanced accepts completion once; it does not promise the next model turn started.",
+        "operation.outcome": "message_submitted or delivery_uncertain; later correlated evidence is retained in the same receipt. Acceptance never proves a requested merge, push or other action happened.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID.",
+        "operation.message": "Exact text and provider UUID; delivery is submitting | submitted | received | not_sent | uncertain. submitted: Sent to session — not confirmed read. received: Received by Claude only with correlated provider evidence. uncertain: Delivery uncertain. reviewedAt acknowledges human review; resolvedBy records successful explicit hand-back.",
+        "operation.effects.message": "not_sent | submitted | received | unknown. A live message keeps session not_started and plan not_advanced.",
+        "operation.live_target": "Exact execution/activity/conversation/attempt; the controller resolves it from guarded status, or the retained original receipt on retry.",
+        "message_receipt": "User-facing receipt: Submitting | Sent to session — not confirmed read | Received by Claude | Not sent | Delivery uncertain. Derived from saved message evidence, never from operation acceptance."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Tell the running Claude session to finish this batch before changing direction.",
+          "argv": [
+            "kiln",
+            "message",
+            "/work/shop/docs/prds/orders",
+            "--message-file",
+            "/tmp/my reply.txt",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        },
+        {
+          "request": "Send a live instruction from standard input, preserving whitespace.",
+          "argv": [
+            "kiln",
+            "message",
+            "/work/shop/docs/prds/orders",
+            "--message-from-stdin",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ],
+          "stdin": "Literal quotes, newlines and $(commands) remain message text."
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
         "reply"
       ],
       "purpose": "Send literal text to the current stopped conversation before resuming unfinished work.",
@@ -734,13 +892,20 @@
         "command-id": {
           "value": "id",
           "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        },
+        "message-reviewed": {
+          "value": "receipt-id",
+          "source": "Repeat for each uncertain message reviewed in the exact conversation. Copy receipt IDs from status.live_control.reviewRequired or command-status. Acknowledgement never resends or upgrades provider confirmation; only successful explicit Resume/Verify releases the hold.",
+          "repeatable": true
         }
       },
       "required_exclusive_groups": [],
       "limits": [
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
-        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying."
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Exit the terminal agent first. Reviewed message receipts remain Delivery uncertain. Missing reviews, live/pending terminal owners, unresolved tracked work, history, billing and workspace restrictions retain the hold. Review acknowledgement alone never resumes or advances.",
+        "Deliberate phase and audit takeover keeps its activity and audit round. Already-complete work returns phase_already_complete; use explicit verify-and-advance. --without-sending-reply acknowledges a retained unsent reply separately from --message-reviewed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -799,6 +964,23 @@
             "new-unique-id",
             "--json"
           ]
+        },
+        {
+          "request": "I reviewed both uncertain instructions in the conversation; hand this activity back explicitly.",
+          "argv": [
+            "kiln",
+            "resume",
+            "/work/shop/docs/prds/orders",
+            "--message-reviewed",
+            "first-receipt-id",
+            "--message-reviewed",
+            "second-receipt-id",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-handback-id",
+            "--json"
+          ]
         }
       ],
       "error_meanings": {
@@ -851,13 +1033,20 @@
         "without-sending-reply": {
           "value": null,
           "source": "Operator explicitly acknowledges preserved unsent reply for this stop; never sends it."
+        },
+        "message-reviewed": {
+          "value": "receipt-id",
+          "source": "Repeat for each uncertain message reviewed in the exact conversation. Copy receipt IDs from status.live_control.reviewRequired or command-status. Acknowledgement never resends or upgrades provider confirmation; only successful explicit Resume/Verify releases the hold.",
+          "repeatable": true
         }
       },
       "required_exclusive_groups": [],
       "limits": [
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
-        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying."
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Exit the terminal agent first. Reviewed message receipts remain Delivery uncertain. Missing reviews, live/pending terminal owners, unresolved tracked work, history, billing and workspace restrictions retain the hold. Review acknowledgement alone never resumes or advances.",
+        "Deliberate phase and audit takeover keeps its activity and audit round. Already-complete work returns phase_already_complete; use explicit verify-and-advance. --without-sending-reply acknowledges a retained unsent reply separately from --message-reviewed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -932,6 +1121,23 @@
             "new-advance-id",
             "--json"
           ]
+        },
+        {
+          "request": "I reviewed both uncertain instructions in the conversation; hand this activity back explicitly.",
+          "argv": [
+            "kiln",
+            "verify-and-advance",
+            "/work/shop/docs/prds/orders",
+            "--message-reviewed",
+            "first-receipt-id",
+            "--message-reviewed",
+            "second-receipt-id",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-handback-id",
+            "--json"
+          ]
         }
       ],
       "error_meanings": {
@@ -948,6 +1154,122 @@
         "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations.",
         "unsent_reply_acknowledgement_required": "Exit 3: this stop has preserved unsent replies. Read status/receipts; use --without-sending-reply only with explicit operator acknowledgement and a fresh ID/token.",
         "check_unavailable": "Exit 4: when reported as a command error, fresh completion evidence could not be read. Any retained previous checks keep their original dates; no advance is implied."
+      }
+    },
+    {
+      "path": [
+        "take-over"
+      ],
+      "purpose": "Pause & take over at the next safe stopping point: finish the current operation, then stop before starting more work. The phase/audit can remain unfinished.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln take-over <PRD-path> --only-if-status-matches <status_token> --command-id <id> [--json]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Acceptance immediately holds progression but is not terminal readiness. Wait before opening Claude until kiln handoff reports reconciled release and readable saved history. No cancelling interrupt or automatic terminal launch.",
+        "request-pause lets the whole phase/audit, commits, pushes and required checks finish. cancel-pause only cancels that independent end-of-activity pause. reply resumes stopped work; message sends to a running attempt."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | resumed | unknown. resumed requires a correlated saved attempt and provider start; it does not mean the phase finished.",
+        "operation.effects.plan": "not_advanced | advanced | unknown. advanced accepts completion once; it does not promise the next model turn started.",
+        "operation.outcome": "takeover_requested means held, not ready. Read status/handoff for current checkpoint and terminal readiness.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Normalized literal accepted reply, or null for non-reply commands. A phase_already_complete reply stays not_sent and retained for the saved history lifetime.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID.",
+        "operation.effects.takeover": "not_requested | requested | checkpoint_pending | released | unknown; status.live_control.takeover holds latest release progress/reason."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Let this operation finish, then let me take over the unfinished audit in my terminal.",
+          "argv": [
+            "kiln",
+            "take-over",
+            "/work/shop/docs/prds/orders",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-takeover-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
       }
     },
     {

@@ -3,7 +3,7 @@ import { commandText, ControlFailure } from "./result.js";
 export interface CommandContract {
   path: string[]; purpose: string; side_effect: string; implemented: boolean; availability: string; usage: string;
   arguments: { name: string; required: boolean; source: string }[];
-  flags: Record<string, { value: string | null; source: string }>;
+  flags: Record<string, { value: string | null; source: string; repeatable?: boolean }>;
   required_exclusive_groups: { exactly_one?: string[]; required?: string[] }[];
   limits: string[]; result_fields: Record<string, string>; errors: string[]; error_meanings?: Record<string, string>; exits: Record<string, string>;
   examples: { request: string; argv: string[]; stdin?: string }[];
@@ -27,7 +27,7 @@ export function commandHelp(path: string[], json: boolean): string {
     ...c.examples.flatMap(e => [`Request: ${e.request}`, `Invocation: ${commandText(e.argv)}`, `Invocation argv: ${JSON.stringify(e.argv)}`, ...(e.stdin ? [`Standard input: ${e.stdin}`] : [])]),
     ...commandContracts.filter(child => child.path.length > c.path.length && c.path.every((p, i) => child.path[i] === p)).map(child => `Subcommand: kiln ${child.path.join(" ")} --help`), reference.guidance, ""].join("\n");
 }
-export interface ParsedCommand { contract: CommandContract; positionals: string[]; flags: Record<string, string | true> }
+export interface ParsedCommand { contract: CommandContract; positionals: string[]; flags: Record<string, string | true | string[]> }
 export function parseCommand(args: string[]): ParsedCommand {
   const contract = [...commandContracts].sort((a, b) => b.path.length - a.path.length).find(c => c.path.every((p, i) => args[i] === p));
   if (!contract) throw new ControlFailure("command_not_found", "Unknown command. Use kiln --help.", 2);
@@ -36,9 +36,9 @@ export function parseCommand(args: string[]): ParsedCommand {
     const arg = args[index]!;
     if (!arg.startsWith("-")) { positionals.push(arg); continue; }
     const name = arg === "-h" ? "help" : arg.slice(2); const spec = contract.flags[name];
-    if (!arg.startsWith("--") && arg !== "-h" || !spec || flags[name] !== undefined) throw new ControlFailure("invalid_input", `Unknown or duplicate flag ${arg}. Use kiln ${contract.path.join(" ")} --help.`, 2);
+    if (!arg.startsWith("--") && arg !== "-h" || !spec || flags[name] !== undefined && !spec.repeatable) throw new ControlFailure("invalid_input", `Unknown or duplicate flag ${arg}. Use kiln ${contract.path.join(" ")} --help.`, 2);
     if (spec.value === null) flags[name] = true;
-    else { const value = args[++index]; if (!value || value.startsWith("--")) throw new ControlFailure("invalid_input", `Missing value for --${name}.`, 2); flags[name] = value; }
+    else { const value = args[++index]; if (!value || value.startsWith("--")) throw new ControlFailure("invalid_input", `Missing value for --${name}.`, 2); if (spec.repeatable) flags[name] = [...(flags[name] as string[] | undefined ?? []), value]; else flags[name] = value; }
   }
   if (!flags.help) {
     if (positionals.length > contract.arguments.length || positionals.length < contract.arguments.filter(a => a.required).length) throw new ControlFailure("invalid_input", `Invalid arguments. Use kiln ${contract.path.join(" ")} --help.`, 2);

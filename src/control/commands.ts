@@ -1,4 +1,4 @@
-import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
+import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem, messageReceiptLabel } from "../live/target.js";
 /** Durable instruction journal. Only the exclusively locked controller writes this authority. */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
@@ -99,7 +99,7 @@ export function receiptResult(canonical: string, r: Receipt, state: string, quer
   const errors = !query && r.state === "refused" ? [errorFact(r.outcome!, r.reason!, ["kiln", "status", canonical, "--json"])] : !query && r.state === "indeterminate" ? [errorFact("operation_indeterminate", r.reason ?? "Inspect the saved operation before issuing another instruction.", ["kiln", "command-status", canonical, "--command-id", r.command_id, "--json"])] : [];
   // Canonical inputs and their digest stay private. Ordinary reply text is intentionally retrievable.
   const operation: Partial<Receipt> = { ...r }; delete operation.instruction; delete operation.digest;
-  return result({ prd_path: canonical, execution_id: r.execution_id, command_id: r.command_id, operation, run_state: state }, errors);
+  return result({ prd_path: canonical, execution_id: r.execution_id, command_id: r.command_id, operation, ...(r.message ? { message_receipt: messageReceiptLabel(r.message.delivery) } : {}), run_state: state }, errors);
 }
 export function lookupReceipt(directory: string, id: string): Receipt {
   if (!/^[\w.-]{1,128}$/.test(id)) throw new ControlFailure("invalid_input", "Invalid command ID.", 2);
@@ -171,7 +171,7 @@ export class CommandJournal {
     if (pending(r) && r !== this.applying && !r.message) this.reconcileOne(r);
     return receiptResult(this.canonical, r, this.host.runState(), true);
   }
-  submit(raw: unknown, source: Receipt["source"] = "caller"): Result {
+  submit(raw: unknown, source: Receipt["source"] = "caller", matchStatusToken = false): Result {
     const instruction = validateInstruction(raw); const digest = hash(instruction);
     const old = this.receipts.find(r => r.command_id === instruction.command_id);
     if (old) {
@@ -183,7 +183,7 @@ export class CommandJournal {
     const view = this.host.view();
     const control = view.controls.find(c => c.name === instruction.action)!;
     const unsent = this.unsent(view.target);
-    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
+    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
     const at = new Date().toISOString();
     const r: Receipt = { ...(instruction.action === "message" ? { live_target: instruction.inputs.target as import("../live/target.js").LiveTarget, message: { text: instruction.inputs.text as string, uuid: randomUUID(), delivery: refusal ? "not_sent" as const : "submitting" as const } } : {}), source, version: 1, sequence: this.nextSequence(), id: randomUUID(), command_id: instruction.command_id, execution_id: instruction.execution_id, digest, instruction, target: view.target, accepted_at: at, updated_at: at,
       state: refusal ? "refused" : "accepted", outcome: refusal?.[0] ?? null, reason: refusal?.[1] ?? null, effects: { ...(instruction.action === "message" ? { message: "not_sent" as const } : {}), reply: instruction.action === "reply" ? "not_sent" : "not_applicable", session: "not_started", plan: "not_advanced" }, reply_text: instruction.action === "reply" ? String(instruction.inputs.message) : null, acknowledged_by: null, stage: "intent" };

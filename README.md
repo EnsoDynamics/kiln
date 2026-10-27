@@ -47,6 +47,20 @@ By default, work stays on feature branches for review. Before Start or at Needs 
 
 Existing-run control commands require a caller-generated command ID and the status token returned by a fresh status read. Keep both when retrying the same instruction; inspect `kiln command-status <PRD-path> --command-id <id> --json` after a lost response. A new intention needs a new ID. Reply accepts a literal UTF-8 file or stdin. A reply or resume that discovers an already-complete phase never advances it: use explicit `verify-and-advance`, acknowledging any retained unsent reply with `--without-sending-reply`. See `kiln reply --help` and `kiln verify-and-advance --help` for complete examples and error handling.
 
+For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from
+`--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude
+reads it at its next opportunity; the current tool may finish first. `kiln take-over
+<PRD-path>` holds progression and waits for the next safe stopping point. Both require
+the same command ID and fresh status-token flags above. Use `kiln handoff` only after
+status reports safe release; it reads instructions and never opens a terminal.
+
+`reply` resumes a stopped conversation. `request-pause` lets the entire phase/audit
+and its completion checks finish first. These remain separate from live messaging
+and takeover. If delivery is uncertain, inspect the message receipt and conversation,
+then use `resume` or `verify-and-advance` with `--message-reviewed <receipt-id>` for
+each reviewed uncertain message. Review never resends or confirms provider receipt;
+only successful explicit hand-back releases the hold. See each command's `--help`.
+
 ## Claude billing
 
 Before Start or Resume, Kiln shows billing for the next Claude run. A confirmed subscription says **Claude subscription**, with the account email directly below it. Billing follows your Claude account settings. If Claude reports that paid overflow is enabled for that same account, Kiln shows a factual notice and links to [Claude usage settings](https://claude.ai/settings/usage); it does not ask for another approval or change your spending limits. Missing overflow details do not mean paid usage is disabled.

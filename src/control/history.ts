@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionRecord } from "../state/records.js";
@@ -14,7 +15,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
   try {
     for (const phase of privateNames(root, directory)) {
       deadlineCheck(deadline);
-      if (["output-snapshots", "audit", "audit-evidence", "delivery-evidence", "control", "controls"].includes(phase) || !safeSelector(phase)) continue;
+      if (["output-snapshots", "audit", "audit-evidence", "delivery-evidence", "control", "controls", "live-attempts"].includes(phase) || !safeSelector(phase)) continue;
       const path = join(directory, phase);
       if (!statSync(path).isDirectory()) continue;
       try {
@@ -56,7 +57,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
           working_directory: session.workingDirectory ?? record.settings.worktreePath, working_directory_provenance: session.workingDirectory ? "recorded" : "derived_legacy",
           created_at: session.createdAt, latest_attempt_at: attempt?.startedAt ?? null, controller_session_state: activeId === id ? "running" : "stopped",
           provider_history: { state: "unknown", observed_at: null, reason: "Provider history has not been checked by this inventory." },
-          attempts: session.runs.map((run, index) => ({ attempt_id: `${record.executionId}:${id}:${index}`, started_at: run.startedAt, ended_at: run.endedAt ?? null, cause: run.cause,
+          attempts: session.runs.map((run, index) => ({ attempt_id: run.control?.attemptId ?? createHash("sha256").update(`${record.executionId}:${id}:${index}`).digest("hex"), started_at: run.startedAt, ended_at: run.endedAt ?? null, cause: run.cause,
             state: activeId === id && index === session.runs.length - 1 ? "running" : run.endedAt ? "stopped" : "unknown",
             requested: run.codex?.requested ?? { model: session.model, effort: session.effort ?? null }, effective: run.codex?.effective ?? (session.initModel ? { model: session.initModel } : null),
             account: run.codex?.account ?? run.account ?? null, billing: run.billing ?? null })) });

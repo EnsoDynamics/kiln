@@ -102,7 +102,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     let message: string | undefined;
     if (mutation) {
       if (!flags["command-id"] || !flags["only-if-status-matches"]) throw new ControlFailure("invalid_input", "Changing commands require command ID and status token.", 2);
-      if (name === "reply") message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd);
+      if (name === "reply" || name === "message") message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "live" : "reply");
       for (const key of ["keep-awake", "resume-after-usage-limit"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
     }
 
@@ -124,9 +124,14 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (mutation) {
       if (owner.state !== "reachable") throw new ControlFailure("controller_unreachable", "Changing work requires its matching live controller.");
       if (!owner.features?.includes("commands")) throw new ControlFailure("instance_incompatible", "This controller does not support durable controls. Restart it with updated Kiln.");
+      const feature = name === "message" ? "message" : name === "take-over" ? "take_over" : flags["message-reviewed"] ? "message_review" : undefined;
+      if (feature && !owner.features?.includes(feature)) throw new ControlFailure("instance_incompatible", "This controller does not support the requested live control. Restart it with updated Kiln.");
       const token = String(flags["only-if-status-matches"]);
-      const instruction = validateInstruction({ command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "reply" ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "outside-confirmation" ? { confirmed: !!flags["confirm-resolved"] } : {} });
+      const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
+        inputs: name === "message" ? { text: message } : name === "reply" ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "outside-confirmation" ? { confirmed: !!flags["confirm-resolved"] } : {} };
+      if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
+      // Live target is resolved by the controller from the guarded status or original receipt.
+      if (name !== "message" && name !== "take-over") validateInstruction(instruction);
       try {
         const response = await fetch(`${owner.address}/api/control/v1/commands`, { method: "POST", headers: { Origin: owner.address!, "X-Kiln-Token": work.record.token, "Content-Type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(5000), body: JSON.stringify(instruction) });
         const answer = await response.json() as Result;

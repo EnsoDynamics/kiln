@@ -51,7 +51,7 @@ it.skipIf(process.platform !== "darwin")("preserves literal text/order and the s
 it.skipIf(process.platform !== "darwin")("rejects invalid input before delivery and closes admission at 32 inputs even after assistant-only read evidence", async () => {
   const target = await setup([{ liveMessages: 32, readOnly: true }, { waitForFile: "release" }, { result: "Uncorrelated ending." }, { exitNow: 0 }]);
   for (const text of ["  ", "\0", "\ud800", "x".repeat(4001)]) expect((await post("live/message", { instructionId: "invalid", target, text })).status).toBe(text.length > 4000 ? 413 : 400);
-  for (let i = 0; i < 32; i++) { expect((await post("live/message", { instructionId: `m${i}`, target, text: `message ${i}` })).status).toBe(202); await h.engine.commands.settled(); }
+  for (let i = 0; i < 32; i++) { const answer = await post("live/message", { instructionId: `m${i}`, target, text: `message ${i}` }); expect(answer.status, JSON.stringify(answer.body)).toBe(202); await h.engine.commands.settled(); }
   await waitFor(() => receipt("m31").message?.delivery === "received");
   expect(h.engine.liveView()?.input).toMatchObject({ available: false, pending: 32 });
   expect((await post("live/message", { instructionId: "overflow", target, text: "keep this draft" })).status).toBe(409);
@@ -197,9 +197,15 @@ it.skipIf(process.platform !== "darwin").each(["wrongSession", "reverseOrder"])(
   expect(h.engine.liveView()?.reviewRequired).toHaveLength(2); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1); expect(inputs()).toHaveLength(2);
 });
 
-it.skipIf(process.platform !== "darwin")("keeps the unfinished bot live-command interface unavailable while browser messaging is enabled", async () => {
-  const target = await setup([{ waitForFile: "release" }, { result: "Ended." }]);
-  const answer = await post("control/v1/commands", { command_id: "no-bot-live-yet", execution_id: target.executionId, status_token: h.engine.controlView().token, action: "message", inputs: { target, text: "Not sent through a future interface" } });
-  expect(answer.status).toBe(409); expect(h.engine.commands.has("no-bot-live-yet")).toBe(false);
-  writeFileSync(join(h.sandbox.root, "release"), "done"); await h.engine.settled(); expect(existsSync(`${h.scenarioPath}.live-inputs.jsonl`)).toBe(false);
+it.skipIf(process.platform !== "darwin")("accepts versioned bot messages through the existing live journal while keeping standalone review internal", async () => {
+  const target = await setup([{ liveMessages: 1 }]);
+  const text = "  Literal instruction through the versioned interface\n";
+  const body = { command_id: "bot-live-enabled", execution_id: target.executionId, status_token: h.engine.controlView().token, action: "message", inputs: { target, text } };
+  expect((await post("control/v1/commands", body)).status).toBe(202);
+  await h.engine.commands.settled(); await h.engine.settled();
+  expect(receipt("bot-live-enabled")).toMatchObject({ message: { text, delivery: "received" }, effects: { message: "received", session: "not_started", plan: "not_advanced" } });
+  expect((await post("control/v1/commands", body)).status).toBe(202);
+  expect(inputs().map(i => i.message.content)).toEqual([text]); expect(h.claudeCalls()).toHaveLength(1);
+  expect((await post("control/v1/commands", { ...body, command_id: "internal-review", action: "message-review", inputs: { target, receipt_ids: ["bot-live-enabled"] } })).status).toBe(400);
+  expect(h.engine.commands.has("internal-review")).toBe(false);
 });

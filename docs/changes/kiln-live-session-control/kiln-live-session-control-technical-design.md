@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phases 1–2 takeover/return and live messages/recovery implemented and verified on 2026-10-27; see their implementation facts and closed phase leaves. Shared-branch publication is separate from implementation closure. The shared design remains authoritative for Phase 3, whose bot live actions are not yet implemented. The [phase plan](kiln-live-session-control-phase-plan.md) names Phase 3 next.
+**Status:** All three implementation phases are closed and their scoped criteria verified on 2026-10-27. Phase 3 bot integration facts and its phase leaf record the command/status/help boundary and current verification portfolio. Phase 3 shared-branch publication remains held; the next planned unit is whole-PRD delivery audit after publication, followed by test audit when delivery is clean.
 
 ## Overview
 
@@ -217,7 +217,13 @@ Private schema **12** adds literal-input eligibility to newly validated attempts
 
 Uncertainty reuses the existing release/ownership and hand-back path with a `delivery_recovery` kind on the release hold; it does not request a checkpoint or pretend takeover was requested. Running uncertain attempts still offer the explicit safe takeover action. Each uncertain receipt retains its own acknowledgement. Successful explicit hand-back records `resolvedBy` against the hand-back operation before removing the hold, so restart neither resurrects resolved uncertainty nor treats acknowledgement alone as release. Correlated evidence arriving after uncertainty is retained without clearing the recovery hold.
 
-The browser keeps exact-attempt drafts in page memory across routes. Text and receipt history use the authenticated 50-receipt paging route, rather than full texts in SSE. The receipt lookup remains PRD-scoped across execution replacement. Real-provider release proof is `scripts/proof-run/live-messages.mjs`; fault and engine proofs complement it with disposable Git, HTTP and real subprocesses. Bot live commands remain Phase 3.
+The browser keeps exact-attempt drafts in page memory across routes. Text and receipt history use the authenticated 50-receipt paging route, rather than full texts in SSE. The receipt lookup remains PRD-scoped across execution replacement. Real-provider release proof is `scripts/proof-run/live-messages.mjs`; fault and engine proofs complement it with disposable Git, HTTP and real subprocesses. Phase 3 adopts the same journal and provider evidence contract for the bot interface.
+
+## Phase 3 bot integration facts
+
+The versioned command endpoint advertises protocol minor 2 and additive `message`, `take_over` and `message_review` features. CLI `take-over` and HTTP `take_over` share the existing journal action. A new bot request checks the full material status token inside the journal admission, before exact-target admission. The route binds implicit live targets to current authority only for new requests; retries reuse their retained original target and original token, including across controller and execution replacement. Refusals with valid exact targets stay durable. The internal browser-only `message-review` action is not a public bot mutation.
+
+`message` file/stdin reads use the shared bounded UTF-8 reader with a literal policy: outer whitespace and a leading Unicode BOM are retained, malformed input and limits reject before delivery. Stopped `reply` keeps its existing trim policy. Repeatable `--message-reviewed` flags on Resume and Verify map to existing per-receipt review and explicit hand-back. Status exposes live target, receipt labels, review IDs, takeover readiness and the independent end-of-activity pause. Handoff freshly reconciles the same release facts and withholds executable recovery instructions while held release is pending, or a saved live attempt lacks an ended/released observation and its controller is disconnected. Live-attempt gate sidecars are excluded from the conversation inventory; attempt IDs use saved dispatch UUIDs or the same deterministic legacy identity as the engine.
 
 ## Evidence and Verification Gates
 

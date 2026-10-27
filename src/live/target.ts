@@ -46,3 +46,5 @@ export function consumedUuids(event: Record<string, unknown>): string[] {
   const values = [...(typeof event.user_message_uuid === "string" ? [event.user_message_uuid] : []), ...(Array.isArray(event.user_message_uuids) ? event.user_message_uuids : [])];
   return [...new Set(values.filter((v): v is string => typeof v === "string"))];
 }
+
+export const messageReceiptLabel = (delivery: LiveMessage["delivery"]): string => ({ submitting: "Submitting", submitted: "Sent to session — not confirmed read", received: "Received by Claude", not_sent: "Not sent", uncertain: "Delivery uncertain" })[delivery];

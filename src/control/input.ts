@@ -2,10 +2,11 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { resolve } from "node:path";
+import { messageProblem } from "../live/target.js";
 import { ControlFailure } from "./result.js";
 const LIMIT = 32768;
-export async function readMessage(file: string | undefined, cwd: string): Promise<string> {
-  const failure = () => new ControlFailure("invalid_input", "Reply input must be UTF-8, at most 32 KiB, and readable within five seconds.", 2);
+export async function readMessage(file: string | undefined, cwd: string, policy: "reply" | "live" = "reply"): Promise<string> {
+  const failure = () => new ControlFailure("invalid_input", "Message input must be UTF-8, at most 32 KiB, and readable within five seconds.", 2);
   let timer: NodeJS.Timeout | undefined;
   const read = async () => {
     let bytes: Buffer;
@@ -25,7 +26,9 @@ export async function readMessage(file: string | undefined, cwd: string): Promis
       });
     }
     if (bytes.length > LIMIT) throw failure();
-    let message: string; try { message = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim(); } catch { throw failure(); }
+    let message: string; try { message = new TextDecoder("utf-8", { fatal: true, ignoreBOM: policy === "live" }).decode(bytes); } catch { throw failure(); }
+    if (policy === "live") { const problem = messageProblem(message); if (problem) throw new ControlFailure("invalid_input", problem, 2); return message; }
+    message = message.trim();
     if (!message || message.length > 4000 || message.includes("\0")) throw new ControlFailure("invalid_input", "Reply must contain 1–4,000 characters, without NUL.", 2);
     return message;
   };

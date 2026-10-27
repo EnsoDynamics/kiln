@@ -55,9 +55,11 @@ A single question should find both runs, even when they belong to different repo
 The command interface supports the common controls used after work starts. Each command has the same effect, eligibility checks and delivery authority as its browser counterpart.
 
 - [ ] **AC-ACT-01 — The caller can discover what is possible now.** Help lists the supported commands, inputs, output formats and error meanings. Each command example starts with what the person could ask a bot, then shows the complete invocation and explains each argument and where its value comes from. Argument names distinguish message content, state checks, command retries and session identity; reply examples show both message-file and standard-input forms. Run detail lists each in-scope control with its current availability and a reason when unavailable. Running `kiln` without arguments points the caller to `kiln --help`. Top-level help inventories every supported command, including existing helpers; command-specific help supplies enough detail for a bot to construct valid calls without prior Kiln knowledge. No browser inspection or undocumented request is needed to construct a valid invocation. The first release's control boundary is proposed in SCOPE-001.
+  - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (live message and safe takeover commands extend the post-start boundary)
   - Replaces in part: AC-CLI-02 and AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the listed post-start controls and output are also available outside the browser).
 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
+  - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)
   - Replaces in part: AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (only its prohibition on a separate resume command; `kiln run` keeps its existing behavior).
 
   | Person's intention | Required behavior |

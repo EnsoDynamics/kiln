@@ -1,3 +1,4 @@
+import { messageReceiptLabel } from "../live/target.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, openSync, closeSync, readSync, statSync } from "node:fs";
@@ -20,7 +21,7 @@ import { chooseSession, readHistory, workingDirectoryAvailable, type Conversatio
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation"];
+export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "message", "take-over"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -138,13 +139,19 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine?.controlView(); }
   catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
-  const controls = control ? control.controls.filter(c => c.name !== "message" && c.name !== "message-review").map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  const controls = control ? control.controls.filter(c => c.name !== "message-review").map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active);
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity);
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const savedActivity = { phase_id: audit ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === "pr" ? "final_delivery" : phase ? "implementation" : null), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
+  const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
+  const pauseKey = record.pause.activeSince ? completedKey : view?.liveControl?.target.activityKey ?? phase;
+  const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
+  const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey ? `Phase ${pauseKey}` : "Activity";
+  const takeover = view?.liveControl?.takeover;
+  const pauseStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : takeover.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation. Wait before opening Claude." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
   const stopDetail = stop ? { ...stop, reason: stop.kind, final_message: stop.finalMessage ?? null, message_complete: true, failed_checks: stop.checks.filter(c => !c.passed), human_requests: stop.humanRequests ?? [], checked_at: stop.checkedAt ?? null }
     : savedStop ? { reason: savedStop[1].stop!.kind, final_message: savedMessage?.trim() ? savedMessage : null, message_complete: !!modelSession, message_reason: savedMessage?.trim() ? null : "No final message was saved for this stop.", failed_checks: savedStop[1].stop!.checks.filter(c => !c.passed), checked_at: savedStop[1].stop!.checkedAt, human_requests: null } : null;
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
@@ -155,6 +162,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
     agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
     requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
+    live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
+    pause_status: pauseStatus,
     pause: record.pause, usage_wait: view?.waiting ?? wait?.[1].wait ?? null, stop: stopDetail,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
@@ -164,6 +173,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false)
   return answer;
 }
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
+  if (engine?.record.liveControl) await engine.reconcileTakeover();
   const activeId = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, activeId); const selected = chooseSession(work, history, selector, activeId);
   if (!selected) {
@@ -198,12 +208,21 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   const view = engine ? inspectionSnapshot(engine) : cached(work)?.snapshot;
   const currentStop = view?.needsYou?.sessionId === session.sessionId ? view.needsYou : undefined;
   const instructions = engine && view ? instructionsFor(engine, selected, view) : cached(work)?.handoffs?.[session.sessionId] ?? { continuation_prompt: currentStop?.resumePrompt ?? null, fresh_session_instructions: currentStop ? { command: currentStop.freshSessionCommand, prompt: currentStop.freshSessionPrompt } : null };
+  const hold = engine?.record.liveControl?.takeover ?? work.record.liveControl?.takeover;
+  const heldSession = hold?.target.sessionId === session.sessionId;
+  const liveRun = session.runs.at(-1);
+  const requiresRelease = heldSession || !!liveRun?.live && !liveRun.endedAt;
+  if (requiresRelease && (!engine || hold?.state !== "released")) {
+    available = false;
+    reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
+  }
   const argv = session.agentId === "codex" ? ["codex", "resume", provider!, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])] : ["claude", "--resume", provider!];
   return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { session_id: session.sessionId, provider_session_id: provider ?? null, agent: session.agentId ?? "claude_code", phase_key: selected.phase,
+    takeover: heldSession ? hold : null, terminal_readiness: requiresRelease ? { ready: available, observed_at: heldSession ? hold.observedAt : view?.liveControl?.observedAt ?? null, reason } : null,
     working_directory: cwd, resumable: available, reason, active_under_kiln: activeId === selected.id,
     provider_history: { state: available ? "available" : activeId === selected.id ? "unknown" : "unavailable", observed_at: new Date().toISOString(), reason },
     resume_command: available ? currentStop?.resumeCommand ?? (session.agentId === "codex" ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId)) : null,
-    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: instructions.fresh_session_instructions } }, [...history.errors, ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
+    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
 }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
