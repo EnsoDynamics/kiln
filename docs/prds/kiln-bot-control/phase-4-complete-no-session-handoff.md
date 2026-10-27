@@ -46,4 +46,4 @@ The final complete inspection suite passes all 21 tests after hardening; log: `/
 
 ## Audit handoff
 
-All implementation leaves are closed. The prior whole-PRD delivery audit is a historical gap baseline, not proof of this repair. Run a fresh whole-PRD delivery audit, then whole-PRD test audit only when delivery is clean. Scoped implementation commits are authorized by the implement skill default; publication remains held for Doug's explicit authorization. No production release is authorized.
+Phase 4 closed every implementation leaf planned at that time. Its predecessor delivery audit remains a historical gap baseline. Phase 4 was published as `8a2975d` under Doug’s explicit authorization in source chat `01a17da6-1eee-7712-b06b-8321a2007d35`: “Go ahead and push and then launch a new chat, also using GPT 6.1 Sol High Effort to continue with the next step.” Its earlier publication hold is satisfied. The fresh audit confirms AC-SEE-05 is implemented and records a separate account-provenance repair in Phase 5. Publishing new audit/implementation commits still requires Doug’s explicit authorization. No production release is authorized.

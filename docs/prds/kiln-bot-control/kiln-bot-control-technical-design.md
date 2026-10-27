@@ -2,7 +2,7 @@
 
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md) · **Interface examples:** [command mockup](kiln-bot-control-command-mockup.md) · **Business choices:** [assumptions](kiln-bot-control-assumptions.md) · **Evidence:** [investigation](kiln-bot-control-investigation.md).
 
-**Status:** Technical design refined and independently reviewed. [Phase 1 inspection is implemented and validated](phase-1-inspect-existing-work.md); [Phase 2 controls remain planned](phase-2-control-existing-work.md).
+**Status:** Technical design refined and independently reviewed. Implementation phases 1–4 are closed and published through `8a2975d`. The fresh [whole-PRD delivery audit](kiln-bot-control-delivery-audit.md) records one account-provenance defect affecting two existing criteria; [completion Phase 5](phase-5-complete-attempt-account-provenance.md) repairs it without changing the design contracts.
 
 ## Overview
 
