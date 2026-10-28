@@ -36,6 +36,7 @@
     "test:live-proof": "npm run build && node --test scripts/proof-run/live-control-proof.test.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-code": "2.1.307",
     "@eslint/js": "^10.0.1",
     "@fontsource/instrument-serif": "^5.3.0",
     "@fontsource/inter": "^5.3.0",

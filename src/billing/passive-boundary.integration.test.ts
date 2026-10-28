@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSandbox, type Sandbox } from "../test-support/git-repositories.js";
-import { findExecutable } from "../platform/helper-process.js";
 import { readAuthStatus } from "../account/claude-account.js";
 import { boundedRead } from "./bounded-process.js";
 import { extractInventory, ordinaryProfile } from "./contract.js";
@@ -12,6 +11,8 @@ import { readInventory, classify } from "./inspection.js";
 let sandbox: Sandbox | undefined;
 afterEach(async () => { await sandbox?.cleanup(); sandbox = undefined; });
 const worker = fileURLToPath(new URL("../../dist/billing/settings-worker.js", import.meta.url));
+// This proof qualifies an exact CLI/SDK pair, independently of the user's auto-updating CLI.
+const qualifiedClaude = fileURLToPath(new URL("../../node_modules/@anthropic-ai/claude-code/bin/claude.exe", import.meta.url));
 function settings(path: string, value: unknown) { mkdirSync(join(path, ".claude"), { recursive: true }); writeFileSync(join(path, ".claude", "settings.json"), JSON.stringify(value)); }
 describe("qualified passive settings boundary", () => {
   it("uses the real SDK cascade, preserves source/empty precedence and does not execute helper, hook or MCP canaries", async () => {
@@ -36,10 +37,9 @@ describe("qualified passive settings boundary", () => {
     const changed = await boundedRead(process.execPath, [worker], { cwd: project, env: sandbox.env });
     expect(JSON.parse(changed.stdout!).helpers.apiKeyHelper.value).not.toBe(command); expect(existsSync(canary)).toBe(false);
   });
-  // Installed-CLI qualification ran on macOS; CI without that CLI still runs the real SDK proof.
-  it.skipIf(process.platform !== "darwin" || !findExecutable("claude", process.env))("qualifies projection against installed Claude auth status, and leaves unqualified/host profiles unprojected", async () => {
-    const claude = findExecutable("claude", process.env);
-    if (!claude) throw new Error("Installed Claude is required for this local qualification proof.");
+  // Native qualification is scoped to macOS; npm ci installs the pinned development CLI.
+  it.skipIf(process.platform !== "darwin")("qualifies projection against installed Claude auth status, and leaves unqualified/host profiles unprojected", async () => {
+    const claude = qualifiedClaude;
     sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
     const env = { ...sandbox.env }; for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
     settings(project, { env: { ANTHROPIC_API_KEY: "synthetic-billing-project-canary" } });
@@ -61,11 +61,10 @@ describe("qualified passive settings boundary", () => {
     const unknown = await readInventory({ executable: process.execPath, cwd: project, env: { ...env, ANTHROPIC_API_KEY: "inherited-canary" } });
     expect(unknown.inventory.diagnostics).toContain("inventory_contract_unqualified"); expect(unknown.projected.ANTHROPIC_API_KEY).toBe("inherited-canary");
   });
-  it.skipIf(process.platform !== "darwin" || !findExecutable("claude", process.env))("keeps inactive project/local provider endpoints out of route evidence and approval identity through the real resolver", async () => {
+  it.skipIf(process.platform !== "darwin")("keeps inactive project/local provider endpoints out of route evidence and approval identity through the real resolver", async () => {
     sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
     const env = { ...sandbox.env };
-    const cli = findExecutable("claude", env);
-    if (!cli) throw new Error("Installed Claude is required for provider endpoint qualification.");
+    const cli = qualifiedClaude;
     for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
     settings(project, { env: { AWS_ENDPOINT_URL: "https://unrelated-aws.example.test", ANTHROPIC_BEDROCK_BASE_URL: "https://inactive-bedrock.example.test", ANTHROPIC_API_KEY: "synthetic-route-canary" } });
     writeFileSync(join(project, ".claude", "settings.local.json"), JSON.stringify({ env: { ANTHROPIC_VERTEX_BASE_URL: "https://inactive-vertex.example.test" } }));
@@ -94,9 +93,9 @@ describe("qualified passive settings boundary", () => {
     const inventory = extractInventory({ effective: { policyHelper: { command: "never-run" }, env: { ANTHROPIC_API_KEY: "managed-canary" } }, sources: [{ source: "managed", settings: { env: { ANTHROPIC_API_KEY: "managed-canary" } } }] });
     expect(inventory).toMatchObject({ complete: false, diagnostics: ["managed_policy_partial"] });
   });
-  it.skipIf(process.platform !== "darwin" || !findExecutable("claude", process.env))("ignores inactive credentials and helpers from real project/local settings without losing selected credential changes", async () => {
+  it.skipIf(process.platform !== "darwin")("ignores inactive credentials and helpers from real project/local settings without losing selected credential changes", async () => {
     sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
-    const env = { ...sandbox.env }; const cli = findExecutable("claude", env)!;
+    const env = { ...sandbox.env }; const cli = qualifiedClaude;
     for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
     writeFileSync(join(env.CLAUDE_CONFIG_DIR!, "settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "synthetic-direct-canary" } }));
     const inspect = async () => {

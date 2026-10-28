@@ -57,3 +57,16 @@ it("releases owned history and unfinished response files on a serialization dead
   expect(release).toHaveBeenCalledOnce(); expect(directories()).toHaveLength(2);
   for (const path of directories()) expect(existsSync(path)).toBe(false);
 });
+
+it("batches large responses into bounded real-file writes without changing Unicode or JSON bytes", () => {
+  const answer = result({ value: "x".repeat(2 * 1024 * 1024) + "🙂\n終" });
+  const writes = vi.spyOn(ResponseSpool.prototype, "append");
+  let output: ResponseSpool | undefined;
+  try {
+    output = spoolResult(answer, true);
+    // Real storage and serialization; only count calls through the unchanged writer.
+    expect(writes.mock.calls.length).toBeLessThanOrEqual(16);
+    for (const [bytes] of writes.mock.calls) expect(bytes.byteLength).toBeLessThanOrEqual(1024 * 1024);
+    expect(Buffer.concat([...output.chunks()]).toString("utf8")).toBe(JSON.stringify(answer) + "\n");
+  } finally { output?.close(); writes.mockRestore(); }
+});

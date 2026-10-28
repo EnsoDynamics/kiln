@@ -213,7 +213,9 @@ describe("automatic completion activities", () => {
     expect(buildSnapshot(h.engine).activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Repair value", "First repair", "Second repair", "Delivery audit", "Repair value", "Delivery audit", "Test audit", "Final pull request"]);
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
     expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
-  });
+  // Eight real process sessions plus Git/audit handoffs approach a minute even
+  // alone. Bound the whole workflow separately from individual request deadlines.
+  }, 120_000);
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
@@ -227,7 +229,8 @@ describe("automatic completion activities", () => {
     expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
     const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(4);
-  });
+  // Four sessions include full test-audit red/restore evidence and real Git work.
+  }, 120_000);
 
   it.each([undefined, "Reworded missing assertion, with no changed evidence."])("stops unfinished test work without substantive progress (%s)", async findingText => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ continueTest: true, findingText })]);

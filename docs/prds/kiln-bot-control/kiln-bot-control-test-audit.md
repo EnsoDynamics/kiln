@@ -1,6 +1,6 @@
 # Kiln bot control — whole-PRD test audit
 
-**Status:** Done 2026-10-28 — all 18 active criteria Adequate; all 15 initial evidence gaps closed. No criterion waits on delivery or another action. Full verification remains non-green for the four named pre-existing failures below; publication is held.
+**Status:** Done 2026-10-28 — all 18 active criteria Adequate; all 15 initial evidence gaps closed. No criterion waits on delivery or another action. The verification repair below closes the four recorded failures and passes the complete local gate. Audit `3aee728` is published; the repair is authorized to land on `develop`.
 **Last audit:** 2026-10-28, whole PRD, runtime baseline `f778755`; the test changes accompanying this report were uncommitted when assessed.
 **PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md)
 **Delivery baseline:** [Whole-PRD delivery audit after Phase 10](kiln-bot-control-delivery-audit-after-phase-10.md), published assessment `9cffab4` and authorization `f778755`.
@@ -129,7 +129,7 @@ None. All 15 initial Weak rows are now Adequate. Strong is optional and not part
 
 ## Waiting
 
-None. No missing non-production counterpart, stakeholder decision, unraised row or delivery completion phase remains. Publishing the local audit commit is a separate explicitly held action, not a missing product/test criterion.
+None. No missing non-production counterpart, stakeholder decision, unraised row or delivery completion phase remains. The original audit publication hold was satisfied by commit `3aee728`.
 
 ## Historical and external proof limits
 
@@ -141,10 +141,36 @@ No criterion is Strong: every required part has not been individually broken and
 
 ## Publication and closeout boundary
 
-Doug's actual instruction in source chat `01a18395-b827-75c3-88b2-aa53da8d4070` was: “Go ahead and push the audit, then launch a new chat to run the whole-PRD test audit.” Audit `9cffab4` and authorization `f778755` were published, the shared checkout was fast-forwarded and this fresh chat was launched. That grant is satisfied. This chat is `01a183a3-791f-7f03-b1ab-d46193df314a` and owns this PRD's test audit in its dedicated `botcontrol-kiln-test-audit` worktree.
+Doug's actual instruction in source chat `01a18395-b827-75c3-88b2-aa53da8d4070` was: “Go ahead and push the audit, then launch a new chat to run the whole-PRD test audit.” Audit `9cffab4` and authorization `f778755` were published, the shared checkout was fast-forwarded and this fresh chat was launched. That grant is satisfied. This chat is `01a183a3-791f-7f03-b1ab-d46193df314a`. Its original `botcontrol-kiln-test-audit` worktree was removed after publication.
 
-Scoped test-audit commits follow the skill default. **Publishing this audit's commits, further chat launches and production release remain held for explicit authorization.** No private worktree branch is published. Other tracks remain independently owned. This report's filename follows Doug's standalone-document naming rule rather than the skill's generic `test-audit.md` example.
+Doug subsequently said “go ahead and push first of all” in this chat; the audit landed as `3aee728`. He then required all tests to succeed, said “Just please proceed.” and requested completion on `develop`. That authorizes the scoped verification repair and its publication. Other tracks remain independently owned. Production release requires separate authorization. This report's filename follows Doug's standalone-document naming rule rather than the skill's generic `test-audit.md` example.
 
 ## Track closeout
 
-All ten implementation leaves are closed and published, current clean delivery covers the unchanged runtime, and the whole-PRD test-audit target is now complete. This PRD has no remaining planned implementation/audit child and needs no successor prompt. Publishing this scoped test-audit commit still waits for Doug's explicit authorization; production release and other tracks remain outside this closeout.
+All ten implementation leaves are closed and published, the delivery and whole-PRD test-audit targets are complete, and the verification repair below closes the remaining local gate failures. This PRD has no remaining planned implementation/audit child and needs no successor prompt.
+
+## Verification repair and complete passing gate — 2026-10-28
+
+The three native passive-billing failures came from selecting the auto-updated Claude 2.1.311 while the supported passive contract remains 2.1.307 / SDK 0.3.310. The exact 2.1.307 CLI is now a development-only dependency selected explicitly by the tests. A clean `npm ci` installs that native proof in CI and locally; the runtime qualification policy is preserved.
+
+Large-history finalization now batches serializer fragments into bounded buffers of 262,144 UTF-16 code units, checking the deadline for every fragment. Profiling identified substantial small-file-write overhead. The added real-file regression rejects the old 32,768-code-unit pattern (65 writes against a maximum of 16), and checks bounded writes plus exact Unicode/JSON bytes. The complete memory proof runs in a separate fresh worker. Its controller waits for actual metadata/billing refresh completion before server initialization, preventing late startup cache writes from racing the authentication probe. Production server initialization supplies its initial inspection cache.
+
+Ordinary integration files use at most two workers. Two complete multi-session audit workflows have a bounded 120-second whole-test budget: isolated measurements showed correct completion near or beyond the old generic 60-second limit. All workflow assertions, the 48 MiB child heaps, the 40-record / greater-than-40-MiB response proof, the 16 MiB record budget, and the production authentication/read/transport deadlines are preserved.
+
+The complete gate ran the `npm run verify` constituent commands, followed by the separate installed-package suite. JSON reporters retain individual outcomes.
+
+| Gate | Result | Command seconds |
+|---|---|---:|
+| `npm run audit` | Zero blocking high/critical findings | 1.71 |
+| `npm run lint` | Pass | 9.19 |
+| `npm run typecheck` | Pass, no Svelte errors or warnings | 23.89 |
+| `npm test` | 641 pass | 6.59 |
+| `npm run test:codex-proof` | 17 pass | 11.41 |
+| `npm run test:integration` | 1,053 pass, zero failures, two existing platform skips | 1,350.63 |
+| `npm run test:package` | Eight pass | 61.39 |
+
+All 94 integration files were collected exactly once, and the memory project completed before the ordinary project. The memory proof passed in 16.48 seconds in that full run. Both formerly timed-out audit workflows passed (16.29 and 9.92 seconds). Nine repair source/configuration files stayed byte-identical throughout the gate. The full gate ran on `33161aa` plus the repair; rebasing over the later `226fea7` live-control audit documents preserved those files.
+
+After the full integration run, review corrected the fixture's explicit readiness sanity check to include `billing.pending`, the metadata flag, alongside the already-awaited refresh and command-busy check. Lint and the entire memory proof then passed again, one case in 24.67 seconds. This is a stronger fixture assertion; runtime source and all behavioral assertions are unchanged from the full passing run. Final deliverable review and test hardening cover the scoped repair.
+
+Three earlier complete-gate attempts were stopped after reproduced history-deadline, workflow-duration or controller-startup failures; they remain interrupted attempts, not passing results. Earlier audit/phase non-green runs above remain historical evidence. The passing gate here supersedes the four outstanding failures for current local verification, without extending dated provider/Grok or native-platform proof. Supplementary reports and profiles are in `/private/tmp/kiln-full-suite-repair`; the commands, outcomes and limits are recorded here.

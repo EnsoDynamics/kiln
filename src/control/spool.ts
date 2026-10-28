@@ -72,7 +72,13 @@ export function spoolResult(answer: Result, json: boolean, deadline = Date.now()
     const output = new ResponseSpool(); spool = output;
     let buffered = "";
     const flush = () => { deadlineCheck(deadline); output.append(Buffer.from(buffered)); buffered = ""; };
-    for (const chunk of serializedChunks(answer, json)) { buffered += chunk; if (buffered.length >= 32768) flush(); }
+    // Batch small serializer fragments into bounded writes: large histories must
+    // not spend their read deadline issuing thousands of temporary-file writes.
+    for (const chunk of serializedChunks(answer, json)) {
+      deadlineCheck(deadline);
+      buffered += chunk;
+      if (buffered.length >= 256 * 1024) flush();
+    }
     buffered += "\n"; flush(); deadlineCheck(deadline); return output;
   } catch (error) { spool?.close(); throw error; }
   finally { releaseResult(answer); }
