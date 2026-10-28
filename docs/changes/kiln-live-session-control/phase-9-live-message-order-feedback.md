@@ -84,3 +84,10 @@ The initial new fixtures needed corrected API origins, an explicit recovery targ
 All **eight installed-package checks** pass after packing and installing the current build into a disposable prefix (`npm run test:package`, **68.09 seconds**).
 
 All eight earlier leaves remain byte-identical, including Phase 8's Confirmed unrelated baseline failure section. Independent deliverable review, documentation delta review, test hardening and its delta assessment are complete with no remaining material finding. Publication remains held for Doug; fresh whole-PRD delivery audit remains owed after publication, followed by test audit only when delivery is clean.
+
+
+## Phase 9 publication and fresh audit launch
+
+Doug lifted the publication hold in implementation chat `01a1819a-a403-7031-b655-4d92c0489b3e`: “Go ahead and commit and push, and then launch a new chat to do the fresh delivery audit.” Phase 9 is published unchanged as `23bd3c3`; no runtime or test edit was needed for publication. This authorizes publishing the implementation and this authorization/handoff record, then launching a fresh whole-PRD delivery audit.
+
+The successor uses delivery-audit's scoped commit default and holds publication of its later work for Doug. It reads the full PRD, design, assumptions, phase plan and all nine leaves; Phase 9's complete-run-plus-focused-retest qualification and all eight earlier validation records remain unchanged. Test audit follows only a current clean whole-PRD delivery verdict. No production changes or messages to other chats are authorized; bot-control and plan-continuation remain separate tracks.

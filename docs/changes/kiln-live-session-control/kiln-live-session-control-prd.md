@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All nine implementation leaves are closed. [Phase 9](phase-9-live-message-order-feedback.md) completes the message-order recovery and released-pause explanation from the audit after Phase 8; scoped publication remains held for Doug. A fresh whole-PRD delivery audit is owed after publication, then test audit only when delivery is clean. No current clean whole-PRD verdict is inferred from implementation review. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All nine implementation leaves are closed. [Phase 9](phase-9-live-message-order-feedback.md) completes the message-order recovery and released-pause explanation from the audit after Phase 8; the scoped implementation is published as `23bd3c3`. The authorized fresh whole-PRD delivery audit is next, then test audit only when delivery is clean. No current clean whole-PRD verdict is inferred from implementation review. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -140,7 +140,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 [Phase 9](phase-9-live-message-order-feedback.md) closes the last implementation leaf, completing cross-event message-order recovery and the released deferred-pause explanation. Its acceptance evidence and Repository validation record the scoped proof, complete-run-plus-focused-retest qualification and publication hold. The [audit after Phase 8](kiln-live-session-control-delivery-audit-after-phase-8.md) remains the historical pre-repair verdict; neither it nor this implementation review establishes current whole-PRD completeness.
 
-After Phase 9 publication, obtain a fresh whole-PRD delivery audit, then test audit only when delivery is clean. The [phase plan](kiln-live-session-control-phase-plan.md#phase-9-closeout--2026-10-28) records the successor. All eight earlier Closed lines and validation qualifications remain unchanged, including Phase 8's confirmed unrelated baseline clock-test failure. Bot-control and plan-continuation remain separate tracks.
+Phase 9 is published as `23bd3c3`; obtain the authorized fresh whole-PRD delivery audit, then test audit only when delivery is clean. The [phase plan](kiln-live-session-control-phase-plan.md#phase-9-closeout--2026-10-28) records the successor. All eight earlier Closed lines and validation qualifications remain unchanged, including Phase 8's confirmed unrelated baseline clock-test failure. Bot-control and plan-continuation remain separate tracks.
 
 ## Out of scope
 
