@@ -50,3 +50,7 @@ After this phase closes, repeat whole-PRD delivery audit in a fresh chat, then w
 ## Publication boundary
 
 The [audit's Publication boundary](kiln-bot-control-delivery-audit-after-phase-8.md#publication-boundary) records Doug's actual instruction and source chats. Scoped audit/implementation commits follow their skill defaults. Publishing future audit/implementation commits and production release remain held. This phase is planned, not authorized to launch by the prior Phase 8/audit instruction; the audit's continuation is valid only after authorized audit publication and explicit implementation authorization. Other tracks remain independently owned.
+
+## Implementation launch authorization
+
+Doug authorized publication of the after-Phase-8 audit and launch of this Phase 9 implementation chat on 2026-10-28. The exact instruction and source chat are recorded in the [audit publication and launch authorization](kiln-bot-control-delivery-audit-after-phase-8.md#audit-publication-and-phase-9-launch-authorization). This supersedes the launch hold above. After audit publication and shared-checkout fast-forward, the prepared fresh-chat continuation is valid immediately. Scoped implementation commits follow the skill default; publishing future implementation/later-audit commits and production release remain held.

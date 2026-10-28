@@ -117,3 +117,13 @@ Scoped audit documents commit under the delivery-audit default and remain **loca
 ## Phase 9 continuation
 
 The prepared machine-specific continuation accompanies this audit's commit. It uses `implement-from-requirements` on [Phase 9](phase-9-complete-kiln-inspection-input.md), with this audit's confirmed missing parts, validation limits and Publication boundary as the source of work state. Its publication and implementation-launch prerequisites remain in force.
+
+## Audit publication and Phase 9 launch authorization
+
+On 2026-10-28, Doug instructed in this audit chat, `01a1819b-0071-7ef2-a8f4-ba816f72d229`: “Go ahead and commit and push, and then go ahead and launch a new chat to implement page nine.” In this plan, that names completion Phase 9, “Complete truthful inspection and bounded command input.” This authorizes publication of the audit (original local `950ac08`, rebased publication commit `9fa8b04`) and its authorization/handoff record, then launching a fresh Phase 9 implementation chat. It supersedes this audit's publication and implementation-launch holds above.
+
+Scoped implementation commits follow the implement skill default. Publication of future implementation/later-audit commits and production release remain held. The successor starts from published `origin/develop` after the shared checkout fast-forwards, in its own fresh worktree. The audited source, criterion ownership, supersessions and historical non-green verification limits are unchanged; this publication adds documents only. Other tracks remain independently owned.
+
+Publication rebased the audit from original local `950ac08` to `a596afa` over independently published live-control `23bd3c3`. The incoming runtime delta preserves first-consumption message order across events and adds the released-pause explanation; it does not change bot inspection readers, observation normalization, ordinary recovery-history checks, log descriptor handling or command-body admission. Bot requirement bodies and existing partial supersessions are unchanged. The audit assessment baseline remains `f11ecd9`; this is compatibility review of the publication boundary, not a new whole-PRD audit or a reclassification of historical test gates. Document links and unchanged requirement bodies were rechecked; no runtime suite was rerun for this documentation-only publication.
+
+A concurrent documentation-only live-control publication record `9a643ca` required one further fast-forward publication rebase. The final audit publication commit is `9fa8b04` (original local `950ac08`, intermediate `a596afa`). The incoming record changes only the other track's publication/launch notes; source, bot requirements, findings and verification limits are unchanged.
