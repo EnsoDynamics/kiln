@@ -74,3 +74,12 @@ Doug's exact authorization is retained in [Phase 10's final publication section]
 The documentation check confirms exactly 20 criterion rows with 16 Implemented/four Partly implemented; both new documents' local link targets resolve; all ten Closed leaf files are byte-identical to `7bd7ab5`; no source, test, script, prompt or package file changed. `git diff --check` passes. Pre-commit remote refresh still reports `origin/develop` at `7bd7ab5`. The five-file scoped audit changeset contains this record, Phase 11 and current-state updates to the PRD, phase plan and design status only; normative criteria/design remain unchanged.
 
 Disposition: one shared required-behavior omission filed into Phase 11; no independent human decision or unassigned planned successor. Scoped audit commit is local; publication and successor launch await explicit authorization. The audit's own worktree remains until authorized landing; it is not the successor's workspace.
+
+
+## Audit publication and Phase 11 launch authorization — 2026-10-28
+
+Doug authorized publication and the next implementation chat in Codex chat `01a18390-6e30-7791-bc72-19ebfabb535d`: “Okay, go ahead and push and then launch a new chat to continue with FIGS 11.” In the current audit/continuation context this names Phase 11, Revalidate history before resumed input.
+
+This lifts the publication hold for audit commit `f2c55ac` and this authorization/current-state record. Publish them to `develop` by fast-forward, refresh the shared checkout, then launch a fresh `implement-from-requirements` chat on Phase 11. The audit remains non-clean: Phase 11 is the next planned unit. Both formal audit rounds, all ten Closed leaves, the non-green verification portfolio and provider qualifications remain unchanged; no runtime/test edit is required by publication.
+
+The successor uses the implementation skill's scoped commit default. Publication of its later implementation or subsequent audits, production changes and messages to other chats remain held for explicit authorization. After Phase 11 closes and its authorized publication reaches the shared checkout, run a fresh whole-PRD delivery audit, then affected-row test-audit reassessment only when delivery is clean. Bot-control and plan-continuation remain separately owned tracks.
