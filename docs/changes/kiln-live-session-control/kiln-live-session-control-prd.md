@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All ten implementation leaves remain closed and published. The [whole-PRD delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md) finds one remaining final Resume history omission affecting four criterion parts. [Phase 11: Revalidate history before resumed input](phase-11-revalidate-history-before-resume-input.md) is the next implementation unit, with audit publication and its fresh-chat launch authorized in the audit’s final record; a fresh whole-PRD delivery audit and affected-row test-audit reassessment follow. The track remains open; every earlier verification qualification is retained.
+**Status:** All eleven implementation leaves are closed. The first ten remain published; [Phase 11](phase-11-revalidate-history-before-resume-input.md) adds final history revalidation before resumed input and is committed locally with publication held. Its leaf records passing scoped evidence and the non-green full-gate/diagnostic portfolio. After authorized publication, a fresh whole-PRD delivery audit precedes affected-row test-audit reassessment. The track remains open; all historical qualifications remain unchanged.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Current delivery state
 
-[Phase 10](phase-10-usable-takeover-history.md) is closed and published as `0cc1055`, with publication/launch record `ae72a06`. The [fresh whole-PRD audit](kiln-live-session-control-delivery-audit-after-phase-10.md) assesses final published baseline `7bd7ab5`: release and Verify repeat usable-history checks, but Resume/direct reply omits history revalidation after its final asynchronous checks, before supplying the first prompt. Phase 11 completes AC-BACK-02, AC-TAKE-04, AC-MSG-05 and AC-BOT-02 under their original owners. No acceptance wording or assumption changed. The earlier closeouts below remain historical; this current non-clean verdict takes precedence. Audit publication and the fresh Phase 11 launch are authorized in the current audit’s final publication record; publication of later implementation remains held.
+[Phase 11](phase-11-revalidate-history-before-resume-input.md) closes the final Resume/direct-reply history omission identified by the [delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md). Final input admission now repeats usable exact-conversation history checks after completion and terminal ownership awaits. AC-BACK-02, AC-TAKE-04, AC-MSG-05 and AC-BOT-02 retain their original owners and wording. The leaf owns the complete validation/diagnostic portfolio and publication hold. Its implementation is local; a fresh whole-PRD delivery audit is required after authorized publication, followed by affected-row test-audit reassessment only when delivery is clean. No historical audit is promoted to a fresh clean verdict by this closure.
 
 ## Earlier whole-PRD closeout
 

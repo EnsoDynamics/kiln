@@ -2641,7 +2641,17 @@ export class Engine {
       stateDirectory: this.options.stateDirectory,
       record: session,
       ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(liveExitTarget!) } : {}),
-      ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => { const local = this.takeoverLocalMaterial(phaseKey); if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); await requireNoTerminal(launchEnv, session.sessionId, identity); if (local !== this.takeoverLocalMaterial(phaseKey)) { if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back."); } } } : {}),
+      ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => {
+        const local = this.takeoverLocalMaterial(phaseKey);
+        if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
+        await requireNoTerminal(launchEnv, session.sessionId, identity);
+        if (local !== this.takeoverLocalMaterial(phaseKey)) {
+          if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
+          throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back.");
+        }
+        // Final synchronous admission after the async checks, using this dispatch's profile.
+        requireHistory(launchEnv, session.sessionId);
+      } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
       exitGraceMs: this.options.exitGraceMs ?? (process.platform === "win32" ? WINDOWS_EXIT_GRACE_MS : 0),
