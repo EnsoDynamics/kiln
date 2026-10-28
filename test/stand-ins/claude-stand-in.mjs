@@ -390,7 +390,11 @@ for (const action of session.actions) {
     const uuids = inputs.map(input => input.uuid);
     if (action.reverseOrder) uuids.reverse();
     for (const input of inputs) { keepRecord("user", input.message); emit(input); }
-    if (action.readOnly) emit({ type: "assistant", user_message_uuids: uuids, message: { content: [{ type: "text", text: "Read the live inputs." }] } });
+    if (action.consumptionEvents) for (const observation of action.consumptionEvents) {
+      const correlated = observation.indices.map(i => inputs[i].uuid);
+      emit(observation.type === "assistant" ? { type: "assistant", user_message_uuids: correlated, message: { content: [{ type: "text", text: "Read the selected live inputs." }] } } : { type: "result", subtype: "success", is_error: false, user_message_uuids: correlated, result: "Selected live inputs accounted." });
+    }
+    else if (action.readOnly) emit({ type: "assistant", user_message_uuids: uuids, message: { content: [{ type: "text", text: "Read the live inputs." }] } });
     else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: uuids, queued_turn_count: 0, result: "Live instructions accounted." });
     if (action.exitAfter) await exitAfterFlush(0);
   } else if (action.result !== undefined) {

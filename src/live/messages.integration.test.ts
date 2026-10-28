@@ -98,14 +98,14 @@ it.skipIf(process.platform !== "darwin")("serializes takeover against message de
   const session = h.engine.latestSession("1")!; expect(readGate(session.runs[0]!.live!.gateDirectory).held).toBeDefined();
 });
 
-it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession", "resume_review", "resume_partial_review", "verify_review", "verify_partial_review", "resume_dispatch_review"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
+it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession", "saved_crossEvent", "resume_review", "resume_partial_review", "verify_review", "verify_partial_review", "resume_dispatch_review"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release"); const killedAt = join(h.sandbox.root, "boundary");
   // At write_completed the callback may settle before the provider's replay.
   // Keep the fixture quiet until release so SIGKILL cannot race an echo into a
   // closed stdout pipe. The stdin reader still independently records the input.
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary.includes("partial_review") || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { [boundary.slice(6)]: true } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary.includes("partial_review") || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { ...(boundary === "saved_crossEvent" ? { consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }] } : { [boundary.slice(6)]: true }) } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
   const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url");
   const { readPrdRecord } = await import("../state/records.js"); const { git } = await import("../test-support/git-repositories.js"); const { isProcessLive } = await import("../platform/process-start-time.js");
   let port = 43060; while (!await isPortFree(port)) port++;
@@ -113,7 +113,7 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url)); const journalPath = fileURLToPath(new URL("../../dist/control/commands.js", import.meta.url));
   // Freeze only the disposable supervisor immediately around real durable writes.
   // For write_completed, freeze before saving that callback; for others, after save.
-  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&(boundary==='resume_dispatch_review'&&r.command_id==='review-crash'&&r.instruction.action==='resume'&&r.stage==='dispatching'||r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||boundary.endsWith('review')&&boundary!=='resume_dispatch_review'&&r.message?.reviewedAt));if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));if(boundary.startsWith('saved_')){const observe=Engine.prototype.observeLiveMessage;Engine.prototype.observeLiveMessage=function(t,e,at){if(!stopped&&e.type==='result'&&e.user_message_uuids?.length===2){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'saved before callback');process.kill(process.pid,'SIGSTOP');}return observe.call(this,t,e,at);};}const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
+  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&(boundary==='resume_dispatch_review'&&r.command_id==='review-crash'&&r.instruction.action==='resume'&&r.stage==='dispatching'||r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||boundary.endsWith('review')&&boundary!=='resume_dispatch_review'&&r.message?.reviewedAt));if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));if(boundary.startsWith('saved_')){const observe=Engine.prototype.observeLiveMessage;Engine.prototype.observeLiveMessage=function(t,e,at){if(!stopped&&e.type==='result'&&e.user_message_uuids?.length===(boundary==='saved_crossEvent'?1:2)){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'saved before callback');process.kill(process.pid,'SIGSTOP');}return observe.call(this,t,e,at);};}const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
   const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit"); let diagnostic = ""; controller.stderr!.on("data", b => { diagnostic += String(b); });
   try {
     await waitFor(() => { if (controller.exitCode !== null) throw new Error(diagnostic); return existsSync(ready); }, 30000);
@@ -377,4 +377,46 @@ it.skipIf(process.platform !== "darwin").each([true, false])("holds unaccounted 
   expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
   await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare();
   expect(receipt("final-observation").message?.delivery).toBe("uncertain"); expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it.skipIf(process.platform !== "darwin").each([
+  { name: "B-only result before A", events: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }], uncertain: true },
+  { name: "B-only assistant before A", events: [{ type: "assistant", indices: [1] }, { type: "result", indices: [0] }, { type: "result", indices: [1] }], uncertain: true },
+  { name: "A consumed before overlapping B/A results", events: [{ type: "assistant", indices: [0] }, { type: "result", indices: [1] }, { type: "result", indices: [0] }], uncertain: false },
+  { name: "ordered separate results", events: [{ type: "result", indices: [0] }, { type: "result", indices: [1] }], uncertain: false },
+  { name: "coalesced read before overlapping results", events: [{ type: "assistant", indices: [0, 1] }, { type: "result", indices: [1] }, { type: "result", indices: [0] }], uncertain: false },
+])("validates first consumption across events: $name", async ({ events, uncertain }) => {
+  const target = await setup([{ waitForFile: "release" }, { liveMessages: 2, consumptionEvents: events, exitAfter: true }]);
+  const texts = ["  first exact input\n", "\nsecond exact input  "];
+  for (const [i, text] of texts.entries()) { expect((await post("live/message", { instructionId: `chronology-${i}`, target, text })).status).toBe(202); await h.engine.commands.settled(); }
+  writeFileSync(join(h.sandbox.root, "release"), "emit observations"); await h.engine.settled();
+  for (const [i, text] of texts.entries()) expect(receipt(`chronology-${i}`)).toMatchObject({ live_target: target, message: { text, delivery: uncertain ? "uncertain" : "received", resultAt: expect.any(String) }, effects: { message: uncertain ? "unknown" : "received", session: "not_started", plan: "not_advanced" } });
+  expect(!!h.engine.record.liveControl).toBe(uncertain); expect(inputs().map(i => i.message.content)).toEqual(texts); expect(h.claudeCalls()).toHaveLength(1);
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(!!h.engine.record.liveControl).toBe(uncertain);
+  if (uncertain) { expect(h.engine.liveView()?.reviewRequired).toHaveLength(2); expect((await h.engine.decide()).kind).toBe("needs_you"); }
+  expect(inputs()).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it.skipIf(process.platform !== "darwin").each([false, true])("replays B-before-A saved chronology independently of durable result fields (%s)", async savedResults => {
+  const target = await setup([{ waitForFile: "release" }, { liveMessages: 2, consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }], exitAfter: true }]);
+  // Reproduce a saved-event/callback gap, or a pre-upgrade controller that saved
+  // each result without cross-event validation. Actual supervisor death is also
+  // exercised by the saved_crossEvent boundary test above.
+  const internal = h.engine as unknown as { observeLiveMessage: (t: typeof target, e: Record<string, unknown>, at: string) => void; projectMessage: (r: Receipt, e: Record<string, unknown>, at: string) => void; endLiveMessages: (t: typeof target) => void };
+  const observer = vi.spyOn(internal, "observeLiveMessage").mockImplementation((t, event, at) => {
+    if (savedResults) for (const r of h.engine.messageReceipts(t)) { internal.projectMessage(r, event, at); h.engine.commands.checkpoint(r); }
+  });
+  const ending = vi.spyOn(internal, "endLiveMessages").mockImplementation(() => {});
+  for (const id of ["replay-A", "replay-B"]) { await post("live/message", { instructionId: id, target, text: `  exact ${id}\n` }); await h.engine.commands.settled(); }
+  writeFileSync(join(h.sandbox.root, "release"), "finish naturally"); await h.engine.settled(); observer.mockRestore(); ending.mockRestore();
+  for (const id of ["replay-A", "replay-B"]) expect(!!receipt(id).message?.resultAt).toBe(savedResults);
+  expect(h.engine.record.liveControl).toBeUndefined();
+  await server!.close(); server = undefined;
+  for (let restart = 0; restart < 2; restart++) {
+    h.engine = h.reopenFromDisk(); await h.engine.prepare();
+    for (const id of ["replay-A", "replay-B"]) expect(receipt(id)).toMatchObject({ live_target: target, state: "indeterminate", message: { delivery: "uncertain", text: `  exact ${id}\n`, resultAt: expect.any(String) }, effects: { message: "unknown", plan: "not_advanced" } });
+    expect(h.engine.liveView()?.reviewRequired).toHaveLength(2); expect((await h.engine.decide()).kind).toBe("needs_you");
+  }
+  expect(inputs()).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
 });

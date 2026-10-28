@@ -119,3 +119,33 @@ it("explains Claude-only live controls for running Codex while preserving deferr
     expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });
+
+it.each(["Phase 2b", "Delivery audit · Round 3", "Test audit · Round 2"].flatMap(label => [1200, 390].map(width => ({ label, width }))))("explains the released deferred pause for $label at $width and retains separate cancellation", async ({ label, width }) => {
+  const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
+  const audit = label.includes("audit");
+  const liveTarget = { ...target, activityKey: audit ? "audit-activity" : "2b", sessionId: stop.sessionId! };
+  snapshot.pause.pending = false;
+  stop.phaseRecovery = { target: { executionId: "execution", phaseKey: liveTarget.activityKey, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: liveTarget }, completion: "incomplete" };
+  snapshot.liveControl = { target: liveTarget, label, available: false, reason: "Released", observedAt: stop.stoppedAt, takeover: { target: liveTarget, instructionId: "i", operationId: "o", requestedAt: stop.stoppedAt, observedAt: stop.stoppedAt, state: "released", reason: "Paused for terminal takeover." } };
+  const server = await serveViewFixture({ port: 42056, folder: "customer-returns", snapshot });
+  const page = await chrome.open(server.address, { width, height: 1100 });
+  const choice = `Array.from(document.querySelectorAll('.choices > section')).find(s => s.querySelector('h3')?.textContent.startsWith('Let '))`;
+  const explanation = `This session is already stopped. Hand it back to Kiln before requesting an end-of-${audit ? "audit" : "phase"} pause.`;
+  try {
+    await page.waitFor(`${choice}?.textContent.includes(${JSON.stringify(explanation)})`);
+    expect(await page.evaluate(`${choice}.querySelector('button').disabled`)).toBe(true);
+    expect(await page.evaluate(`${choice}.querySelector('button').nextElementSibling.textContent`)).toBe(explanation);
+    expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+    writeFileSync(`/tmp/kiln-phase9-paused-${audit ? label.split(' ')[0] : 'phase'}-${width}.png`, await page.screenshot());
+    snapshot.pause.pending = true; server.send("snapshot", snapshot);
+    await page.waitFor(`${choice}.querySelector('button').textContent.includes('Cancel end-of-') && !${choice}.querySelector('button').disabled`);
+    expect(await page.evaluate(`${choice}.textContent`)).not.toContain(explanation);
+    await page.evaluate(`${choice}.querySelector('button').click()`);
+    await page.waitFor(`!${choice}.querySelector('button').disabled`);
+    expect(server.commands).toEqual(["DELETE /api/pause"]);
+    expect(snapshot.liveControl.takeover?.state).toBe("released");
+    snapshot.pause.pending = false; server.send("snapshot", snapshot);
+    await page.waitFor(`${choice}.textContent.includes(${JSON.stringify(explanation)})`);
+    expect(page.problems).toEqual([]);
+  } finally { await page.close(); await server.close(); }
+});

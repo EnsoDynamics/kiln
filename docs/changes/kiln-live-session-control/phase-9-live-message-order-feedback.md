@@ -1,5 +1,7 @@
 # Phase 9: Preserve live-message order and explain paused controls
 
+**Closed:** 2026-10-28
+
 **Added by delivery audit:** 2026-10-28, after all eight implementation leaves closed. Completes the remaining cross-event correlation and disabled-control explanation gaps confirmed against `8110b2c`.
 
 **Parent PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md)
@@ -45,3 +47,40 @@ The source authorization in implementation chat `01a1804a-ad27-7fc0-9317-60119e6
 
 
 Doug subsequently lifted this audit's publication hold in audit chat `01a18088-e7b9-72c1-99d9-cfeabc3deedb`: “Go ahead and push the audit, then launch a new chat for Phase 9 using GPT 6.1 Sol High Effort.” This authorizes publishing audit `8d2428f` and its authorization/handoff record, then launching this Phase 9 implementation. The successor uses the scoped implementation commit default and holds publication of its later work for Doug. Production changes and messages to other chats remain unauthorized; the fresh delivery-audit-then-test-audit closeout remains required.
+
+
+## Implementation and acceptance evidence
+
+First-consumption validation checks the full accepted attempt ledger, including earlier written inputs absent from the current event. A later input consumed before an earlier unobserved input holds both receipts as uncertain. Matching original provider evidence and result accounting remain retained; later observations cannot remove uncertainty or review. Ordered/coalesced input and overlapping terminal results after earlier consumption remain valid. Startup reconstructs chronology from saved events independently of already-saved receipt timestamps/results. No new receipt store, schema or provider capability is introduced.
+
+The released deferred-pause choice explains that the session is already stopped and must be handed back before requesting that pause. Its availability is unchanged; a separately pending pause can still be cancelled without affecting takeover.
+
+| Criteria | Current evidence |
+|---|---|
+| AC-MSG-01/02 | `live/messages.integration.test.ts` exercises separate B-only result and assistant consumption before A, valid A consumption before B/A terminal results, ordered separate results and coalesced consumption. Exact text, target, read/result evidence and receipt/effect state survive restart. Existing literal/limit/capacity and multi-result cases remain. |
+| AC-MSG-03 | Same suite: actual disposable-supervisor SIGKILL after a saved B-only result and before its callback; separate replay cases with missing callbacks and with both pre-upgrade result fields saved. Repeated restart retains both uncertain receipts, per-message review, original target, no successor advancement and exactly two original inputs. Negative checks on an untouched `f11ecd9` source export fail with the old incorrect received states. |
+| AC-BOT-02, AC-MSG-05 | `control/live-commands.integration.test.ts` sends both inputs through the built CLI, retries their original command IDs after restart, retains uncertain receipts and each review, refuses unreviewed/partially reviewed return and resumes only through explicit reviewed Resume of the original conversation. The receipt remains uncertain after resolution; no input is resent. Existing Verify, token, authentication, contention and recovery cases remain. |
+| AC-MSG-03/05, AC-TAKE-02/04, AC-BACK-04 | `live/takeover.integration.test.ts` exercises both actual assigned audit kinds through browser/versioned bot input, cross-event uncertainty, restart, per-message review, already-complete Resume and explicit successful advance. The original audit kind/round and independently requested pause survive; no new attempt starts, and resolved holds do not resurrect. Existing phase/release/ownership/final-boundary cases remain. |
+| AC-LIVE-02 | `server/live-control-browser.integration.test.ts` shows the disabled reason immediately beside its button for phase, delivery audit and test audit at 1200px/390px. It retains separate cancellation and takeover. The narrow baseline check fails on the absent reason; current cases pass. Existing pending/disconnected, input-loss, Codex, final-delivery and state-specific portfolios remain. |
+| AC-MSG-01/02 browser evidence | Test hardening strengthens `server/live-message-browser.integration.test.ts` at both widths: exact timing sentence, visible limit, exact receipt text and submission time, session-output link, submitted/received/not-sent labels, disclaimer and editable unsent text. Receipt fixtures exercise independent presentation states, not a provider-confirmed receipt changing into not sent. |
+
+The deterministic provider stream supplies otherwise unreliable order/crash faults around real Git, durable files, subprocesses, authenticated HTTP, the built CLI and Chrome. Existing real-provider `live-messages.mjs text`, `live-messages.mjs tool` and `live-takeover.mjs foreground` proofs also pass on Claude Code 2.1.311/macOS, preserving literal input/fresh context, natural operation completion, unfinished takeover work and no cancellation signal. These do not add a runtime qualification or universal containment guarantee.
+
+Independent deliverable review found no material issue. Fresh-eyes test hardening identified the two browser assertion gaps above; the strengthened cases and bounded delta assessment pass. The published audit's conflict check remains applicable: the current owning criteria are unchanged, and intervening bot-control closeout documents introduce no supersession of these requirements. No business assumption or replacement pointer was added.
+
+## Successor after publication
+
+This phase uses the scoped implementation commit default and holds publication for Doug under the authorization quoted above. This implementation review and its tests do not establish a clean whole-PRD delivery verdict. After publication, the next planned unit is a fresh whole-PRD `delivery-audit` of `kiln-live-session-control-prd.md`, in a new chat, reading the full PRD, design, assumptions, phase plan and all nine leaves. Test audit follows only when delivery is clean. Preserve all eight earlier Closed lines and their distinct validation qualifications, especially Phase 8's confirmed unrelated baseline clock-test failure. Bot-control and plan-continuation remain separate tracks; production changes and messages to other chats remain unauthorized.
+
+
+## Repository validation
+
+The complete current-build `npm run verify` invocation passed dependency audit (zero blocking high/critical findings), ESLint, TypeScript/Svelte checks, all **639 unit tests** and all **17 Codex contract proofs**. Its complete **81-file integration run** took **1,697.15 seconds**: **943 passed, two platform skips and three failures** (948 cases). Two tests reached their unchanged 60-second deadlines: the existing unavailable-test-audit Verify case and the new cross-event test-audit return case. The existing final-observation test-audit fixture instead observed `Not sent`, before its intended delivery/exit assertion; its message admission/exit-accounting code is unchanged by this phase.
+
+All three failed cases subsequently passed in one serial focused invocation (**111.28 seconds**) with their original deadlines and assertions unchanged. The separate full message suite passed all 38 cases, the focused chronology/replay portfolio passed seven, both actual audit flows passed, the built-CLI regression passed, all six released-pause browser variants passed, and the hardened receipt workflow passed both widths. All **946 executed current integration cases** therefore have passing evidence across the full run and unchanged retries. This is a **complete-run-plus-focused-retest portfolio, not one green full invocation**. Runtime, browser, test, fixture, prompt and configuration hashes stayed unchanged throughout the full run and retries; no application rule, test assertion or deadline was weakened.
+
+The initial new fixtures needed corrected API origins, an explicit recovery target, asynchronous receipt assertions and settled dispatch before capturing a bot status token. The final fixtures retain exact targeting, no resend, required reviews, independent pauses and original deadlines. The baseline red checks fail for the intended incorrect received receipts and missing disabled explanation on untouched `f11ecd9` runtime/browser sources, then pass on the repair. Existing real-provider text, in-flight-tool messaging and foreground takeover proofs pass on Claude Code 2.1.311/macOS. The full gate's passive-billing qualification uses retained Claude 2.1.307 on an isolated test PATH; live-control qualification is unchanged.
+
+All **eight installed-package checks** pass after packing and installing the current build into a disposable prefix (`npm run test:package`, **68.09 seconds**).
+
+All eight earlier leaves remain byte-identical, including Phase 8's Confirmed unrelated baseline failure section. Independent deliverable review, documentation delta review, test hardening and its delta assessment are complete with no remaining material finding. Publication remains held for Doug; fresh whole-PRD delivery audit remains owed after publication, followed by test audit only when delivery is clean.

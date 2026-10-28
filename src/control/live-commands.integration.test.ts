@@ -259,3 +259,30 @@ it.skipIf(process.platform !== "darwin")("labels disconnected live facts stale a
   expect(handoff.body.data).toMatchObject({ resumable: false, resume_command: null, resume_argv: null, fresh_session_instructions: null, terminal_readiness: { ready: false } });
   expect(h.claudeCalls()).toHaveLength(1); writeFileSync(join(h.sandbox.root, "release"), "finish naturally");
 });
+
+it.skipIf(process.platform !== "darwin")("keeps B-before-A correlation uncertain through CLI retries, restart and reviewed Resume", async () => {
+  const target = await setup([{ waitForFile: "release" }, { liveMessages: 2, consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }], exitAfter: true }]);
+  const commands: string[][] = [];
+  for (const id of ["order-A", "order-B"]) {
+    const command = [...args("message", id), "--message-from-stdin"]; commands.push(command);
+    const sent = await cli(command, Buffer.from(`  exact ${id}\n`)); expect(sent.code, sent.text).toBe(0); await h.engine.commands.settled();
+  }
+  writeFileSync(join(h.sandbox.root, "release"), "emit separate B/A results"); await release();
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve();
+  for (const [i, id] of ["order-A", "order-B"].entries()) {
+    expect(receipt(id)).toMatchObject({ live_target: target, message: { text: `  exact ${id}\n`, delivery: "uncertain", resultAt: expect.any(String) }, effects: { message: "unknown", plan: "not_advanced", session: "not_started" } });
+    const retried = await cli(commands[i]!, Buffer.from(`  exact ${id}\n`)); expect(retried.body.operation).toMatchObject({ id: receipt(id).id });
+    expect((await cli(["command-status", path(), "--command-id", id])).body.message_receipt).toBe("Delivery uncertain");
+  }
+  expect((await cli(args("resume", "review-none"))).code).toBe(0); await h.engine.commands.settled();
+  expect(receipt("review-none").state).toBe("failed");
+  expect((await cli([...args("resume", "review-one"), "--message-reviewed", receipt("order-A").id])).code).toBe(0); await h.engine.commands.settled();
+  expect(receipt("review-one").state).toBe("failed");
+  expect(receipt("order-A").message?.reviewedAt).toBeDefined(); expect(receipt("order-B").message?.reviewedAt).toBeUndefined();
+  expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1); expect(input()).toHaveLength(2);
+  const resumed = await cli([...args("resume", "review-both"), "--message-reviewed", receipt("order-B").id]); expect(resumed.code, resumed.text).toBe(0);
+  await h.engine.commands.settled(); await h.engine.settled(); expect(h.engine.record.liveControl).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(2); expect(input()).toHaveLength(2);
+  for (const id of ["order-A", "order-B"]) expect(receipt(id).message).toMatchObject({ delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) });
+  expect(h.claudeCalls()[1]!.args).toContain(target.providerSessionId);
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); expect(h.engine.record.liveControl).toBeUndefined();
+});

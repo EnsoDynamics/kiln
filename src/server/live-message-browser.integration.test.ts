@@ -15,12 +15,14 @@ it.each([1200, 390])("preserves an exact attempt's draft through navigation and 
   snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
   let saved: Receipt | undefined;
   const server = await serveViewFixture({ port: width === 1200 ? 43051 : 43052, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES, respond: async (command, body) => {
-    if (command === "POST /api/live/message") { const request = JSON.parse(body) as { instructionId: string; text: string }; saved = { id: "receipt", command_id: request.instructionId, accepted_at: new Date().toISOString(), message: { text: request.text, uuid: "uuid", delivery: "submitted" } } as Receipt; return { status: 202, body: { ok: true, receipt: saved } }; }
+    if (command === "POST /api/live/message") { const request = JSON.parse(body) as { instructionId: string; text: string }; saved = { id: "receipt", command_id: request.instructionId, accepted_at: "2026-10-28T12:34:56.000Z", message: { text: request.text, uuid: "uuid", delivery: "submitted" } } as Receipt; return { status: 202, body: { ok: true, receipt: saved } }; }
     return { status: 200, body: { ok: true, receipts: saved ? [saved] : [] } };
   } });
   const page = await chrome.open(`${server.address}/phase/2b`, { width, height: 1100 });
   try {
     await page.waitFor(`document.querySelector('#live-message')`);
+    expect(await page.evaluate("document.querySelector('#live-message-timing').textContent")).toBe("Claude reads this at its next opportunity. The current tool may finish first.");
+    expect(await page.evaluate("document.querySelector('#live-message-limit').textContent")).toContain("0 / 4,000 UTF-16 code units");
     const body = await page.evaluate<string>("document.body.textContent");
     expect(body.indexOf("Message Claude")).toBeLessThan(body.indexOf("When should Kiln pause?")); expect(body.indexOf("When should Kiln pause?")).toBeLessThan(body.indexOf("Progress"));
     await page.evaluate(`document.querySelector('#live-message').value=${JSON.stringify(text)}; document.querySelector('#live-message').dispatchEvent(new Event('input',{bubbles:true}))`);
@@ -39,6 +41,20 @@ it.each([1200, 390])("preserves an exact attempt's draft through navigation and 
     expect(JSON.parse(server.commands.find(c => c.startsWith("POST /api/live/message"))!.split("POST /api/live/message ")[1]!).text).toBe(text);
     snapshot.liveControl.messages = [{ id: saved!.id, instructionId: saved!.command_id, acceptedAt: saved!.accepted_at, delivery: "submitted" }]; server.send("snapshot", snapshot);
     await page.waitFor(`document.body.innerText.includes('Sent to session — not confirmed read')`);
+    expect(await page.evaluate("document.querySelector('.messages pre').textContent")).toBe(text);
+    const submittedTime = await page.evaluate<string>(`new Date(${JSON.stringify(saved!.accepted_at)}).toLocaleString()`);
+    expect(await page.evaluate("document.querySelector('.messages .hint').textContent")).toBe(`Submitted ${submittedTime}`);
+    expect(await page.evaluate("document.querySelector('.messages a').getAttribute('href')")).toBe('/customer-returns/phase/2b');
+    for (const [delivery, label] of [["received", "Received by Claude"], ["not_sent", "Not sent"]] as const) {
+      saved!.message!.delivery = delivery; snapshot.liveControl.messages[0]!.delivery = delivery; server.send("snapshot", snapshot);
+      await page.waitFor(`document.querySelector('.messages article strong')?.textContent===${JSON.stringify(label)}`);
+      expect(await page.evaluate("document.querySelector('.messages pre').textContent")).toBe(text);
+      expect(await page.evaluate("document.querySelector('.messages .hint').textContent")).toBe(`Submitted ${submittedTime}`);
+      expect(await page.evaluate("document.querySelector('.messages').textContent")).toContain("This receipt does not confirm that the requested action happened.");
+    }
+    expect(await page.evaluate("document.querySelector('#live-message').value")).toBe(text);
+    expect(await page.evaluate("document.querySelector('#live-message').disabled")).toBe(false);
+    expect(server.commands.filter(c => c.startsWith("POST /api/live/message "))).toHaveLength(1);
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     writeFileSync(`/tmp/kiln-live-messages-${width}.png`, await page.screenshot());
     expect(page.problems).toEqual([]);

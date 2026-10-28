@@ -40,6 +40,7 @@
       <p><strong>After the whole {audit ? "audit" : "phase"}.</strong> Kiln finishes its work, commits, pushes and required completion checks, then waits before starting the next activity. No terminal takeover is needed.</p>
       {#if snapshot.pause.pending}<p>Will pause after {activity} finishes. Current work continues.</p>{/if}
       <button class="button wide" disabled={!connected || pressing || held?.state === "released" && !snapshot.pause.pending} onclick={() => press()}>{snapshot.pause.pending ? (audit ? "Cancel end-of-audit pause" : "Cancel end-of-phase pause") : (audit ? "Pause after this audit" : "Pause after this phase")}</button>
+      {#if held?.state === "released" && !snapshot.pause.pending}<p>This session is already stopped. Hand it back to Kiln before requesting an end-of-{audit ? "audit" : "phase"} pause.</p>{/if}
     </section>
   </div>
   {#if !connected}<p>Reconnect before acting. Last-known state.</p>{/if}

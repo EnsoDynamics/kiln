@@ -475,3 +475,56 @@ it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] a
     expect(h.engine.record.liveControl).toBeDefined(); expect(h.engine.auditActivity(target.activityKey)!.round).toBe(1);
   } finally { lock.release(); }
 });
+
+it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] as const)("retains cross-event uncertainty and original %s identity through browser/bot review and explicit return", async kind => {
+  h = await createHarness({ folder: "proof", auditCycles: true, sessions: [], files: {
+    "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",
+    "technical-design.md": "# Design\nExport value from value.mjs. Test using node value.test.mjs.\n",
+    "phase-1-value.md": "# Phase 1: Return value\n\n**Closed:** 2026-10-24\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n",
+    "value.mjs": "export const value = () => 42;\n",
+    "value.test.mjs": "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n",
+  } });
+  h.env.KILN_STANDIN_VERSION = "2.1.311";
+  writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
+  git(h.sandbox, h.repository, "add", ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test(audit): ignore proof requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  const { takeInstanceLock } = await import("../state/instance-lock.js"); const { stateRoot } = await import("../state/state-files.js");
+  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable");
+  try {
+    mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+    const ready = join(h.sandbox.root, "chronology-ready"); const release = join(h.sandbox.root, "chronology-release");
+    const ordinary = { actions: [{ auditReport: {} }, { result: "Audit recorded." }] };
+    const reversed = { actions: [{ touch: ready }, { waitForFile: release }, { auditReport: {} }, { liveMessages: 2, consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }], exitAfter: true }] };
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [], auditSessions: kind === "delivery_audit" ? [reversed, ordinary] : [ordinary, reversed, ordinary] }));
+    const serve = async () => { server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = new URL(server.address).origin; };
+    await serve(); await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 30000);
+    await waitFor(() => h.engine.liveView()?.input?.available === true);
+    const target = h.engine.liveTarget()!; const commands: Record<string, unknown>[] = [];
+    expect(h.engine.pause().ok).toBe(true);
+    for (const id of ["audit-A", "audit-B"]) {
+      await waitFor(() => h.engine.controlView().controls.find(c => c.name === "message")?.available === true);
+      const command = { command_id: id, execution_id: target.executionId, status_token: h.engine.controlView().token, action: "message", inputs: { target, text: `  exact ${id}\n` } }; commands.push(command);
+      const sent = await post(kind === "delivery_audit" ? "live/message" : "control/v1/commands", kind === "delivery_audit" ? { instructionId: id, target, text: `  exact ${id}\n` } : command);
+      expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+      await h.engine.commands.settled();
+    }
+    writeFileSync(release, "emit B then A"); await h.engine.settled(); await waitForRelease();
+    await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve(); await waitForRelease();
+    for (const id of ["audit-A", "audit-B"]) expect(h.engine.commands.lookup(id).operation).toMatchObject({ live_target: target, message: { delivery: "uncertain", text: `  exact ${id}\n`, resultAt: expect.any(String) }, effects: { message: "unknown", session: "not_started", plan: "not_advanced" } });
+    expect(h.engine.auditActivity(target.activityKey)).toMatchObject({ kind, round: 1 });
+    expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeUndefined();
+    const calls = h.claudeCalls().length;
+    const recovery = h.engine.phaseRecoveryTarget()!;
+    expect(await h.engine.resume({ target: recovery })).toMatchObject({ ok: false, code: "message_review_required" });
+    expect(h.engine.reviewMessages(target, ["audit-A"]).ok).toBe(true);
+    expect(await h.engine.resume({ target: recovery })).toMatchObject({ ok: false, code: "message_review_required" });
+    if (kind === "test_audit") { const retry = await post("control/v1/commands", commands[1]); expect(retry.status).toBe(503); expect(retry.body.operation).toMatchObject({ id: (h.engine.commands.lookup("audit-B").operation as { id: string }).id }); }
+    expect(h.engine.reviewMessages(target, ["audit-B"]).ok).toBe(true);
+    expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(calls);
+    expect(await h.engine.resume({ target: recovery })).toMatchObject({ ok: true, outcome: "already_complete" });
+    expect(await h.engine.checkAgain({ target: recovery, intent: "advance" })).toMatchObject({ ok: true, outcome: "advanced" });
+    await h.engine.settled(); expect(h.engine.record.liveControl).toBeUndefined(); expect(h.engine.record.pause.activeSince).toBeDefined();
+    for (const id of ["audit-A", "audit-B"]) expect(h.engine.commands.lookup(id).operation).toMatchObject({ message: { delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) } });
+    expect(h.claudeCalls()).toHaveLength(calls);
+    h.engine = h.reopenFromDisk(); await h.engine.prepare(); expect(h.engine.record.liveControl).toBeUndefined();
+  } finally { lock.release(); }
+});

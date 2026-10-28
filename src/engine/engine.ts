@@ -634,9 +634,12 @@ export class Engine {
     // Replay the attempt ledger through the same identity/order validation as live
     // callbacks, including contradictions naming an already-accounted receipt.
     for (const target of targets.values()) {
+      // Reconstruct first-consumption chronology from the event stream, never
+      // from receipt fields that may already contain later results after a crash.
+      const consumed = new Set<string>();
       const session = this.sessionRecord(target.activityKey, target.sessionId);
       const index = session?.runs.findIndex((run, i) => (run.control?.attemptId ?? this.legacyAttempt(session!, i)) === target.attemptId);
-      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.observeLiveMessage(target, saved.event, saved.at);
+      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.observeLiveMessage(target, saved.event, saved.at, consumed);
     }
     for (const r of messages) {
       if (!r.message!.resultAt || r.message!.delivery === "uncertain") this.holdMessage(r);
@@ -645,17 +648,21 @@ export class Engine {
     }
   }
 
-  private observeLiveMessage(target: LiveTarget, event: Record<string, unknown>, at: string): void {
+  private observeLiveMessage(target: LiveTarget, event: Record<string, unknown>, at: string, consumedBefore?: Set<string>): void {
     const messages = this.messageReceipts(target).filter(r => !r.message!.resolvedBy);
+    const consumed = consumedBefore ?? new Set(messages.filter(r => r.message!.receivedAt).map(r => r.message!.uuid));
     const observed = consumedUuids(event).filter(uuid => messages.some(r => r.message!.uuid === uuid));
     const accepted = messages.filter(r => observed.includes(r.message!.uuid)).map(r => r.message!.uuid);
+    const skipped = messages.filter((r, i) => r.message!.writeStartedAt && !consumed.has(r.message!.uuid) && !observed.includes(r.message!.uuid) && messages.slice(i + 1).some(later => observed.includes(later.message!.uuid)));
     if (JSON.stringify(observed) !== JSON.stringify(accepted) || observed.length && event.session_id !== target.providerSessionId) {
       for (const r of messages.filter(r => observed.includes(r.message!.uuid))) { this.holdMessage(r); this.commands.checkpoint(r); }
       return;
     }
+    if (skipped.length) for (const r of messages.filter(r => skipped.includes(r) || observed.includes(r.message!.uuid))) { this.holdMessage(r); this.commands.checkpoint(r); }
     for (const r of messages) {
       if (!consumedUuids(event).includes(r.message!.uuid)) continue;
       this.projectMessage(r, event, at); this.commands.checkpoint(r);
+      if (r.message!.writeStartedAt && event.session_id === target.providerSessionId) consumed.add(r.message!.uuid);
     }
     this.changed();
   }
