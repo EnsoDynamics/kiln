@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phases 1–6 are closed and published. The [delivery audit after Phase 6](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-6--2026-10-28) confirms the final-delivery explanation and finds a restart violation of the existing Uncertainty recovery contract. [Phase 7](phase-7-uncertain-message-review-restart.md) completes AC-MSG-05 and AC-BOT-02 without changing that contract. Provider qualification, release/ownership boundaries and historical verification qualifications are unchanged. After Phase 7, obtain a fresh whole-PRD delivery audit, then test audit when delivery is clean.
+**Status:** Phases 1–6 are closed and published. The [repeat delivery audit after Phase 6](kiln-live-session-control-phase-plan.md#repeat-delivery-audit-after-phase-6--2026-10-28) expands [Phase 7](phase-7-live-session-recovery-safeguards.md) to complete the existing uncertainty/review, saved correlation and observed-process release contracts. It changes no requirement, provider qualification or ownership boundary. Historical verification qualifications remain unchanged. After Phase 7, obtain a fresh whole-PRD delivery audit, then test audit when delivery is clean.
 
 ## Overview
 
