@@ -105,7 +105,7 @@ None. Every active criterion is Adequate. The original 16 evidence repairs remai
 
 ## Waiting
 
-None. The former seven delivery-held rows are reassessed after Phases 10–11 and the published clean delivery audit. Publication of this later test-audit commit remains held for Doug.
+None. The former seven delivery-held rows are reassessed after Phases 10–11 and the published clean delivery audit. Doug has authorized publication of this later test-audit commit to `develop`; see the final publication record.
 
 ## Historical completion and publication
 
@@ -177,4 +177,13 @@ Doug's exact authorization in source chat `01a1840a-5dd9-7a73-867f-445186bd52a5`
 
 This audit changes only its canonical record and current status in the PRD, design and phase plan. Runtime, tests, fixtures, scripts, prompts, package/configuration, assumptions, normative criteria/design and all eleven Closed leaves are unchanged. Source hashes are compared after restoring both mutations; local documentation links and exact 20-row/20-label correspondence are checked, and `git diff --check` passes. The complete source-stable baseline plus named current diagnostics is this documentation-only commit's final verification portfolio; no second broad run or fresh provider/package proof is claimed.
 
-All planned implementation, delivery assessment and test assessment for this bounded PRD are complete. No planned successor remains within it; optional Strong work is not a successor. The scoped local commit follows the skill default. Publication remains held by the authorization above; the isolated worktree remains until authorized landing. Bot-control and plan-continuation remain separately owned.
+All planned implementation, delivery assessment and test assessment for this bounded PRD are complete. No planned successor remains within it; optional Strong work is not a successor. The scoped local commit follows the skill default. The earlier publication hold is historical; Doug has now authorized landing as recorded in the final section. The isolated worktree is removed after confirmed publication and shared-checkout refresh. Bot-control and plan-continuation remain separately owned.
+
+
+## Test-audit publication and bounded track completion — 2026-10-28
+
+Doug authorized publication in this chat, `01a18425-20b7-70c0-bfef-242d73c15d2f`: “All right, go ahead and push it to develop. So that basically means that this is complete now, right?” This lifts the earlier hold for scoped audit `3b883e7` and this authorization/current-state record. Publish them to `develop` by fast-forward, refresh the shared checkout, then remove this chat's clean, fully landed worktree. No further chat launch, production release or message to another chat is authorized or needed.
+
+The final fetch finds `origin/develop` unchanged at `33161aa`; rebasing the audit makes no change. Audit source/tests, governing requirements, all eleven Closed leaves, the clean delivery verdict and all 20 Adequate grades remain unchanged. This publication record changes only audit/status documents; documentation consistency, local links, normative-byte comparisons and `git diff --check` are its validation. No product tests or provider/package proof rerun is claimed. The exact non-green complete invocation, qualified diagnostics, two restored red checks and all earlier proof limitations remain intact.
+
+The bounded live-session-control implementation, delivery-audit and test-audit track is complete. No planned successor remains within this PRD. The four persistent general compatibility failures remain owned by the separate full-suite repair chat; bot-control and plan-continuation remain separately owned.
