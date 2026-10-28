@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; publication and the fresh delivery-audit launch are authorized in its final publication record. The earlier nine leaves remain closed and published. After Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
+**Status:** All ten implementation leaves remain closed and published. The [whole-PRD delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md) identifies the omitted final Resume history revalidation required by Ownership admission. [Phase 11](phase-11-revalidate-history-before-resume-input.md) completes that existing contract; no design policy or provider qualification changes. After authorized audit publication and implementation, fresh whole-PRD delivery audit and affected-row test-audit reassessment remain required.
 
 ## Overview
 

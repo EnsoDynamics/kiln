@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; publication and the fresh delivery-audit launch are authorized in its final publication record. The earlier nine leaves remain closed and published. After Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
+**Status:** All ten implementation leaves remain closed and published. The [whole-PRD delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md) finds one remaining final Resume history omission affecting four criterion parts. [Phase 11: Revalidate history before resumed input](phase-11-revalidate-history-before-resume-input.md) is the next implementation unit after authorized audit publication; a fresh whole-PRD delivery audit and affected-row test-audit reassessment follow. The track remains open; every earlier verification qualification is retained.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Current delivery state
 
-Publication reassessment on 2026-10-28 found one shared missing usable-history guard, recorded in the [current delivery audit](kiln-live-session-control-publication-delivery-audit.md). [Phase 10](phase-10-usable-takeover-history.md) is closed with publication and a fresh-chat delivery-audit launch authorized in its final record; after publication, that whole-PRD delivery audit is the next planned unit. The earlier closeout below remains the historical pre-publication assessment; it does not waive the newly confirmed gap.
+[Phase 10](phase-10-usable-takeover-history.md) is closed and published as `0cc1055`, with publication/launch record `ae72a06`. The [fresh whole-PRD audit](kiln-live-session-control-delivery-audit-after-phase-10.md) assesses final published baseline `7bd7ab5`: release and Verify repeat usable-history checks, but Resume/direct reply omits history revalidation after its final asynchronous checks, before supplying the first prompt. Phase 11 completes AC-BACK-02, AC-TAKE-04, AC-MSG-05 and AC-BOT-02 under their original owners. No acceptance wording or assumption changed. The earlier closeouts below remain historical; this current non-clean verdict takes precedence. Audit publication remains held for Doug under Phase 10's final authorization record.
 
 ## Earlier whole-PRD closeout
 
