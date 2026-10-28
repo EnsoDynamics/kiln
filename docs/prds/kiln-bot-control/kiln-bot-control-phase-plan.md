@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-All ten implementation leaves are closed and published. The [whole-PRD delivery audit after Phase 10](kiln-bot-control-delivery-audit-after-phase-10.md) finds all 18 active criteria Implemented; the [whole-PRD test audit](kiln-bot-control-test-audit.md) now grades all 18 Adequate after closing 15 evidence gaps. No planned implementation/audit child remains. The final full gate is non-green for four pre-existing failures; the report records exact passing scopes and limits. Publication of this local test-audit work remains explicitly held; other tracks, historical gates and provider/Grok evidence retain their separate scope.
+All ten implementation leaves are closed and published. The [whole-PRD delivery audit after Phase 10](kiln-bot-control-delivery-audit-after-phase-10.md) finds all 18 active criteria Implemented; the [whole-PRD test audit](kiln-bot-control-test-audit.md) grades all 18 Adequate after closing 15 evidence gaps. The authorized verification repair passes the complete local gate and installed-package suite with zero failures; the report records exact counts, the earlier failed CI run and historical/provider proof limits. No planned implementation/audit child remains. Audit publication is complete and Doug authorized the remaining verification repair for `develop`; production release remains separate.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -113,3 +113,8 @@ The [whole-PRD test audit](kiln-bot-control-test-audit.md) completed on 2026-10-
 The final full verification remains non-green: 1,037 integration passes, four pre-existing failures and two existing skips. The report preserves the original 14-failure baseline, unchanged successful isolated history/recovery checks, eight passing installed-package checks and every historical/provider/Grok limitation. Clean delivery and Adequate test evidence do not imply a green full gate or production-release approval.
 
 Doug's audit-publication/test-audit-launch grant in `f778755` is satisfied. This skill commits its scoped tests/closeout documents locally; publishing those commits, further launches and production release remain held for explicit authorization. The PRD's planned implementation/audit track is complete and has no successor prompt. Independently owned live-control Phase 11 and other tracks are unchanged by this closeout.
+
+
+## Authorized verification repair closeout
+
+Doug subsequently instructed this test-audit chat to push the audit, fix every remaining suite failure and finish on `develop`; his exact instruction and source chat are carried in the [test-audit publication boundary](kiln-bot-control-test-audit.md#publication-and-closeout-boundary). Audit `3aee728` and verification repair `a0a8464` are published. After the first actual CI run exposed one concurrent fixture-port collision, a scoped atomic-binding repair passed the complete local gate: 641 unit, 17 provider-contract, 1,054 integration and eight installed-package checks, zero failures and two existing platform skips. The report records the failed CI run, complete subsequent local results and preserved test/security/production limits. This supersedes the local publication holds and four-outstanding-failure status above; it does not change the meaning of historical failed runs. There is no next planned child in this PRD. Other tracks remain independently owned; production release requires separate authorization.

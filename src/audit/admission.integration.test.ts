@@ -11,8 +11,8 @@ import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type
 import { prdStateDirectory, stateRoot } from "../state/state-files.js";
 import { ownerDeliveryCheck, ownerDocuments, recordAssessment, type DeliveryContext } from "../engine/development-delivery.js";
 import { Engine } from "../engine/engine.js";
-import { startLocalServer, TOKEN_HEADER, type LocalServer } from "../server/local-server.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
+import { TOKEN_HEADER, type LocalServer } from "../server/local-server.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { runAudit } from "../audit-command.js";
 import { auditCurrentness, auditEvidence, issueSnapshot, refreshAuditEvidence, submitAudit, type AdmissionContext } from "./admission.js";
 import { validateReport } from "./validate-report.js";
@@ -182,10 +182,10 @@ describe("audit evidence admission", () => {
     const tools = { git: "git", ...installStandIns(join(f.sandbox.root, "bin")) };
     const engine = new Engine({ paths: { mainCheckoutPath: f.root, repositoryName: "proof", folderName: "proof", prdDirectoryFromRoot: directory, featureName: "Audit proof" }, tools, env: f.sandbox.env, stateDirectory: f.stateDirectory, record: f.record });
     await engine.agents.refresh();
-    const lock = await takeInstanceLock(stateRoot(f.sandbox.env), f.stateDirectory); if (!lock.taken) throw new Error("No instance lock");
-    let server: LocalServer | undefined;
+    let server: LocalServer | undefined; let release: (() => void) | undefined;
     try {
-      server = await startLocalServer({ engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: f.record.token });
+      const hosted = await startFixtureController({ engine, folderName: "proof", featureName: "Audit proof", token: f.record.token });
+      server = hosted.server; release = hosted.release;
       const address = new URL(server.address).origin;
       expect((await fetch(`${address}/api/audit`)).status).toBe(403);
       expect((await fetch(`${address}/api/audit/result`, { method: "POST", headers: { [TOKEN_HEADER]: f.record.token, Origin: "http://evil.invalid" }, body: "{}" })).status).toBe(403);
@@ -204,7 +204,7 @@ describe("audit evidence admission", () => {
       renameSync(recordPath, backupPath); mkdirSync(recordPath);
       try { await expect(engine.auditCommand("status")).rejects.toThrow(); expect(JSON.stringify(f.record.completionAudits)).toBe(before); }
       finally { rmdirSync(recordPath); renameSync(backupPath, recordPath); }
-    } finally { await server?.close(); lock.release(); engine.close(); }
+    } finally { await server?.close(); release?.(); engine.close(); }
   });
 });
 

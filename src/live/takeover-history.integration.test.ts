@@ -9,8 +9,7 @@ import { createHarness, waitFor, type Harness } from "../test-support/engine-har
 import { git } from "../test-support/git-repositories.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { findTranscripts } from "../session/transcripts.js";
 import type { LiveTarget } from "./target.js";
@@ -96,10 +95,8 @@ async function prepareActivity(kind: "phase" | "delivery_audit" | "test_audit", 
   const priorStarted = join(h.sandbox.root, "prior-audit-started"); const priorRelease = join(h.sandbox.root, "prior-audit-release");
   const ordinary = { actions: [{ touch: priorStarted }, { waitForFile: priorRelease }, { auditReport: {} }, { result: "Prior audit recorded." }] };
   writeFileSync(h.scenarioPath, JSON.stringify(audit ? { sessions: [], auditSessions: kind === "test_audit" ? [ordinary, paused] : [paused] } : { sessions: [paused] }));
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory);
-  if (!lock.taken) throw new Error("Disposable history controller lock is unavailable.");
-  releaseLock = () => lock.release(); origin = `http://127.0.0.1:${lock.port}`;
-  server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: h.engine.paths.folderName, featureName: "History proof", token: h.engine.record.token });
+  const hosted = await startFixtureController({ engine: h.engine, folderName: h.engine.paths.folderName, featureName: "History proof", token: h.engine.record.token });
+  server = hosted.server; releaseLock = hosted.release; origin = new URL(server.address).origin;
   await h.engine.start({ refinementConfirmed: true });
   if (kind === "test_audit") {
     // Complete the real prerequisite delivery audit in its own bounded hook,

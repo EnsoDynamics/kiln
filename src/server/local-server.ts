@@ -32,6 +32,7 @@ export interface LocalServerOptions {
   engine: Engine;
   /** What Documents found shows, read once per `kiln run` (not started only). */
   documents?: DocumentsFound;
+  /** TCP port; 0 lets the OS atomically assign an unused loopback port. */
   port: number;
   /** The PRD folder's name: the view's path, `/<folder>`. */
   folderName: string;
@@ -85,7 +86,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   // The package's dist/view, from the compiled server in dist/ or its source in src/.
   const viewDirectory = options.viewDirectory ?? fileURLToPath(new URL("../../dist/view/", import.meta.url));
   const viewRoot = existsSync(viewDirectory) ? realpathSync.native(viewDirectory) : viewDirectory;
-  const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  const allowedHosts = new Set(port === 0 ? [] : [`127.0.0.1:${port}`, `localhost:${port}`]);
   const streams = new Set<SSEStreamingApi>();
   let closing = false;
   const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, options.documents), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
@@ -409,8 +410,13 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     (started as Server).once("error", reject);
   });
 
+  const bound = server.address();
+  if (!bound || typeof bound === "string") throw new Error("Kiln's loopback TCP address is unavailable.");
+  allowedHosts.clear();
+  allowedHosts.add(`127.0.0.1:${bound.port}`);
+  allowedHosts.add(`localhost:${bound.port}`);
   return {
-    address: `http://127.0.0.1:${port}/${folderName}`,
+    address: `http://127.0.0.1:${bound.port}/${folderName}`,
     close: async () => {
       closing = true;
       offInspection();

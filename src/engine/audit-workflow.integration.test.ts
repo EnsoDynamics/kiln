@@ -7,9 +7,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { launchChrome } from "../test-support/headless-chrome.js";
 import { writePrdRecord } from "../state/records.js";
 import { ownerDocuments, type DeliveryContext } from "./development-delivery.js";
@@ -32,8 +31,8 @@ async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession
   h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true, engineOptions });
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
   if (auditSessions) writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions }));
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); release = lock.release;
-  server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+  server = hosted.server; release = hosted.release;
   return h;
 }
 const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });

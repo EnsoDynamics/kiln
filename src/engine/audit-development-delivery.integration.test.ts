@@ -17,9 +17,7 @@ import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type
 import { captureSnapshot } from "../audit/snapshots.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
 import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts.js";
-import { startLocalServer } from "../server/local-server.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { runDelivery } from "../delivery-command.js";
 import { buildSnapshot } from "./snapshot.js";
 import { git } from "../test-support/git-repositories.js";
@@ -211,8 +209,8 @@ describe("audit development owners", () => {
     const f = await fixture();
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: { ...f.h.tools, gh: f.context.gh }, env: f.context.env });
     cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
-    const lock = await takeInstanceLock(stateRoot(f.h.env), f.h.stateDirectory); if (!lock.taken) throw new Error("No instance lock"); cleanups.push(async () => lock.release());
-    const server = await startLocalServer({ engine, port: lock.port, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token }); cleanups.push(() => server.close());
+    const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
+    const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const address = new URL(server.address).origin;
     expect((await fetch(`${address}/api/delivery`, { headers: { Origin: address } })).status).toBe(403);
     const status = engine.deliveryStatus(); expect(status.owner).toEqual(f.owner); expect(status.phaseId).toBeUndefined(); expect(status.requirementManifestDigest).toBe(f.snapshot.requirements.id);
@@ -260,8 +258,8 @@ describe("audit development owners", () => {
   it("shows the stopped audit's retained owner in the real first-grant browser control", async () => {
     const f = await fixture(); f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] }; f.record.developmentDelivery!.assessments = [];
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
-    const lock = await takeInstanceLock(stateRoot(f.h.env), f.h.stateDirectory); if (!lock.taken) throw new Error("No browser proof lock"); cleanups.push(async () => lock.release());
-    const server = await startLocalServer({ engine, port: lock.port, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token }); cleanups.push(() => server.close());
+    const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
+    const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const chrome = await launchChrome(); cleanups.push(() => chrome.close()); const page = await chrome.open(server.address);
     await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"] button')`);
     await page.evaluate(`document.querySelector('article[aria-label="Early merges for acme-shop"] button').click()`);

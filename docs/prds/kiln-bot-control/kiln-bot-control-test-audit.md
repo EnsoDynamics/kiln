@@ -174,3 +174,26 @@ All 94 integration files were collected exactly once, and the memory project com
 After the full integration run, review corrected the fixture's explicit readiness sanity check to include `billing.pending`, the metadata flag, alongside the already-awaited refresh and command-busy check. Lint and the entire memory proof then passed again, one case in 24.67 seconds. This is a stronger fixture assertion; runtime source and all behavioral assertions are unchanged from the full passing run. Final deliverable review and test hardening cover the scoped repair.
 
 Three earlier complete-gate attempts were stopped after reproduced history-deadline, workflow-duration or controller-startup failures; they remain interrupted attempts, not passing results. Earlier audit/phase non-green runs above remain historical evidence. The passing gate here supersedes the four outstanding failures for current local verification, without extending dated provider/Grok or native-platform proof. Supplementary reports and profiles are in `/private/tmp/kiln-full-suite-repair`; the commands, outcomes and limits are recorded here.
+
+
+## CI controller-port isolation repair — 2026-10-28
+
+The first repair was published as `a0a8464`. After Doug cleared the GitHub Actions budget hold, [CI run 40772625569](https://github.com/EnsoDynamics/kiln/actions/runs/40772625569) ran the actual checks. Linux and Windows build/pack passed. The macOS gate passed 641 unit and 17 provider-contract checks, then reported 1,003 integration passes, one failure and 51 existing platform skips. The sole failure was `EADDRINUSE` on loopback port 4700 in the closed-at-start audit workflow; the package step was not reached. That CI run remains failed evidence despite the earlier passing local gate.
+
+Independent fixture state roots each had their own production port registry but competed in the same TCP namespace. Their probe-close-bind sequence could select the same port across workers. Six audit/live fixture files now use one test-support helper that asks the OS to bind port 0 atomically and publishes the actual bound port with its PID/start-time identity for real CLI discovery. Existing fixture restarts reuse their first actual port. The production server reports its bound address and restricts Host headers to that actual port; token and Origin checks are preserved. The production CLI's stable port allocator, registry/instance-lock policy and request deadlines are unchanged.
+
+A new real concurrent-controller regression requires distinct live ports, the correct authenticated capability and CLI execution identity for each fixture, exact rejection of Host/Origin port 0 and the peer token, and independent discovery-file cleanup. Every original assertion in the six converted fixture files is retained. Focused execution passed both this regression and the exact CI-failing workflow. Independent deliverable review and test-hardening assessment found no material gaps.
+
+The complete `verify`-equivalent stage sequence and installed-package suite then passed on the port repair:
+
+| Gate | Result | Command seconds |
+|---|---|---:|
+| `npm run audit` | Zero blocking high/critical findings | 0.92 |
+| `npm run lint` | Pass | 5.17 |
+| `npm run typecheck` | Pass, no Svelte errors or warnings | 9.28 |
+| `npm test` | 641 pass | 3.64 |
+| `npm run test:codex-proof` | 17 pass | 5.27 |
+| `npm run test:integration` | 1,054 pass, zero failures, two existing platform skips | 3057.99 |
+| `npm run test:package` | Eight pass | 59.88 |
+
+All 95 integration files were collected exactly once. The new concurrent-controller regression passed in the complete run, as did the exact CI-failing closed-at-start workflow. All nine port-repair source files remained byte-identical throughout the gate. The longer local duration affected unchanged suites as well; no assertion, test deadline or production request budget was relaxed. Reports are retained under `/private/tmp/kiln-full-suite-repair/port-fix`. The earlier failed CI run remains historical; this local gate does not by itself establish a passing subsequent GitHub run.

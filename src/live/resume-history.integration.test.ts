@@ -7,9 +7,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { startLocalServer, type LocalServer } from "../server/local-server.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
+import type { LocalServer } from "../server/local-server.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { findTranscripts } from "../session/transcripts.js";
 import type { Receipt } from "../control/commands.js";
 import type { LiveTarget } from "./target.js";
@@ -82,10 +81,8 @@ describe.skipIf(process.platform !== "darwin").each(cases)("$kind $channel $acti
     const ordinary = { actions: [{ auditReport: {} }, { result: "Prior audit recorded." }] };
     const resumed = { actions: [{ touch: join(h.sandbox.root, "resumed") }, { result: "Continued the assigned activity, still unfinished." }] };
     writeFileSync(h.scenarioPath, JSON.stringify(audit ? { sessions: [], auditSessions: kind === "test_audit" ? [ordinary, paused, resumed] : [paused, resumed] } : { sessions: [paused, resumed] }));
-    const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory);
-    if (!lock.taken) throw new Error("Disposable controller lock unavailable.");
-    releaseLock = () => lock.release(); origin = `http://127.0.0.1:${lock.port}`;
-    server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: h.engine.paths.folderName, featureName: "Resume history proof", token: h.engine.record.token });
+    const hosted = await startFixtureController({ engine: h.engine, folderName: h.engine.paths.folderName, featureName: "Resume history proof", token: h.engine.record.token });
+    server = hosted.server; releaseLock = hosted.release; origin = new URL(server.address).origin;
     await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 45000);
   });
   beforeEach(async () => {
