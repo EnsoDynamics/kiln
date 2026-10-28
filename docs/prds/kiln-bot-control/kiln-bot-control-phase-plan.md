@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-All ten implementation leaves are closed and published. The [whole-PRD delivery audit after Phase 10](kiln-bot-control-delivery-audit-after-phase-10.md) checks published `7bd7ab5` and finds all 18 active criteria Implemented. No completion phase is needed. Whole-PRD test audit is the next planned closeout, after explicit audit publication and successor-launch authorization. All historical non-green gate limits and separately scoped provider/Grok evidence remain intact; clean delivery is not test-adequacy or full-gate success.
+All ten implementation leaves are closed and published. The [whole-PRD delivery audit after Phase 10](kiln-bot-control-delivery-audit-after-phase-10.md) finds all 18 active criteria Implemented; the [whole-PRD test audit](kiln-bot-control-test-audit.md) now grades all 18 Adequate after closing 15 evidence gaps. No planned implementation/audit child remains. The final full gate is non-green for four pre-existing failures; the report records exact passing scopes and limits. Publication of this local test-audit work remains explicitly held; other tracks, historical gates and provider/Grok evidence retain their separate scope.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -105,3 +105,11 @@ The audit's Publication boundary and next closeout section carries Doug's exact 
 ## Audit publication and whole-PRD test-audit launch authorization
 
 Doug authorized publication of after-Phase-10 audit `9cffab4` (rebased unchanged from `efe4ed2`), its scoped handoff record and launch of the whole-PRD test-audit chat on 2026-10-28. The [audit's authorization record](kiln-bot-control-delivery-audit-after-phase-10.md#audit-publication-and-whole-prd-test-audit-launch-authorization) preserves his exact instruction and source chat. This supersedes those publication/launch holds above. After publication and shared-checkout fast-forward, the successor creates a fresh worktree from published `origin/develop` and checks delivery currentness before grading. Scoped test-audit commits follow the skill default; later publication, further launches and production release remain held. Other tracks and every historical verification limit retain their separate meaning.
+
+## Whole-PRD test audit closeout
+
+The [whole-PRD test audit](kiln-bot-control-test-audit.md) completed on 2026-10-28 against published `f778755` and its accompanying test-only changes. All 18 active criteria are Adequate; all 15 initial evidence gaps are closed. Seventeen new and seven strengthened cases pass in the final complete integration run, and 22 safe public-data/result regressions failed twice before byte-identical restoration and passing mapped reruns. No implementation, criterion, assumption, ownership, Closed line or partial supersession changed.
+
+The final full verification remains non-green: 1,037 integration passes, four pre-existing failures and two existing skips. The report preserves the original 14-failure baseline, unchanged successful isolated history/recovery checks, eight passing installed-package checks and every historical/provider/Grok limitation. Clean delivery and Adequate test evidence do not imply a green full gate or production-release approval.
+
+Doug's audit-publication/test-audit-launch grant in `f778755` is satisfied. This skill commits its scoped tests/closeout documents locally; publishing those commits, further launches and production release remain held for explicit authorization. The PRD's planned implementation/audit track is complete and has no successor prompt. Independently owned live-control Phase 11 and other tracks are unchanged by this closeout.
