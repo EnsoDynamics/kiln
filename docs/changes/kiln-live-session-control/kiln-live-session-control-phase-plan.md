@@ -236,3 +236,10 @@ Assessed published baseline `bf005864c4819bbe41274b7aa414f82a9586d992` (Phase 7 
 **Audit limits:** No implementation or test file changed; no product tests were run or graded. This is delivery/code-reachability assessment, not a current passing test gate or provider qualification. Claude Code 2.1.311/macOS, observed/tracked ownership and Kiln-controlled admission limits remain unchanged. Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run, Phase 5's full-run/focused-retest qualification and Phase 6's green complete gate remain distinct historical records; Phase 7's own verification is not a whole-PRD delivery verdict.
 
 **Publication and next unit:** This audit uses the scoped commit default and holds publication for Doug under the Phase 7 publication/audit-launch authorization quoted above and in Phase 8. Publish this audit after authorization, then implement Phase 8 in a fresh chat. The successor also uses its scoped commit default and holds its later publication. After closure/publication, repeat whole-PRD delivery audit, then test audit only when delivery is clean. No production changes or messages to other chats are authorized; bot-control and plan-continuation remain separate tracks.
+
+
+### Audit publication and Phase 8 launch
+
+Doug lifted this audit's publication hold in Codex chat `01a18027-b227-7b20-88de-35cb621a01a9`: “Go ahead and push the audit, then launch a new chat for Phase 8 using GPT 6.1 Sol High Effort.” This authorizes publication of audit `e7eb01c` and this authorization/handoff record, followed by the Phase 8 implementation launch using GPT 6.1 Sol at High effort. The audit patch is unchanged; the shared checkout is current before launch.
+
+Phase 8 uses implement-from-requirements' scoped commit default and holds publication of its later work for Doug. This approval does not authorize production changes or messages to other chats. Build the existing Phase 8 scope, then obtain a fresh whole-PRD delivery audit after its closure/publication; test audit follows only when delivery is clean. Bot-control and plan-continuation remain separate tracks.
