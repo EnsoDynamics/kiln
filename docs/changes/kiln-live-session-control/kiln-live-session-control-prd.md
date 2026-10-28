@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All eleven implementation leaves are closed. The first ten remain published; [Phase 11](phase-11-revalidate-history-before-resume-input.md) adds final history revalidation before resumed input and is committed locally with publication held. Its leaf records passing scoped evidence and the non-green full-gate/diagnostic portfolio. After authorized publication, a fresh whole-PRD delivery audit precedes affected-row test-audit reassessment. The track remains open; all historical qualifications remain unchanged.
+**Status:** All eleven implementation leaves are closed and published, including [Phase 11](phase-11-revalidate-history-before-resume-input.md) implementation `a20ddf7`. Doug authorized its publication and a fresh whole-PRD delivery-audit chat in the leaf’s final authorization record. That audit is the next unit; affected-row test-audit reassessment follows only when delivery is clean. The leaf’s non-green full-gate/diagnostic portfolio and every historical qualification remain unchanged. Publication of later audit/implementation work remains held.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Current delivery state
 
-[Phase 11](phase-11-revalidate-history-before-resume-input.md) closes the final Resume/direct-reply history omission identified by the [delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md). Final input admission now repeats usable exact-conversation history checks after completion and terminal ownership awaits. AC-BACK-02, AC-TAKE-04, AC-MSG-05 and AC-BOT-02 retain their original owners and wording. The leaf owns the complete validation/diagnostic portfolio and publication hold. Its implementation is local; a fresh whole-PRD delivery audit is required after authorized publication, followed by affected-row test-audit reassessment only when delivery is clean. No historical audit is promoted to a fresh clean verdict by this closure.
+[Phase 11](phase-11-revalidate-history-before-resume-input.md) closes the final Resume/direct-reply history omission identified by the [delivery audit after Phase 10](kiln-live-session-control-delivery-audit-after-phase-10.md). Final input admission now repeats usable exact-conversation history checks after completion and terminal ownership awaits. AC-BACK-02, AC-TAKE-04, AC-MSG-05 and AC-BOT-02 retain their original owners and wording. The leaf owns the complete validation/diagnostic portfolio and current publication authority. Implementation `a20ddf7` is published under the leaf’s final authorization record; Doug also authorized the fresh whole-PRD delivery-audit launch. Affected-row test-audit reassessment follows only when delivery is clean. Publication of later audit/implementation work remains held. No historical audit is promoted to a fresh clean verdict by this closure.
 
 ## Earlier whole-PRD closeout
 
