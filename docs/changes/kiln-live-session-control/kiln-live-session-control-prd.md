@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All nine implementation leaves are closed and published. The [clean whole-PRD delivery audit](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, and the [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done with all 20 Adequate. Its scoped publication remains held for Doug. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All nine implementation leaves are closed and published. The [clean whole-PRD delivery audit](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, and the [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done with all 20 Adequate. Its scoped publication to `develop` is authorized, as recorded in the phase plan. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -140,7 +140,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 The [delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented. The [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done on 2026-10-28: all 20 criteria are Adequate, 16 coverage/assertion gaps are closed and mapped test fixtures are repaired. Product code and governing acceptance behavior are unchanged, so the clean delivery verdict remains applicable. No implementation or test-remediation successor is required for this PRD.
 
-The test-audit record preserves the complete-run-plus-repaired-test portfolio, provider proof qualifications, safe red-check restrictions and publication hold. All nine Closed lines and historical validation records remain unchanged, especially Phase 8's confirmed unrelated baseline failure and Phase 9's complete-run-plus-focused-retest portfolio. The [phase plan](kiln-live-session-control-phase-plan.md#whole-prd-test-audit--2026-10-28) records the closeout and authorization boundary. Bot-control and plan-continuation remain separately owned tracks.
+The test-audit record preserves the complete-run-plus-repaired-test portfolio, provider proof qualifications, safe red-check restrictions and publication authorization. All nine Closed lines and historical validation records remain unchanged, especially Phase 8's confirmed unrelated baseline failure and Phase 9's complete-run-plus-focused-retest portfolio. The [phase plan](kiln-live-session-control-phase-plan.md#whole-prd-test-audit--2026-10-28) records the closeout and authorization boundary. Bot-control and plan-continuation remain separately owned tracks.
 
 ## Out of scope
 

@@ -13,7 +13,7 @@ The clean [delivery audit after Phase 9](kiln-live-session-control-delivery-audi
 
 SCOPE-001 remains proposed, not stakeholder-approved. Qualification remains Claude Code 2.1.311/macOS, already observed/tracked operations and Kiln-controlled terminal admission. No universal descendant/remote-effect containment or provider-wide exclusion of independent direct launches is claimed. All nine leaves retain their distinct historical records, especially Phase 8's confirmed unrelated clock assertion and Phase 9's complete-run-plus-focused-retest portfolio.
 
-Doug's source authorization in chat `01a18267-33fe-7342-bc9c-efd53c9e1bf0`: “Okay, great. Go ahead and push and then launch a new chat to do the test audit.” The plan limits this to prior audit publication and this launch. Test-audit's scoped commit default applies; publication of this chat's later work remains held for Doug. No production changes or messages to other chats are authorized. Bot-control and plan-continuation remain separately owned tracks.
+Doug's source authorization in chat `01a18267-33fe-7342-bc9c-efd53c9e1bf0`: “Okay, great. Go ahead and push and then launch a new chat to do the test audit.” The plan limits this to prior audit publication and this launch. Test-audit's scoped commit default applies; publication of this chat's later work was initially held for Doug; the publication authorization below lifts that hold. No production changes or messages to other chats are authorized. Bot-control and plan-continuation remain separately owned tracks.
 
 ## By criterion
 
@@ -103,8 +103,15 @@ None. All acceptance evidence gaps and mapped fixture failures are closed at the
 
 ## Waiting
 
-None. No blocked environment or waiting-on-delivery row remains. Publication remains held for Doug under the recorded authorization; it does not reduce any evidence grade.
+None. No blocked environment or waiting-on-delivery row remains. Doug has authorized publication to `develop`, as recorded below; no publication hold remains.
 
 ## Completion and publication
 
-The whole-PRD test audit is Done. All nine implementation leaves remain closed and the clean whole-PRD delivery verdict covers the unchanged product. No planned child of this bounded PRD remains; bot-control and plan-continuation are separate tracks. This audit commits only its scoped tests, verified synthetic fixture, proof collection and governing status records. Publication remains held for Doug under the launch authorization above.
+The whole-PRD test audit is Done. All nine implementation leaves remain closed and the clean whole-PRD delivery verdict covers the unchanged product. No planned child of this bounded PRD remains; bot-control and plan-continuation are separate tracks. This audit commits only its scoped tests, verified synthetic fixture, proof collection and governing status records. Doug has authorized publication to `develop`, as recorded below.
+
+
+### Test-audit publication and track completion
+
+On 2026-10-28 Doug authorized publication in Codex chat `01a18274-6992-7ae2-bee2-a8b93feecda8`: “Go ahead and push. And then, what is the next step here? Is this completely done, or are there any next steps? If it's completely done, can we merge to develop?” This lifts the test-audit publication hold and authorizes landing scoped audit commit `9e5c277` and this publication record directly on `develop`. It does not authorize production publication or messages to other chats.
+
+The publication fetch confirmed `origin/develop` remains `5339c2d`; rebasing the audit onto it made no change. No runtime, governing acceptance behavior or test evidence changed, so no additional test run or delivery reassessment is required for this documentation-only publication record. All nine implementation leaves, the whole-PRD delivery audit and the whole-PRD test audit are complete. No planned successor remains in this bounded PRD. Bot-control and plan-continuation remain separately owned tracks.
