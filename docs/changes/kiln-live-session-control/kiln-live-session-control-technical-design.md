@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** Phases 1–5 are closed and published. The [delivery audit after Phase 5](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-5--2026-10-27) confirms the activity-time repair and identifies the final-delivery availability explanation missing from AC-LIVE-02. [Phase 6](phase-6-final-delivery-availability.md) completes that presentation gap under the existing Snapshot and browser contract. The provider qualification, release/ownership boundaries and historical verification qualifications remain unchanged. A fresh whole-PRD delivery audit follows Phase 6, then test audit when delivery is clean.
+**Status:** Phases 1–5 are closed and published. [Phase 6](phase-6-final-delivery-availability.md) is closed locally and completes the AC-LIVE-02 final-delivery explanation under the existing Snapshot and browser contract; publication remains held for Doug. The [delivery audit after Phase 5](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-5--2026-10-27) remains the historical gap record. Provider qualification, release/ownership boundaries and historical verification qualifications are unchanged. A fresh whole-PRD delivery audit follows publication, then test audit when delivery is clean.
 
 ## Overview
 

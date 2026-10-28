@@ -31,6 +31,9 @@
     <DisconnectedBanner {lastSeenAt} phaseClause={phaseInView === undefined ? undefined : phaseName(phaseInView, snapshot)} {now} />
   {/if}
   {#if snapshot.current}<CurrentPhase {snapshot} {connected} now={shownNow} />{/if}
+  {#if snapshot.current && isPr}
+    <section class="card"><p>Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
+  {/if}
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
