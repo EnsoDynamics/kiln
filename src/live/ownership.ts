@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { runHelper } from "../platform/helper-process.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { claudeConfigFolder, findTranscripts, readTranscript } from "../session/transcripts.js";
+import { claudeConfigFolder, claudeHistoryAvailability, findTranscripts, readTranscript } from "../session/transcripts.js";
 import type { SessionRun } from "../state/records.js";
 export class OwnershipError extends Error {
   constructor(readonly code: "terminal_in_use" | "ownership_unknown" | "history_unavailable" | "takeover_pending" | "message_review_required", message: string) { super(message); }
@@ -22,7 +22,9 @@ export function requireHistory(env: NodeJS.ProcessEnv, sessionId: string): void 
     readdirSync(join(root, "projects"));
     const main = findTranscripts(root, sessionId).main;
     if (!main || !statSync(main).size || readTranscript(main).problem) throw new Error("Missing or unreadable history.");
-  } catch { throw new OwnershipError("history_unavailable", "The saved Claude conversation is missing or unreadable. Use the existing fresh-session recovery guidance."); }
+  } catch { throw new OwnershipError("history_unavailable", "The saved Claude conversation is missing or unreadable. Restore its history and retry release checks. Use the existing fresh-session recovery guidance if it cannot be restored."); }
+  const history = claudeHistoryAvailability(env, sessionId);
+  if (!history.available) throw new OwnershipError("history_unavailable", `The saved Claude conversation is missing usable history. ${history.reason} Restore its history and retry release checks. Use the existing fresh-session recovery guidance if it cannot be restored.`);
 }
 export async function requireNoTerminal(env: NodeJS.ProcessEnv, sessionId: string, exclude?: { pid: number; startTime: string }): Promise<void> {
   if (process.platform !== "darwin") throw new OwnershipError("ownership_unknown", "Terminal ownership has only been validated on macOS.");

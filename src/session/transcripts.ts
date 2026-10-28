@@ -84,6 +84,29 @@ interface TranscriptRecord {
   message?: { content?: unknown };
 }
 
+/** Read provider rows with the same partial-record and corruption rules as tool history. */
+export function readTranscriptRecords<T = TranscriptRecord>(path: string): { records: T[]; problem?: string } {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    return { records: [], problem: (error as Error).message };
+  }
+  const records: T[] = [];
+  let problem: string | undefined;
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    if (line.trim() === "") return;
+    try {
+      records.push(JSON.parse(line) as T);
+    } catch (error) {
+      if (!isCutOff(line, error as Error)) problem ??= `line ${index + 1} isn't JSON`;
+      return;
+    }
+  });
+  return problem === undefined ? { records } : { records, problem };
+}
+
 /**
  * Reads a transcript file's tool calls in order, each matched with its result. A line cut off
  * by a killed process is skipped wherever it sits; any other line that isn't JSON makes the
@@ -93,25 +116,10 @@ interface TranscriptRecord {
  *   // { calls: [{ name: "Edit", input: { file_path: "…" }, at: "2026-10-17T17:18:02.114Z", cwd: "…", result: { isError: false, text: "…" } }] }
  */
 export function readTranscript(path: string): TranscriptRead {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    return { calls: [], problem: (error as Error).message };
-  }
+  const { records, problem } = readTranscriptRecords(path);
   const calls: TranscriptToolCall[] = [];
   const byId = new Map<string, TranscriptToolCall>();
-  let problem: string | undefined;
-  const lines = text.split(/\r?\n/);
-  lines.forEach((line, index) => {
-    if (line.trim() === "") return;
-    let record: TranscriptRecord;
-    try {
-      record = JSON.parse(line) as TranscriptRecord;
-    } catch (error) {
-      if (!isCutOff(line, error as Error)) problem ??= `line ${index + 1} isn't JSON`;
-      return;
-    }
+  records.forEach(record => {
     const content = record.message?.content;
     if (!Array.isArray(content)) return;
     for (const block of content as ContentBlock[]) {

@@ -112,7 +112,7 @@ import {
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../session/codex-evidence.js";
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
-import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability } from "../session/transcripts.js";
+import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
@@ -814,6 +814,7 @@ export class Engine {
       // scan and saved-event callbacks. No readiness may race those writers.
       const running = this.current?.session; const attempt = running?.runs.at(-1);
       if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("takeover_pending", "Waiting for final attempt and tracked-process observations to finish.");
+      requireHistory(this.environment, hold.target.providerSessionId);
       if (run.live) {
         if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
         if (resolve(run.live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "The Claude configuration root changed; restore the attempt profile before hand-back.");
@@ -821,7 +822,9 @@ export class Engine {
         for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event, saved.at);
         const transcript = findTranscripts(run.live.configRoot, session.sessionId).main;
         if (transcript) {
-          for (const row of readJsonLines<Record<string, unknown>>(transcript)) {
+          const history = readTranscriptRecords<Record<string, unknown>>(transcript);
+          if (history.problem) throw new OwnershipError("history_unavailable", `Saved conversation history is unreadable: ${history.problem}. Restore its history and retry release checks.`);
+          for (const row of history.records) {
             if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result }, typeof row.timestamp === "string" ? row.timestamp : undefined);
           }
           const read = readTranscript(transcript);
@@ -845,8 +848,8 @@ export class Engine {
         for (const identity of gate.tracked) await requireExited({ pid: identity.pid, processStartTime: identity.startTime });
         releaseEvidence = { directory: run.live.gateDirectory, state: JSON.stringify(gate) };
       }
-      requireHistory(this.environment, hold.target.providerSessionId);
       await requireNoTerminal(this.environment, hold.target.providerSessionId);
+      requireHistory(this.environment, hold.target.providerSessionId);
       if (releaseEvidence && JSON.stringify(readGate(releaseEvidence.directory)) !== releaseEvidence.state) throw new OwnershipError("takeover_pending", "Tracked-process release evidence changed during ownership checks; retry reconciliation.");
       hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
     } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
@@ -913,8 +916,8 @@ export class Engine {
     if (this.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt)) throw new OwnershipError("message_review_required", "Review each uncertain message in the conversation before Resume or Verify.");
     await this.reconcileTakeover();
     if (hold.state !== "released") throw new OwnershipError("takeover_pending", hold.reason);
-    requireHistory(this.environment, hold.target.providerSessionId);
     await requireNoTerminal(this.environment, hold.target.providerSessionId);
+    requireHistory(this.environment, hold.target.providerSessionId);
   }
 
   get savedDevelopmentTargets(): DevelopmentPreference | undefined {
