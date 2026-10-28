@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All eight implementation leaves are closed. Phase 8 completes the recovery gaps identified by the whole-PRD delivery audit after Phase 7; its scoped commit is not yet published. After publication, obtain a fresh whole-PRD delivery audit; test audit follows only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All eight implementation leaves are closed. Phase 8 completes the recovery gaps identified by the whole-PRD delivery audit after Phase 7; it is published as `0d5c9fb`. Obtain a fresh whole-PRD delivery audit; test audit follows only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -140,7 +140,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 [Phase 8](phase-8-live-session-control-recovery.md) completes the ten missing behaviors confirmed by the [whole-PRD audit after Phase 7](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-7--2026-10-28). Its implementation, acceptance evidence, repository validation and publication boundary are recorded in that leaf. The historical audit's nine Implemented/11 Partly implemented assessment remains unchanged; it is not a current delivery verdict after these repairs.
 
-All eight leaves retain their Closed lines and historical evidence. Phase 8 is committed locally under the implement skill's scoped default and awaits Doug's publication authorization. After publication, repeat whole-PRD delivery audit in a fresh chat, then test audit only when delivery is clean. Bot-control and plan-continuation remain separate tracks.
+All eight leaves retain their Closed lines and historical evidence. Phase 8 is published as `0d5c9fb` under Doug’s authorization recorded in the phase plan. The next unit is the authorized fresh whole-PRD delivery audit, then test audit only when delivery is clean. Bot-control and plan-continuation remain separate tracks.
 
 ## Out of scope
 
