@@ -1,3 +1,4 @@
+import { ResponseSpool, spoolResult, releaseResult } from "./spool.js";
 import { readMessage } from "./input.js";
 import { lookupReceipt, receiptResult, validateInstruction, type Action } from "./commands.js";
 import { join } from "node:path";
@@ -83,10 +84,11 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
 /** Returns undefined only for the existing execution helpers, whose contracts remain unchanged. */
 export async function runInspectionCommand(args: string[], context: CommandContext): Promise<number | undefined> {
   const json = args.includes("--json"); const logs = args[0] === "logs";
-  const write = (answer: Result): number => {
-    let output = serialize(answer, json);
-    if (logs && Buffer.byteLength(output) > LOG_BYTES) { answer = failed(new ControlFailure("metadata_too_large", "Output metadata exceeds the response budget.", 2)); output = serialize(answer, json); }
-    context.stdout.write(output); return exitFor(answer);
+  const write = async (answer: Result): Promise<number> => {
+    if (logs && Buffer.byteLength(serialize(answer, json)) > LOG_BYTES) { releaseResult(answer); answer = failed(new ControlFailure("metadata_too_large", "Output metadata exceeds the response budget.", 2)); }
+    let output: ResponseSpool;
+    try { output = spoolResult(answer, json); } catch (error) { answer = failed(error); output = spoolResult(answer, json); }
+    await output.writeTo(context.stdout); return exitFor(answer);
   };
   try {
     if (!args.length) { context.stdout.write("Kiln runs an Enso Method plan and inspects existing work. Use kiln --help to see commands; kiln <command> --help for complete details.\n"); return 2; }
@@ -148,17 +150,31 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (flags["session-id"]) query.set("session_id", String(flags["session-id"]));
     if (name === "logs") { query.set("max_lines", max); query.set("format", json ? "json" : "text"); }
     if (flags["older-output-cursor"]) query.set("older_output_cursor", String(flags["older-output-cursor"]));
+    if (owner.state === "reachable" && name === "status" && flags.detail === "full") {
+      query.set("format", json ? "json" : "text");
+      const response = await fetch(`${owner.address}/api/control/v1/status?${query}`, { headers: { "X-Kiln-Token": work.record.token }, redirect: "error", signal: AbortSignal.timeout(10000) });
+      const code = Number(response.headers.get("X-Kiln-Exit"));
+      if (response.headers.get("X-Kiln-Execution") !== work.record.executionId || response.headers.get("X-Kiln-Prd") !== encodeURIComponent(work.canonical) || ![0, 2, 3, 4].includes(code) || !response.body) throw new ControlFailure("controller_unreachable", "Full status response identity was unavailable.");
+      const output = new ResponseSpool(); const reader = response.body.getReader();
+      try {
+        for (;;) { const next = await reader.read(); if (next.done) break; output.append(next.value); }
+        if (String(output.bytes) !== response.headers.get("Content-Length")) throw new ControlFailure("state_unavailable", "Full status transport was incomplete; no partial result was emitted.");
+        await output.writeTo(context.stdout); return code;
+      } finally { try { await reader.cancel(); } finally { try { reader.releaseLock(); } finally { output.close(); } } }
+    }
     if (owner.state === "reachable" && name !== "settings") return write(await request(work, owner, name === "account" && flags.refresh ? "account/refresh" : `${name}${query.size ? `?${query}` : ""}`, name === "account" && flags.refresh || name === "handoff" ? 35000 : 5000, name === "account" && !!flags.refresh));
     if (name === "status") return write(statusProjection(work, undefined, flags.detail === "full"));
     if (name === "account") {
       if (flags.refresh) throw new ControlFailure("controller_unreachable", "Fresh account reads require the matching live controller.");
       const history = readHistory(work);
-      return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work, undefined, false, history) }, history.errors));
+      try { return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work, undefined, false, history) }, history.errors)); } finally { history.dispose(); }
     }
     if (name === "settings") return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }));
     if (name === "handoff") return write(await handoffProjection(work, typeof flags["session-id"] === "string" ? flags["session-id"] : undefined, context.env));
     const history = readHistory(work); const selector = typeof flags["session-id"] === "string" ? flags["session-id"] : undefined;
+    try {
     const selected = chooseOutputSession(work, history, selector, undefined, typeof flags["older-output-cursor"] === "string" ? flags["older-output-cursor"] : undefined);
     return write(outputPage(work, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json, ...(selector ? { session: selector } : {}), ...(typeof flags["older-output-cursor"] === "string" ? { cursor: flags["older-output-cursor"] } : {}) }));
+    } finally { history.dispose(); }
   } catch (error) { return write(failed(error)); }
 }

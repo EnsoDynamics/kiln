@@ -39,6 +39,11 @@ createInterface({ input: process.stdin }).on('line', async line => {
   const message = JSON.parse(line); log(message);
   if (!message.method) return;
   if (message.method === 'account/rateLimits/read' && read().usageDelayMs) await new Promise(resolve => setTimeout(resolve, read().usageDelayMs));
+  if (message.method === 'thread/read' && read().historyReadWait) {
+    const gate = read().historyReadWait;
+    let claimed = false; try { writeFileSync(gate + '.claimed', '', { flag: 'wx' }); claimed = true; } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    if (claimed) while (!existsSync(gate)) await new Promise(resolve => setTimeout(resolve, 25));
+  }
   const fixture = read(); const params = message.params ?? {};
   let result;
   const model = { model: 'gpt-6.1-sol', displayName: 'GPT-6.1-Sol', description: 'Verified contract fixture', supportedReasoningEfforts: [{ reasoningEffort: 'high' }, { reasoningEffort: 'low' }], defaultReasoningEffort: 'low' };

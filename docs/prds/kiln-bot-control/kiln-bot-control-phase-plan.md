@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Implementation leaves 1–7 are closed and published. The [whole-PRD audit after Phase 7](kiln-bot-control-delivery-audit-after-phase-7.md) assessed all 18 active criteria in four rounds: 10 Implemented, 8 Partly implemented. Completion Phase 8 carries all confirmed missing inspection parts. Build it, repeat whole-PRD delivery audit, then run test audit only when delivery is clean. The earlier audits remain historical gap baselines, and Phase 7/6/5 retain their actual full-gate limits.
+Implementation leaves 1–7 are closed and published. Completion Phase 8 is closed locally on 2026-10-28; publication remains held. It completes the inspection parts identified by the [whole-PRD audit after Phase 7](kiln-bot-control-delivery-audit-after-phase-7.md), with scoped boundary evidence and explicitly non-green full-gate limits in its Final verification. After authorized publication, repeat whole-PRD delivery audit, then run test audit only when delivery is clean. The earlier audits remain historical gap baselines, and Phase 7/6/5 retain their actual full-gate limits.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -15,7 +15,7 @@ Implementation leaves 1–7 are closed and published. The [whole-PRD audit after
 | [5: Complete attempt account provenance](phase-5-complete-attempt-account-provenance.md) | Added by delivery audit: keep the last attempt’s account, plan and observation time tied to that attempt when a later launch fails before starting. | 1 (account/status projections); 2 (durable launch admission and failure handling) | Closed 2026-10-27 |
 | [6: Complete inspection freshness and helper help](phase-6-complete-inspection-freshness-help.md) | Added by delivery audit: keep usage readings tied to their observation, report unavailable recent logs honestly, and document helper JSON inputs. | 1 (inspection/selection/account projections); 3 (packaged help); 5 (preserved actual-attempt provenance) | Closed and published 2026-10-27 |
 | [7: Complete Codex account binding and command discovery](phase-7-complete-codex-binding-help.md) | Added by delivery audit: keep Codex usage/recovery tied to a known account, expose failed reads honestly, and finish root/helper command help. | 1 (account/status/help); 3 (command discovery); 5 (attempt provenance); 6 (preserved freshness and helper payload contracts) | Closed and published 2026-10-27 |
-| [8: Complete truthful and stable bot inspection](phase-8-complete-kiln-bot-inspection.md) | Added by delivery audit: complete independently dated/available observations, honest inventory and retained recovery, stable output pages and bounded full-history reads. | 1 (inspection); 2 (resumption/admission); 4 (handoff); 5 (attempt provenance); 6 (Claude usage/output selection); 7 (Codex observations/help) | Open |
+| [8: Complete truthful and stable bot inspection](phase-8-complete-kiln-bot-inspection.md) | Added by delivery audit: complete independently dated/available observations, honest inventory and retained recovery, stable output pages and bounded full-history reads. | 1 (inspection); 2 (resumption/admission); 4 (handoff); 5 (attempt provenance); 6 (Claude usage/output selection); 7 (Codex observations/help) | Closed locally 2026-10-28; publication held |
 
 ## Criterion ownership
 
@@ -40,4 +40,8 @@ Completion Phase 4 is published at `8a2975d`; Phase 5 at `2fe5777`; Phase 6 at `
 
 Phase 7 was published as `42aecba`, with publication/fresh-audit authorization recorded in `a5c444d`. The [current delivery audit](kiln-bot-control-delivery-audit-after-phase-7.md) records the confirmed missing parts, bounded local reproductions, four assessment rounds and reverse conflict checks. Phase 8 groups the existing inspection corrections in one session, preserving provider authority, pure retained reads, helper contracts and other tracks' ownership. After it closes, repeat whole-PRD delivery audit in a fresh chat; test audit still waits for current clean delivery.
 
-The audit documents commit under the skill default. Doug subsequently authorized this audit's publication and the Phase 8 implementation chat; the audit's Publication boundary preserves his actual instruction and source chat. After publication, launch Phase 8 from published `origin/develop` in its own fresh worktree. Publishing new implementation/later-audit commits and production release remain held.
+The audit documents commit under the skill default. Doug subsequently authorized this audit's publication and the Phase 8 implementation chat; the audit's Publication boundary preserves his actual instruction and source chat. The audit was published, and Phase 8 launched from published `origin/develop` in its own fresh worktree. Publishing new implementation/later-audit commits and production release remain held.
+
+## Phase 8 local completion
+
+Phase 8 is closed locally on 2026-10-28. Its [Final verification](phase-8-complete-kiln-bot-inspection.md#final-verification) records full-gate failures and exact published-baseline comparisons, independent deliverable review/test hardening, bounded real-controller proof and installed-package/provider metadata evidence. No original criterion ownership, supersession or earlier Closed line changes. Publication is held under the authorization quoted in Phase 8; its fresh-audit continuation is valid only after authorized publication and shared-checkout fast-forward. Whole-PRD delivery audit is the next planned closeout, followed by test audit only when delivery is clean.

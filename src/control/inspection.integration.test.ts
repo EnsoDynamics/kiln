@@ -1,9 +1,9 @@
 import { request as httpRequest, createServer as httpServer } from "node:http";
-import { appendFileSync, chmodSync, existsSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, openSync, mkdirSync, statSync, existsSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandbox, createRepository, commitFiles, git, type Sandbox } from "../test-support/git-repositories.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "../test-support/fixture-documents.js";
@@ -11,9 +11,9 @@ import { newPrdRecord } from "../state/new-record.js";
 import { prdStateDirectory, stateRoot, writeJsonAtomically } from "../state/state-files.js";
 import { SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type SessionRecord } from "../state/records.js";
 import { Engine } from "../engine/engine.js";
-import { buildSnapshot } from "../engine/snapshot.js";
+import { buildSnapshot, type Snapshot } from "../engine/snapshot.js";
 import { runKilnCommand } from "../kiln-command.js";
-import { readWork } from "./private-state.js";
+import { enumerateWork, readWork, INSPECTION_RECORD_BYTES } from "./private-state.js";
 import { outputPage, LOG_BYTES } from "./logs.js";
 import { serialize, type Result } from "./result.js";
 import { commandContracts, parseCommand } from "./help.js";
@@ -21,7 +21,7 @@ import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { isPortFree } from "../state/instance-lock.js";
 import { readHistory } from "./history.js";
-import { cacheSnapshot, inspectionSnapshot } from "./projection.js";
+import { accountFacts, cacheSnapshot, inspectionSnapshot, handoffProjection } from "./projection.js";
 
 let sandbox: Sandbox; let h: Harness | undefined; let server: LocalServer | undefined; let secondServer: LocalServer | undefined; let secondEngine: Engine | undefined;
 afterEach(async () => { await secondServer?.close(); secondServer=undefined; secondEngine?.close(); secondEngine=undefined; await server?.close(); server = undefined; await h?.cleanup(); h = undefined; await sandbox?.cleanup(); });
@@ -382,3 +382,229 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   });
 });
 async function freePort(){for(let p=41480;p<41500;p++)if(await isPortFree(p))return p;throw new Error('No free test port');}
+
+
+describe('completion of truthful and resource-bounded inspection', () => {
+  it('distinguishes a genuinely absent root from inaccessible ancestors and non-directory roots through CLI inventory', async () => {
+    sandbox = createSandbox();
+    const missing = { ...sandbox.env, XDG_STATE_HOME: join(sandbox.root, 'missing') };
+    expect(enumerateWork(missing)).toEqual({ work: [], errors: [] });
+    const empty = await command(['status', '--json'], missing); expect(empty.code).toBe(0); expect(empty.json().inventory_complete).toBe(true);
+    const blocked = join(sandbox.root, 'blocked'); mkdirSync(blocked); mkdirSync(join(blocked, 'kiln')); chmodSync(blocked, 0);
+    try {
+      const inaccessible = await command(['status', '--json'], { ...sandbox.env, XDG_STATE_HOME: blocked });
+      expect(inaccessible.code).toBe(4); expect(inaccessible.json().inventory_complete).toBe(false);
+      expect(inaccessible.json().errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable' })]));
+    } finally { chmodSync(blocked, 0o700); }
+    const file = join(sandbox.root, 'not-a-directory'); writeFileSync(file, 'invalid root');
+    expect((await command(['status', '--json'], { ...sandbox.env, XDG_STATE_HOME: file })).code).toBe(4);
+  });
+  it('retains authoritative stopped Codex facts and explicitly reports missing instruction sidecars without writing state', async () => {
+    sandbox = createSandbox(); const f = fixture(); const saved = session(f);
+    const final = 'Exact stop "question"\nsecond paragraph';
+    const run = saved.record.runs.at(-1)!; run.result = { subtype: 'success', isError: false, text: final };
+    run.codex = { intentAt: run.startedAt, requested: { model: saved.record.model }, account: { at: run.startedAt }, profile: { version: '0.162.1', cwd: f.repository, writableRoots: [f.repository], repositories: [], skills: [] }, modelActivityAt: [], humanRequests: [{ at: run.startedAt, method: 'item/tool/requestUserInput', request: { question: 'Which route?' }, decision: null, stopped: true }] } as NonNullable<typeof run.codex>;
+    writeSessionRecord(f.directory, saved.record);
+    f.record.phases['1a']!.stop = { kind: 'done_check', at: run.endedAt!, checkedAt: run.endedAt!, checks: [{ name: 'Finished', passed: false, facts: ['Still open'] }] }; writePrdRecord(f.directory, f.record);
+    const before = tree(stateRoot(sandbox.env));
+    const status = await command(['status', f.path, '--detail', 'full', '--json']);
+    expect(status.code).toBe(4); expect(status.json().stop).toMatchObject({ session_id: saved.record.sessionId, final_message: final, message_complete: true, human_requests: run.codex.humanRequests, recovery: { state: 'unavailable', reason: expect.any(String) } });
+    const handoff = await handoffProjection(f.work(), saved.record.sessionId, sandbox.env);
+    expect(handoff.ok).toBe(false); expect(handoff.data).toMatchObject({ continuation_prompt: null, fresh_session_instructions: null, instructions_availability: { state: 'unavailable', reason: expect.any(String) } });
+    expect(handoff.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable' })]));
+    expect(tree(stateRoot(sandbox.env))).toEqual(before);
+  });
+  it.each([false, true])('replays frozen fragments unchanged across collection clock widths in json=%s', json => {
+    sandbox = createSandbox(); const f = fixture(); const saved = session(f);
+    writeFileSync(saved.output, JSON.stringify({ line: 1, at: '2026-01-02T00:00:00Z', source: 'out', text: 'x'.repeat(60000) }) + '\n');
+    const first = outputPage(f.work(), { phase: '1a', id: saved.record.sessionId }, { max: 1, json });
+    const cursor = first.next_before as string;
+    const at = (hour: number) => new Date(2026, 0, 2, hour, 1, 1, 0);
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(at(1));
+      const one = outputPage(f.work(), null, { max: 1, json, cursor });
+      vi.setSystemTime(at(11));
+      const two = outputPage(f.work(), null, { max: 1, json, cursor });
+      expect(one.lines).toEqual(two.lines); expect(one.next_before).toBe(two.next_before);
+      expect(one.observed_at).not.toBe(two.observed_at);
+      expect(Buffer.byteLength(serialize(one, json))).toBeLessThanOrEqual(LOG_BYTES); expect(Buffer.byteLength(serialize(two, json))).toBeLessThanOrEqual(LOG_BYTES);
+    } finally { vi.useRealTimers(); }
+    expect(() => outputPage(f.work(), null, { max: 1, json, cursor }, Date.now() - 1)).toThrow(expect.objectContaining({ code: 'saved_output_unavailable' }));
+    rmSync(join(f.directory, '1a', saved.record.sessionId, 'session.json'));
+    expect(() => outputPage(f.work(), null, { max: 1, json, cursor })).toThrow(expect.objectContaining({ code: 'saved_output_unavailable' }));
+  });
+  it('spools complete large histories through actual CLI and HTTP text/JSON under a bounded child heap', async () => {
+    sandbox = createSandbox(); h = await createHarness({ sessions: [] });
+    h.engine.record.startedAt = '2026-01-01T00:00:00Z';
+    h.engine.record.setupCompletedAt = h.engine.record.startedAt;
+    h.engine.record.settings.worktreePath = h.repository;
+    h.engine.record.plan = [{ id: '1', title: 'Large history', file: 'phase-1-return-intake.md', closed: false, repositories: [] }];
+    const directory = h.stateDirectory; const path = join(h.repository, `docs/prds/${FOLDER}`);
+    const email = 'large-provenance-'.padEnd(1024 * 1024, 'x');
+    const skill = join(h.sandbox.root, 'fixture-SKILL.md'); writeFileSync(skill, '# Disposable recorded skill context\n');
+    const profile = { version: '0.162.1' as const, cwd: h.repository, writableRoots: [h.repository], repositories: [], skills: [{ name: 'implement-from-requirements', path: skill }] };
+    for (let i = 0; i < 40; i++) {
+      const id = `large-${i}`; const createdAt = '2026-01-02T00:00:00Z';
+      const saved: SessionRecord = { schemaVersion: SCHEMA_VERSION, executionId: h.engine.record.executionId!, sessionId: id, phaseId: '1', kind: 'phase', agentId: i % 2 ? 'codex' : 'claude_code', createdAt, model: 'saved', modelDisplayName: 'Saved', workingDirectory: h.repository, ...(i % 2 ? { conversation: { threadId: `provider-${i}` } } : {}), runs: [{ startedAt: createdAt, endedAt: createdAt, cause: 'launch', account: { email }, result: { subtype: 'success', isError: false, text: email } }], sleeps: [], steps: [] };
+      if (saved.agentId === 'codex') { saved.codex = { launchIntent: profile, originalAccount: { at: createdAt } }; saved.runs[0]!.codex = { intentAt: createdAt, requested: { model: 'saved' }, account: { at: createdAt, email }, profile, humanRequests: [], modelActivityAt: [] }; }
+      h.engine.record.phases['1'] ??= { sessionIds: [], repositories: {}, finishedByPerson: false, outsideConfirmations: [] };
+      h.engine.record.phases['1']!.sessionIds.push(id); writeSessionRecord(directory, saved);
+    }
+    writePrdRecord(directory, h.engine.record);
+    const run = async (json: boolean) => {
+      const output = join(sandbox.root, 'large-response'); const fd = openSync(output, 'w'); let stderr = '';
+      const child = spawn(process.execPath, ['--max-old-space-size=48', fileURLToPath(new URL('../../dist/cli.js', import.meta.url)), 'status', path, '--detail', 'full', ...(json ? ['--json'] : [])], { cwd: sandbox.root, env: h!.env, stdio: ['ignore', fd, 'pipe'] }); closeSync(fd);
+      child.stderr!.on('data', chunk => stderr += String(chunk));
+      const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+      expect(code, stderr || (json ? JSON.stringify(JSON.parse(readFileSync(output, 'utf8')).errors) : readFileSync(output, 'utf8').slice(-3000))).toBe(0); expect(stderr).toBe(''); expect(statSync(output).size).toBeGreaterThan(40 * 1024 * 1024);
+      if (json) { const answer = JSON.parse(readFileSync(output, 'utf8')); expect(answer.session_history.complete).toBe(true); expect(answer.session_history.phases.flatMap((p: { conversations: unknown[] }) => p.conversations)).toHaveLength(40); }
+      else expect(readFileSync(output, 'utf8')).toContain('session_id: large-39');
+    };
+    await run(true); await run(false);
+    const port = await freePort();
+    const script = `
+      import { Engine } from ${JSON.stringify(new URL('../../dist/engine/engine.js', import.meta.url).href)};
+      import { startLocalServer } from ${JSON.stringify(new URL('../../dist/server/local-server.js', import.meta.url).href)};
+      import { readWork } from ${JSON.stringify(new URL('../../dist/control/private-state.js', import.meta.url).href)};
+      import { writePrdRecord } from ${JSON.stringify(new URL('../../dist/state/records.js', import.meta.url).href)};
+      import { cacheSnapshot, inspectionSnapshot } from ${JSON.stringify(new URL('../../dist/control/projection.js', import.meta.url).href)};
+      const directory = ${JSON.stringify(directory)};
+      const saved = readWork(${JSON.stringify(stateRoot(h.env))}, directory);
+      const engine = new Engine({ paths: ${JSON.stringify(h.engine.paths)}, tools: ${JSON.stringify(h.tools)}, env: process.env, stateDirectory: directory, record: saved.record, sleepReader: { next: async () => [] } });
+      cacheSnapshot(engine, inspectionSnapshot(engine));
+      const server = await startLocalServer({ engine, port: ${port}, folderName: ${JSON.stringify(FOLDER)}, featureName: 'Returns', token: engine.record.token });
+      process.on('message', async message => {
+        if(message === 'stop-record') { engine.record.phases['1'].stop = { kind: 'done_check', at: new Date().toISOString(), checkedAt: new Date().toISOString(), checks: [] }; writePrdRecord(directory, engine.record); process.send('stop-recorded'); }
+        if(message === 'close') { await server.close(); engine.close(); process.exit(0); }
+      });
+      process.send('ready');
+    `;
+    const controller = spawn(process.execPath, ['--max-old-space-size=48', '--input-type=module', '-e', script], { env: h.env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+    let controllerError = ''; controller.stderr!.on('data', chunk => controllerError += String(chunk));
+    const message = (expected: string) => new Promise<void>((resolve, reject) => {
+      const received = (value: unknown) => { if(value === expected) { controller.off('message', received); controller.off('exit', exited); resolve(); } };
+      const exited = (code: number | null) => { controller.off('message', received); reject(new Error(`Controller exited ${code}: ${controllerError}`)); };
+      controller.on('message', received); controller.once('exit', exited);
+    });
+    try {
+      await message('ready');
+      writeJsonAtomically(join(directory, 'instance.lock'), { pid: controller.pid!, processStartTime: await processStartTime(controller.pid!), port });
+      await run(true); await run(false);
+      // The controller AND CLI each run with48MiB heaps. A stopped oversized record
+      // must fail before either snapshot or control eligibility materializes it.
+      const huge = h.engine.record.phases['1']!.sessionIds.at(-1)!;
+      const savedPath = join(directory, '1', huge, 'session.json');
+      const saved = JSON.parse(readFileSync(savedPath, 'utf8')) as SessionRecord; saved.runs[0]!.result = { subtype: 'success', isError: false, text: 'z'.repeat(INSPECTION_RECORD_BYTES + 1) }; writeSessionRecord(directory, saved);
+      const stopped = message('stop-recorded'); controller.send('stop-record'); await stopped;
+      const output = join(sandbox.root, 'incomplete-response'); const fd = openSync(output, 'w'); let stderr = '';
+      const child = spawn(process.execPath, ['--max-old-space-size=48', fileURLToPath(new URL('../../dist/cli.js', import.meta.url)), 'status', path, '--detail', 'full', '--json'], { cwd: sandbox.root, env: h.env, stdio: ['ignore', fd, 'pipe'] }); closeSync(fd); child.stderr!.on('data', b => stderr += String(b));
+      const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+      expect(code, stderr || controllerError).toBe(4); expect(stderr).toBe('');
+      const incomplete = JSON.parse(readFileSync(output, 'utf8')); expect(incomplete.ok).toBe(false);
+      expect(incomplete.errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('browser projection') }), expect.objectContaining({ message: expect.stringContaining('controls') })]));
+      expect(incomplete.session_history).toMatchObject({ complete: false, errors: expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('16 MiB') })]) });
+    } finally {
+      const closed = new Promise<void>(resolve => controller.once('exit', () => resolve()));
+      if(controller.exitCode === null && controller.connected) { controller.send('close'); await closed; }
+    }
+  }, 60000);
+  it('rejects a final synchronous record that finishes past its shared deadline', () => {
+    sandbox = createSandbox(); const f = fixture(); const saved = session(f); saved.record.runs.at(-1)!.result = { subtype: 'success', isError: false, text: 'x'.repeat(12 * 1024 * 1024) }; writeSessionRecord(f.directory, saved.record);
+    const history = readHistory(f.work(), undefined, Date.now() + 1);
+    try { expect(history.complete).toBe(false); expect(history.errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('deadline') })])); } finally { history.dispose(); }
+  });
+});
+
+
+it.each(['claude_code', 'codex'] as const)('preserves independent %s billing observations and explicit unknown public facts live and retained', async agent => {
+  sandbox = createSandbox(); const f = fixture(); const saved = session(f);
+  const at = '2026-01-04T00:00:00.000Z'; const billingAt = '2026-01-03T00:00:00.000Z';
+  saved.record.runs.at(-1)!.codex = { intentAt: at, account: { at, plan: 'pro' }, requested: { model: 'saved' }, profile: { version: '0.162.1', cwd: f.repository, writableRoots: [], repositories: [], skills: [] }, modelActivityAt: [], humanRequests: [] };
+  saved.record.codex = { originalAccount: { at }, launchIntent: saved.record.runs.at(-1)!.codex!.profile }; writeSessionRecord(f.directory, saved.record);
+  const billing = { agentId: agent, route: 'settings' as const, observedAt: billingAt, sources: [], diagnostics: [], approved: false };
+  const snapshot = { account: { agentId: agent, email: 'known@example.invalid', plan: 'pro', startedAt: at, updatedAt: at, limitsObservedAt: at, limits: [{ id: 'reported-window', kind: 'reported-window', label: 'Reported', shortLabel: 'Reported', nearLimit: false }] }, billing: { executionId: f.record.executionId, selectionGeneration: 0, pending: false, next: { ...billing, readingId: 'private-authority-id', canApprove: true, canClear: true }, lastLaunch: { ...billing, observedAt: '2026-01-02T00:00:00.000Z' }, canLaunch: true, hold: { phaseKey: '1a', action: 'resume', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing } } } as unknown as Snapshot;
+  const history = readHistory(f.work());
+  try {
+    const live = accountFacts(f.work(), snapshot, true, history);
+    expect(live.billing).toMatchObject({ state: 'current', observed_at: billingAt, next: { state: 'current', observed_at: billingAt, value: { email: null, account_id: null, plan: null } }, lastLaunch: { observed_at: '2026-01-02T00:00:00.000Z' }, hold: { phaseKey: '1a', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing, state: 'current' } });
+    expect(live.usage).toMatchObject({ value: [{ percent: null, resetsAt: null, durationMinutes: null, scope: null, availability: { state: 'partial', reason: expect.any(String) } }] });
+    expect(live.last_attempt).toMatchObject({ value: { email: null, accountId: null, plan: 'pro', identity_availability: 'unknown', identity_reason: expect.any(String) } });
+    expect(live.original_attempt).toMatchObject({ value: { email: null, accountId: null, plan: null } });
+    for (const json of [true, false]) { const text = serialize({ schema_version: '1', ok: true, observed_at: at, errors: [], data: live }, json); expect(text).toContain(json ? '"percent":null' : 'percent: unknown'); }
+    writeJsonAtomically(join(f.directory, 'inspection-view.json'), { version: 1, execution_id: f.record.executionId, observed_at: at, snapshot });
+    const before = tree(stateRoot(sandbox.env)); const retained = await command(['account', f.path, '--json']);
+    expect(retained.code, retained.stdout).toBe(0); expect(retained.json().data).toMatchObject({ billing: { state: 'stale', reason: expect.stringContaining('disconnected'), next: { state: 'stale', observed_at: billingAt }, lastLaunch: { state: 'stale', observed_at: '2026-01-02T00:00:00.000Z' }, canLaunch: false, hold: { phaseKey: '1a', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing, state: 'stale', observation_reason: expect.stringContaining('disconnected') } } });
+    expect(tree(stateRoot(sandbox.env))).toEqual(before);
+    expect(accountFacts(f.work(), {} as Snapshot, true, history).billing).toMatchObject({ state: 'unavailable', reason: expect.any(String), next: { value: null, observed_at: null, state: 'unavailable' } });
+  } finally { history.dispose(); }
+});
+
+
+it('stops an expired large referenced history with one explicit unscanned result', () => {
+  sandbox = createSandbox(); const f = fixture(); session(f);
+  f.record.phases['1a']!.sessionIds = Array.from({ length: 100000 }, (_, i) => `unscanned-${i}`);
+  writePrdRecord(f.directory, f.record); const before = tree(stateRoot(sandbox.env));
+  const history = readHistory(f.work(), undefined, Date.now() - 1);
+  try { expect(history.complete).toBe(false); expect(history.errors).toHaveLength(1); expect(history.errors[0]).toMatchObject({ code: 'state_unavailable', message: expect.stringContaining('not scanned') }); expect(history.sessions).toHaveLength(0); }
+  finally { history.dispose(); }
+  expect(tree(stateRoot(sandbox.env))).toEqual(before);
+});
+
+it('does not claim an earlier conversation while an unrelated settings command is busy', async () => {
+  sandbox = createSandbox(); h = await createHarness({ sessions: [{ actions: [{ result: 'Stopped' }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const saved = h.engine.latestSession('1')!;
+  const later = { ...structuredClone(saved), sessionId: 'later-conversation', phaseId: '2a' }; later.runs.at(-1)!.startedAt = new Date(Date.parse(saved.runs.at(-1)!.startedAt) + 1000).toISOString();
+  h.engine.record.phases['2a'] = { sessionIds: [later.sessionId], repositories: {}, finishedByPerson: false, outsideConfirmations: [] }; writeSessionRecord(h.stateDirectory, later); writePrdRecord(h.stateDirectory, h.engine.record);
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  const change = h.engine.changeSettings.bind(h.engine);
+  const delayed = vi.spyOn(h.engine, 'changeSettings').mockImplementation(async settings => { await gate; return change(settings); });
+  try {
+    const accepted = h.engine.commands.submit({ command_id: 'unrelated-busy-setting', execution_id: h.engine.record.executionId, status_token: h.engine.controlView().token, action: 'settings', inputs: { keep_awake: false } }, 'caller', true);
+    expect(accepted.ok).toBe(true); await waitFor(() => h!.engine.commands.busy);
+    const work = readWork(stateRoot(h.env), h.stateDirectory);
+    const handoff = await handoffProjection(work, saved.sessionId, h.env, h.engine);
+    expect(handoff.ok, JSON.stringify(handoff.errors)).toBe(true); expect(handoff.data).toMatchObject({ session_id: saved.sessionId, active_under_kiln: false, resumable: true, resume_command: expect.any(String) });
+    expect(h.engine.commands.busy).toBe(true); expect(h.claudeCalls()).toHaveLength(1);
+  } finally { release(); await h.engine.commands.settled(); delayed.mockRestore(); }
+});
+
+it('removes the CLI response spool after a real HTTP body fails mid-read', async () => {
+  sandbox = createSandbox(); const f = fixture(); const port = await freePort(); const started = await processStartTime(process.pid);
+  const peer = httpServer((req, res) => {
+    if (req.url?.endsWith('/capabilities')) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ protocol_major: 1, execution_id: f.record.executionId, prd_path: f.path, instance: { pid: process.pid, process_start_time: started }, features: ['status'] })); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '10000000', 'X-Kiln-Exit': '0', 'X-Kiln-Execution': f.record.executionId!, 'X-Kiln-Prd': encodeURIComponent(f.path) });
+    res.write('{"schema_version":"1","ok":true,"unfinished":');
+    setTimeout(() => res.destroy(), 100);
+  });
+  await new Promise<void>(resolve => peer.listen(port, '127.0.0.1', resolve));
+  const temporary = join(sandbox.root, 'client-temporary'); mkdirSync(temporary);
+  writeJsonAtomically(join(f.directory, 'instance.lock'), { pid: process.pid, processStartTime: started, port });
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(new URL('../../dist/cli.js', import.meta.url)), 'status', f.path, '--detail', 'full', '--json'], { cwd: sandbox.root, env: { ...sandbox.env, TMPDIR: temporary }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = ''; child.stdout.on('data', chunk => stdout += String(chunk)); child.stderr.on('data', chunk => stderr += String(chunk));
+    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+    expect(code, stdout).toBe(4); expect(stderr).toBe(''); expect(JSON.parse(stdout)).toMatchObject({ ok: false, errors: [{ code: 'state_unavailable' }] });
+    expect(readdirSync(temporary)).toEqual([]);
+  } finally { await new Promise<void>((resolve, reject) => peer.close(error => error ? reject(error) : resolve())); }
+});
+
+it('withholds a restart handoff throughout asynchronous preflight before a current process exists', async () => {
+  sandbox = createSandbox(); const gateFile = join(sandbox.root, 'never-finish');
+  h = await createHarness({ sessions: [{ actions: [{ waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => !!h!.engine.current?.processRunning);
+  await h.engine.stop('sigint'); await h.engine.settled(); const saved = h.engine.latestSession('1')!; h.engine.close();
+  let release!: () => void; let entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
+  const prdTree = await (await import('../engine/worktree-setup.js')).prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
+  h.engine = new Engine({ paths: h.engine.paths, record: h.engine.record, prdTree: prdTree!, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => { entered = true; await gate; return []; } } });
+  const decision = await h.engine.decide(); expect(decision).toMatchObject({ kind: 'resume', sessionId: saved.sessionId });
+  expect(h.engine.ownsInspectionSession(saved.sessionId)).toBe(true);
+  const running = h.engine.continue();
+  try {
+    await waitFor(() => entered); expect(h.engine.current).toBeUndefined();
+    const handoff = await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), saved.sessionId, h.env, h.engine);
+    expect(handoff.ok).toBe(false); expect(handoff.data).toMatchObject({ active_under_kiln: true, resumable: false, resume_command: null, resume_argv: null });
+    expect(h.claudeCalls()).toHaveLength(1);
+  } finally { release(); await running; }
+  expect(h.claudeCalls()).toHaveLength(2); expect(h.engine.latestSession('1')!.runs).toHaveLength(2);
+});

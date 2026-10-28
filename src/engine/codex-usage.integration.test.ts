@@ -2,7 +2,7 @@ import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Real engine/Git/disk/process boundaries; verified protocol failure injection is not quota proof.
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { Engine } from "./engine.js";
@@ -12,7 +12,8 @@ import { git } from "../test-support/git-repositories.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { writePrdRecord, writeSessionRecord } from "../state/records.js";
-import { cacheSnapshot, inspectionSnapshot, statusProjection } from "../control/projection.js";
+import { releaseResult } from "../control/spool.js";
+import { cacheSnapshot, handoffProjection, inspectionSnapshot, statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
 
@@ -196,12 +197,17 @@ it("preserves independent allowance observations through waiting, failed refresh
     expect(response.status).toBe(200);
     return await response.json() as { usage_wait: { limit: LimitView } | null; stop: { limit: LimitView } | null };
   };
-  expect((await status()).usage_wait!.limit.allowancesObservation).toEqual(initial.allowancesObservation);
+  const unknownUsage = { resetsAt: null, durationMinutes: null, scope: null, availability: { state: 'partial', reason: expect.any(String), unknown_fields: ['scope', 'resetsAt', 'durationMinutes'] } };
+  const waitingStatus = (await status()).usage_wait!.limit;
+  expect(waitingStatus.allowancesObservation).toEqual(initial.allowancesObservation);
+  expect(waitingStatus.allowances).toEqual([expect.objectContaining(unknownUsage)]);
   const saved = readWork(stateRoot(h.env), h.stateDirectory);
   const cachePath = join(h.stateDirectory, "inspection-view.json");
   const retained = (field: "usage_wait" | "stop") => {
     const before = readFileSync(cachePath, "utf8");
-    const projected = statusProjection(saved, undefined, true)[field] as { limit: LimitView };
+    const answer = statusProjection(saved, undefined, true);
+    const projected = answer[field] as { limit: LimitView };
+    releaseResult(answer);
     expect(readFileSync(cachePath, "utf8")).toBe(before);
     return projected.limit;
   };
@@ -212,6 +218,7 @@ it("preserves independent allowance observations through waiting, failed refresh
   };
   cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
   expect(retained("usage_wait").allowancesObservation).toMatchObject({ observedAt: usageAt, state: "stale" });
+  expect(retained("usage_wait").allowances).toEqual([expect.objectContaining(unknownUsage)]);
   legacy("waiting");
   expect(retained("usage_wait")).toMatchObject({ allowances: [], allowancesObservation: { observedAt: null, state: "unavailable" } });
 
@@ -220,7 +227,9 @@ it("preserves independent allowance observations through waiting, failed refresh
   expect(stopped.allowancesObservation).toMatchObject({ observedAt: usageAt, state: "stale", reason: expect.any(String) });
   expect(stopped.allowances).toEqual(initial.allowances);
   expect(Date.parse(stopped.account!.at)).toBeGreaterThan(Date.parse(initial.account!.at));
-  expect((await status()).stop!.limit.allowancesObservation).toEqual(stopped.allowancesObservation);
+  const stopStatus = (await status()).stop!.limit;
+  expect(stopStatus.allowancesObservation).toEqual(stopped.allowancesObservation);
+  expect(stopStatus.allowances).toEqual([expect.objectContaining(unknownUsage)]);
   cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
   await server.close(); server = undefined;
   expect((statusProjection(saved, undefined, true).stop as { limit: typeof stopped }).limit.allowancesObservation).toEqual(stopped.allowancesObservation);
@@ -229,6 +238,7 @@ it("preserves independent allowance observations through waiting, failed refresh
   expect(freshStop.allowancesObservation!.state).toBe("current");
   cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
   expect(retained("stop").allowancesObservation).toMatchObject({ observedAt: freshStop.allowancesObservation!.observedAt, state: "stale" });
+  expect(retained("stop").allowances).toEqual([expect.objectContaining(unknownUsage)]);
   legacy("needsYou");
   expect(retained("stop")).toMatchObject({ allowances: [], allowancesObservation: { observedAt: null, state: "unavailable" } });
   // Legacy retained gauges have no independent date. Their nearby auth timestamp
@@ -260,4 +270,23 @@ it("shows Codex wait and unknown recovery, account allowances and native cleanup
       await page.close();
     }
   }
+});
+
+
+it('keeps the waiting conversation owned during delayed Resume completion checks', async () => {
+  await setup(); const session = h.engine.latestSession('1')!;
+  let release!: () => void; let entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
+  // Scheduling injection only: the original real Git completion check still runs after release.
+  const checks = h.engine as unknown as { doneCheck(phase: string): Promise<unknown> };
+  const original = checks.doneCheck.bind(h.engine);
+  const delayed = vi.spyOn(checks, 'doneCheck').mockImplementation(async phase => { entered = true; await gate; return original(phase); });
+  try {
+    const view = h.engine.controlView(); expect(JSON.parse(view.target)).not.toHaveProperty('sessionId');
+    const accepted = h.engine.commands.submit({ command_id: 'waiting-resume-ownership', execution_id: h.engine.record.executionId, status_token: view.token, action: 'resume', inputs: {} }, 'caller', true);
+    expect(accepted.ok).toBe(true); await waitFor(() => entered);
+    expect(h.engine.current).toBeUndefined();
+    const handoff = await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), session.sessionId, h.env, h.engine);
+    expect(handoff.ok).toBe(false); expect(handoff.data).toMatchObject({ session_id: session.sessionId, active_under_kiln: true, resumable: false, resume_command: null, resume_argv: null });
+    expect(dispatches()).toHaveLength(1);
+  } finally { release(); await h.engine.commands.settled(); await h.engine.settled(); delayed.mockRestore(); }
 });

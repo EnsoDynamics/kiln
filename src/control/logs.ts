@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { openSync, closeSync, readSync, fstatSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { writeDurableMetadata } from "./durable-file.js";
-import { checkedPath, privateJson, deadlineCheck, type SavedWork } from "./private-state.js";
+import { checkedPath, privateJson, type SavedWork } from "./private-state.js";
 import { ControlFailure, commandText, result, serialize, type Result } from "./result.js";
 
 export const LOG_BYTES = 16384;
@@ -16,6 +16,7 @@ interface Snapshot {
 interface Position { snapshot: string; end: number; scalar: number | null }
 interface Line { number: number; at: string; source: string; text: string; fragment: { start: number; end: number; total: number; unit: "unicode_scalar" } | null }
 function unavailable(reason: string): never { throw new ControlFailure("saved_output_unavailable", reason); }
+function deadlineCheck(deadline: number): void { if (Date.now() > deadline) unavailable("The saved-output validation deadline expired."); }
 function previousNewline(fd: number, before: number, deadline: number): number {
   let end = before;
   while (end > 0) {
@@ -130,7 +131,9 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
   try { checkedPath(root, path); fd = openSync(path, "r"); } catch { unavailable("Saved output is missing, unreadable or not owner controlled."); }
   try {
     const stat = fstatSync(fd); const identity = `${stat.dev}:${stat.ino}`;
-    const session = privateJson<{ outputGeneration?: string }>(root, join(directory, selected.phase, selected.id, "session.json"));
+    let session: { outputGeneration?: string };
+    try { session = privateJson(root, join(directory, selected.phase, selected.id, "session.json")); }
+    catch { unavailable("The saved session output generation is missing, corrupt or unreadable."); }
     const generation = session.outputGeneration ?? `legacy:${identity}`;
     if (!snapshot) {
       const end = previousNewline(fd, stat.size, deadline) + 1;
@@ -147,12 +150,13 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
       position = { snapshot: snapshot.id, end: snapshot.frozen_byte_end, scalar: null };
     }
     if (snapshot.generation !== generation || snapshot.file_identity !== identity || stat.size < snapshot.frozen_byte_end || prefixHash(fd, snapshot.frozen_byte_end, deadline) !== snapshot.prefix_sha256) unavailable("Saved output was replaced, rebuilt, shortened or changed inside the frozen snapshot.");
+    const collectedAt = new Date().toISOString();
     const lines: Line[] = []; let cursor = position!; let byteLimit = false;
     const answer = (next: Position, entries: Line[]): Result => {
       const older = next.end > 0;
       const token = older ? signed(next, record.token) : null;
       const argv = token ? ["kiln", "logs", canonical, "--older-output-cursor", token, "--max-lines", String(options.max), ...(options.json ? ["--json"] : [])] : null;
-      return result({ ...base, snapshot_id: snapshot!.id, snapshot_observed_at: snapshot!.observed_at, snapshot_end_line: snapshot!.last_record_number,
+      return result({ ...base, observed_at: collectedAt, snapshot_id: snapshot!.id, snapshot_observed_at: snapshot!.observed_at, snapshot_end_line: snapshot!.last_record_number,
         byte_limit_reached: byteLimit, range: entries.length ? { first: entries[0]!.number, last: entries.at(-1)!.number } : null,
         lines: entries, has_older: older, next_before: token, next_command: argv ? commandText(argv) : null, next_argv: argv,
         ...(snapshot!.frozen_byte_end === 0 ? { reason: "no_output" } : cursor.end === 0 && !entries.length ? { reason: "end_of_history" } : {}) });
@@ -185,6 +189,7 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
     }
     const final = answer(cursor, lines);
     if (Buffer.byteLength(serialize(final, options.json)) > LOG_BYTES) throw new ControlFailure("metadata_too_large", "Output metadata exceeds the response budget.", 2);
+    deadlineCheck(deadline);
     return final;
   } finally { closeSync(fd); }
 }

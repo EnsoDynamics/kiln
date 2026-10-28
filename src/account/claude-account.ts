@@ -33,6 +33,8 @@ export interface AccountView {
   /** When the reading's calls started, so a reading is judged against a refusal by Kiln's clock. */
   startedAt: string;
   updatedAt: string;
+  limitsObservedAt?: string | undefined;
+  limitsUnavailable?: string;
   limits: UsageLimit[];
   extraUsage?: { enabled: boolean; observedAt: string; email?: string; orgId?: string };
   error?: string;
@@ -81,6 +83,8 @@ export function parseAuthStatus(result: HelperResult): AccountStatus {
 }
 
 export interface UsageReading {
+  /** Absent rows differ from an explicitly reported empty array, even without a plan. */
+  limitsAvailable?: false;
   extraUsageEnabled?: boolean;
   limits: UsageLimit[];
   limitsError?: string;
@@ -115,7 +119,7 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
   const extra = rateLimits?.extra_usage?.is_enabled;
   const overflow = typeof extra === "boolean" ? { extraUsageEnabled: extra } : {};
   const limits = rateLimits?.limits;
-  if (limits === undefined || limits === null) return { limits: [], ...overflow, ...(hasPlan ? { limitsError: NOT_REPORTED } : {}) };
+  if (limits === undefined || limits === null) return { limits: [], limitsAvailable: false, ...overflow, ...(hasPlan ? { limitsError: NOT_REPORTED } : {}) };
   if (!Array.isArray(limits)) return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
 
   const rows: UsageLimit[] = [];
@@ -166,8 +170,9 @@ export async function readAccount(options: AccountReadOptions): Promise<AccountV
   const startedAt = (options.now?.() ?? new Date()).toISOString();
   const call = (args: string[]) => runHelper(options.claude, args, { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}) });
   const auth = await call(["auth", "status", "--json"]);
+  let updatedAt = (options.now?.() ?? new Date()).toISOString();
   const usage = await call(["-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]);
-  const updatedAt = (options.now?.() ?? new Date()).toISOString();
+  const usageAt = (options.now?.() ?? new Date()).toISOString();
   const status = parseAuthStatus(auth);
   if (status.error !== undefined) return { startedAt, updatedAt, limits: [], error: status.error };
   const account: AccountView = { ...status, startedAt, updatedAt, limits: [] };
@@ -179,11 +184,15 @@ export async function readAccount(options: AccountReadOptions): Promise<AccountV
   // Usage has no account identity of its own. Bracket every successful usage read,
   // including reports without overflow, before assigning gauges to an account.
   const after = parseAuthStatus(await call(["auth", "status", "--json"]));
+  updatedAt = (options.now?.() ?? new Date()).toISOString();
   if (after.error || !(status.email || status.orgId) || status.email !== after.email || status.orgId !== after.orgId || status.plan !== after.plan || status.authMethod !== after.authMethod || status.apiProvider !== after.apiProvider || status.apiKeySource !== after.apiKeySource) {
-    return { ...after, startedAt, updatedAt: (options.now?.() ?? new Date()).toISOString(), limits: [], limitsError: "Usage could not be bound to a stable authenticated account across the reading. Refresh account information." };
+    return { ...after, startedAt, updatedAt, limits: [], limitsError: "Usage could not be bound to a stable authenticated account across the reading. Refresh account information." };
   }
+  account.updatedAt = updatedAt;
+  if (reading.limitsAvailable === false) account.limitsUnavailable = NOT_REPORTED;
+  else if (!reading.limitsError) account.limitsObservedAt = usageAt;
   if (reading.extraUsageEnabled !== undefined) {
-    account.extraUsage = { enabled: reading.extraUsageEnabled, observedAt: updatedAt, ...(status.email ? { email: status.email } : {}), ...(status.orgId ? { orgId: status.orgId } : {}) };
+    account.extraUsage = { enabled: reading.extraUsageEnabled, observedAt: usageAt, ...(status.email ? { email: status.email } : {}), ...(status.orgId ? { orgId: status.orgId } : {}) };
   }
   account.limits = reading.limits;
   if (reading.limitsError !== undefined) account.limitsError = reading.limitsError;

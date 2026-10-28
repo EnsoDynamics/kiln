@@ -2,7 +2,7 @@
 // Provider peers reproduce verified contracts; only the dispatch-checkpoint write
 // failure is injected. Actual provider metadata evidence is recorded in Phase 5.
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
@@ -200,7 +200,8 @@ it("keeps Claude launch and resume account/plan/time after a later changed-accou
   // Phase 6: this later auth-only predispatch read did not refresh usage.
   expect(facts.usage).toMatchObject({ observed_at: h.engine.agents.state.account!.limitsObservedAt, state: "stale" });
   expect(facts.usage.observed_at).not.toBe(h.engine.agents.state.account!.updatedAt);
-  expect(facts.usage.value).toEqual(h.engine.agents.state.account!.limits);
+  expect(facts.usage.value).toHaveLength(h.engine.agents.state.account!.limits.length);
+  expect(facts.usage.value).toMatchObject(h.engine.agents.state.account!.limits);
   expect(facts.usage.value).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: "session", percent: 5, resetsAt: "2026-10-17T18:59:59.628228+00:00" }),
     expect.objectContaining({ kind: "weekly_all", percent: 42 }),
@@ -363,7 +364,8 @@ it("retains Codex original and resumed provenance separately from current accoun
   const facts = await account({ value: provenance, observed_at: provenance.at });
   expect(facts.original_attempt).toMatchObject({ value: original, observed_at: original.at });
   expect(facts.next_attempt).toMatchObject({ value: { email: "next-codex@example.invalid", account_id: "next-workspace" }, observed_at: h.engine.agents.state.account!.updatedAt });
-  expect(facts.usage.value).toEqual(h.engine.agents.state.account!.limits);
+  expect(facts.usage.value).toHaveLength(h.engine.agents.state.account!.limits.length);
+  expect(facts.usage.value).toMatchObject(h.engine.agents.state.account!.limits);
   expect(facts.usage.value).toEqual(expect.arrayContaining([expect.objectContaining({ id: "codex:primary", percent: 23, durationMinutes: 300, resetsAt: new Date(1800000000000).toISOString() }), expect.objectContaining({ id: "codex:secondary", percent: 71, durationMinutes: 10080 })]));
   expect(facts.recovery).toMatchObject({ value: { state: "allowed" }, observed_at: h.engine.agents.state.account!.updatedAt });
   set({ email: "next-codex@example.invalid", accountId: "next-workspace", usageError: true });
@@ -394,4 +396,34 @@ it("retains Codex original and resumed provenance separately from current accoun
   expect(stale.usage).toMatchObject({ observed_at: restored.body.data.usage.observed_at, state: "stale" });
   expect(stale.recovery).toMatchObject({ value: { state: "allowed" }, observed_at: restored.body.data.recovery.observed_at, state: "stale" });
   expect(savedBytes()).toEqual(before);
+});
+
+
+it("revalidates a Codex handoff after actual controller resumption while provider history is delayed", async () => {
+  h = await createHarness({ sessions: [], claude: join('missing', 'claude') }); peer = codexWorkFixture();
+  Object.assign(h.tools, { codex: peer.options.executable }); peer.configureEnvironment(h.env);
+  const set = (value: Record<string, unknown>) => peer!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
+  set({}); h.engine.close();
+  const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
+  h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
+  await h.engine.changeSettings({ agentId: 'codex' }); await h.engine.agents.refresh();
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
+  const selected = h.engine.latestSession('1')!;
+  const gate = join(h.sandbox.root, 'history-release');
+  set({ historyReadWait: gate, hang: true });
+  // The RPC executable is selected from PATH by the public handoff boundary.
+  const bin = join(h.sandbox.root, 'history-bin'); const { mkdirSync, chmodSync } = await import('node:fs'); mkdirSync(bin);
+  const wrapper = join(bin, 'codex'); writeFileSync(wrapper, `#!/bin/sh\nexec '${peer.options.executable}' "$@"\n`); chmodSync(wrapper, 0o755);
+  const { delimiter } = await import('node:path'); h.env.PATH = bin + delimiter + h.env.PATH;
+  const reads = peer.calls().filter(c => c.method === 'thread/read').length;
+  const pending = cli(['handoff', target(), '--session-id', selected.sessionId, '--json']);
+  await waitFor(() => peer!.calls().filter(c => c.method === 'thread/read').length > reads);
+  const status = await cli(['status', target(), '--json']);
+  const accepted = await cli(['resume', target(), '--only-if-status-matches', status.body.status_token, '--command-id', 'handoff-race-resume', '--json']); expect(accepted.code, accepted.stdout).toBe(0);
+  await waitFor(() => !!h.engine.current?.processRunning && h.engine.current.session?.sessionId === selected.sessionId);
+  expect(existsSync(gate)).toBe(false); writeFileSync(gate, '');
+  const handoff = await pending;
+  expect(handoff.code, handoff.stdout).toBe(4); expect(handoff.body.data).toMatchObject({ session_id: selected.sessionId, active_under_kiln: true, resumable: false, resume_command: null, resume_argv: null });
+  await waitFor(() => peer!.calls().filter(c => c.method === 'turn/start').length === 2);
+  expect(peer.calls().filter(c => c.method === 'turn/start')).toHaveLength(2);
 });

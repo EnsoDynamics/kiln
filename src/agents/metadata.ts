@@ -139,8 +139,9 @@ export class AgentInfo {
   async refreshClaudeForLaunch(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<AccountStatus> {
     const state = this.state;
     const startedAt = new Date().toISOString();
+    let authObservedAt = startedAt;
     const [auth, , skills] = await Promise.all([
-      readAuthStatus({ claude: this.options.executable.claude, cwd, env, signal }),
+      readAuthStatus({ claude: this.options.executable.claude, cwd, env, signal }).then(auth => { authObservedAt = new Date().toISOString(); return auth; }),
       this.claude.refreshModels?.(),
       Promise.all([...new Set([cwd, ...this.contexts])].map(async directory => ({ directory, result: await readSkillList({ claude: this.options.executable.claude, cwd: directory, env: this.options.env, signal }) }))),
     ]);
@@ -153,9 +154,9 @@ export class AgentInfo {
       else for (const required of METHOD_SKILLS) if (!result.skills.some(name => name === required || name === `enso-method:${required}`)) state.blockers.push(`Enable or install the Enso Method ${required} skill for Claude Code.`);
     }
     const previous = state.account;
-    const account: AgentAccount = { ...auth, agentId: "claude_code", startedAt, updatedAt: new Date().toISOString(), limits: [] };
+    const account: AgentAccount = { ...auth, agentId: "claude_code", startedAt, updatedAt: authObservedAt, limits: [] };
     const source = this.claude.account;
-    const sourceUsage: AgentAccount | undefined = source && !source.error && !source.limitsError ? { ...source, agentId: "claude_code", limitsObservedAt: source.updatedAt } : undefined;
+    const sourceUsage: AgentAccount | undefined = source?.limitsObservedAt && !source.error && !source.limitsError ? { ...source, agentId: "claude_code" } : undefined;
     // An intermediate auth context may have cleared the display. The independent
     // full reader can still establish dated usage for the account now authenticated.
     const usage = previous?.limitsObservedAt && sameAccountContext(previous, account) ? previous : sourceUsage && sameAccountContext(sourceUsage, account) ? sourceUsage : undefined;
@@ -191,7 +192,7 @@ export class AgentInfo {
     this.state.models = this.claude.models;
     this.state.modelListError = this.claude.modelListError;
     this.lastClaudeAccount = this.claude.account;
-    this.state.account = this.claude.account ? { ...this.claude.account, agentId: "claude_code", ...(!this.claude.account.error && !this.claude.account.limitsError ? { limitsObservedAt: this.claude.account.updatedAt } : {}) } : undefined;
+    this.state.account = this.claude.account ? { ...this.claude.account, agentId: "claude_code" } : undefined;
     this.state.blockers = !this.claude.account ? ["Claude Code account is unavailable. Check claude auth login in a terminal."] : this.claude.account.error ? [this.claude.account.error] : [];
   }
   onChange(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }

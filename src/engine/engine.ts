@@ -341,6 +341,8 @@ export class Engine {
   private control: SessionControl | undefined;
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
+  /** Read-only inspection ownership spans asynchronous resume preflight before current exists. */
+  private inspectionResumingSession: string | undefined;
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
   private requestedResume: ResumeRequest | undefined;
   /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
@@ -449,6 +451,27 @@ export class Engine {
 
   controlRunState(): string {
     return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
+  }
+
+  /** Inspection only: synchronous ownership after any awaited provider history read. */
+  ownsInspectionSession(id: string): boolean {
+    if (this.current?.session?.sessionId === id || this.inspectionResumingSession === id) return true;
+    for (const phase of [this.pendingResume, this.requestedResume?.phaseKey]) if (phase && this.record.phases[phase]?.sessionIds.at(-1) === id) return true;
+    const wait = this.waitingPhaseKey();
+    if (this.checking && wait && this.record.phases[wait]?.wait?.sessionId === id) return true;
+    for (const receipt of [this.controlDispatch, this.commands.active]) {
+      if (!receipt || !["reply", "resume"].includes(receipt.instruction.action)) continue;
+      if (receipt.session_id === id) return true;
+      try {
+        const target: unknown = JSON.parse(receipt.target);
+        if (validRecoveryTarget(target) && target.executionId === this.record.executionId && target.sessionId === id) return true;
+        if (target && typeof target === "object" && "execution" in target && target.execution === this.record.executionId && "key" in target && typeof target.key === "string") {
+          const facts = this.record.phases[target.key];
+          if ((facts?.wait?.sessionId ?? facts?.sessionIds.at(-1)) === id) return true;
+        }
+      } catch { /* An unrecognized target cannot claim a different conversation. */ }
+    }
+    return false;
   }
 
   controlView(): ControlView {
@@ -2408,6 +2431,9 @@ export class Engine {
   private async resumeSession(phaseKey: string, request?: ResumeRequest): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
+    const priorInspectionOwner = this.inspectionResumingSession;
+    this.inspectionResumingSession = session.sessionId;
+    try {
     if (this.record.liveControl) {
       try { await this.requireTakeoverReturn(); }
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
@@ -2471,6 +2497,7 @@ export class Engine {
     // A resumed run gets the flags for the workspace as it now stands.
     const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
     await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
+    } finally { this.inspectionResumingSession = priorInspectionOwner; }
   }
 
   /**

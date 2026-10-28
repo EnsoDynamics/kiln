@@ -1,3 +1,4 @@
+import { spoolResult, releaseResult } from "./spool.js";
 import { strictJson } from "../audit/storage.js";
 /** Versioned inspection and durable control API, behind the local server's unchanged authentication middleware. */
 import type { Hono, Context } from "hono";
@@ -13,7 +14,16 @@ import { processStartTime } from "../platform/process-start-time.js";
 export async function installInspectionRoutes(app: Hono, engine: Engine, cacheError: () => string | undefined): Promise<void> {
   const epoch = instanceEpoch(); const processTime = await processStartTime(process.pid, { timeoutMs: 2000 });
   const work = () => ({ ...readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory), record: structuredClone(engine.record) });
-  const send = (c: Context, answer: Result) => c.json(answer, answer.ok ? 200 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
+  const send = (c: Context, answer: Result) => {
+    const text = c.req.path.endsWith("/status") && c.req.query("format") === "text";
+    const output = spoolResult(answer, !text);
+    c.header("Content-Type", text ? "text/plain; charset=utf-8" : "application/json; charset=utf-8");
+    c.header("Content-Length", String(output.bytes));
+    c.header("X-Kiln-Exit", String(exitFor(answer)));
+    c.header("X-Kiln-Execution", answer.execution_id ?? "");
+    c.header("X-Kiln-Prd", encodeURIComponent(answer.prd_path ?? ""));
+    return c.body(output.stream(), answer.ok ? 200 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
+  };
   const query = (c: Context, allowed: string[]) => {
     const params = new URL(c.req.url).searchParams;
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) throw new ControlFailure("invalid_input", "Unknown or duplicate query parameter.", 2);
@@ -23,7 +33,8 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: engine.record.executionId,
     prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review"] }));
-  route("status", ["detail"], c => {
+  route("status", ["detail", "format"], c => {
+    const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
     const answer = statusProjection(work(), engine, detail === "full");
     const error = cacheError();
@@ -34,15 +45,17 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     const max = c.req.query("max_lines") ?? "50";
     if (!/^(?:[1-9]\d?|1\d\d|200)$/.test(max)) throw new ControlFailure("invalid_input", "max_lines must be 1–200.", 2);
     const saved = work(); const history = readHistory(saved, engine.current?.processRunning ? engine.current.session?.sessionId : undefined);
+    try {
     const selector = c.req.query("session_id");
     const cursor = c.req.query("older_output_cursor");
     const selected = chooseOutputSession(saved, history, selector, engine.current?.processRunning ? engine.current.session?.sessionId : undefined, cursor);
     return outputPage(saved, selected ? { phase: selected.phase, id: selected.id } : null, { max: Number(max), json: c.req.query("format") !== "text", ...(selector ? { session: selector } : {}), ...(cursor ? { cursor } : {}) });
+    } finally { history.dispose(); }
   });
   route("handoff", ["session_id"], c => handoffProjection(work(), c.req.query("session_id"), engine.environment, engine));
   route("account", [], () => {
     const saved = work(); const status = statusProjection(saved, engine, true);
-    return result({ prd_path: saved.canonical, execution_id: engine.record.executionId!, data: status.account ?? null }, status.errors);
+    try { return result({ prd_path: saved.canonical, execution_id: engine.record.executionId!, data: status.account ?? null }, status.errors); } finally { releaseResult(status); }
   });
   app.post("/api/control/v1/account/refresh", async c => {
     try {
@@ -59,8 +72,9 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
       }
       await Promise.all([engine.agents.refresh(), engine.refreshBilling()]);
       const saved = work(); const status = statusProjection(saved, engine, true);
+      releaseResult(status);
       const facts = (status.account ?? null) as Record<string, unknown> | null;
-      const errors = engine.agents.state.account?.error || engine.agents.state.account?.limitsError || !engine.agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
+      const errors = engine.agents.state.account?.error || engine.agents.state.account?.limitsError || !engine.agents.state.account?.limitsObservedAt || !engine.agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
       return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, [...status.errors, ...errors]));
     } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); }
   });

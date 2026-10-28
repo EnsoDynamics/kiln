@@ -27,21 +27,46 @@ export function exitFor(answer: Result): number {
 export function commandText(argv: string[]): string {
   return argv.map(s => /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", "'\\''")}'`).join(" ");
 }
-function textValue(value: unknown, depth: number): string {
+function humanTime(value: string): string {
+  const date = new Date(value);
+  const offset = -date.getTimezoneOffset();
+  const sign = offset < 0 ? "-" : "+";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, "0")} UTC${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+}
+/** Stream arrays one record at a time, including disk-backed history arrays. */
+export function* serializedChunks(value: unknown, json: boolean, depth = 0): Generator<string> {
   const pad = "  ".repeat(depth);
-  if (value === null) return "unknown";
-  if (typeof value === "string") {
-    // Timestamps in observation fields get an explicit local timezone. Session text is literal.
-    return value;
+  if (Array.isArray(value)) {
+    if (json) yield "[";
+    else if (!value.length) yield "none";
+    for (let i = 0; i < value.length; i++) {
+      if (i) yield json ? "," : "\n";
+      if (!json) yield `${pad}- `;
+      yield* serializedChunks(value[i], json, depth + 1);
+    }
+    if (json) yield "]";
+  } else if (value && typeof value === "object") {
+    if (json) yield "{";
+    let first = true;
+    for (const [key, v] of Object.entries(value)) {
+      if (v === undefined || typeof v === "function") continue;
+      if (!first) yield json ? "," : "\n"; first = false;
+      yield json ? `${JSON.stringify(key)}:` : `${pad}${key}: `;
+      if (!json && typeof v === "string" && /^\d{4}-\d\d-\d\dT.*Z$/.test(v) && /(^at$|_at$|At$|since$)/.test(key)) yield humanTime(v);
+      else yield* serializedChunks(v, json, depth + 1);
+    }
+    if (json) yield "}";
+  } else {
+    const rendered = json ? JSON.stringify(value ?? null) : value === null ? "unknown" : String(value);
+    // Individual state records are bounded before parsing; avoid copying a whole response.
+    for (let start = 0; start < rendered.length;) {
+      let end = Math.min(start + 32768, rendered.length);
+      if (end < rendered.length && /[\uD800-\uDBFF]/.test(rendered[end - 1]!)) end--;
+      yield rendered.slice(start, end); start = end;
+    }
   }
-  if (Array.isArray(value)) return value.length ? value.map(v => `${pad}- ${textValue(v, depth + 1)}`).join("\n") : "none";
-  if (typeof value === "object" && value) return Object.entries(value).map(([key, v]) => {
-    const shown = typeof v === "string" && /^\d{4}-\d\d-\d\dT.*Z$/.test(v) && /(^at$|_at$|At$|since$)/.test(key)
-      ? new Date(v).toLocaleString(undefined, { timeZoneName: "short" }) : textValue(v, depth + 1);
-    return `${pad}${key}: ${shown}`;
-  }).join("\n");
-  return String(value);
 }
 export function serialize(answer: Result, json: boolean): string {
-  return json ? `${JSON.stringify(answer)}\n` : `${textValue(answer, 0)}\n`;
+  return [...serializedChunks(answer, json), "\n"].join("");
 }

@@ -333,7 +333,13 @@ export interface Snapshot {
  *   const snapshot = buildSnapshot(engine, documentsFound);
  *   snapshot.feature.state  // "implementing"
  */
-export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snapshot {
+export interface SnapshotReads {
+  /** Inspection publishes saved attempt times directly and avoids aggregate browser timing. */
+  includeTiming?: boolean;
+  output?: (session: SessionRecord) => OutputLine[];
+}
+export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {
+  const includeTiming = reads.includeTiming !== false;
   const { record } = engine;
   const plan = record.plan ?? [];
   const leaves = recordedLeaves(plan);
@@ -353,14 +359,14 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
 
   const needsYou = stoppedKey === undefined ? undefined : needsYouView(engine, stoppedKey);
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
-  const current = state === "implementing" ? currentView(engine) : undefined;
+  const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
   const entry = engine.modelEntry(selectedChoice(settings).model);
   const metadata = engine.agents.state;
 
-  const views = phaseViews(engine, state);
+  const views = phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
-    activities: activityViews(engine, state, views),
+    activities: activityViews(engine, state, views, includeTiming),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -373,7 +379,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
+      ...(includeTiming ? optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)) : {}),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -444,7 +450,7 @@ function judgedKeyFor(plan: RecordedPlanPhase[], launchedKey: string): string {
   return judgedPhase(plan, launchedKey)?.id ?? launchedKey;
 }
 
-function currentView(engine: Engine): Snapshot["current"] {
+function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] {
   const current = engine.current;
   if (!current) return undefined;
   const plan = engine.record.plan ?? [];
@@ -460,7 +466,7 @@ function currentView(engine: Engine): Snapshot["current"] {
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
   if (session.lastSkill && (!seen || session.lastSkill.at > seen.at)) seen = { text: `${session.lastSkill.name} skill started`, at: session.lastSkill.at };
   return {
-    ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session) } : {}),
+    ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session, reads.output) } : {}),
     phaseId: judgedKeyFor(plan, current.phaseKey),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
@@ -774,7 +780,7 @@ function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: strin
   return runTiming(runs, from, doneAt ?? new Date().toISOString(), doneAt ? undefined : running ? "running" : "waiting");
 }
 
-function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
+function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean): PhaseView[] {
   const { record } = engine;
   const plan = record.plan ?? [];
   // Kiln's facts are keyed by the leaf it launched; rows follow the plan as last read.
@@ -810,7 +816,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const startedAt = firstSession?.runs[0]?.startedAt;
     if (startedAt && session) {
       view.sessionStartedAt = startedAt;
-      view.timing = timingFor(engine, [key!], startedAt, facts?.doneAt)!;
+      if (includeTiming) view.timing = timingFor(engine, [key!], startedAt, facts?.doneAt)!;
       // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
       const read = engine.stoppedCommits;
       const stopped = (view.state === "needs_you" || view.state === "waiting") && read?.phaseKey === key ? read?.commits : undefined;
@@ -844,7 +850,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     else if (state === "paused") row.state = "next";
     if (startedAt) {
       row.sessionStartedAt = startedAt;
-      row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
+      if (includeTiming) row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
     }
     rows.push(row);
   }
@@ -935,8 +941,8 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
 }
 
 /** Labels actual tool invocations or observed remote activity, never a prepared intent. */
-function observedDeliveryActivity(engine: Engine, session: SessionRecord): NonNullable<NonNullable<Snapshot["current"]>["deliveryActivity"]> {
-  const tool = readOutputLines(engine.stateDirectory, session).filter(line => line.source === "tool").at(-1);
+function observedDeliveryActivity(engine: Engine, session: SessionRecord, output?: SnapshotReads["output"]): NonNullable<NonNullable<Snapshot["current"]>["deliveryActivity"]> {
+  const tool = (output ? output(session) : readOutputLines(engine.stateDirectory, session)).filter(line => line.source === "tool").at(-1);
   if (!tool) return { label: "Implementing" };
   let command = tool.text.replace(/^Bash /, "");
   let commands = simpleCommands(command);
@@ -961,7 +967,7 @@ function sessionSteps(engine: Engine, key: string, session: SessionRecord): Step
   ];
 }
 
-function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[]): PhaseView[] {
+function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[], includeTiming: boolean): PhaseView[] {
   const { record } = engine;
   const rows: PhaseView[] = [];
   const started = new Set<string>();
@@ -981,7 +987,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[])
       const from = first?.runs[0]?.startedAt;
       row.outputLineCount = engine.outputLines(session).length;
       if (from) {
-        row.sessionStartedAt = from; row.timing = timingFor(engine, [activity.key], from, facts?.doneAt)!;
+        row.sessionStartedAt = from; if (includeTiming) row.timing = timingFor(engine, [activity.key], from, facts?.doneAt)!;
         row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.worktreePath), branch: record.settings.featureBranch, sessionId: session.sessionId, ...optional("commitCount", facts?.repositories[engine.paths.repositoryName]?.commitCount), ...optional("latestCommit", facts?.repositories[engine.paths.repositoryName]?.pushedSha) };
       }
     }

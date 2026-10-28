@@ -76,6 +76,10 @@ const logHelper = (kind) => scenarioPath && appendFileSync(`${scenarioPath}.help
 const isSession = args.includes("--session-id") || args.includes("--resume");
 if (args[0] === "auth" && args[1] === "status") {
   logHelper("account");
+  const authCalls = scenarioPath ? readFileSync(`${scenarioPath}.helpers.jsonl`, "utf8").split("\n").filter(line => line.includes('"kind":"account"')).length : 1;
+  const authWait = authCalls > 1 ? process.env.KILN_STANDIN_AUTH_AFTER_WAIT : process.env.KILN_STANDIN_AUTH_WAIT;
+  while (authWait && !existsSync(authWait)) await new Promise(resolve => setTimeout(resolve, 25));
+  if (process.env.KILN_STANDIN_AUTH_OBSERVED) writeFileSync(process.env.KILN_STANDIN_AUTH_OBSERVED, new Date().toISOString());
   const account = process.env.KILN_STANDIN_ACCOUNT;
   process.stdout.write(account ? readFileSync(account, "utf8") : JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email: "alex@acme-shop.dev", subscriptionType: "max" }));
   process.stdout.write("", () => process.exit(0));
@@ -88,7 +92,10 @@ if (!isSession && args[0] === "-p" && args[1] === "/usage") {
   await new Promise(() => {});
 }
 if (!isSession && args.includes("--input-format")) {
-  logHelper(args.includes("--setting-sources=user,project,local") ? "skills" : "models");
+  const skillsRead = args.includes("--setting-sources=user,project,local");
+  logHelper(skillsRead ? "skills" : "models");
+  const metadataWait = skillsRead ? process.env.KILN_STANDIN_SKILLS_WAIT : process.env.KILN_STANDIN_MODELS_WAIT;
+  while (metadataWait && !existsSync(metadataWait)) await new Promise(resolve => setTimeout(resolve, 25));
   const modelsPath = process.env.KILN_STANDIN_MODELS;
   const answer = modelsPath ? JSON.parse(readFileSync(modelsPath, "utf8")) : { models: JSON.parse(readFileSync(join(fixtures, "supported-models.json"), "utf8")).models };
   if (answer.fail) {

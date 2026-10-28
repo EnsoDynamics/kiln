@@ -71,7 +71,8 @@ describe("a schema 1 record read by this Kiln", () => {
     const after = buildSnapshot(engine);
     expect(before.account?.limitsStale).toBe(true);
     expect(after.account?.limitsStale).toBeUndefined();
-    expect(after.account?.limitsObservedAt).toBe(after.account?.updatedAt);
+    // AC-SEE-03: usage completes before its final corroborating authentication read.
+    expect(Date.parse(after.account!.limitsObservedAt!)).toBeLessThan(Date.parse(after.account!.updatedAt));
     expect(Date.parse(after.account!.limitsObservedAt!)).toBeGreaterThan(Date.parse(before.account!.limitsObservedAt!));
     const priorAccount = { ...before.account }; delete priorAccount.limitsStale;
     expect(after.account).toEqual({ ...priorAccount, ...(before.account?.extraUsage ? { extraUsage: { ...before.account.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String), limitsObservedAt: expect.any(String) });

@@ -77,10 +77,10 @@ describe("the usage limits (headless /usage)", () => {
 
   it("says Claude Code didn't report a plan's limits when the report or its limits are missing, and nothing without a plan", () => {
     const missing = "Claude Code didn't report this plan's usage limits.";
-    expect(parseUsage('{"type":"result"}\n', true)).toEqual({ limits: [], limitsError: missing });
-    expect(parseUsage(`${JSON.stringify({ type: "assistant", usage_report: { rate_limits: null } })}\n`, true)).toEqual({ limits: [], limitsError: missing });
-    expect(parseUsage(usageWith(null), true)).toEqual({ limits: [], limitsError: missing });
-    expect(parseUsage('{"type":"result"}\n', false)).toEqual({ limits: [] });
+    expect(parseUsage('{"type":"result"}\n', true)).toEqual({ limits: [], limitsAvailable: false, limitsError: missing });
+    expect(parseUsage(`${JSON.stringify({ type: "assistant", usage_report: { rate_limits: null } })}\n`, true)).toEqual({ limits: [], limitsAvailable: false, limitsError: missing });
+    expect(parseUsage(usageWith(null), true)).toEqual({ limits: [], limitsAvailable: false, limitsError: missing });
+    expect(parseUsage('{"type":"result"}\n', false)).toEqual({ limits: [], limitsAvailable: false });
   });
 
   it("gives an error in place of guessed numbers for a shape it doesn't recognize", () => {

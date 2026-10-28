@@ -40,10 +40,10 @@ describe("Claude Code enabled-skill readiness", () => {
     info = new AgentInfo({ agentId: "claude_code", executable: { claude }, cwd: sandbox.root, claudeCwd: sandbox.root, env });
     await info.refresh();
     const original = structuredClone(info.state.account!);
-    expect(original.limits).toHaveLength(3); expect(original.limitsObservedAt).toBe(original.updatedAt);
+    expect(original.limits).toHaveLength(3); expect(Date.parse(original.limitsObservedAt!)).toBeLessThan(Date.parse(original.updatedAt));
     await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
     expect(info.state.blockers).toEqual([]);
-    expect(info.state.account).toMatchObject({ email: original.email, limits: original.limits, limitsObservedAt: original.updatedAt, limitsStale: true });
+    expect(info.state.account).toMatchObject({ email: original.email, limits: original.limits, limitsObservedAt: original.limitsObservedAt, limitsStale: true });
     expect(info.state.account!.updatedAt).not.toBe(original.updatedAt);
     signIn("second@example.invalid"); await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
     const second = structuredClone(info.state.account!);
@@ -61,7 +61,7 @@ describe("Claude Code enabled-skill readiness", () => {
     expect(existsSync(`${scenario}.calls.jsonl`)).toBe(false);
     await info.refresh();
     expect(info.state.account).toMatchObject({ email: "second@example.invalid", limits: original.limits });
-    expect(info.state.account!.limitsObservedAt).not.toBe(original.updatedAt);
+    expect(info.state.account!.limitsObservedAt).not.toBe(original.limitsObservedAt);
   });
   it("accepts the installed plugin without flat skill folders, and sends no implementation prompt", async () => {
     const { scenario } = setup(pluginSkills);
@@ -111,4 +111,21 @@ describe("Claude Code enabled-skill readiness", () => {
     expect(info!.state.blockers).toHaveLength(METHOD_SKILLS.length);
     expect(info!.state.blockers.join(" ")).toContain("implement-from-requirements");
   });
+});
+
+it('keeps launch authentication dated before independently delayed models and skills finish', async () => {
+  sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, 'bin'));
+  const scenario = join(sandbox.root, 'scenario.json'); writeFileSync(scenario, JSON.stringify({ sessions: [] }));
+  const modelsGate = join(sandbox.root, 'models'); const skillsGate = join(sandbox.root, 'skills'); const observed = join(sandbox.root, 'auth-observed');
+  const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, KILN_STANDIN_MODELS_WAIT: modelsGate, KILN_STANDIN_SKILLS_WAIT: skillsGate, KILN_STANDIN_AUTH_OBSERVED: observed };
+  info = new AgentInfo({ agentId: 'claude_code', executable: { claude }, cwd: sandbox.root, claudeCwd: sandbox.root, env });
+  const pending = info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+  const { waitFor } = await import('../test-support/engine-harness.js');
+  await waitFor(() => existsSync(observed));
+  await new Promise(resolve => setTimeout(resolve, 60)); const modelsReleasedAt = Date.now(); writeFileSync(modelsGate, '');
+  await new Promise(resolve => setTimeout(resolve, 60)); const skillsReleasedAt = Date.now(); writeFileSync(skillsGate, '');
+  expect(await pending).not.toHaveProperty('error');
+  expect(Date.parse(info.state.account!.updatedAt)).toBeGreaterThanOrEqual(Date.parse(readFileSync(observed, 'utf8')));
+  expect(Date.parse(info.state.account!.updatedAt)).toBeLessThan(modelsReleasedAt); expect(Date.parse(info.state.account!.updatedAt)).toBeLessThan(skillsReleasedAt);
+  expect(info.state.account!.limitsObservedAt).toBeUndefined(); expect(info.state.blockers).toEqual([]);
 });
