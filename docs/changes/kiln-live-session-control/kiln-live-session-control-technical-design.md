@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All seven implementation leaves are closed and published; [Phase 7](phase-7-live-session-recovery-safeguards.md) is published as `c02a371`. It completes the existing uncertainty/review, saved-correlation and observed-process release contracts, including final scanner/release-ledger checks. It changes no requirement, provider qualification or ownership boundary. Historical verification qualifications remain unchanged. Obtain the authorized fresh whole-PRD delivery audit, then test audit when delivery is clean.
+**Status:** Phases 1–7 are closed and published; Phase 7 is `c02a371`. The fresh whole-PRD audit after Phase 7 adds [Phase 8](phase-8-live-session-control-recovery.md) for remaining control availability, exit accounting, review recovery, audit error and terminal-command variants. The existing contracts below remain unchanged; the phase plan records the current audit outcome. Build Phase 8, then repeat whole-PRD delivery audit and run test audit only when delivery is clean. Historical verification qualifications remain unchanged.
 
 ## Overview
 
