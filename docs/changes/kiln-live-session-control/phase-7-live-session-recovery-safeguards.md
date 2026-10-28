@@ -2,7 +2,7 @@
 
 **Closed:** 2026-10-28
 
-Closure records scoped implementation and verification; publication remains held for Doug.
+Closure records scoped implementation and verification. Phase 7 is published as `c02a371` under Doug’s subsequent authorization below.
 
 **Added by delivery audit:** 2026-10-28, after all six implementation/completion leaves closed. Completes the AC-MSG-05 and AC-BOT-02 gaps confirmed against `b774f87`, plus the AC-MSG-03 and AC-TAKE-02/04 gaps confirmed by the repeat audit at `eb363a9`.
 
@@ -82,4 +82,8 @@ All **seven installed-package checks** passed after packing and installing this 
 
 ## Next unit after publication
 
-Phase 7 closes the last implementation leaf. Publication of this implementation remains held under the starting authorization above. After Doug approves publication, obtain a fresh whole-PRD `delivery-audit`; historical delivery passes do not establish the repairs' whole-PRD completeness. A fresh `test-audit` follows only a clean delivery audit. Both audits run in fresh chats; no successor implementation leaf is currently planned. Bot-control and plan-continuation remain separate tracks. No production changes or messages to other chats are authorized.
+Phase 7 closes the last implementation leaf and is published as `c02a371`. Obtain the authorized fresh whole-PRD `delivery-audit`; historical delivery passes do not establish the repairs' whole-PRD completeness. A fresh `test-audit` follows only a clean delivery audit. Both audits run in fresh chats; no successor implementation leaf is currently planned. Bot-control and plan-continuation remain separate tracks. No production changes or messages to other chats are authorized.
+
+## Phase 7 publication and fresh audit launch
+
+Doug lifted the Phase 7 publication hold in implementation chat `01a18006-cb71-71f1-934a-6bbb7830d56f`: “Go ahead and push Phase 7, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.” Phase 7 is published unchanged as `c02a371`; the shared checkout is current and clean before the audit launch. This authorizes publication of Phase 7 and launch of that fresh whole-PRD delivery audit using GPT 6.1 Sol at High effort. The successor uses delivery-audit's scoped commit default and holds publication of its later work for Doug. Test audit follows only after delivery is clean; production changes and messages to other chats remain unauthorized. Bot-control and plan-continuation remain separate tracks.

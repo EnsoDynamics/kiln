@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Phases 1–6 are closed and published. [Phase 7](phase-7-live-session-recovery-safeguards.md) is closed locally after completing uncertainty review, saved correlation validation and observed-process release safeguards. Its current-build verification is recorded in the leaf; publication remains held for Doug. After publication, obtain a fresh whole-PRD delivery audit and test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All seven implementation leaves are closed and published. [Phase 7](phase-7-live-session-recovery-safeguards.md) is published as `c02a371`; its current-build verification is recorded in the leaf. Doug authorized the fresh whole-PRD delivery-audit launch; test audit follows only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,9 +136,9 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: Publish Phase 7 and repeat delivery audit
+## Next: Repeat whole-PRD delivery audit
 
-[Phase 7](phase-7-live-session-recovery-safeguards.md) completes the five gaps assigned by the [repeat audit after Phase 6](kiln-live-session-control-phase-plan.md#repeat-delivery-audit-after-phase-6--2026-10-28): AC-MSG-03, AC-MSG-05, AC-TAKE-02, AC-TAKE-04 and AC-BOT-02. All seven leaves are closed; publication of Phase 7 remains held for Doug. After publication, repeat whole-PRD `delivery-audit`; run `test-audit` only when delivery is clean. Phases 3–6 retain their distinct historical verification records. The earlier delivery passes traced code without running or grading product tests; this implementation's current verification does not replace the fresh whole-PRD audit.
+[Phase 7](phase-7-live-session-recovery-safeguards.md) completes the five gaps assigned by the [repeat audit after Phase 6](kiln-live-session-control-phase-plan.md#repeat-delivery-audit-after-phase-6--2026-10-28): AC-MSG-03, AC-MSG-05, AC-TAKE-02, AC-TAKE-04 and AC-BOT-02. All seven leaves are closed and published; Phase 7 is `c02a371`. Run the authorized fresh whole-PRD `delivery-audit`; run `test-audit` only when delivery is clean. Phases 3–6 retain their distinct historical verification records. The earlier delivery passes traced code without running or grading product tests; this implementation's current verification does not replace the fresh whole-PRD audit.
 
 ## Out of scope
 
