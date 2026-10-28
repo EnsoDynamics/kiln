@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All eleven implementation leaves are closed and published. [Phase 11](phase-11-revalidate-history-before-resume-input.md) implements the final resumed-input history check required by Ownership admission in `a20ddf7`. Its final record authorizes publication and a fresh whole-PRD delivery-audit launch; affected-row test-audit reassessment follows only when delivery is clean. Later publication remains held. All provider/verification qualifications and design policies remain unchanged.
+**Status:** All eleven implementation leaves are closed and published. The fresh whole-PRD [delivery audit after Phase 11](kiln-live-session-control-delivery-audit-after-phase-11.md) finds all 20 active criteria Implemented at final baseline `3aee728`, including Phase 11’s final resumed-input history guard and retained release/Verify siblings. Affected-row test-audit reassessment follows after authorized audit publication; later publication and successor launch remain held. All normative design policies, provider limits and verification qualifications remain unchanged.
 
 ## Overview
 
