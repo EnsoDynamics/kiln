@@ -1883,7 +1883,11 @@
           "source": "The original command ID used for the instruction being inspected. Do not generate a new ID for this query."
         }
       },
-      "required_exclusive_groups": [],
+      "required_exclusive_groups": [
+        {
+          "required": ["command-id"]
+        }
+      ],
       "limits": [
         "Requires --command-id from the original instruction. No status token or live controller required; queries never dispatch work.",
         "Receipts/retry protection last for the saved execution history lifetime, including completion. Closed-controller pending receipts are reported indeterminate; read-only lookup does not reconcile by dispatching."

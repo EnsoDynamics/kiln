@@ -1,7 +1,7 @@
 /** Frozen output pages: bounded file reads, authenticated cursors, final stdout budget. */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { openSync, closeSync, readSync, fstatSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { constants, openSync, closeSync, readSync, fstatSync, lstatSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { writeDurableMetadata } from "./durable-file.js";
 import { checkedPath, privateJson, safeSelector, type SavedWork } from "./private-state.js";
 import { ControlFailure, commandText, result, serialize, type Result } from "./result.js";
@@ -17,6 +17,23 @@ interface Position { snapshot: string; end: number; scalar: number | null }
 interface Line { number: number; at: string; source: string; text: string; fragment: { start: number; end: number; total: number; unit: "unicode_scalar" } | null }
 function unavailable(reason: string): never { throw new ControlFailure("saved_output_unavailable", reason); }
 function deadlineCheck(deadline: number): void { if (Date.now() > deadline) unavailable("The saved-output validation deadline expired."); }
+/** Reject special files before open; nonblocking/no-follow flags also cover replacement races. */
+function openSavedOutput(root: string, path: string, deadline: number): number {
+  let fd: number | undefined;
+  try {
+    deadlineCheck(deadline); checkedPath(root, path);
+    if (!lstatSync(path).isFile()) unavailable("Saved output is not a regular file.");
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0));
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) unavailable("Saved output is not a regular file.");
+    if ((process.getuid && stat.uid !== process.getuid()) || (process.platform !== "win32" && ((stat.mode & 0o022) !== 0 || (stat.mode & 0o400) === 0))) unavailable("Saved output is not readable and owner controlled.");
+    deadlineCheck(deadline); return fd;
+  } catch (error) {
+    if (fd !== undefined) closeSync(fd);
+    if (error instanceof ControlFailure && error.code === "saved_output_unavailable") throw error;
+    unavailable("Saved output is missing, unreadable or not owner controlled.");
+  }
+}
 function previousNewline(fd: number, before: number, deadline: number): number {
   let end = before;
   while (end > 0) {
@@ -136,8 +153,7 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
   }
   if (!selected) return result({ ...base, reason: "no_session", lines: [], range: null, has_older: false, next_before: null, next_command: null, next_argv: null });
   const path = join(directory, selected.phase, selected.id, "output.jsonl");
-  let fd: number;
-  try { checkedPath(root, path); fd = openSync(path, "r"); } catch { unavailable("Saved output is missing, unreadable or not owner controlled."); }
+  const fd = openSavedOutput(root, path, deadline);
   try {
     const stat = fstatSync(fd); const identity = `${stat.dev}:${stat.ino}`;
     let session: { outputGeneration?: string };
@@ -211,8 +227,13 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
 /** Bounded observation for status; creates no output snapshot or cursor. */
 export function recentSavedOutput(work: SavedWork, phase: string, id: string, limit = 10, deadline = Date.now() + 5000): { line: number; at: string; source: string; text: string; fragment: Line["fragment"] }[] {
   const path = join(work.directory, phase, id, "output.jsonl");
-  if (!existsSync(path)) return [];
-  checkedPath(work.root, path); const fd = openSync(path, "r");
+  checkedPath(work.root, dirname(path));
+  try { lstatSync(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    unavailable("Saved output could not be inspected.");
+  }
+  const fd = openSavedOutput(work.root, path, deadline);
   try {
     let end = previousNewline(fd, fstatSync(fd).size, deadline) + 1; const rows = [];
     while (end > 0 && rows.length < limit) {

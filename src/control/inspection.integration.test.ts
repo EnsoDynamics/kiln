@@ -114,6 +114,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const expected={observed_at:transition,description:state==='paused'?'Run paused.':'Run completed.'};
     expect((await command(['status',path,'--json'],h.env)).json()).toMatchObject({state,last_activity:{...expected,state:'current'}});
     const inventory=(await command(['status','--json'],h.env)).json();
+    expect(inventory.counts).toEqual({live_controllers:1,working:0,waiting:0,needs_you:0,paused:state==='paused'?1:0,stopped_unfinished:0,unknown:0});
     expect(inventory.runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:path,last_activity:expect.objectContaining(expected)})]));
     // Later saved output remains the latest observation, even without a current view.
     const outputAt='2026-11-01T12:01:00.000Z';
@@ -209,9 +210,18 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   });
   it('returns every owned conversation/attempt, distinct Codex IDs, explicit missing and unproven ownership, and no invented future session',async()=>{
     sandbox=createSandbox();const f=fixture();session(f,'old-claude','1a','claude_code');session(f,'old-codex');const current=session(f,'current-codex','2');
+    f.record.plan!.push({id:'3',title:'Unstarted phase',file:'phase-3-unstarted.md',closed:false,repositories:[]});writePrdRecord(f.directory,f.record);
     const history=(await command(['status',f.path,'--detail','full','--json'])).json().session_history as ReturnType<typeof readHistory>;
     expect(history.complete).toBe(true);expect(history.phases.find(p=>p.phase_key==='1a')!.conversations).toHaveLength(2);expect(history.phases.find(p=>p.phase_key==='2')!.conversations).toHaveLength(1);
-    expect(history.phases.find(p=>p.phase_key==='1a')!.conversations[1]).toMatchObject({session_id:'old-codex',provider_session_id:'provider-old-codex',attempts:[{cause:'launch'},{cause:'person_resume'}]});
+    expect(history.phases.find(p=>p.phase_key==='1a')).toMatchObject({phase_id:'1a',phase_title:'Nested intake',conversations:[
+      {session_id:'old-claude',provider_session_id:'old-claude',agent:'claude_code'},
+      {session_id:'old-codex',provider_session_id:'provider-old-codex',agent:'codex'},
+    ]});
+    for(const conversation of history.phases.flatMap(p=>p.conversations))expect(conversation).toMatchObject({activity_kind:'phase',working_directory:f.repository,working_directory_provenance:'recorded',created_at:'2026-01-02T00:00:00.000Z',latest_attempt_at:'2026-01-02T02:00:00.000Z',controller_session_state:'stopped',identity_availability:'known',provider_history:{state:'unknown',observed_at:null},attempts:[
+      {started_at:'2026-01-02T00:00:00.000Z',ended_at:'2026-01-02T01:00:00.000Z',cause:'launch',state:'stopped',requested:{model:'gpt-model',effort:null}},
+      {started_at:'2026-01-02T02:00:00.000Z',ended_at:'2026-01-02T03:00:00.000Z',cause:'person_resume',state:'stopped',requested:{model:'gpt-model',effort:null}},
+    ]});
+    expect(history.phases.find(p=>p.phase_key==='3')).toEqual({phase_key:'3',phase_id:'3',phase_title:'Unstarted phase',conversations:[]});
     const rawSessionPath=join(f.directory,'2',current.record.sessionId,'session.json');
     writeJsonAtomically(rawSessionPath,{...current.record,schemaVersion:999});expect((await command(['status',f.path,'--detail','full','--json'])).code).toBe(4);
     writeSessionRecord(f.directory,current.record);
@@ -246,6 +256,11 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const account=(await command(['account',path,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
     expect(account.next_attempt).toMatchObject({observed_at:h.engine.agents.state.account!.updatedAt,state:'current'});
     const calls=h.claudeCalls().length;await command(['account',path,'--refresh','--json'],h.env,h.sandbox.root);expect(h.claudeCalls()).toHaveLength(calls);
+    expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:0,waiting:0,needs_you:1,paused:0,stopped_unfinished:0,unknown:0});
+    const facts=h.engine.record.phases['1']!;const stop=facts.stop!;delete facts.stop;
+    facts.wait={since:'2026-01-02T04:00:00Z',sessionId:facts.sessionIds.at(-1)!,run:0,checkedAt:'2026-01-02T04:00:00Z',checks:[]};writePrdRecord(h.stateDirectory,h.engine.record);
+    expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:0,waiting:1,needs_you:0,paused:0,stopped_unfinished:0,unknown:0});
+    delete facts.wait;facts.stop=stop;writePrdRecord(h.stateDirectory,h.engine.record);
     await server.close();server=undefined;rmSync(join(h.stateDirectory,'instance.lock'));
     const stopped=(await command(['status',path,'--json'],h.env,h.sandbox.root)).json();expect(stopped.facts).toMatchObject({state:'stale'});expect(stopped.stop).toMatchObject({final_message:browser.finalMessage});
     const retained=stopped.controls as {name:string;available:boolean;reason:string|null}[];
@@ -260,6 +275,9 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const port=await freePort();server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const path=join(h.repository,`docs/prds/${FOLDER}`);
+    expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:1,waiting:0,needs_you:0,paused:0,stopped_unfinished:0,unknown:0});
+    const running=(await command(['status',path,'--detail','full','--json'],h.env)).json().session_history as ReturnType<typeof readHistory>;
+    expect(running.phases.flatMap(p=>p.conversations)).toEqual(expect.arrayContaining([expect.objectContaining({session_id:h.engine.current!.session!.sessionId,controller_session_state:'running'})]));
     const active=await command(['handoff',path,'--json'],h.env,h.sandbox.root);expect(active.code).toBe(4);expect(active.json().data).toMatchObject({resumable:false,active_under_kiln:true,resume_command:null});
     writeFileSync(gate,'done');await h.engine.settled();
     const current=h.engine.latestSession('1')!;
@@ -826,4 +844,153 @@ it.each(['claude_code', 'codex'] as const)('preserves positively bound legacy %s
   writeJsonAtomically(binding, { version: 1, execution_id: f.record.executionId, sessions: { '1a/bound-legacy': 'mismatched-creation-time' } });
   const rejected = await command(['status', f.path, '--detail', 'full', '--json']);
   expect(rejected.code).toBe(4); expect(rejected.json().session_history).toMatchObject({ complete: false }); expect(rejected.json().stop).toMatchObject({ final_message: null, message_complete: false });
+});
+
+/** Keep both the CLI and controller outside Vitest: a blocking FIFO open must fail, never hang the runner. */
+async function boundedCli(args: string[], env = sandbox.env) {
+  const built = fileURLToPath(new URL('../../dist/cli.js', import.meta.url));
+  const child = spawn(process.execPath, [built, ...args], { cwd: sandbox.root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = ''; let stderr = ''; let expired = false;
+  child.stdout.on('data', b => stdout += String(b)); child.stderr.on('data', b => stderr += String(b));
+  const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 7000);
+  try {
+    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+    expect(expired, `CLI exceeded deadline: ${args.join(' ')}`).toBe(false);
+    expect(stderr).toBe('');
+    return { code, stdout, value: () => JSON.parse(stdout) as Result };
+  } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }
+}
+async function isolatedInspectionController(f: ReturnType<typeof fixture>) {
+  const port = await freePort();
+  const script = `
+    import { Engine } from ${JSON.stringify(new URL('../../dist/engine/engine.js', import.meta.url).href)};
+    import { readWork } from ${JSON.stringify(new URL('../../dist/control/private-state.js', import.meta.url).href)};
+    import { startLocalServer } from ${JSON.stringify(new URL('../../dist/server/local-server.js', import.meta.url).href)};
+    const saved = readWork(${JSON.stringify(stateRoot(sandbox.env))}, ${JSON.stringify(f.directory)});
+    const engine = new Engine({ paths: ${JSON.stringify({ mainCheckoutPath: f.repository, repositoryName: f.record.repository.name, folderName: FOLDER, prdDirectoryFromRoot: f.record.prdDirectory, featureName: 'Returns' })},
+      tools: { git: 'git', gh: 'missing-gh', claude: 'missing-claude', codex: 'missing-codex' }, env: process.env, stateDirectory: saved.directory, record: saved.record, sleepReader: { next: async () => [] } });
+    const server = await startLocalServer({ engine, port: ${port}, folderName: ${JSON.stringify(FOLDER)}, featureName: 'Returns', token: saved.record.token });
+    process.on('SIGTERM', async () => { await server.close(); engine.close(); process.exit(0); });
+    process.send('ready');
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: sandbox.env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  let stderr = ''; child.stderr!.on('data', b => stderr += String(b));
+  const stop = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const timer = setTimeout(() => child.kill('SIGKILL'), 1000);
+    try { const closed = new Promise<void>(resolve => child.once('close', () => resolve())); child.kill('SIGTERM'); await closed; }
+    finally { clearTimeout(timer); }
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Controller startup exceeded deadline.')); }, 7000);
+      child.once('message', () => { clearTimeout(timer); resolve(); });
+      child.once('error', e => { clearTimeout(timer); reject(e); });
+      child.once('exit', code => { clearTimeout(timer); reject(new Error(`Controller exited ${code}: ${stderr}`)); });
+    });
+    writeJsonAtomically(join(f.directory, 'instance.lock'), { pid: child.pid!, processStartTime: await processStartTime(child.pid!), port });
+    return { stop, health: async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/control/v1/capabilities`, { headers: { 'X-Kiln-Token': f.record.token }, signal: AbortSignal.timeout(1500) });
+      expect(response.status).toBe(200); expect((await response.json() as { execution_id: string }).execution_id).toBe(f.record.executionId);
+    } };
+  } catch (e) { await stop(); throw e; }
+}
+
+describe('bounded saved-output and required receipt selectors through the built CLI', () => {
+  it('honors the public 50-entry default, 200-entry ceiling, next invocation and zoned text dates', async () => {
+    sandbox = createSandbox(); const f = fixture(); const saved = session(f);
+    // Short saved metadata lets 200 whole entries fit beneath the separate stdout byte cap.
+    writeFileSync(saved.output, Array.from({length:215},(_,i)=>JSON.stringify({line:i+1,at:'now',source:'out',text:String(i+1)})).join('\n')+'\n');
+    const tail=await boundedCli(['logs',f.path,'--json']);expect(tail.code).toBe(0);
+    expect(tail.value()).toMatchObject({requested_lines:50,range:{first:166,last:215},has_older:true});
+    expect((tail.value().lines as unknown[])).toHaveLength(50);
+    expect(tail.value().observed_at).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+    const next=tail.value().next_argv as string[];expect(next[0]).toBe('kiln');
+    const older=await boundedCli(next.slice(1));expect(older.code).toBe(0);expect(older.value()).toMatchObject({session_id:saved.record.sessionId,snapshot_id:tail.value().snapshot_id,range:{first:116,last:165}});
+    const maximum=await boundedCli(['logs',f.path,'--max-lines','200','--json']);expect(maximum.code).toBe(0);
+    expect(maximum.value()).toMatchObject({requested_lines:200,range:{first:16,last:215}});expect((maximum.value().lines as unknown[])).toHaveLength(200);expect(Buffer.byteLength(maximum.stdout)).toBeLessThanOrEqual(LOG_BYTES);
+    const text=await boundedCli(['logs',f.path]);expect(text.code).toBe(0);expect(text.stdout).toMatch(/observed_at: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC[+-]\d{2}:\d{2}/);expect(Buffer.byteLength(text.stdout)).toBeLessThanOrEqual(LOG_BYTES);
+  });
+  it.each([false, true].flatMap(live => [false, true].flatMap(json => ['directory', 'unreadable', ...(process.platform === 'win32' ? [] : ['fifo', 'dangling-symlink'])].map(kind => ({live, json, kind})))) )('rejects $kind output live=$live json=$json without consuming the controller', async ({live, json, kind}) => {
+    sandbox = createSandbox(); const f = fixture(); const s = session(f);
+    f.record.phases['1a']!.stop = { kind: 'done_check', at: '2026-01-03T00:00:00Z', checkedAt: '2026-01-03T00:00:00Z', checks: [] }; writePrdRecord(f.directory, f.record);
+    const regular = Array.from({ length: 3 }, (_, i) => JSON.stringify({ line: i + 1, at: '2026-01-03T00:00:00Z', source: 'assistant', text: `exact ${i} "🐦"\nnext` })).join('\n') + '\n';
+    writeFileSync(s.output, regular);
+    const owner = live ? await isolatedInspectionController(f) : undefined;
+    const format = json ? ['--json'] : [];
+    try {
+      const first = await boundedCli(['logs', f.path, '--max-lines', '1', '--json']);
+      expect(first.code, first.stdout).toBe(0); const cursor = first.value().next_before as string; expect(cursor).toBeTypeOf('string');
+      const calls = [ ['status'], ['status', f.path], ['status', f.path, '--detail', 'full'], ['logs', f.path], ['logs', f.path, '--session-id', s.record.sessionId], ['logs', f.path, '--older-output-cursor', cursor] ];
+      rmSync(s.output, { recursive: true });
+      if (kind === 'directory') mkdirSync(s.output, { mode: 0o700 });
+      else if (kind === 'dangling-symlink') symlinkSync(join(sandbox.root, 'missing-output-target'), s.output);
+      else if (kind === 'fifo') { const made = spawnSync('mkfifo', ['-m', '600', s.output], { encoding: 'utf8' }); expect(made.status, made.stderr).toBe(0); }
+      else { writeFileSync(s.output, regular, { mode: 0o600 }); chmodSync(s.output, 0); }
+      for (const args of calls) {
+        const answer = await boundedCli([...args, ...format]);
+        expect(answer.code, `${kind}: ${answer.stdout}`).toBe(4);
+        const code = args[0] === 'logs' ? 'saved_output_unavailable' : args.length === 1 ? 'inventory_incomplete' : 'state_unavailable';
+        if (json) {
+          expect(answer.value()).toMatchObject({ schema_version: '1', ok: false, errors: expect.arrayContaining([expect.objectContaining({ code })]) });
+          if (args.length === 1) expect(answer.value().inventory_complete).toBe(false);
+          else if (args[0] === 'status') {
+            expect(answer.value().last_activity).toMatchObject({ state: 'unavailable' });
+            if (live) expect(answer.value().errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('browser projection') })]));
+          }
+        } else expect(answer.stdout).toContain(code);
+        if (args[0] === 'logs') expect(Buffer.byteLength(answer.stdout)).toBeLessThanOrEqual(LOG_BYTES);
+        await owner?.health();
+      }
+      rmSync(s.output, { recursive: true }); writeFileSync(s.output, '', { mode: 0o600 });
+      const empty = await boundedCli(['logs', f.path, ...format]); expect(empty.code, empty.stdout).toBe(0); expect(empty.stdout).toContain('no_output');
+      writeFileSync(s.output, regular);
+      const valid = await boundedCli(['logs', f.path, ...format]); expect(valid.code, valid.stdout).toBe(0); expect(Buffer.byteLength(valid.stdout)).toBeLessThanOrEqual(LOG_BYTES);
+      if (json) expect(valid.value().lines).toEqual([0, 1, 2].map(i => ({ number: i + 1, at: '2026-01-03T00:00:00Z', source: 'assistant', text: `exact ${i} "🐦"\nnext`, fragment: null })));
+      else expect(valid.stdout).toContain('exact 2 "🐦"\nnext');
+      await owner?.health();
+    } finally { await owner?.stop(); }
+  });
+
+  it.each([false, true])('requires the original command ID before any lookup and preserves literal undefined in json=%s', async json => {
+    sandbox = createSandbox(); const f = fixture(); const format = json ? ['--json'] : [];
+    // A real durable refusal has no provider effects and remains queryable across execution replacement/completion.
+    const { CommandJournal } = await import('./commands.js');
+    const journal = new CommandJournal(f.directory, f.path, {
+      execution: () => f.record.executionId!, view: () => ({ token: 'current', target: 'original-stop', controls: [] }), runState: () => 'needs_you',
+      apply: async () => { throw new Error('Refused fixture must never dispatch.'); }, reconcile: () => undefined, changed: () => {},
+    });
+    const original = { command_id: 'undefined', execution_id: f.record.executionId!, status_token: 'stale', action: 'resume', inputs: {} };
+    const refused = journal.submit(original); expect(refused.ok).toBe(false);
+    const operation = (refused.operation as { id: string }).id;
+    const ordinary = journal.submit({ ...original, command_id: 'original-instruction-42' });
+    const ordinaryOperation = (ordinary.operation as { id: string }).id;
+    expect((journal.submit(original).operation as { id: string }).id).toBe(operation);
+    const owner = await isolatedInspectionController(f);
+    try {
+      for (const live of [true, false]) {
+        if (!live) { await owner.stop(); rmSync(join(f.directory, 'instance.lock')); }
+        const before = tree(stateRoot(sandbox.env));
+        for (const target of [f.path, join(sandbox.root, 'no-target')]) {
+          const absent = await boundedCli(['command-status', target, ...format]);
+          expect(absent.code, absent.stdout).toBe(2); expect(absent.stdout).toContain('invalid_input'); expect(absent.stdout).toContain('--command-id');
+        }
+        const found = await boundedCli(['command-status', f.path, '--command-id', 'undefined', ...format]);
+        expect(found.code, found.stdout).toBe(0); expect(found.stdout).toContain(operation); expect(found.stdout).toContain('undefined');
+        const ordinaryFound = await boundedCli(['command-status', f.path, '--command-id', 'original-instruction-42', ...format]); expect(ordinaryFound.code).toBe(0); expect(ordinaryFound.stdout).toContain(ordinaryOperation);
+        const unknown = await boundedCli(['command-status', f.path, '--command-id', 'unknown', ...format]);
+        expect(unknown.code).toBe(2); expect(unknown.stdout).toContain('command_not_found');
+        const after = tree(stateRoot(sandbox.env));
+        if (live) {
+          const receipts = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).filter(([path]) => path.includes('/controls/')));
+          expect(receipts(after)).toEqual(receipts(before));
+        } else expect(after).toEqual(before);
+      }
+      f.record.executionId = 'replacement-execution'; f.record.billing!.executionId = f.record.executionId; f.record.completedAt = new Date().toISOString(); writePrdRecord(f.directory, f.record);
+      const retained = await boundedCli(['command-status', f.path, '--command-id', 'undefined', ...format]); expect(retained.code).toBe(0); expect(retained.stdout).toContain(operation);
+      const noTools = { ...sandbox.env, PATH: '' };
+      const absent = await boundedCli(['command-status', f.path, ...format], noTools); expect(absent.code).toBe(2); expect(absent.stdout).toContain('invalid_input');
+      const help = await boundedCli(['command-status', '--help', ...format], noTools); expect(help.code).toBe(0); expect(help.stdout).toContain('command-id');
+    } finally { await owner.stop(); }
+  });
 });

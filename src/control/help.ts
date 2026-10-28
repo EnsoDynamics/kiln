@@ -45,6 +45,7 @@ export function parseCommand(args: string[]): ParsedCommand {
   if (!flags.help) {
     if (positionals.length > contract.arguments.length || positionals.length < contract.arguments.filter(a => a.required).length) throw new ControlFailure("invalid_input", `Invalid arguments. Use kiln ${contract.path.join(" ")} --help.`, 2);
     for (const g of contract.required_exclusive_groups) if (g.exactly_one && g.exactly_one.filter(name => flags[name] !== undefined).length !== 1) throw new ControlFailure("invalid_input", `Exactly one of ${g.exactly_one.map(n => `--${n}`).join(", ")} is required.`, 2);
+    for (const g of contract.required_exclusive_groups) if (g.required?.some(name => flags[name] === undefined)) throw new ControlFailure("invalid_input", `Required flags: ${g.required.map(n => `--${n}`).join(", ")}.`, 2);
     if (contract.side_effect === "change" && (!flags["command-id"] || !flags["only-if-status-matches"])) throw new ControlFailure("invalid_input", "Changing commands require --command-id and --only-if-status-matches.", 2);
   }
   return { contract, positionals, flags };
