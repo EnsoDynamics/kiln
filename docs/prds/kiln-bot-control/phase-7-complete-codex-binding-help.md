@@ -1,6 +1,6 @@
 # Phase 7: Complete Codex account binding and command discovery
 
-**Closed:** 2026-10-27 (implemented and validated locally; publication held)
+**Closed:** 2026-10-27 (implemented and validated; publication authorized)
 
 **Added by delivery audit:** 2026-10-27, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md)
@@ -81,6 +81,10 @@ Machine-local diagnostics: `/private/tmp/kiln-ph7-final-two-worker.log`, `kiln-p
 
 ## Audit handoff and publication boundary
 
-The implementation source chat is `01a17f6b-e294-7f33-ae80-c5bac1361fb3`. Doug authorized the predecessor audit publication and this implementation in audit chat `01a17f48-2eae-70e1-a18d-c28472aeb823`: “Go ahead and push the audit, then launch a new chat using GPT-6.1 Sol with high reasoning to implement Phase 7.” Audit `a4d3129` and authorization `a820ca6` were published before this work began. Scoped Phase 7 commits follow the implement skill default. Publishing new Phase 7 implementation/audit commits and production release remain held.
+The implementation source chat is `01a17f6b-e294-7f33-ae80-c5bac1361fb3`. Doug authorized the predecessor audit publication and this implementation in audit chat `01a17f48-2eae-70e1-a18d-c28472aeb823`: “Go ahead and push the audit, then launch a new chat using GPT-6.1 Sol with high reasoning to implement Phase 7.” Audit `a4d3129` and authorization `a820ca6` were published before this work began. Scoped Phase 7 commits follow the implement skill default.
+
+In this implementation source chat on 2026-10-27, Doug then authorized: “Go ahead and push Phase 7, then launch a new chat using GPT-6.1 Sol with high reasoning for the fresh whole-PRD delivery audit.” This authorizes Phase 7 publication to `develop` and the fresh audit chat. Publishing the new audit's commits and production release remain held.
+
+For publication, the implementation rebased cleanly onto published `583a541`, producing `42aecba`. The combined tree passed lint, TypeScript/Svelte checks, all 635 unit tests and 71 integration tests across eight account-observation, inspection, account-selection, Codex-usage, live-command and live-control browser files. The integration portfolio took 145.96 seconds. These passing rebase checks do not change the full-gate limits above. Machine-local logs: `/private/tmp/kiln-ph7-publication-units.log`, `kiln-ph7-publication-lint.log`, `kiln-ph7-publication-integration-enabled.log`. An earlier sandbox-constrained integration attempt was stopped without a result; only the completed run is counted.
 
 After authorized Phase 7 publication, repeat whole-PRD delivery audit in a fresh chat, starting from published `origin/develop`. Do not reuse this implementation worktree. The fresh audit runs its own live-session check and creates its own worktree if needed. Whole-PRD test audit waits for a current clean delivery audit. Read this phase's Final verification, Phase 6's Final verification and Phase 5's Known baseline failures before reporting gate outcomes; none of the historical non-green gates becomes green by this phase's closure. Another track's live-control audit is independently owned and is not this PRD's successor.
