@@ -42,3 +42,6 @@ After closure/publication, obtain a fresh whole-PRD delivery audit; test audit f
 ## Publication and successor
 
 The source authorization in implementation chat `01a1804a-ad27-7fc0-9317-60119e6ac0c8` was: “Go ahead and push Phase 8, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.” It covers that publication and this audit launch only. This audit uses delivery-audit's scoped commit default and holds publication for Doug. The successor uses implement-from-requirements' scoped commit default and holds publication of its later work for Doug. No production changes or messages to other chats are authorized; bot-control and plan-continuation remain separate tracks.
+
+
+Doug subsequently lifted this audit's publication hold in audit chat `01a18088-e7b9-72c1-99d9-cfeabc3deedb`: “Go ahead and push the audit, then launch a new chat for Phase 9 using GPT 6.1 Sol High Effort.” This authorizes publishing audit `8d2428f` and its authorization/handoff record, then launching this Phase 9 implementation. The successor uses the scoped implementation commit default and holds publication of its later work for Doug. Production changes and messages to other chats remain unauthorized; the fresh delivery-audit-then-test-audit closeout remains required.

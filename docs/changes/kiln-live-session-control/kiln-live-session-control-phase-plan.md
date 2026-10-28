@@ -267,3 +267,10 @@ The [fresh audit record](kiln-live-session-control-delivery-audit-after-phase-8.
 **Audit limits:** No implementation or test files changed; no product tests ran or were graded. This is a delivery/code-reachability assessment, not a current passing verification gate or new provider qualification. All leaves retain their distinct historical validation records, especially Phase 8's confirmed unrelated baseline clock-test failure. The validated Claude profile, tracked-operation release boundary and Kiln-controlled terminal-admission limits remain unchanged.
 
 **Publication and next unit:** The Phase 8 publication/audit-launch authorization quoted immediately above covers that publication and this launch only. This audit uses delivery-audit's scoped commit default; publication remains held for Doug. After authorized publication, implement Phase 9 in a fresh chat, then obtain a fresh whole-PRD delivery audit; test audit follows only when delivery is clean. The successor uses implement-from-requirements' scoped commit default and holds publication of its later work for Doug. No production changes or messages to other chats are authorized. Bot-control and plan-continuation remain separate tracks.
+
+
+### Audit publication and Phase 9 launch
+
+Doug lifted this audit's publication hold in Codex chat `01a18088-e7b9-72c1-99d9-cfeabc3deedb`: “Go ahead and push the audit, then launch a new chat for Phase 9 using GPT 6.1 Sol High Effort.” This authorizes publication of audit `8d2428f` and this authorization/handoff record, followed by the Phase 9 implementation chat using GPT 6.1 Sol at High effort. The audit patch is unchanged; the shared checkout is refreshed before launch.
+
+Phase 9 uses implement-from-requirements' scoped commit default and holds publication of its later work for Doug. This approval does not authorize production changes or messages to other chats. Build the existing Phase 9 scope, then obtain a fresh whole-PRD delivery audit after closure/publication; test audit follows only when delivery is clean. Bot-control and plan-continuation remain separate tracks. All eight historical leaf validation records remain unchanged.
