@@ -240,11 +240,16 @@ describe.skipIf(process.platform !== "darwin").each([
     writeFileSync(report, original);
   }
   h.engine.record.pause.requestedAt = new Date().toISOString(); await h.engine.reconcileTakeover();
+  const label = `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${audit.round}`;
+  expect((await status()).pause_status).toBe(`Paused for terminal takeover. Will pause after ${label} finishes. Current work continues.`);
+  expect((await cli(["status", path()], undefined, false)).text).toContain(`Will pause after ${label} finishes. Current work continues.`);
   const returned = await cli(args(action, "audit-return")); expect(returned.code, returned.text).toBe(0); await h.engine.commands.settled(); await h.engine.settled();
   expect(receipt("audit-return").state, JSON.stringify(receipt("audit-return"))).toBe("completed");
   expect(h.engine.auditActivity(target.activityKey)).toMatchObject({ activityId: audit.activityId, round: audit.round });
   expect(h.engine.latestSession(target.activityKey)!.runs).toHaveLength(action === "resume" ? 2 : 1);
   expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined(); expect(h.engine.record.liveControl).toBeUndefined(); expect(h.engine.record.pause.activeSince).toBeDefined();
+  expect((await status()).pause_status).toBe(`${label} finished. Paused before the next activity.`);
+  expect((await cli(["status", path()], undefined, false)).text).toContain(`${label} finished. Paused before the next activity.`);
 });
 });
 

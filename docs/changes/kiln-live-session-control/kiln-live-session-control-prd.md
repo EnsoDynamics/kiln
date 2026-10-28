@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All nine implementation leaves are closed and published. The [fresh whole-PRD delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, with no delivery gaps. Whole-PRD test audit is the next planned unit after authorized audit publication; test evidence is not yet graded by that closeout. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All nine implementation leaves are closed and published. The [clean whole-PRD delivery audit](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, and the [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done with all 20 Adequate. Its scoped publication remains held for Doug. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,11 +136,11 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: whole-PRD test audit
+## Whole-PRD closeout
 
-The [fresh whole-PRD delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) assesses the published implementation at `9a643ca`: all 20 active criteria are Implemented, with zero confirmed gaps in one complete assessment round. The documentation-only refresh to `118c659` does not change its requirements or implementation baseline. No completion phase is added.
+The [delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented. The [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done on 2026-10-28: all 20 criteria are Adequate, 16 coverage/assertion gaps are closed and mapped test fixtures are repaired. Product code and governing acceptance behavior are unchanged, so the clean delivery verdict remains applicable. No implementation or test-remediation successor is required for this PRD.
 
-Publish this audit after Doug authorizes, then run whole-PRD `test-audit` in a fresh chat. The [phase plan](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-9--2026-10-28) records the current verdict, authorization boundary and successor. All nine Closed lines and their historical validation qualifications remain unchanged, especially Phase 8's confirmed unrelated baseline failure and Phase 9's complete-run-plus-focused-retest portfolio. A clean delivery verdict does not grade those tests or close the test-audit track. Bot-control and plan-continuation remain separate tracks.
+The test-audit record preserves the complete-run-plus-repaired-test portfolio, provider proof qualifications, safe red-check restrictions and publication hold. All nine Closed lines and historical validation records remain unchanged, especially Phase 8's confirmed unrelated baseline failure and Phase 9's complete-run-plus-focused-retest portfolio. The [phase plan](kiln-live-session-control-phase-plan.md#whole-prd-test-audit--2026-10-28) records the closeout and authorization boundary. Bot-control and plan-continuation remain separately owned tracks.
 
 ## Out of scope
 

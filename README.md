@@ -98,6 +98,8 @@ Codex requires ChatGPT sign-in and the OpenAI provider before every launch and r
 
 Node 22 or later and Git 2.29 or later. `npm install`, then `npm run verify`: dependency audit, lint, typecheck, the unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the tarball globally into a temporary folder and runs that `kiln`. CI requires both on macOS, plus successful builds and package archives on Linux and Windows; Linux/Windows runtime behavior remains unconfirmed. Releases are published to npm by CI from a version tag: [release steps](docs/release/kiln-npm-release-steps.md).
 
+`npm run test:live-proof` is the authenticated live-control provider test tier. It requires macOS, Claude Code 2.1.311 and an already signed-in account, and fails when those prerequisites are unavailable. It creates synthetic disposable conversations and local Git repositories to check literal live input, fresh turn context, natural foreground/background/subagent checkpoint yield and terminal-history hand-back. The normal offline integration suite also checks the packaged hook, real process ownership and a recorded, verified provider message contract; those checks do not claim a fresh model run. This provider tier spends model usage and runs separately from credential-free CI.
+
 ## License
 
 Kiln is [MIT licensed](LICENSE), copyright Enso Dynamics. Bundled browser libraries and fonts retain their own licenses; their copyright and license texts are in [Kiln third-party notices](view/public/kiln-third-party-notices.txt), also shipped as `dist/view/kiln-third-party-notices.txt` in the npm package.

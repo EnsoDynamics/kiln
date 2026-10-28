@@ -18,7 +18,8 @@ it.skipIf(process.platform !== "darwin").each(["throw", "blank", "delayed"])("re
   const childrenFile = join(h.sandbox.root, "children.json");
   const endA = join(h.sandbox.root, "end-a"); const endB = join(h.sandbox.root, "end-b"); const release = join(h.sandbox.root, "release");
   const childCode = "const fs=require('node:fs');setInterval(()=>{if(fs.existsSync(process.argv[1]))process.exit(0)},30)";
-  const parent = spawn(process.execPath, ["-e", `const{spawn}=require('node:child_process');const fs=require('node:fs');const a=spawn(process.execPath,['-e',${JSON.stringify(childCode)},${JSON.stringify(endA)}],{stdio:'ignore'});const b=spawn(process.execPath,['-e',${JSON.stringify(childCode)},${JSON.stringify(endB)}],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(childrenFile)},JSON.stringify([a.pid,b.pid]));process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`], { stdio: ["pipe", "ignore", "ignore"] });
+  // Existence is the fixture's ready signal: publish complete PID JSON atomically.
+  const parent = spawn(process.execPath, ["-e", `const{spawn}=require('node:child_process');const fs=require('node:fs');const a=spawn(process.execPath,['-e',${JSON.stringify(childCode)},${JSON.stringify(endA)}],{stdio:'ignore'});const b=spawn(process.execPath,['-e',${JSON.stringify(childCode)},${JSON.stringify(endB)}],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(childrenFile + ".tmp")},JSON.stringify([a.pid,b.pid]));fs.renameSync(${JSON.stringify(childrenFile + ".tmp")},${JSON.stringify(childrenFile)});process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`], { stdio: ["pipe", "ignore", "ignore"] });
   const parentExit = once(parent, "exit");
   let scanner: LiveOwnedProcesses | undefined;
   let late: ReturnType<typeof spawn> | undefined; let lateExit: Promise<unknown> | undefined;

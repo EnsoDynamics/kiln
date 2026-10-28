@@ -32,7 +32,8 @@
     "test:package": "vitest run --config vitest.package.config.mts",
     "audit": "node scripts/audit-dependencies.mjs",
     "verify": "npm run audit && npm run lint && npm run typecheck && npm test && npm run test:codex-proof && npm run test:integration",
-    "test:codex-proof": "npm run build && node --test scripts/proof-run/codex-proof.test.mjs"
+    "test:codex-proof": "npm run build && node --test scripts/proof-run/codex-proof.test.mjs",
+    "test:live-proof": "npm run build && node --test scripts/proof-run/live-control-proof.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

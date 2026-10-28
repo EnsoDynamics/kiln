@@ -6,7 +6,7 @@ import { writeSessionRecord } from "../state/records.js";
 // cases complement scripts/proof-run/live-takeover.mjs's real Claude boundary proof.
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync, chmodSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { git } from "../test-support/git-repositories.js";
@@ -107,7 +107,11 @@ it("preserves unresolved task evidence across reused task identifiers", async ()
   expect(unsettled(readGate(directory))).toEqual([]);
 });
 
-it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBack: "resume" }, { kind: "test_audit", handBack: "resume" }, { kind: "delivery_audit", handBack: "verify" }, { kind: "test_audit", handBack: "verify" }] as const)("holds and returns the assigned $kind round via $handBack without a phase Closed line", async ({ kind, handBack }) => {
+describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBack: "resume" }, { kind: "test_audit", handBack: "resume" }, { kind: "delivery_audit", handBack: "verify" }, { kind: "test_audit", handBack: "verify" }] as const)("assigned $kind return via $handBack", ({ kind, handBack }) => {
+  let release: string;
+  let releaseLock: (() => void) | undefined;
+  // Prior-audit setup has its own unchanged hook limit, as in the recovery matrices below.
+  beforeEach(async () => {
   const files = {
     "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",
     "technical-design.md": "# Design\nExport value from value.mjs. Test using node value.test.mjs.\n",
@@ -121,15 +125,17 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
   git(h.sandbox, h.repository, "add", ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test(audit): ignore transient proof requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
   const { takeInstanceLock } = await import("../state/instance-lock.js");
   const { stateRoot } = await import("../state/state-files.js");
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable");
-  try {
+  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); releaseLock = () => lock.release();
     mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
-    const ready = join(h.sandbox.root, "audit-ready"); const release = join(h.sandbox.root, "audit-release");
+    const ready = join(h.sandbox.root, "audit-ready"); release = join(h.sandbox.root, "audit-release");
     const ordinary = { actions: [{ auditReport: {} }, { result: "Audit recorded." }] };
     const paused = { actions: [{ touch: ready }, { waitForFile: release }, ...(handBack === "verify" ? [{ auditReport: {} }] : []), { result: "Audit stopped." }] };
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [], auditSessions: kind === "delivery_audit" ? [paused, ordinary] : [ordinary, paused, ordinary] }));
     server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = `http://127.0.0.1:${lock.port}`;
     await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 30000);
+  });
+  afterEach(() => { releaseLock?.(); });
+  it("holds and returns the assigned round without a phase Closed line", async () => {
     const target = h.engine.liveTarget()!; const audit = h.engine.auditActivity(target.activityKey)!;
     expect(audit.kind).toBe(kind);
     expect((await post("live/take-over", { instructionId: "audit-takeover", target })).status).toBe(202);
@@ -162,7 +168,7 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
     expect(h.engine.latestSession(target.activityKey)!.runs).toHaveLength(2);
     expect(h.engine.record.phases[target.activityKey]!.doneAt, JSON.stringify(h.engine.record.phases[target.activityKey])).toBeDefined();
     expect(h.engine.record.pause.activeSince).toBeDefined();
-  } finally { lock.release(); }
+  });
 });
 
 it.skipIf(process.platform !== "darwin")("replays durable completion evidence after restart and rejects completion changed during final ownership checks", async () => {
@@ -344,7 +350,14 @@ it.skipIf(process.platform !== "darwin")("explains a known finished exact takeov
   expect(h.engine.record.liveControl).toBeUndefined();
 });
 
-it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBack: "resume" }, { kind: "test_audit", handBack: "resume" }, { kind: "delivery_audit", handBack: "verify" }, { kind: "test_audit", handBack: "verify" }] as const)("retains dated checks for unavailable $kind sources through $handBack", async ({ kind, handBack }) => {
+describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBack: "resume" }, { kind: "test_audit", handBack: "resume" }, { kind: "delivery_audit", handBack: "verify" }, { kind: "test_audit", handBack: "verify" }] as const)("unavailable $kind sources through $handBack", ({ kind, handBack }) => {
+  let target: LiveTarget;
+  let audit: NonNullable<ReturnType<Harness["engine"]["auditActivity"]>>;
+  let recovery: NonNullable<ReturnType<Harness["engine"]["phaseRecoveryTarget"]>>;
+  let releaseLock: (() => void) | undefined;
+  // Preparing the prior real audit is a prerequisite, not part of the unchanged
+  // 60-second source-error recovery check. Hook timeout remains unchanged too.
+  beforeEach(async () => {
   const files = {
     "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",
     "technical-design.md": "# Design\nExport value from value.mjs. Test using node value.test.mjs.\n",
@@ -358,8 +371,7 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
   git(h.sandbox, h.repository, "add", ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test(audit): ignore transient proof requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
   const { takeInstanceLock } = await import("../state/instance-lock.js");
   const { stateRoot } = await import("../state/state-files.js");
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable");
-  try {
+  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); releaseLock = () => lock.release();
     mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
     const ready = join(h.sandbox.root, "audit-ready"); const release = join(h.sandbox.root, "audit-release");
     const ordinary = { actions: [{ auditReport: {} }, { result: "Audit recorded." }] };
@@ -367,12 +379,15 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [], auditSessions: kind === "delivery_audit" ? [paused, ordinary] : [ordinary, paused, ordinary] }));
     server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = `http://127.0.0.1:${lock.port}`;
     await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 30000);
-    const target = h.engine.liveTarget()!; const audit = h.engine.auditActivity(target.activityKey)!;
+    target = h.engine.liveTarget()!; audit = h.engine.auditActivity(target.activityKey)!;
     expect(audit.kind).toBe(kind);
     expect((await post("live/take-over", { instructionId: "audit-takeover", target })).status).toBe(202);
     writeFileSync(release, "done"); await h.engine.settled(); await waitForRelease();
-    const recovery = h.engine.phaseRecoveryTarget()!;
+    recovery = h.engine.phaseRecoveryTarget()!;
     expect(recovery.live).toEqual(target);
+  });
+  afterEach(() => { releaseLock?.(); });
+  it("retains dated checks and never dispatches on unavailable sources", async () => {
     // Preserve a dated prior failure on every source/check error. Exercise both
     // browser and versioned bot admission; these faults must never dispatch Resume.
     const originalReport = join(h.engine.worktreePath, audit.reportPath);
@@ -389,7 +404,7 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
     const hadReport = existsSync(reportFile); const reportBytes = hadReport ? readFileSync(reportFile) : undefined;
     const faults = ["plan", "report", "provider", "retained-refusal", ...(audit.acceptedResult ? ["private-result"] : []), "development"];
     for (const [index, fault] of faults.entries()) {
-      let restore = () => {};
+      let restore: () => void;
       if (fault === "plan") {
         const directory = join(h.engine.worktreePath, h.engine.record.prdDirectory);
         renameSync(directory, `${directory}.unavailable`); restore = () => renameSync(`${directory}.unavailable`, directory);
@@ -430,7 +445,7 @@ it.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", handBac
       } finally { restore(); }
     }
     if (reportBytes) expect(readFileSync(reportFile)).toEqual(reportBytes);
-  } finally { lock.release(); }
+  });
 });
 
 it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] as const)("holds an unaccounted message after final observation failure despite passing %s evidence", async (kind) => {
@@ -456,12 +471,17 @@ it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] a
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [], auditSessions: kind === "delivery_audit" ? [paused, ordinary] : [ordinary, paused, ordinary] }));
     server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = `http://127.0.0.1:${lock.port}`;
     await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 30000);
-    const target = h.engine.liveTarget()!;
     await waitFor(() => h.engine.liveView()?.input?.available === true);
-    const command = "audit-final-input";
-    if (kind === "delivery_audit") await post("live/message", { instructionId: command, target, text: "  unresolved audit input\n" });
-    else await post("control/v1/commands", { command_id: command, execution_id: target.executionId, status_token: h.engine.controlView().token, action: "message", inputs: { target, text: "  unresolved audit input\n" } });
     await h.engine.commands.settled();
+    await waitFor(() => h.engine.controlView().controls.find(c => c.name === "message")?.available === true);
+    const target = h.engine.liveTarget()!;
+    const command = "audit-final-input";
+    const sent = kind === "delivery_audit"
+      ? await post("live/message", { instructionId: command, target, text: "  unresolved audit input\n" })
+      : await post("control/v1/commands", { command_id: command, execution_id: target.executionId, status_token: h.engine.controlView().token, action: "message", inputs: { target, text: "  unresolved audit input\n" } });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+    await h.engine.commands.settled();
+    expect(h.engine.commands.lookup(command).operation).toMatchObject({ message: { delivery: "submitted" } });
     const gateModule = await import("./gate.js"); const observe = gateModule.observeGate;
     vi.spyOn(gateModule, "observeGate").mockImplementation(async (...args) => { if (args[1].type === "result") throw new Error("Final audit gate observation failed"); return observe(...args); });
     writeFileSync(release, "finish audit"); await h.engine.settled();
@@ -476,7 +496,13 @@ it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] a
   } finally { lock.release(); }
 });
 
-it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] as const)("retains cross-event uncertainty and original %s identity through browser/bot review and explicit return", async kind => {
+describe.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] as const)("cross-event %s recovery", kind => {
+  let target: LiveTarget;
+  let release: string;
+  let serve: () => Promise<void>;
+  let releaseLock: (() => void) | undefined;
+  // Keep real prerequisite audit preparation outside the original functional deadline.
+  beforeEach(async () => {
   h = await createHarness({ folder: "proof", auditCycles: true, sessions: [], files: {
     "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",
     "technical-design.md": "# Design\nExport value from value.mjs. Test using node value.test.mjs.\n",
@@ -488,17 +514,21 @@ it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] a
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
   git(h.sandbox, h.repository, "add", ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test(audit): ignore proof requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
   const { takeInstanceLock } = await import("../state/instance-lock.js"); const { stateRoot } = await import("../state/state-files.js");
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable");
-  try {
+  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); releaseLock = () => lock.release();
     mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
-    const ready = join(h.sandbox.root, "chronology-ready"); const release = join(h.sandbox.root, "chronology-release");
+    const ready = join(h.sandbox.root, "chronology-ready"); release = join(h.sandbox.root, "chronology-release");
     const ordinary = { actions: [{ auditReport: {} }, { result: "Audit recorded." }] };
     const reversed = { actions: [{ touch: ready }, { waitForFile: release }, { auditReport: {} }, { liveMessages: 2, consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }], exitAfter: true }] };
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [], auditSessions: kind === "delivery_audit" ? [reversed, ordinary] : [ordinary, reversed, ordinary] }));
-    const serve = async () => { server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = new URL(server.address).origin; };
+    serve = async () => { server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit proof", token: h.engine.record.token }); origin = new URL(server.address).origin; };
     await serve(); await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready), 30000);
     await waitFor(() => h.engine.liveView()?.input?.available === true);
-    const target = h.engine.liveTarget()!; const commands: Record<string, unknown>[] = [];
+    await h.engine.commands.settled();
+    target = h.engine.liveTarget()!;
+  });
+  afterEach(() => { releaseLock?.(); });
+  it("retains uncertainty and original audit identity through browser/bot review and explicit return", async () => {
+    const commands: Record<string, unknown>[] = [];
     expect(h.engine.pause().ok).toBe(true);
     for (const id of ["audit-A", "audit-B"]) {
       await waitFor(() => h.engine.controlView().controls.find(c => c.name === "message")?.available === true);
@@ -526,5 +556,5 @@ it.skipIf(process.platform !== "darwin").each(["delivery_audit", "test_audit"] a
     for (const id of ["audit-A", "audit-B"]) expect(h.engine.commands.lookup(id).operation).toMatchObject({ message: { delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) } });
     expect(h.claudeCalls()).toHaveLength(calls);
     h.engine = h.reopenFromDisk(); await h.engine.prepare(); expect(h.engine.record.liveControl).toBeUndefined();
-  } finally { lock.release(); }
+  });
 });

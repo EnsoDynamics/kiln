@@ -72,7 +72,7 @@ try {
   for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
   for (let port = 41940; port < 41959; port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
   assert.ok(server);
-  const post = async (path, body) => { const response = await globalThis.fetch(`${server.proofOrigin}/api/${path}`, { method: 'POST', headers: { Origin: server.proofOrigin, 'X-Kiln-Token': record.token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); console.log(JSON.stringify({ path, result })); assert.equal(response.status, 200, JSON.stringify(result)); return result; };
+  const post = async (path, body, expectedStatus = 200) => { const response = await globalThis.fetch(`${server.proofOrigin}/api/${path}`, { method: 'POST', headers: { Origin: server.proofOrigin, 'X-Kiln-Token': record.token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); console.log(JSON.stringify({ path, result })); assert.equal(response.status, expectedStatus, JSON.stringify(result)); return result; };
   assert.equal((await post('resume', { target: engine.phaseRecoveryTarget() })).outcome, 'resume_requested');
   await engine.settled();
   let saved = readSessionRecord(stateDirectory, '1', session.sessionId);
@@ -90,7 +90,10 @@ try {
   assert.equal((await post('resume', { target, note: 'MUST NEVER BE SENT' })).outcome, 'already_complete');
   assert.equal(record.phases['1'].doneAt, undefined); assert.equal(readSessionRecord(stateDirectory, '1', session.sessionId).runs.length, 3);
   record.pause.requestedAt = new Date().toISOString();
-  assert.equal((await post('check-again', { target, intent: 'advance' })).outcome, 'advanced'); await engine.settled();
+  assert.equal((await post('check-again', { target, intent: 'advance' }, 409)).code, 'unsent_reply_acknowledgement_required');
+  assert.equal(record.phases['1'].doneAt, undefined);
+  assert.equal(readSessionRecord(stateDirectory, '1', session.sessionId).runs.length, 3);
+  assert.equal((await post('check-again', { target, intent: 'advance', withoutSendingReply: true })).outcome, 'advanced'); await engine.settled();
   assert.equal(readSessionRecord(stateDirectory, '1', session.sessionId).runs.length, 3);
   assert.ok(record.phases['1'].doneAt); assert.equal(events.filter(e => e.event === 'done').length, 1);
   const result = { agentId, root, sessionId: session.sessionId, providerConversation: session.conversation?.threadId ?? session.sessionId, terminalHistoryPreserved: true, replyPreserved: true, completionPrecheckNoTurn: true, verifyAdvancedNoTurn: true, runs: 3 };
