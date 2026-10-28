@@ -71,3 +71,12 @@ The audit's worktree remains until authorized landing and is not the successor's
 The scoped changeset contains this audit record and current-state updates in the PRD, design status and phase plan only. Documentation checks match exactly 20 unique active labels to 20 Implemented rows, resolve local link targets and preserve all eleven Closed leaf files byte-for-byte against `7968f70`. The canonical test-audit record, assumptions and normative criteria/design remain byte-identical. `git diff --check` passes. Independent read-only documentation review confirms the counts, nine-row successor union, preserved proof qualifications and held authority; the main reader additionally checks the later test-only publication delta above.
 
 Scoped commit is local and publication remains held. The next unit is the affected-row test audit after authorized publication/launch; no runtime/test repair or extra implementation phase is assigned by this audit.
+
+
+## Audit publication and affected-row test-audit launch authorization — 2026-10-28
+
+Doug authorized publication and the successor chat in Codex chat `01a1840a-5dd9-7a73-867f-445186bd52a5`: “Go ahead and push the audit, then launch a new chat to run the affected-row test audit.”
+
+This lifts the publication and successor-launch holds above for scoped audit `901f7dc` and this authorization/current-state record. Publish them to `develop` by fast-forward, refresh the shared checkout, then launch a fresh `test-audit` chat for the affected rows. The pre-publication fetch/rebase found `origin/develop` unchanged at `3aee728`; the audit patch, runtime, tests and normative requirements are unchanged. The clean whole-PRD delivery verdict remains current. No product tests reran for this documentation-only publication record, and all eleven Closed leaves and exact proof qualifications remain unchanged.
+
+The successor reads this audit in full, checks currentness against any later relevant changes and reassesses at least the nine-row union in Successor and authorization. It owns the canonical test-audit record, uses the test-audit scoped commit default and creates its own parallel worktree from fresh published `origin/develop`. Publication of that later test-audit work, further successor launches, production changes and messages to other chats remain held for explicit authorization. Bot-control and plan-continuation remain separately owned tracks.
