@@ -103,4 +103,9 @@ Build Phase 8, then repeat whole-PRD delivery audit in a fresh chat; whole-PRD t
 
 The implementation source chat is `01a17f6b-e294-7f33-ae80-c5bac1361fb3`. Doug authorized: “Go ahead and push Phase 7, then launch a new chat using GPT-6.1 Sol with high reasoning for the fresh whole-PRD delivery audit.” That authorized Phase 7 publication and this audit launch, recorded in Phase 7's Audit handoff and publication boundary. It does not authorize publishing this audit, new implementation commits or production release.
 
-This audit's scoped documents commit under the delivery-audit default; **publication remains held**. The Phase 8 continuation prompt is valid from a fresh `origin/develop` worktree only after this audit commit is authorized and published. Other tracks remain independently owned. Preserve shared-checkout edits; do not reuse this audit worktree for the implementation.
+At this audit's original closeout, scoped documents committed under the delivery-audit default and publication remained held. The Phase 8 continuation prompt is valid from a fresh `origin/develop` worktree only after this audit commit is authorized and published. Other tracks remain independently owned. Preserve shared-checkout edits; do not reuse this audit worktree for the implementation.
+
+
+### Audit publication and Phase 8 launch authorization
+
+Doug subsequently authorized in this audit chat, `01a18060-0411-7953-9d61-ce393a9a3726`: “Go ahead and push the audit, then launch a new chat using GPT-6.1 Sol with high reasoning to implement Phase 8.” This lifts this audit's publication hold and authorizes the named Phase 8 implementation chat. Audit `d086c9d` and this authorization record are authorized for publication to `develop`. Publishing new Phase 8 implementation/later-audit commits and production release remain held. Scoped implementation commits retain the implement skill's default. The successor starts from the published shared reference in its own fresh worktree, preserving other sessions' local work.
