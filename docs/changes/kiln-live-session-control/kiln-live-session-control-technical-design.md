@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All nine implementation leaves are closed. Phase 9 completes the cross-event message-order recovery and disabled-control explanation identified by the [audit after Phase 8](kiln-live-session-control-delivery-audit-after-phase-8.md), under the contracts below. Its scoped implementation is published as `23bd3c3`. Obtain the authorized fresh whole-PRD delivery audit, then test audit only when delivery is clean. Each earlier leaf retains its historical verification qualifications; implementation review does not establish a clean whole-PRD verdict.
+**Status:** All nine implementation leaves are closed and published. The [fresh whole-PRD delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented with zero delivery gaps. Whole-PRD test audit follows authorized audit publication. Each leaf retains its historical verification qualification; this code-reachability verdict does not grade test evidence or close the test-audit track.
 
 ## Overview
 

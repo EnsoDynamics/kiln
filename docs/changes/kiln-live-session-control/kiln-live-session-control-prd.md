@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All nine implementation leaves are closed. [Phase 9](phase-9-live-message-order-feedback.md) completes the message-order recovery and released-pause explanation from the audit after Phase 8; the scoped implementation is published as `23bd3c3`. The authorized fresh whole-PRD delivery audit is next, then test audit only when delivery is clean. No current clean whole-PRD verdict is inferred from implementation review. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** All nine implementation leaves are closed and published. The [fresh whole-PRD delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, with no delivery gaps. Whole-PRD test audit is the next planned unit after authorized audit publication; test evidence is not yet graded by that closeout. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,11 +136,11 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: fresh whole-PRD delivery audit after Phase 9
+## Next: whole-PRD test audit
 
-[Phase 9](phase-9-live-message-order-feedback.md) closes the last implementation leaf, completing cross-event message-order recovery and the released deferred-pause explanation. Its acceptance evidence and Repository validation record the scoped proof, complete-run-plus-focused-retest qualification and publication hold. The [audit after Phase 8](kiln-live-session-control-delivery-audit-after-phase-8.md) remains the historical pre-repair verdict; neither it nor this implementation review establishes current whole-PRD completeness.
+The [fresh whole-PRD delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) assesses the published implementation at `9a643ca`: all 20 active criteria are Implemented, with zero confirmed gaps in one complete assessment round. The documentation-only refresh to `118c659` does not change its requirements or implementation baseline. No completion phase is added.
 
-Phase 9 is published as `23bd3c3`; obtain the authorized fresh whole-PRD delivery audit, then test audit only when delivery is clean. The [phase plan](kiln-live-session-control-phase-plan.md#phase-9-closeout--2026-10-28) records the successor. All eight earlier Closed lines and validation qualifications remain unchanged, including Phase 8's confirmed unrelated baseline clock-test failure. Bot-control and plan-continuation remain separate tracks.
+Publish this audit after Doug authorizes, then run whole-PRD `test-audit` in a fresh chat. The [phase plan](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-9--2026-10-28) records the current verdict, authorization boundary and successor. All nine Closed lines and their historical validation qualifications remain unchanged, especially Phase 8's confirmed unrelated baseline failure and Phase 9's complete-run-plus-focused-retest portfolio. A clean delivery verdict does not grade those tests or close the test-audit track. Bot-control and plan-continuation remain separate tracks.
 
 ## Out of scope
 
