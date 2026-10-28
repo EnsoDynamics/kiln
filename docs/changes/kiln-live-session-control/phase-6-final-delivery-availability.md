@@ -49,9 +49,11 @@ All four new browser cases failed on the omitted explanation before the repair a
 
 ## Publication and successor
 
-This chat uses the implement skill's scoped commit default and holds publication for Doug, under the original authorization quoted in the phase plan's Audit publication and Phase 6 launch section (source chat `01a17fac-9acd-70c3-9931-5c4b69483ddd`). The local implementation must be landed on the shared branch after publication approval before a successor starts from the published baseline.
+This chat used the implement skill's scoped commit default and initially held publication for Doug under the authorization quoted in the phase plan's Audit publication and Phase 6 launch section (source chat `01a17fac-9acd-70c3-9931-5c4b69483ddd`). Doug lifted that hold in implementation chat `01a17fc8-27a6-7802-ac03-9a0ac8c2f1ea`: “Go ahead and push Phase 6, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.”
 
-After publication, the next unit is a fresh whole-PRD `delivery-audit`, followed by `test-audit` only when delivery is clean. The successor reads all six leaves and preserves Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run and Phase 5's full-run/focused-retest qualification as distinct historical records. Bot-control and plan-continuation remain separate tracks. No production changes or messages to other chats are authorized.
+Phase 6 is published unchanged as `32264c1`. The remote baseline did not move before publication, so no replay or runtime/test change was needed. The shared checkout is fast-forwarded before launching the authorized audit with GPT 6.1 Sol at High effort. The successor uses the delivery-audit scoped commit default and holds publication of its later work for Doug; this approval does not authorize production changes or messages to other chats.
+
+The next unit is the authorized fresh whole-PRD `delivery-audit`, followed by `test-audit` only when delivery is clean. The successor reads all six leaves and preserves Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run and Phase 5's full-run/focused-retest qualification as distinct historical records. Bot-control and plan-continuation remain separate tracks. No production changes or messages to other chats are authorized.
 
 ## Repository validation
 

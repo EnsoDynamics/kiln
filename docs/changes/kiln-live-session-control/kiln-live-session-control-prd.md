@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** Phases 1–5 are closed and published. [Phase 6](phase-6-final-delivery-availability.md) is closed locally and completes the final-delivery availability explanation under AC-LIVE-02; publication is held for Doug. After publication, a fresh whole-PRD delivery audit follows, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** Phases 1–5 are closed and published. [Phase 6](phase-6-final-delivery-availability.md) is closed and published as `32264c1`, completing the final-delivery availability explanation under AC-LIVE-02. A fresh whole-PRD delivery audit follows, then test audit only when delivery is clean. Paired pause UX and mockups remain approved as of 2026-10-26.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,9 +136,9 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Next: Publish Phase 6, then whole-PRD delivery audit
+## Next: Whole-PRD delivery audit
 
-The [audit after Phase 5](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-5--2026-10-27) confirms the activity-time repair and adds [Phase 6](phase-6-final-delivery-availability.md) for the remaining availability explanation. Phase 6 is closed locally with a passing complete repository gate; publication remains held for Doug. After publication, repeat whole-PRD `delivery-audit`; run `test-audit` only when delivery is clean. Phase 5's full-run/focused-retest qualification, Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain distinct historical records. This delivery audit traced code without running or grading product tests.
+The [audit after Phase 5](kiln-live-session-control-phase-plan.md#whole-prd-delivery-audit-after-phase-5--2026-10-27) confirms the activity-time repair and adds [Phase 6](phase-6-final-delivery-availability.md) for the remaining availability explanation. Phase 6 is closed and published as `32264c1` with a passing complete repository gate. Repeat whole-PRD `delivery-audit`; run `test-audit` only when delivery is clean. Phase 5's full-run/focused-retest qualification, Phase 3's [verification notes](phase-3-bot-live-controls.md#verification-run-details) and Phase 4's separate green full run remain distinct historical records. This delivery audit traced code without running or grading product tests.
 
 ## Out of scope
 

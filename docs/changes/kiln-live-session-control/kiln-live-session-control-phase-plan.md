@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order before starting the next. The three original implementation leaves closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` added Phase 4; the fresh audit after its publication added Phase 5 for the activity-time gap. Phase 5 is closed and published; the audit after Phase 5 added Phase 6 for the remaining final-delivery availability explanation. Phase 6 is now closed locally; publication remains held for Doug. A closed leaf records its session's implementation completion; audits do not reopen those leaves.
+Build and verify each phase in this order before starting the next. The three original implementation leaves closed and were published on 2026-10-27. Whole-PRD delivery audit at `d7c59a2` added Phase 4; the fresh audit after its publication added Phase 5 for the activity-time gap. Phase 5 is closed and published; the audit after Phase 5 added Phase 6 for the remaining final-delivery availability explanation. Phase 6 is now closed and published as `32264c1`. A closed leaf records its session's implementation completion; audits do not reopen those leaves.
 
 | Phase | What it does | Depends on |
 |---|---|---|
@@ -13,7 +13,7 @@ Build and verify each phase in this order before starting the next. The three or
 | [3: Bot commands for live session control](phase-3-bot-live-controls.md) — **closed 2026-10-27** | Expose live messages, takeover and reviewed-message return through the existing bot interface. | 1 (takeover/return and shared authority); 2 (message accounting/review); external bot-control Phases 1–2 (read/authentication and durable mutation framework). |
 | [4: Complete live connection and audit return wording](phase-4-live-control-state-copy.md) — **closed and published 2026-10-27** | Added by delivery audit: describe disconnected live information honestly and name the actual audit throughout terminal return. | 1 (phase/audit return); 2 (live browser availability); 3 (integrated baseline). |
 | [5: Preserve takeover activity time during reconciliation](phase-5-takeover-activity-time.md) — **closed and published 2026-10-27** | Added by delivery audit: keep the last real activity time while takeover waits for release, so the elapsed-wait explanation remains truthful. | 1 (takeover gate, release reconciliation and waiting view); 2 (event replay and message recovery integrated into that reconciliation). |
-| [6: Explain final-delivery live-control availability](phase-6-final-delivery-availability.md) — **closed locally 2026-10-28; publication held** | Added by delivery audit: tell the person why live messages and takeover are unavailable during final delivery. | 2 (browser availability explanation and current-session detail); 4 (current disconnected presentation). |
+| [6: Explain final-delivery live-control availability](phase-6-final-delivery-availability.md) — **closed and published 2026-10-28** | Added by delivery audit: tell the person why live messages and takeover are unavailable during final delivery. | 2 (browser availability explanation and current-session detail); 4 (current disconnected presentation). |
 
 ## Criterion ownership
 
@@ -23,7 +23,7 @@ Build and verify each phase in this order before starting the next. The three or
 | 2 | AC-LIVE-01, AC-LIVE-02, AC-MSG-01–05 |
 | 3 | AC-BOT-01, AC-BOT-02 |
 
-All 20 active criteria retain one original owner. Phase 4 completes earlier AC-LIVE-02 and AC-BACK-01 gaps without taking ownership from Phases 2 and 1. Phase 5 completes AC-TAKE-05 without taking ownership from Phase 1. Phase 6 completes the remaining AC-LIVE-02 explanation under Phase 2's ownership. The phase documents mark repeated interface-wide availability, pause wording, serialization and retained-obligation constraints as also applying to later work. No criterion is retired or rewritten. The audit records below retain each historical outcome; the audit after Phase 5 confirms AC-TAKE-05 and historically left AC-LIVE-02 unchecked. Phase 6 now completes that explanation locally; a fresh whole-PRD audit is still owed after publication.
+All 20 active criteria retain one original owner. Phase 4 completes earlier AC-LIVE-02 and AC-BACK-01 gaps without taking ownership from Phases 2 and 1. Phase 5 completes AC-TAKE-05 without taking ownership from Phase 1. Phase 6 completes the remaining AC-LIVE-02 explanation under Phase 2's ownership. The phase documents mark repeated interface-wide availability, pause wording, serialization and retained-obligation constraints as also applying to later work. No criterion is retired or rewritten. The audit records below retain each historical outcome; the audit after Phase 5 confirms AC-TAKE-05 and historically left AC-LIVE-02 unchecked. Phase 6 now completes that explanation and is published; a fresh whole-PRD audit is still owed.
 
 ## Sizing decision
 
@@ -39,7 +39,7 @@ Use the single design's [Evidence and Verification Gates](kiln-live-session-cont
 
 Provider feasibility recorded during refinement is not assembled-product proof. Phases 1–2 do not depend on bot delivery; if bot code lands first, both reuse its shared journal contract. The bot prerequisite is checked again when Phase 3 becomes next; this plan does not declare that separate track complete or take ownership of it. Add earlier-design replacement back-pointers only as the implementing phase makes them true.
 
-Phase 6 is closed locally with publication held; after publication, run a fresh whole-PRD delivery audit and test audit only when delivery is clean. They are this PRD's closeout. The external bot-control read/mutation prerequisites were checked before Phase 3; the separate bot-control inspection cleanup remains outside this track.
+Phase 6 is closed and published; run a fresh whole-PRD delivery audit and test audit only when delivery is clean. They are this PRD's closeout. The external bot-control read/mutation prerequisites were checked before Phase 3; the separate bot-control inspection cleanup remains outside this track.
 
 ## Whole-PRD delivery audit — 2026-10-27
 
@@ -127,4 +127,9 @@ The audit is published as `8e508c6`. On 2026-10-27 Doug lifted its publication h
 
 [Phase 6](phase-6-final-delivery-availability.md) completes AC-LIVE-02's final-delivery availability explanation in both running browser views. Built Chrome checks cover Claude/Codex at desktop/narrow widths, output/session/settings retention, explicit unavailability, excluded live actions and honest disconnected/reconnected presentation. Independent deliverable review and test hardening found no material issue or evidence gap; no new business assumption was introduced.
 
-The leaf's Repository validation records a green complete current-build `npm run verify` invocation, alongside focused browser checks. Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run and Phase 5's full-run/focused-retest qualification remain distinct historical evidence. Phase 6 uses the implement skill's scoped commit default and holds publication under Doug's launch authorization above. After publication, obtain a fresh whole-PRD delivery audit, then test audit only when delivery is clean. Bot-control and plan-continuation remain separate tracks; production changes and messages to other chats remain unauthorized.
+The leaf's Repository validation records a green complete current-build `npm run verify` invocation, alongside focused browser checks. Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run and Phase 5's full-run/focused-retest qualification remain distinct historical evidence. Phase 6 is published as `32264c1` under Doug's subsequent authorization below. Obtain a fresh whole-PRD delivery audit, then test audit only when delivery is clean. Bot-control and plan-continuation remain separate tracks; production changes and messages to other chats remain unauthorized.
+
+
+### Phase 6 publication and fresh audit launch
+
+Doug lifted the Phase 6 publication hold in implementation chat `01a17fc8-27a6-7802-ac03-9a0ac8c2f1ea`: “Go ahead and push Phase 6, then launch a new chat for the fresh whole-PRD delivery audit using GPT 6.1 Sol High Effort.” Phase 6 is published unchanged as `32264c1`; the shared checkout is fast-forwarded before launching the audit on that published baseline. This authorizes publication of Phase 6 and launch of the fresh whole-PRD delivery audit with GPT 6.1 Sol at High effort. The successor uses delivery-audit's scoped commit default and holds publication of its later work for Doug. Test audit follows only when delivery is clean; production changes and messages to other chats remain unauthorized. Bot-control and plan-continuation remain separate tracks.
