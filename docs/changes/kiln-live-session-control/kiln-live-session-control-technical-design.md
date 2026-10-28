@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; its implementation is committed locally and publication is held for Doug. The earlier nine leaves remain closed and published. After authorized Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
+**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; publication and the fresh delivery-audit launch are authorized in its final publication record. The earlier nine leaves remain closed and published. After Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
 
 ## Overview
 

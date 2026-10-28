@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; its implementation is committed locally and publication is held for Doug. The earlier nine leaves remain closed and published. After authorized Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
+**Status:** All ten implementation leaves are closed. [Phase 10](phase-10-usable-takeover-history.md) completes usable-history readiness and hand-back checks; publication and the fresh delivery-audit launch are authorized in its final publication record. The earlier nine leaves remain closed and published. After Phase 10 publication, a fresh whole-PRD delivery audit is required, then affected-row test-audit reassessment when delivery is clean. The [publication reassessment](kiln-live-session-control-publication-delivery-audit.md) remains the historical non-clean verdict until that fresh audit.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -138,7 +138,7 @@ Phase 2 adds assembled literal input, correlated multi-turn settlement, durable 
 
 ## Current delivery state
 
-Publication reassessment on 2026-10-28 found one shared missing usable-history guard, recorded in the [current delivery audit](kiln-live-session-control-publication-delivery-audit.md). [Phase 10](phase-10-usable-takeover-history.md) is closed locally with publication held; after authorized publication, a fresh whole-PRD delivery audit is the next planned unit. The earlier closeout below remains the historical pre-publication assessment; it does not waive the newly confirmed gap.
+Publication reassessment on 2026-10-28 found one shared missing usable-history guard, recorded in the [current delivery audit](kiln-live-session-control-publication-delivery-audit.md). [Phase 10](phase-10-usable-takeover-history.md) is closed with publication and a fresh-chat delivery-audit launch authorized in its final record; after publication, that whole-PRD delivery audit is the next planned unit. The earlier closeout below remains the historical pre-publication assessment; it does not waive the newly confirmed gap.
 
 ## Earlier whole-PRD closeout
 
