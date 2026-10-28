@@ -1,6 +1,6 @@
 # PRD: Control a live Kiln session
 
-**Status:** All nine implementation leaves are closed and published. The [clean whole-PRD delivery audit](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented, and the [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done with all 20 Adequate. Its scoped publication to `develop` is authorized, as recorded in the phase plan. Paired pause UX and mockups remain approved as of 2026-10-26.
+**Status:** The nine earlier implementation leaves remain closed and published. Publication reassessment found one shared usable-history defect; [Phase 10](phase-10-usable-takeover-history.md) completes the affected readiness and hand-back criteria. The [current delivery audit](kiln-live-session-control-publication-delivery-audit.md) supersedes the earlier clean verdict; test-audit is waiting on delivery for the affected parts.
 
 **Source:** Doug's request, 2026-10-26, Codex chat `01a17a97-2bec-7bf1-8774-e81cae357b69`: send instructions to a running phase or audit, or pause it for terminal takeover and hand it back through the existing flow. Doug subsequently confirmed: “wait until a safe completed operation,” without waiting for the whole task to finish, and make that timing clear in the UI.
 
@@ -136,7 +136,11 @@ Phase 1's assembled controller/provider/browser takeover and phase/audit hand-ba
 
 Phase 2 adds assembled literal input, correlated multi-turn settlement, durable message receipts and uncertain-delivery review/explicit hand-back. Its [phase leaf](phase-2-live-message-recovery.md) records acceptance and repository evidence; the [investigation](kiln-live-session-control-investigation.md#assembled-phase-2-provider-evidence-2026-10-27) records real-provider proof and limits. Earlier-design back-pointers now include those message/recovery replacements. Phase 3 extends those safeguards through the bot interface; its [phase leaf](phase-3-bot-live-controls.md) records current-build CLI and compatibility evidence.
 
-## Whole-PRD closeout
+## Current delivery state
+
+Publication reassessment on 2026-10-28 found one shared missing usable-history guard, recorded in the [current delivery audit](kiln-live-session-control-publication-delivery-audit.md). [Phase 10](phase-10-usable-takeover-history.md) is the next planned unit. The earlier closeout below remains the historical pre-publication assessment; it does not waive the newly confirmed gap.
+
+## Earlier whole-PRD closeout
 
 The [delivery audit after Phase 9](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 active criteria Implemented. The [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done on 2026-10-28: all 20 criteria are Adequate, 16 coverage/assertion gaps are closed and mapped test fixtures are repaired. Product code and governing acceptance behavior are unchanged, so the clean delivery verdict remains applicable. No implementation or test-remediation successor is required for this PRD.
 

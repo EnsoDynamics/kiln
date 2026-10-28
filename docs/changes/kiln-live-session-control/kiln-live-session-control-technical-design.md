@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All nine implementation leaves are closed and published. The [clean whole-PRD delivery audit](kiln-live-session-control-delivery-audit-after-phase-9.md) finds all 20 criteria Implemented; the [whole-PRD test audit](kiln-live-session-control-test-audit.md) is Done with all 20 Adequate. Test-only repairs preserve the current delivery verdict, provider/ownership limits and every historical leaf qualification. Scoped test-audit publication to `develop` is authorized, as recorded in the phase plan.
+**Status:** The nine earlier implementation leaves remain closed and published. Publication reassessment found one shared usable-history defect; [Phase 10](phase-10-usable-takeover-history.md) completes the affected readiness and hand-back criteria. The [current delivery audit](kiln-live-session-control-publication-delivery-audit.md) supersedes the earlier clean verdict; test-audit is waiting on delivery for the affected parts.
 
 ## Overview
 
