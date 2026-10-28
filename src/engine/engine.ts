@@ -413,6 +413,14 @@ export class Engine {
     });
     this.commands = new CommandJournal(this.stateDirectory, resolve(this.record.repository.mainCheckoutPath, this.record.prdDirectory), {
       execution: () => this.record.executionId!, view: () => this.controlView(), runState: () => this.controlRunState(),
+      staleReason: instruction => {
+        const target = instruction.inputs.target;
+        if (instruction.action !== "take-over" || !validLiveTarget(target) || target.executionId !== this.record.executionId || !this.record.phases[target.activityKey]?.doneAt) return undefined;
+        const activity = activityHistory(this.record, this.stateDirectory).find(a => a.key === target.activityKey && a.activityId === target.activityId);
+        const session = this.sessionRecord(target.activityKey, target.sessionId);
+        if (activity && session?.executionId === target.executionId && session.sessionId === target.providerSessionId && session.runs.some((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === target.attemptId)) return "The targeted activity finished before takeover was accepted. Its successor was not paused.";
+        return undefined;
+      },
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
       reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
     });
@@ -448,13 +456,14 @@ export class Engine {
     const target = JSON.stringify(this.phaseRecoveryTarget() ?? { live: this.liveTarget(), execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
     const paused = !!this.record.pause.activeSince;
+    const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending";
     const available: Record<Action, boolean> = {
       message: !!this.liveView()?.input?.available && !this.commands?.busy,
       "message-review": !!this.record.liveControl && !this.commands?.busy,
       "take-over": !!this.liveView()?.available && !this.commands?.busy,
       reply: !!key && this.resumeOffered(key) && !busy,
       resume: !!(wait || key && this.resumeOffered(key)) && !busy,
-      "verify-and-advance": !!this.phaseRecoveryTarget() && !busy,
+      "verify-and-advance": !!this.phaseRecoveryTarget() && !busy && !releasePending,
       "request-pause": this.isUnderway && !this.currentlyComplete && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
@@ -468,6 +477,7 @@ export class Engine {
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
       "outside-confirmation": "Stayed in the workspace hasn't failed, so there is nothing to confirm.",
+      "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
     };
     const controls = ACTIONS.map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
@@ -515,6 +525,12 @@ export class Engine {
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
       if (run?.spawnError && !run.pid) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
       if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: "session_resumed", effects: { ...receipt.effects, session: "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
+    }
+    // Dispatch is saved as dispatching before spawn; completion is stamped in
+    // its atomic record write. After ruling out both above, applying proves
+    // only saved reviews, which survive without replaying this hand-back.
+    if (["resume", "verify-and-advance", "reply"].includes(receipt.instruction.action) && receipt.stage === "applying" && Array.isArray(receipt.instruction.inputs.reviewed_receipt_ids) && receipt.instruction.inputs.reviewed_receipt_ids.length && receipt.effects.session === "not_started" && receipt.effects.plan !== "advanced") {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "hand_back_not_started", reason: "Saved message acknowledgements are retained. No dispatch or completion was recorded; submit a new explicit hand-back after reviewing any remaining messages.", effects: { ...receipt.effects, session: "not_started", plan: "not_advanced" } };
     }
     return undefined;
   }
@@ -633,7 +649,7 @@ export class Engine {
     if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget())) return fail("stale_target", "This attempt ended or changed; the message was not sent.");
     if (messageProblem(text)) return fail("invalid_request", messageProblem(text)!);
     const run = this.latestSession(raw.activityKey)?.runs.at(-1);
-    if (!run?.live?.literalInput || !this.control?.sendMessage || !this.liveView()?.input?.available) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
+    if (!run?.live?.literalInput || !this.control?.sendMessage || !this.control.inputOpen?.() || !!this.record.liveControl || !this.current?.processRunning) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
     const control = this.control;
     let admitted = false;
     let writing: Promise<"written" | "uncertain"> | undefined;
@@ -700,9 +716,10 @@ export class Engine {
     try { sealed = !run?.live || !!readGate(run.live.gateDirectory).sealed; } catch { /* unknown input is unavailable */ }
     const pending = messages.filter(r => r.message?.writeStartedAt && !r.message.resultAt).length;
     const uncertain = messages.some(r => r.message?.delivery === "uncertain");
-    const inputAvailable = !!run?.live?.literalInput && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
+    const submitting = messages.some(r => r.message?.delivery === "submitting");
+    const inputAvailable = !submitting && !!run?.live?.literalInput && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
     const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : !run?.live?.literalInput ? "Live messages require the validated Claude Code 2.1.311/macOS profile." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: capable && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
@@ -1926,8 +1943,20 @@ export class Engine {
 
   private async decideQuietly(): Promise<UnderwayDecision> {
     if (this.record.liveControl) {
+      const target = this.record.liveControl.takeover.target;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.at(-1);
+      if (session && run && !run.endedAt && (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) === target.attemptId) {
+        try { await requireExited(run); }
+        catch {
+          this.current = { phaseKey: target.activityKey, session, processRunning: true, commits: [] };
+          this.recoveredLive = true;
+          this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
+          this.recoveredTimer.unref();
+        }
+      }
       await this.reconcileTakeover();
-      return { kind: "needs_you", phaseKey: this.record.liveControl.takeover.target.activityKey, again: true };
+      return { kind: "needs_you", phaseKey: target.activityKey, again: true };
     }
     const previous = this.latestSessionOverall();
     const previousRun = previous?.session.runs.at(-1);
@@ -2244,14 +2273,21 @@ export class Engine {
       if (deliveryEnabled(this.record)) context.developmentChecks = () => [ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId })];
       const stayed = await this.readWorkspaceEvidence(key);
       const plan = this.readPlan(); const checks: CheckResult[] = [];
+      if (!plan.ok && plan.unavailable) throw new CompletionCheckUnavailable(plan.problem);
       if (!plan.ok) checks.push(planCheck(plan));
-      if (deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext(key));
+      if (deliveryEnabled(this.record)) {
+        await reconcileDelivery(this.deliveryContext(key));
+        if (ledger(this.record).sourceUnavailable) throw new CompletionCheckUnavailable(ledger(this.record).lastReadError ?? "Required development-delivery evidence is unavailable.");
+      }
       try {
         if (!activity.acceptedResult) {
           const result = await submitAudit(context, { executionId: this.record.executionId, activityId: activity.activityId, revision: this.record.completionAudits!.revision, reportPath: activity.reportPath });
+          if (result.refusal && (result.refusal.status === 503 || result.refusal.code === "evidence_unavailable")) throw new CompletionCheckUnavailable(result.refusal.reason);
           checks.push(...result.checks);
         } else {
-          const accepted = acceptedAudit(this.stateDirectory, activity)!;
+          let accepted: NonNullable<ReturnType<typeof acceptedAudit>>;
+          try { accepted = acceptedAudit(this.stateDirectory, activity)!; }
+          catch (error) { throw new CompletionCheckUnavailable((error as Error).message); }
           checks.push({ name: "Audit result recorded", passed: true, facts: [`Accepted ${activity.reportPath}: ${accepted.report.outcome}.`] });
           try {
             const current = await auditCurrentness(context, activity);
@@ -2261,7 +2297,11 @@ export class Engine {
             checks.push({ name: "Audit evidence is current", passed: false, facts: [error.message] });
           }
         }
-      } catch (error) { if (error instanceof CompletionCheckUnavailable) throw error; checks.push({ name: "Audit result recorded", passed: false, facts: [(error as Error).message] }); }
+      } catch (error) {
+        if (error instanceof CompletionCheckUnavailable) throw error;
+        if (!(error instanceof AuditRefusal) || error.status === 503 || error.code === "evidence_unavailable") throw new CompletionCheckUnavailable((error as Error).message);
+        checks.push({ name: "Audit result recorded", passed: false, facts: [error.message] });
+      }
       checks.push(...await repositoryChecks(context), ...(stayed.passed ? [] : [stayed.check]));
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       this.save();
@@ -2530,6 +2570,7 @@ export class Engine {
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
     mkdirSync(this.workspaceFolder, { recursive: true });
+    const liveExitTarget = live ? readGate(live.gateDirectory).target : undefined;
     let dispatchFailed = false;
     try { if (session.agentId === "codex") {
       await this.runCodexProcess(current, session, prompt, cause, cwd, note, started);
@@ -2545,7 +2586,7 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
-      ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(readGate(live.gateDirectory).target) } : {}),
+      ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(liveExitTarget!) } : {}),
       ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => { const local = this.takeoverLocalMaterial(phaseKey); if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); await requireNoTerminal(launchEnv, session.sessionId, identity); if (local !== this.takeoverLocalMaterial(phaseKey)) { if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back."); } } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,

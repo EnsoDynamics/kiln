@@ -104,7 +104,7 @@ it("disables Send and takeover throughout a pending HTTP submission and pending 
   let release!: () => void;
   const r = { id: "pending", command_id: "pending", accepted_at: new Date().toISOString(), message: { text: "message pending", uuid: "uuid", delivery: "submitting" } } as Receipt;
   const server = await serveViewFixture({ port: 43056, folder: "customer-returns", snapshot, respond: async command => {
-    if (command === "POST /api/live/message") { await new Promise<void>(resolve => { release = resolve; }); return { status: 202, body: { ok: true, receipt: r } }; }
+    if (command === "POST /api/live/message") { r.command_id = JSON.parse(server.commands.at(-1)!.split("POST /api/live/message ")[1]!).instructionId; await new Promise<void>(resolve => { release = resolve; }); return { status: 202, body: { ok: true, receipt: r } }; }
     return { status: 200, body: { ok: true, receipts: [r] } };
   } });
   const page = await chrome.open(`${server.address}/phase/2b`);
@@ -114,8 +114,12 @@ it("disables Send and takeover throughout a pending HTTP submission and pending 
     const send = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message')`; const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Pause & take over')`;
     await page.evaluate(`${send}.click()`); await page.waitFor(`document.body.innerText.includes('Submitting')`);
     expect(await page.evaluate(`${send}.disabled && ${take}.disabled`)).toBe(true);
-    snapshot.liveControl.messages = [{ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: "submitting" }]; snapshot.liveControl.input!.available = false; server.send("snapshot", snapshot); release();
+    release();
     await page.waitFor(`document.body.innerText.includes('delivery is still pending')`);
+    // The HTTP receipt precedes any new snapshot: retain the same instruction.
+    expect(await page.evaluate(`${send}.disabled && ${take}.disabled`)).toBe(true);
+    expect(await page.evaluate(`document.querySelector('#live-message').value`)).toBe("message pending");
+    snapshot.liveControl.messages = [{ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: "submitting" }]; snapshot.liveControl.input!.available = false; server.send("snapshot", snapshot);
     expect(await page.evaluate(`${send}.disabled && ${take}.disabled`)).toBe(true);
     r.message!.delivery = "submitted"; snapshot.liveControl.messages[0]!.delivery = "submitted"; snapshot.liveControl.input!.available = true; server.send("snapshot", snapshot);
     await page.waitFor(`!${send}.disabled && !${take}.disabled`);
@@ -141,5 +145,23 @@ it("shows active audit identity, gives a successor an empty draft, and excludes 
     await page.evaluate(`history.pushState(null,'','/customer-returns/phase/1');dispatchEvent(new PopStateEvent('popstate'))`);
     await page.waitFor(`!document.querySelector('#live-message')`);
     expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Pause & take over')`)).toBe(false);
+  } finally { await page.close(); await server.close(); }
+});
+
+it.each([1200, 390])("explains invalid literal drafts without rewriting them at %i", async width => {
+  const snapshot = runningSnapshot(); const t = target(snapshot.current!.sessionId!);
+  snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
+  const server = await serveViewFixture({ port: width === 1200 ? 44320 : 44321, folder: "customer-returns", snapshot });
+  const page = await chrome.open(`${server.address}/phase/2b`, { width, height: 1100 });
+  try {
+    await page.waitFor(`document.querySelector('#live-message')`);
+    for (const text of ["  NUL\0exact  ", "  malformed\ud800  ", "x".repeat(4001)]) {
+      await page.evaluate(`document.querySelector('#live-message').value=${JSON.stringify(text)};document.querySelector('#live-message').dispatchEvent(new Event('input',{bubbles:true}));`);
+      await page.waitFor(`document.querySelector('.composer [role=alert]')`);
+      expect(await page.evaluate(`document.querySelector('.composer [role=alert]').textContent`)).toContain(text.length > 4000 ? "exceeds 4,000" : "NUL or malformed Unicode");
+      expect(await page.evaluate(`document.querySelector('#live-message').value`)).toBe(text);
+      expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message').disabled`)).toBe(true);
+    }
+    expect(server.commands).toHaveLength(0); expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
   } finally { await page.close(); await server.close(); }
 });

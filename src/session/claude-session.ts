@@ -253,6 +253,8 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   const limitEvents: SavedEvent[] = [];
 
   let observations = Promise.resolve();
+  let observationFailure: unknown;
+  const retainObservationFailure = (error: unknown) => { observationFailure ??= error; };
   let resultSeen = false;
   const maybeDrain = async () => {
     if (!options.live || !resultSeen || child.stdin!.writableEnded) return;
@@ -264,7 +266,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       }
     });
   };
-  const drainTimer = options.live ? setInterval(() => { observations = observations.then(maybeDrain); }, 250) : undefined;
+  const drainTimer = options.live ? setInterval(() => { observations = observations.then(maybeDrain).catch(retainObservationFailure); }, 250) : undefined;
   drainTimer?.unref();
   let stdoutBuffer = "";
   let stderrBuffer = "";
@@ -291,7 +293,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       run.claudeResults = { count: resultAccounting.index, ...(cumulative === undefined ? previous?.cumulativeCostUsd === undefined ? {} : { cumulativeCostUsd: previous.cumulativeCostUsd } : { cumulativeCostUsd: cumulative }) };
     }
     appendJsonLine(files.events, { at, event, ...(resultAccounting ? { resultAccounting } : {}) });
-    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event, at); if (event.type === "result") resultSeen = true; }).then(maybeDrain);
+    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event, at); if (event.type === "result") resultSeen = true; }).then(maybeDrain).catch(retainObservationFailure);
     if (isModelResponse(event)) modelResponses.push(at);
     if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 
@@ -376,14 +378,20 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     run.endedAt = now().toISOString(); if (code !== null) run.exitCode = code; saveRecord(); throw error;
   }
   const [code, signal] = await closed;
-  await owned?.close();
-  await observations;
   clearInterval(drainTimer);
-
-  if (outputFailure) { options.onLiveExit?.(); throw outputFailure; }
-  readStdoutLine(stdoutBuffer);
-  await observations;
-  options.onLiveExit?.();
+  try {
+    await owned?.close();
+    await observations;
+    if (outputFailure) throw outputFailure;
+    if (observationFailure) throw observationFailure;
+    readStdoutLine(stdoutBuffer);
+    await observations;
+    if (observationFailure) throw observationFailure;
+  } finally {
+    // Every exited live attempt accounts for accepted input, even when its final
+    // saved-event/gate observation fails (including a last line without LF).
+    options.onLiveExit?.();
+  }
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
 
   if (options.exitGraceMs) await new Promise((resolve) => setTimeout(resolve, options.exitGraceMs));

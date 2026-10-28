@@ -598,7 +598,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(resumable ? {
-      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId).replace("\n", " && ") : resumeCommand(folder, session.sessionId),
+      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId, process.platform, true) : resumeCommand(folder, session.sessionId),
       ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
         deliveryAuthority: engine.deliveryAuthority(),
         agentId: session.agentId ?? "claude_code",
@@ -728,18 +728,18 @@ function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snap
  * `claude --resume <id>`, the path shown under `~/` and quoted only where the shell needs it.
  * On Windows, the PowerShell form.
  */
-export function resumeCommand(worktreePath: string, sessionId: string, platform: NodeJS.Platform = process.platform): string {
-  return claudeCommand(worktreePath, `--resume ${sessionId}`, platform);
+export function resumeCommand(worktreePath: string, sessionId: string, platform: NodeJS.Platform = process.platform, conditional = false): string {
+  return claudeCommand(worktreePath, `--resume ${sessionId}`, platform, conditional);
 }
 
 /** `cd <worktree>` then `claude`, with any arguments: the path quoted as `resumeCommand` gives. */
-export function claudeCommand(worktreePath: string, args?: string, platform: NodeJS.Platform = process.platform): string {
+export function claudeCommand(worktreePath: string, args?: string, platform: NodeJS.Platform = process.platform, conditional = false): string {
   const claude = args === undefined ? "claude" : `claude ${args}`;
   if (platform === "win32") return `cd '${worktreePath.replace(/'/g, "''")}'; ${claude}`;
   const shown = displayPath(worktreePath);
   const quote = (text: string) => (text === "" || /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`);
   const path = shown === "~" ? "~" : shown.startsWith("~/") ? `~/${quote(shown.slice(2))}` : quote(shown);
-  return `cd ${path}\n${claude}`;
+  return `cd ${path}${conditional ? " && " : "\n"}${claude}`;
 }
 
 function shellArgument(value: string, platform: NodeJS.Platform): string {

@@ -126,7 +126,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   } catch (error) {
     if (activity.acceptedResult) throw error;
     revision(context, body);
-    const refused = error instanceof AuditRefusal ? error : new AuditRefusal("missing_evidence", `Cannot read assigned report: ${(error as Error).message}`);
+    const refused = error instanceof AuditRefusal ? error : (error as NodeJS.ErrnoException).code === "ENOENT" ? new AuditRefusal("missing_evidence", `Cannot read assigned report: ${(error as Error).message}`) : new AuditRefusal("evidence_unavailable", `Cannot read assigned report: ${(error as Error).message}`, 503);
     const result: AuditResult = { id: "", activityId: activity.activityId, reportDigest: hashBytes(""), reportBytes: "", at: new Date().toISOString(), revision: state.revision + 1, disposition: "unresolved", nextAction: "needs_you", checks: [{ name: refused.code, passed: false, facts: [refused.message] }], refusal: { code: refused.code, status: refused.status, reason: refused.message, criteria: refused.criteria } };
     result.id = hashValue({ ...result, id: undefined }); activity.attempts.push(store.put(result)); state.revision = result.revision; return result;
   }

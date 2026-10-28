@@ -1,7 +1,7 @@
 // Real Git, filesystem, HTTP and CLI; fabricated transcripts exercise refusal cases beside
 // the actual-provider proof in scripts/proof-run/completion-audit-proof.mjs.
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -134,6 +134,16 @@ describe("audit evidence admission", () => {
     await recordAssessment(delivery, { owner, ...ownerDocuments(delivery, owner), required: false, criteria: f.checked.requirements.criteria.map(one => one.key), reason: "No PRD criterion requires development delivery.", checkpoints: [] });
     const next = await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath });
     expect(next.disposition).toBe("recorded"); expect(f.activity.attempts).toHaveLength(2);
+  });
+  it("retains an unavailable report read as a retryable source error instead of missing audit work", async () => {
+    const f = await fixture(); f.saveReport();
+    const path = join(f.root, f.activity.reportPath); chmodSync(path, 0);
+    try {
+      const unavailable = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+      expect(unavailable.refusal).toMatchObject({ code: "evidence_unavailable", status: 503 });
+      expect(unavailable.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
+    } finally { chmodSync(path, 0o644); }
+    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
   });
   it("retains missing reports and permits corrected blocked submissions in the same activity", async () => {
     const f = await fixture(); const missing = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });

@@ -11,7 +11,9 @@ export function assignedPath(repository: RepositoryEntry, path: string): string 
   requireAudit(typeof path === "string" && path.length && !isAbsolute(path) && !path.includes("\\") && !path.includes("\0") && path.split("/").every(p => p !== ".." && p !== "." && p !== ""), `Invalid repository-relative path: ${path}`, "outside_execution");
   const root = realpathSync(repository.worktreePath); const target = resolve(root, path);
   let physical: string;
-  try { physical = realpathSync(target); } catch { throw new AuditRefusal("missing_evidence", `Cannot read ${repository.name}/${path}`); }
+  try { physical = realpathSync(target); } catch (error) {
+    throw new AuditRefusal((error as NodeJS.ErrnoException).code === "ENOENT" ? "missing_evidence" : "evidence_unavailable", `Cannot read ${repository.name}/${path}: ${(error as Error).message}`, (error as NodeJS.ErrnoException).code === "ENOENT" ? 422 : 503);
+  }
   requireAudit(physical.startsWith(root + sep) && lstatSync(target).isFile(), `Path escapes assigned repository or is not a regular file: ${repository.name}/${path}`, "outside_execution");
   return physical;
 }

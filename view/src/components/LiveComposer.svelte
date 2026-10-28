@@ -7,6 +7,10 @@
   let { view, connected }: { view: LiveView; connected: boolean } = $props();
   const { config } = viewContext();
   const draft = $derived(liveDraft(view.target));
+  $effect(() => {
+    const receipt = view.messages?.find(m => m.instructionId === draft.instructionId);
+    if (receipt && receipt.delivery !== "submitting") { draft.instructionId = undefined; draft.submittedText = undefined; }
+  });
   async function submit(check = false) {
     const state = draft; const target = view.target;
     if (!connected || state.submitting || !check && (!view.input?.available || messageProblem(state.text))) return;
@@ -22,7 +26,7 @@
       const answer = await response.json() as { receipt?: Receipt; reason?: string };
       if (answer.receipt?.message) {
         state.feedback = answer.receipt.message.delivery === "submitting" ? "Submitting — delivery is still pending." : answer.receipt.message.delivery === "not_sent" ? "Not sent. Your exact text is retained." : answer.receipt.message.delivery === "uncertain" ? "Delivery uncertain. Review this message in the conversation before explicit hand-back." : "Submission recorded. Inspect the receipt below; this does not confirm the requested action happened.";
-        state.instructionId = undefined; state.submittedText = undefined;
+        if (answer.receipt.message.delivery !== "submitting") { state.instructionId = undefined; state.submittedText = undefined; }
       } else if (!check && response.status < 500) {
         state.feedback = `Not sent: ${answer.reason ?? "This instruction was refused."} Your text is retained.`;
         state.instructionId = undefined; state.submittedText = undefined;
@@ -41,6 +45,7 @@
   <button class="button solid" disabled={!connected || !view.input?.available || draft.submitting || !!draft.instructionId || !!messageProblem(draft.text)} onclick={() => submit()}>Send message</button>
   {#if draft.instructionId && !draft.submitting}<button class="button" disabled={!connected} onclick={() => submit(true)}>Check submission</button>{/if}
   {#if !connected}<p>Disconnected. Reconnect before acting. Last observed {new Date(view.observedAt).toLocaleString()}. Your draft is retained.</p>{:else if !view.input?.available}<p>{view.input?.reason ?? "Live input is unavailable for this attempt."}</p>{/if}
+  {#if draft.text && messageProblem(draft.text)}<p role="alert">{messageProblem(draft.text)}</p>{/if}
   {#if draft.feedback}<p role="status">{draft.feedback}</p>{/if}
 </section>
 <style>

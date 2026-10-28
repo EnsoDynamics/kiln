@@ -113,13 +113,17 @@ it.skipIf(process.platform !== "darwin")("uses one admission authority for brows
   if (!h.engine.record.liveControl) { expect((await cli(args("take-over", "after-race"))).code).toBe(0); await h.engine.commands.settled(); }
   h.engine.record.pause.requestedAt = new Date().toISOString();
   const handoff = await cli(["handoff", path()]); expect(handoff.body.data).toMatchObject({ resumable: false, resume_command: null, resume_argv: null, fresh_session_instructions: null });
-  expect((await status()).pause_status).toContain("Pausing for takeover");
+  const pendingStatus = await status();
+  expect(pendingStatus.pause_status).toContain("Pausing for takeover");
+  expect(pendingStatus.pause_status).toContain("Will pause after Phase 1 finishes. Current work continues.");
+  expect((pendingStatus.controls as { name: string; available: boolean; reason: string }[]).find(c => c.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.any(String) });
+  expect((await cli(["status", path()], undefined, false)).text).toContain("Will pause after Phase 1 finishes. Current work continues.");
   expect((await cli([...args("message", "after-takeover"), "--message-from-stdin"], Buffer.from("not sent"))).code).toBe(3);
   writeFileSync(join(h.sandbox.root, "release"), "finish naturally");
   await release();
   const ready = await cli(["handoff", path()]); expect(ready.code, ready.text).toBe(0);
   expect(ready.body.data).toMatchObject({ resumable: true, resume_argv: ["claude", "--resume", target.providerSessionId], terminal_readiness: { ready: true } });
-  expect((await status()).pause_status).toBe("Paused for terminal takeover.");
+  expect((await status()).pause_status).toBe("Paused for terminal takeover. Will pause after Phase 1 finishes. Current work continues.");
   expect(h.engine.record.pause.requestedAt).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
 });
 

@@ -27,6 +27,7 @@ export interface Receipt {
 export interface ControlView { token: string; target: string; controls: { name: Action; available: boolean; reason: string | null }[] }
 export interface ControlHost {
   execution(): string; view(): ControlView; runState(): string;
+  staleReason?(instruction: Instruction): string | undefined;
   apply(action: Action, inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string }>;
   reconcile(receipt: Receipt): Receipt | undefined;
   changed(): void;
@@ -184,6 +185,7 @@ export class CommandJournal {
     const control = view.controls.find(c => c.name === instruction.action)!;
     const unsent = this.unsent(view.target);
     const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
+    if (refusal?.[0] === "stale_status_token") refusal[1] = this.host.staleReason?.(instruction) ?? refusal[1]!;
     const at = new Date().toISOString();
     const r: Receipt = { ...(instruction.action === "message" ? { live_target: instruction.inputs.target as import("../live/target.js").LiveTarget, message: { text: instruction.inputs.text as string, uuid: randomUUID(), delivery: refusal ? "not_sent" as const : "submitting" as const } } : {}), source, version: 1, sequence: this.nextSequence(), id: randomUUID(), command_id: instruction.command_id, execution_id: instruction.execution_id, digest, instruction, target: view.target, accepted_at: at, updated_at: at,
       state: refusal ? "refused" : "accepted", outcome: refusal?.[0] ?? null, reason: refusal?.[1] ?? null, effects: { ...(instruction.action === "message" ? { message: "not_sent" as const } : {}), reply: instruction.action === "reply" ? "not_sent" : "not_applicable", session: "not_started", plan: "not_advanced" }, reply_text: instruction.action === "reply" ? String(instruction.inputs.message) : null, acknowledged_by: null, stage: "intent" };

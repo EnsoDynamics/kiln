@@ -1,9 +1,9 @@
 // Real controller, durable journal, HTTP and disposable Git. The scripted stream uses
 // verified CLI UUID-set shapes; scripts/proof-run/live-messages.mjs proves the real adapter.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { once } from "node:events";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { isPortFree } from "../state/instance-lock.js";
@@ -11,7 +11,7 @@ import { readGate } from "./gate.js";
 import { readReceipts, type Receipt } from "../control/commands.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 let h: Harness; let server: LocalServer | undefined; let origin: string;
-afterEach(async () => { await server?.close(); server = undefined; await h?.cleanup(); });
+afterEach(async () => { vi.restoreAllMocks(); await server?.close(); server = undefined; await h?.cleanup(); });
 async function setup(actions: object[]) {
   h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
@@ -98,14 +98,14 @@ it.skipIf(process.platform !== "darwin")("serializes takeover against message de
   const session = h.engine.latestSession("1")!; expect(readGate(session.runs[0]!.live!.gateDirectory).held).toBeDefined();
 });
 
-it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
+it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession", "resume_review", "resume_partial_review", "verify_review", "verify_partial_review", "resume_dispatch_review"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release"); const killedAt = join(h.sandbox.root, "boundary");
   // At write_completed the callback may settle before the provider's replay.
   // Keep the fixture quiet until release so SIGKILL cannot race an echo into a
   // closed stdout pipe. The stdin reader still independently records the input.
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary === "partial_review" || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { [boundary.slice(6)]: true } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary.includes("partial_review") || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { [boundary.slice(6)]: true } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
   const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url");
   const { readPrdRecord } = await import("../state/records.js"); const { git } = await import("../test-support/git-repositories.js"); const { isProcessLive } = await import("../platform/process-start-time.js");
   let port = 43060; while (!await isPortFree(port)) port++;
@@ -113,7 +113,7 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url)); const journalPath = fileURLToPath(new URL("../../dist/control/commands.js", import.meta.url));
   // Freeze only the disposable supervisor immediately around real durable writes.
   // For write_completed, freeze before saving that callback; for others, after save.
-  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||(boundary==='review'||boundary==='partial_review')&&r.message?.reviewedAt);if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));if(boundary.startsWith('saved_')){const observe=Engine.prototype.observeLiveMessage;Engine.prototype.observeLiveMessage=function(t,e,at){if(!stopped&&e.type==='result'&&e.user_message_uuids?.length===2){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'saved before callback');process.kill(process.pid,'SIGSTOP');}return observe.call(this,t,e,at);};}const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
+  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&(boundary==='resume_dispatch_review'&&r.command_id==='review-crash'&&r.instruction.action==='resume'&&r.stage==='dispatching'||r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||boundary.endsWith('review')&&boundary!=='resume_dispatch_review'&&r.message?.reviewedAt));if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));if(boundary.startsWith('saved_')){const observe=Engine.prototype.observeLiveMessage;Engine.prototype.observeLiveMessage=function(t,e,at){if(!stopped&&e.type==='result'&&e.user_message_uuids?.length===2){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'saved before callback');process.kill(process.pid,'SIGSTOP');}return observe.call(this,t,e,at);};}const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
   const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit"); let diagnostic = ""; controller.stderr!.on("data", b => { diagnostic += String(b); });
   try {
     await waitFor(() => { if (controller.exitCode !== null) throw new Error(diagnostic); return existsSync(ready); }, 30000);
@@ -128,9 +128,12 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     }
     if (boundary.endsWith("review")) {
       await request;
-      if (boundary === "partial_review") { await waitFor(() => readReceipts(h.stateDirectory).find(r => r.command_id === `crash-${boundary}`)?.state === "completed"); expect((await post("live/message", { instructionId: "crash-second", target: t, text: "second uncertain instruction" })).status).toBe(202); }
+      if (boundary.includes("partial_review")) { await waitFor(() => readReceipts(h.stateDirectory).find(r => r.command_id === `crash-${boundary}`)?.state === "completed"); expect((await post("live/message", { instructionId: "crash-second", target: t, text: "second uncertain instruction" })).status).toBe(202); }
       await waitFor(() => readPrdRecord(h.stateDirectory)?.liveControl?.takeover.state === "released", 15000);
-      request = post("live/message-review", { instructionId: "review-crash", target: t, receiptIds: [`crash-${boundary}`, ...(boundary === "partial_review" ? ["crash-second"] : [])] }).catch(() => undefined);
+      const reviewed = [`crash-${boundary}`, ...(boundary.includes("partial_review") ? ["crash-second"] : [])];
+      request = boundary.startsWith("resume_") || boundary.startsWith("verify_")
+        ? post("control/v1/commands", { command_id: "review-crash", execution_id: t.executionId, status_token: (await (await fetch(`${origin}/api/control/v1/status`, { headers: { "X-Kiln-Token": disk.token } })).json() as { status_token: string }).status_token, action: boundary.startsWith("resume_") ? "resume" : "verify-and-advance", inputs: { live_target: t, reviewed_receipt_ids: reviewed } }).catch(() => undefined)
+        : post("live/message-review", { instructionId: "review-crash", target: t, receiptIds: reviewed }).catch(() => undefined);
     }
     await waitFor(() => existsSync(killedAt), 15000); controller.kill("SIGKILL"); await exited; await request;
     h.engine = h.reopenFromDisk(); await h.engine.prepare();
@@ -139,19 +142,48 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     else if (boundary === "evidence") expect(r.message?.resultAt).toBeDefined();
     else { expect(r.message?.delivery).toBe("uncertain"); expect(h.engine.record.liveControl).toBeDefined(); }
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(!boundary.endsWith("review")); expect(h.claudeCalls()).toHaveLength(1);
+    if (boundary === "write_completed") {
+      await h.engine.decide();
+      expect(h.engine.liveView()).toMatchObject({ available: true, input: { available: false } });
+      expect(h.engine.liveView()?.input?.reason).toContain("Input connection lost");
+      expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.any(String) });
+      const { launchChrome } = await import("../test-support/headless-chrome.js");
+      const browser = await launchChrome();
+      server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Restarted uncertain input", token: h.engine.record.token });
+      const page = await browser.open(`${server.address}/phase/1`, { width: 390, height: 1100 });
+      try {
+        const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Pause & take over')`;
+        await page.waitFor(`${take} && !${take}.disabled`);
+        expect(await page.evaluate("document.body.innerText")).toContain("Input connection lost");
+        expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message').disabled`)).toBe(true);
+        await page.evaluate(`${take}.click()`);
+        await page.waitFor(`document.body.innerText.includes('Pausing for takeover — finishing the current operation')`);
+        writeFileSync("/tmp/kiln-phase8-restarted-uncertain-390.png", await page.screenshot());
+        expect(page.problems).toEqual([]);
+      } finally { await page.close(); await browser.close(); await server.close(); server = undefined; }
+      expect(readGate(run.live!.gateDirectory).held).toBeDefined();
+      expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toBeUndefined();
+    }
     writeFileSync(release, "finish naturally"); await waitFor(async () => !await isProcessLive(run.pid!, run.processStartTime), 25000);
     expect(h.engine.record.phases[key]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
     const actual = existsSync(`${h.scenarioPath}.live-inputs.jsonl`) ? inputs().length : 0;
-    expect(actual).toBe(boundary === "intent" || boundary === "write_started" ? 0 : boundary === "partial_review" || boundary.startsWith("saved_") ? 2 : 1);
+    expect(actual).toBe(boundary === "intent" || boundary === "write_started" ? 0 : boundary.includes("partial_review") || boundary.startsWith("saved_") ? 2 : 1);
     if (boundary.startsWith("saved_")) {
       for (const id of [`crash-${boundary}`, "crash-saved-second"]) expect(receipt(id)).toMatchObject({ state: "indeterminate", message: { delivery: "uncertain" }, effects: { message: "unknown", plan: "not_advanced", session: "not_started" } });
       expect(h.engine.liveView()?.reviewRequired).toHaveLength(2);
       h.engine = h.reopenFromDisk(); await h.engine.prepare();
       expect(h.engine.liveView()?.reviewRequired).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(1);
     }
+    if (boundary === "resume_dispatch_review") {
+      expect(receipt("review-crash")).toMatchObject({ state: "indeterminate", stage: "dispatching", effects: { session: "unknown" } });
+      expect(receipt(`crash-${boundary}`).message?.reviewedAt).toBeDefined();
+      expect(h.engine.commands.blocked).toBe(true); expect(h.engine.record.liveControl).toBeDefined();
+      expect(h.claudeCalls()).toHaveLength(1); return;
+    }
     if (boundary.endsWith("review")) {
       expect(receipt("review-crash").state).toBe(boundary === "review" ? "completed" : "failed");
-      if (boundary === "partial_review") {
+      if (boundary.startsWith("resume_") || boundary.startsWith("verify_")) expect(receipt("review-crash").outcome).toBe("hand_back_not_started");
+      if (boundary.includes("partial_review")) {
         expect(receipt("crash-second").message?.reviewedAt).toBeUndefined();
         expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget()! })).toMatchObject({ ok: false });
         h.engine.commands.submit({ command_id: "finish-partial-review", execution_id: t.executionId, status_token: JSON.stringify(t), action: "message-review", inputs: { target: t, receipt_ids: ["crash-second"] } });
@@ -302,4 +334,47 @@ it.skipIf(process.platform !== "darwin")("retains unresolved late-evidence recei
     expect(h.engine.commands.blocked).toBe(false);
   }
   expect(inputs()).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it.skipIf(process.platform !== "darwin")("disables live actions during actual gate acquisition after a submitting HTTP receipt", async () => {
+  const target = await setup([{ waitForFile: "release" }, { liveMessages: 1 }]);
+  const { processStartTime } = await import("../platform/process-start-time.js");
+  const gate = h.engine.latestSession("1")!.runs.at(-1)!.live!.gateDirectory;
+  const lock = join(gate, "admission.lock");
+  // The fixture owns a real lock with a live PID/start identity. No unknown lock is broken.
+  await waitFor(() => !existsSync(lock));
+  mkdirSync(lock); writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, start: await processStartTime(process.pid), generation: "pending-test" }));
+  try {
+    const response = await post("live/message", { instructionId: "gate-pending", target, text: "  pending exact text\n" });
+    expect(response.status).toBe(202); expect(receipt("gate-pending").message).toMatchObject({ delivery: "submitting" });
+    expect(receipt("gate-pending").message?.writeStartedAt).toBeUndefined();
+    expect(h.engine.liveView()?.input?.available).toBe(false); expect(h.engine.liveView()?.available).toBe(false);
+    expect((await post("live/take-over", { instructionId: "pending-take", target })).status).toBe(409);
+  } finally { rmSync(lock, { recursive: true }); }
+  await h.engine.commands.settled(); expect(receipt("gate-pending").message?.delivery).toBe("submitted");
+  writeFileSync(join(h.sandbox.root, "release"), "finish"); await h.engine.settled();
+  expect(inputs()).toHaveLength(1); expect(inputs()[0]!.message.content).toBe("  pending exact text\n");
+});
+
+it.skipIf(process.platform !== "darwin").each([true, false])("holds unaccounted input after a final observation error (trailing LF: %s) despite passing phase evidence", async withNewline => {
+  const gateModule = await import("./gate.js");
+  const target = await setup([{ liveMessages: 1, uncorrelated: true }, { waitForFile: "release" }, { rawEvent: { type: "result", subtype: "success", is_error: false, result: "Completed." }, withNewline }, { exitNow: 0 }]);
+  await post("live/message", { instructionId: "final-observation", target, text: "  unaccounted final instruction\n" }); await h.engine.commands.settled();
+  const phase = join(h.engine.worktreePath, "docs/prds/customer-returns/phase-1-return-intake.md");
+  writeFileSync(phase, readFileSync(phase, "utf8").replace("\n", "\n\n**Closed:** 2026-10-28\n"));
+  const { git } = await import("../test-support/git-repositories.js");
+  git(h.sandbox, h.engine.worktreePath, "add", "docs/prds/customer-returns/phase-1-return-intake.md"); git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test: complete first phase"); git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+  const observe = gateModule.observeGate;
+  vi.spyOn(gateModule, "observeGate").mockImplementation(async (...args) => { if (args[1].type === "result") throw new Error("Final gate observation unavailable"); return observe(...args); });
+  writeFileSync(join(h.sandbox.root, "release"), "finish"); await h.engine.settled();
+  expect(receipt("final-observation").message).toMatchObject({ delivery: "uncertain", text: "  unaccounted final instruction\n" });
+  expect(h.engine.record.liveControl).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
+  vi.restoreAllMocks();
+  await h.engine.reconcileTakeover();
+  const recovery = h.engine.phaseRecoveryTarget()!;
+  h.engine.reviewMessages(target, ["final-observation"]);
+  expect(await h.engine.resume({ target: recovery })).toMatchObject({ ok: true, outcome: "already_complete" });
+  expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(receipt("final-observation").message?.delivery).toBe("uncertain"); expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
 });

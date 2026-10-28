@@ -389,6 +389,8 @@ for (const action of session.actions) {
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
     resultSent = true;
+  } else if (action.rawEvent) {
+    process.stdout.write(JSON.stringify({ session_id: sessionId, ...action.rawEvent }) + (action.withNewline ? "\n" : ""));
   } else if (action.exitNow !== undefined) {
     await exitAfterFlush(action.exitNow);
   } else if (action.exit !== undefined) {
