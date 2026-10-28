@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { openSync, closeSync, readSync, fstatSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { writeDurableMetadata } from "./durable-file.js";
-import { checkedPath, privateJson, type SavedWork } from "./private-state.js";
+import { checkedPath, privateJson, safeSelector, type SavedWork } from "./private-state.js";
 import { ControlFailure, commandText, result, serialize, type Result } from "./result.js";
 
 export const LOG_BYTES = 16384;
@@ -113,6 +113,15 @@ function decoded(cursor: string, token: string): Position {
   if (!/^[a-f0-9]{64}$/.test(p.snapshot) || !Number.isSafeInteger(p.end) || p.end < 0 || (p.scalar !== null && (!Number.isSafeInteger(p.scalar) || p.scalar < 0))) throw new ControlFailure("invalid_cursor", "Invalid output cursor position.", 2);
   return p;
 }
+function readDescriptor(root: string, path: string, id: string, deadline: number): Snapshot {
+  let snapshot: Snapshot;
+  try { snapshot = privateJson<Snapshot>(root, path, deadline); } catch { unavailable("The output snapshot descriptor is unavailable."); }
+  if (!snapshot || snapshot.version !== 1 || snapshot.id !== id || typeof snapshot.execution !== "string" || typeof snapshot.session !== "string" || !safeSelector(snapshot.session) || typeof snapshot.phase !== "string" || !safeSelector(snapshot.phase)
+    || typeof snapshot.generation !== "string" || typeof snapshot.file_identity !== "string" || !Number.isSafeInteger(snapshot.frozen_byte_end) || snapshot.frozen_byte_end < 0
+    || !Number.isSafeInteger(snapshot.last_record_number) || snapshot.last_record_number < 0 || !/^[a-f0-9]{64}$/.test(snapshot.prefix_sha256)
+    || typeof snapshot.observed_at !== "string" || !Number.isFinite(Date.parse(snapshot.observed_at))) unavailable("The output snapshot descriptor is corrupt or unsupported.");
+  deadlineCheck(deadline); return snapshot;
+}
 export function outputPage(work: SavedWork, selected: { phase: string; id: string } | null, options: { session?: string; cursor?: string; max: number; json: boolean }, deadline = Date.now() + 5000): Result {
   const { record, directory, root, canonical } = work;
   const base = { prd_path: canonical, execution_id: record.executionId!, session_id: selected?.id ?? null, response_byte_limit: LOG_BYTES, requested_lines: options.max };
@@ -120,8 +129,8 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
   if (options.cursor) {
     position = decoded(options.cursor, record.token);
     const descriptor = join(directory, "output-snapshots", `${position.snapshot}.json`);
-    try { snapshot = privateJson<Snapshot>(root, descriptor); } catch { unavailable("The output snapshot descriptor is unavailable."); }
-    if (snapshot.version !== 1 || snapshot.id !== position.snapshot || snapshot.execution !== record.executionId || (options.session && options.session !== snapshot.session)) throw new ControlFailure("cursor_target_mismatch", "Cursor does not belong to this execution and session.", 2);
+    snapshot = readDescriptor(root, descriptor, position.snapshot, deadline);
+    if (snapshot.execution !== record.executionId || (options.session && options.session !== snapshot.session)) throw new ControlFailure("cursor_target_mismatch", "Cursor does not belong to this execution and session.", 2);
     selected = { id: snapshot.session, phase: snapshot.phase }; base.session_id = selected.id;
     if (position.end > snapshot.frozen_byte_end) throw new ControlFailure("invalid_cursor", "Invalid cursor byte position.", 2);
   }
@@ -132,7 +141,7 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
   try {
     const stat = fstatSync(fd); const identity = `${stat.dev}:${stat.ino}`;
     let session: { outputGeneration?: string };
-    try { session = privateJson(root, join(directory, selected.phase, selected.id, "session.json")); }
+    try { session = privateJson(root, join(directory, selected.phase, selected.id, "session.json"), deadline); }
     catch { unavailable("The saved session output generation is missing, corrupt or unreadable."); }
     const generation = session.outputGeneration ?? `legacy:${identity}`;
     if (!snapshot) {
@@ -141,7 +150,10 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
       const hash = prefixHash(fd, end, deadline);
       const id = createHash("sha256").update(JSON.stringify([record.executionId, selected.id, generation, identity, end, hash])).digest("hex");
       const descriptor = join(directory, "output-snapshots", `${id}.json`);
-      if (existsSync(descriptor)) snapshot = privateJson<Snapshot>(root, descriptor);
+      if (existsSync(descriptor)) {
+        snapshot = readDescriptor(root, descriptor, id, deadline);
+        if (snapshot.execution !== record.executionId || snapshot.session !== selected.id || snapshot.phase !== selected.phase || snapshot.frozen_byte_end !== end || snapshot.prefix_sha256 !== hash) unavailable("The reused output snapshot descriptor does not match this execution and session.");
+      }
       else {
         const last = end ? readRecord(fd, previousNewline(fd, end - 1, deadline) + 1, end, null, deadline).line.number : 0;
         snapshot = { version: 1, id, execution: record.executionId!, session: selected.id, phase: selected.phase, generation, file_identity: identity, frozen_byte_end: end, prefix_sha256: hash, last_record_number: last, observed_at: new Date().toISOString() };
@@ -150,6 +162,8 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
       position = { snapshot: snapshot.id, end: snapshot.frozen_byte_end, scalar: null };
     }
     if (snapshot.generation !== generation || snapshot.file_identity !== identity || stat.size < snapshot.frozen_byte_end || prefixHash(fd, snapshot.frozen_byte_end, deadline) !== snapshot.prefix_sha256) unavailable("Saved output was replaced, rebuilt, shortened or changed inside the frozen snapshot.");
+    const last = snapshot.frozen_byte_end ? readRecord(fd, previousNewline(fd, snapshot.frozen_byte_end - 1, deadline) + 1, snapshot.frozen_byte_end, null, deadline).line.number : 0;
+    if (last !== snapshot.last_record_number) unavailable("The output snapshot descriptor has an inconsistent final record number.");
     const collectedAt = new Date().toISOString();
     const lines: Line[] = []; let cursor = position!; let byteLimit = false;
     const answer = (next: Position, entries: Line[]): Result => {

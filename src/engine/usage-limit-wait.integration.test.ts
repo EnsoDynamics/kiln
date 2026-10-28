@@ -261,7 +261,7 @@ describe("a usage limit with no reset time (AC-AUTO-02)", () => {
     const s = await setup(() => [refusedSession({ rateLimitType: "overage", resetsAt: null })]);
     const { h, claude } = s;
     await startToWait(s);
-    expect(buildSnapshot(h.engine).waiting!.limit).toEqual({ label: "A usage limit", resetPassed: false });
+    expect(buildSnapshot(h.engine).waiting!.limit).toEqual({ label: "A usage limit", resetPassed: false, agentId: "claude_code", allowancesObservation: { observedAt: null, state: "unavailable", reason: "No dated Claude usage reading is available after the refusal." } });
     claude.deliver(signedIn([usageRow("session", 40)]));
     const stop = h.engine.record.phases["1"]!.stop!;
     expect(stop).toMatchObject({ kind: "done_check", limit: { rateLimitType: "overage", label: "A usage limit" } });

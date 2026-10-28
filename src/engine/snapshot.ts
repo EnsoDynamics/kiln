@@ -336,6 +336,7 @@ export interface Snapshot {
 export interface SnapshotReads {
   /** Inspection publishes saved attempt times directly and avoids aggregate browser timing. */
   includeTiming?: boolean;
+  auditStore?: Pick<AuditStore, "read">;
   output?: (session: SessionRecord) => OutputLine[];
 }
 export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {
@@ -366,7 +367,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
 
   const views = phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
-    activities: activityViews(engine, state, views, includeTiming),
+    activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -682,8 +683,14 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
     }
     return view;
   }
+  view.agentId = "claude_code";
+  view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Claude usage reading is available after the refusal." };
   const reading = engine.claude?.account;
   if (!found || !refusal || reading === undefined || Date.parse(reading.startedAt) < Date.parse(refusal.at)) return view;
+  const usageAt = reading.limitsObservedAt;
+  const stale = !!(reading.limitsError || reading.error);
+  view.allowances = usageAt ? reading.limits : [];
+  view.allowancesObservation = { observedAt: usageAt ?? null, state: !usageAt ? "unavailable" : stale ? "stale" : "current", reason: reading.limitsError ?? reading.error ?? (!usageAt ? "Dated Claude usage is unavailable." : stale ? "Usage was retained without a fresh usage reading." : null) };
   const account: NonNullable<LimitView["account"]> = { ...optional("email", reading.error === undefined ? reading.email : undefined), ...optional("plan", reading.error === undefined ? reading.plan : undefined), ...optional("error", reading.error), at: reading.updatedAt };
   if (reading.error === undefined && reading.limitsError === undefined) {
     const row = limitRow(refusal.rateLimitType, reading.limits);
@@ -967,7 +974,7 @@ function sessionSteps(engine: Engine, key: string, session: SessionRecord): Step
   ];
 }
 
-function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[], includeTiming: boolean): PhaseView[] {
+function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[], includeTiming: boolean, inspectionStore?: Pick<AuditStore, "read">): PhaseView[] {
   const { record } = engine;
   const rows: PhaseView[] = [];
   const started = new Set<string>();
@@ -992,15 +999,16 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       }
     }
     try {
-      const accepted = acceptedAudit(engine.stateDirectory, audit);
-      const attempt = accepted?.result ?? (audit.attempts.at(-1) ? new AuditStore(engine.stateDirectory).read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
+      const store = inspectionStore ?? new AuditStore(engine.stateDirectory);
+      const accepted = acceptedAudit(engine.stateDirectory, audit, store);
+      const attempt = accepted?.result ?? (audit.attempts.at(-1) ? store.read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
-      const snapshot = audit.snapshots.at(-1) ? new AuditStore(engine.stateDirectory).read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
+      const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       row.audit = { ...optional("outcome", report?.outcome), checks: facts?.stop?.checks ?? attempt?.checks ?? [], criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
       if (accepted?.report.outcome === "passed" && facts?.doneAt) {
         row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
-    } catch (error) { row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
+    } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     rows.push(row); started.add(row.id);
   }
   // Closed-at-start phases have no activity history; show their preserved history before audits.

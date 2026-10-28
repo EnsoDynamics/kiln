@@ -227,7 +227,7 @@ it("confirms only the exact current-attempt message without rewriting session hi
 });
 it("automatic restart recovery excludes browser and API resume and persists one correlated dispatch", async () => {
   h = await createHarness({ sessions: [{ actions: [{ waitForFile: "never-released" }] }, { actions: [{ result: "Recovered once" }] }] });
-  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => h.claudeCalls().length === 1 && h.engine.current?.processRunning === true);
+  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => h.claudeCalls().length === 1 && h.engine.current?.processRunning === true && !!h.engine.current?.session?.initModel);
   await h.engine.stop("sigint"); h.engine = h.reopenFromDisk(); await h.engine.prepare();
   expect((await h.engine.decide()).kind).toBe("resume");
   const gate = join(h.sandbox.root, "release-automatic-preflight"); h.env.KILN_STANDIN_VERSION_WAIT = gate;
@@ -247,4 +247,57 @@ it("automatic restart recovery excludes browser and API resume and persists one 
     expect(h.engine.latestSession("1")!.runs.at(-1)!.control?.operationId).toBe(automatic.id);
     h.engine.commands.submit(automatic.instruction); expect(h.claudeCalls()).toHaveLength(2);
   } finally { writeFileSync(gate, ""); delete h.env.KILN_STANDIN_VERSION_WAIT; await recovery; await server.close(); }
+});
+
+it('rejects complete and partial timed-out transport bodies before real journal admission, while timely EOF and replay work', async () => {
+  const { Hono } = await import('hono'); const { installInspectionRoutes } = await import('./server.js');
+  await setup(); const app = new Hono(); await installInspectionRoutes(app, h.engine, () => undefined);
+  const body = instruction('settings', 'body-eof', { keep_awake: true });
+  const encoded = new TextEncoder().encode(JSON.stringify(body));
+  const before = readReceipts(h.stateDirectory); const calls = h.claudeCalls().length; const setting = h.engine.record.settings.keepAwake;
+  // Real five-second route deadline and real engine/journal. Only transport EOF/error
+  // is controlled here; this does not substitute for the existing loopback tests.
+  for (const bytes of [encoded, encoded.subarray(0, encoded.length - 3)]) {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes); }, cancel() { cancelled = true; } });
+    const response = await app.request('http://localhost/api/control/v1/commands', { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    expect(response.status).toBe(400); expect(await response.json()).toMatchObject({ ok: false, errors: [{ code: 'invalid_input', message: expect.stringContaining('five seconds') }] });
+    expect(cancelled).toBe(true); expect(readReceipts(h.stateDirectory)).toEqual(before); expect(h.engine.record.settings.keepAwake).toBe(setting); expect(h.claudeCalls()).toHaveLength(calls);
+  }
+  const broken = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error('injected transport read failure')); } });
+  const error = await app.request('http://localhost/api/control/v1/commands', { method: 'POST', body: broken, duplex: 'half' } as RequestInit);
+  expect(error.status).toBe(400); expect(await error.json()).toMatchObject({ errors: [{ code: 'invalid_input' }] }); expect(readReceipts(h.stateDirectory)).toEqual(before);
+  const send = () => app.request('http://localhost/api/control/v1/commands', { method: 'POST', body: JSON.stringify(body) });
+  const accepted = await send(); expect(accepted.status).toBe(202); const receipt = await accepted.json() as { operation: { id: string } };
+  await h.engine.commands.settled(); expect(h.engine.record.settings.keepAwake).toBe(true);
+  expect((await (await send()).json()) as { operation: unknown }).toMatchObject({ operation: { id: receipt.operation.id } });
+  expect(readReceipts(h.stateDirectory).filter(r => r.command_id === 'body-eof')).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(calls);
+});
+
+it('offers fresh Claude recovery for wholly corrupt history and starts no same-session reply or resume', async () => {
+  await setup(); const session = h.engine.latestSession('1')!;
+  const file = findTranscripts(claudeConfigFolder(h.env), session.sessionId).main!; const original = readFileSync(file, 'utf8');
+  expect(h.engine.resumeOffered('1')).toBe(true);
+  writeFileSync(file, 'garbage\n'); expect(h.engine.transcriptMissing(session)).toBe(true); expect(h.engine.resumeOffered('1')).toBe(false);
+  const { buildSnapshot } = await import('../engine/snapshot.js'); const view = buildSnapshot(h.engine).needsYou!;
+  expect(view.freshSessionCommand).toContain('claude'); expect(view.freshSessionPrompt.length).toBeGreaterThan(0);
+  for (const action of ['resume', 'reply']) {
+    const answer = h.engine.commands.submit(instruction(action, `corrupt-${action}`, action === 'reply' ? { message: 'Do not send' } : {}));
+    expect(answer.ok).toBe(false); expect(answer.errors[0]?.code).toBe('control_unavailable');
+  }
+  await h.engine.commands.settled(); expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession('1')!.runs).toHaveLength(1);
+  writeFileSync(file, original + '\n{"type":'); expect(h.engine.resumeOffered('1')).toBe(true);
+});
+
+it('rechecks Claude history after awaited launch metadata before recording or starting a resumed attempt', async () => {
+  await setup(); const session = h.engine.latestSession('1')!; const file = findTranscripts(claudeConfigFolder(h.env), session.sessionId).main!;
+  const refresh = h.engine.billing.refresh.bind(h.engine.billing);
+  // Preserve the real metadata operation; corrupt only the disposable provider
+  // file while that awaited boundary completes, before final dispatch admission.
+  vi.spyOn(h.engine.billing, 'refresh').mockImplementation(async (...args) => { const reading = await refresh(...args); writeFileSync(file, 'garbage\n'); return reading; });
+  const answer = h.engine.commands.submit(instruction('reply', 'late-history-loss', { message: 'Never sent to missing history' })); expect(answer.ok).toBe(true);
+  await h.engine.commands.settled(); await h.engine.settled();
+  expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession('1')!.runs).toHaveLength(1);
+  expect(h.engine.record.phases['1']!.stop?.kind).toBe('not_resumable');
+  expect(h.engine.commands.lookup('late-history-loss').operation).toMatchObject({ effects: { session: 'not_started', reply: 'not_sent', plan: 'not_advanced' } });
 });

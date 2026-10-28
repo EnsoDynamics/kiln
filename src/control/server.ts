@@ -65,7 +65,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
       const reader = c.req.raw.body?.getReader();
       if (reader) {
         let expired = false;
-        const timeout = setTimeout(() => { expired = true; void reader.cancel(); }, 5000);
+        const timeout = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 5000);
         try {
           if (!(await reader.read()).done || expired) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs and must finish within five seconds.", 2);
         } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
@@ -83,10 +83,12 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     let commandId: string | null = null;
     try {
       const reader = c.req.raw.body?.getReader(); if (!reader) throw new ControlFailure("invalid_input", "A command body is required.", 2);
-      const chunks: Uint8Array[] = []; let size = 0;
-      const timeout = setTimeout(() => { void reader.cancel(); }, 5000);
-      try { for (;;) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > 65536) return c.json(result({}, [errorFact("invalid_input", "Command body exceeds 64 KiB.")]), 413); chunks.push(next.value); } }
-      finally { clearTimeout(timeout); reader.releaseLock(); }
+      const chunks: Uint8Array[] = []; let size = 0; let expired = false;
+      const deadline = Date.now() + 5000;
+      const timeout = setTimeout(() => { expired = true; void reader.cancel().catch(() => {}); }, 5000);
+      try { for (;;) { const next = await reader.read(); if (expired || Date.now() > deadline) throw new ControlFailure("invalid_input", "Command input must finish within five seconds.", 2); if (next.done) break; size += next.value.length; if (size > 65536) return c.json(result({}, [errorFact("invalid_input", "Command body exceeds 64 KiB.")]), 413); chunks.push(next.value); } }
+      catch (error) { if (error instanceof ControlFailure) throw error; throw new ControlFailure("invalid_input", "Command body could not be read completely.", 2); }
+      finally { clearTimeout(timeout); void reader.cancel().catch(() => {}); reader.releaseLock(); }
       let body: unknown; try { body = strictJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new ControlFailure("invalid_input", "A valid UTF-8 JSON command is required.", 2); }
       if (body && typeof body === "object" && "command_id" in body && typeof body.command_id === "string") commandId = body.command_id;
       if (body && typeof body === "object" && !Array.isArray(body)) {

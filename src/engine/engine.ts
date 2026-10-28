@@ -112,7 +112,7 @@ import {
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../session/codex-evidence.js";
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
-import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
+import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
@@ -2454,6 +2454,11 @@ export class Engine {
         return;
       }
     }
+    if (session.agentId !== "codex" && this.transcriptMissing(session)) {
+      this.checking = false;
+      this.recordStop(phaseKey, "not_resumable", [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history. Use the fresh-session recovery instructions."] }]);
+      return;
+    }
     const facts = this.record.phases[phaseKey]!;
     const account = request === undefined || session.agentId === "codex" ? undefined : await this.readAccountBeforeResume();
     if (this.stopping) return;
@@ -2595,6 +2600,18 @@ export class Engine {
     if (this.record.liveControl) {
       try { await this.requireTakeoverReturn(); }
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
+    }
+    if (cause !== "launch" && session.agentId !== "codex" && this.transcriptMissing(session)) {
+      this.checking = false;
+      this.recordStop(phaseKey, "not_resumable", [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history. Use the fresh-session recovery instructions."] }]);
+      if (dispatchedControl) {
+        dispatchedControl.effects.session = "not_started";
+        if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = "not_sent";
+        this.commands.checkpoint(dispatchedControl);
+        this.commands.finishAutomatic(dispatchedControl);
+      }
+      this.controlDispatch = undefined;
+      return;
     }
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
@@ -4149,7 +4166,7 @@ export class Engine {
       if (!session.conversation?.threadId) return true;
       return session.codex?.conversationUnavailable === true;
     }
-    return session.initModel !== undefined && findTranscripts(claudeConfigFolder(this.options.env), session.sessionId).main === undefined;
+    return !claudeHistoryAvailability(this.options.env, session.sessionId).available;
   }
 
   sessionRecord(phaseKey: string, sessionId: string): SessionRecord | undefined {

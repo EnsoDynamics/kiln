@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Implementation leaves 1–8 are closed and published. The [whole-PRD delivery audit after Phase 8](kiln-bot-control-delivery-audit-after-phase-8.md) found 10 of 18 criteria partly implemented and added completion Phase 9 below. Build Phase 9, then repeat whole-PRD delivery audit; whole-PRD test audit waits for current clean delivery. Phase 8/7/6/5 retain their recorded non-green full-gate limits. Earlier audits remain historical baselines.
+Implementation leaves 1–8 are closed and published. Completion [Phase 9](phase-9-complete-kiln-inspection-input.md) is closed locally on 2026-10-28; publication remains held. Its Final verification records the non-green complete gate, exact published-baseline reproductions and unchanged focused passes. After authorized publication, repeat whole-PRD delivery audit; whole-PRD test audit waits for current clean delivery. Phase 8/7/6/5 retain their original non-green full-gate limits. Earlier audits remain historical baselines.
 
 | Phase | What it does | Depends on | Status |
 |---|---|---|---|
@@ -16,7 +16,7 @@ Implementation leaves 1–8 are closed and published. The [whole-PRD delivery au
 | [6: Complete inspection freshness and helper help](phase-6-complete-inspection-freshness-help.md) | Added by delivery audit: keep usage readings tied to their observation, report unavailable recent logs honestly, and document helper JSON inputs. | 1 (inspection/selection/account projections); 3 (packaged help); 5 (preserved actual-attempt provenance) | Closed and published 2026-10-27 |
 | [7: Complete Codex account binding and command discovery](phase-7-complete-codex-binding-help.md) | Added by delivery audit: keep Codex usage/recovery tied to a known account, expose failed reads honestly, and finish root/helper command help. | 1 (account/status/help); 3 (command discovery); 5 (attempt provenance); 6 (preserved freshness and helper payload contracts) | Closed and published 2026-10-27 |
 | [8: Complete truthful and stable bot inspection](phase-8-complete-kiln-bot-inspection.md) | Added by delivery audit: complete independently dated/available observations, honest inventory and retained recovery, stable output pages and bounded full-history reads. | 1 (inspection); 2 (resumption/admission); 4 (handoff); 5 (attempt provenance); 6 (Claude usage/output selection); 7 (Codex observations/help) | Closed and published 2026-10-28 (`a8d208e`) |
-| [9: Complete truthful inspection and bounded command input](phase-9-complete-kiln-inspection-input.md) | Added by delivery audit: complete session attribution/identity, observation unknowns/dates, bounded audit-sidecar reads, usable recovery history, reused output metadata and expired-input refusal. | 1 (inspection/help/input); 2 (durable admission/recovery); 5–7 (provenance/observations); 8 (guarded/spooled inspection and stable pages) | Planned — added 2026-10-28 |
+| [9: Complete truthful inspection and bounded command input](phase-9-complete-kiln-inspection-input.md) | Added by delivery audit: complete session attribution/identity, observation unknowns/dates, bounded audit-sidecar reads, usable recovery history, reused output metadata and expired-input refusal. | 1 (inspection/help/input); 2 (durable admission/recovery); 5–7 (provenance/observations); 8 (guarded/spooled inspection and stable pages) | Closed locally 2026-10-28; publication held |
 
 ## Criterion ownership
 
@@ -60,3 +60,10 @@ Scoped audit documents commit locally under the skill default. The audit's Publi
 ## Audit publication and Phase 9 launch authorization
 
 Doug authorized publication of the after-Phase-8 audit (rebased as `9fa8b04`) and launch of a fresh chat implementing Phase 9 on 2026-10-28. The [audit authorization record](kiln-bot-control-delivery-audit-after-phase-8.md#audit-publication-and-phase-9-launch-authorization) preserves his exact instruction and source chat. This supersedes the audit-publication and Phase 9 launch holds above. The successor starts from published `origin/develop` after shared-checkout fast-forward. Scoped implementation commits follow the skill default; publication of future implementation/later-audit commits and production release remain held.
+
+
+## Phase 9 local completion
+
+Phase 9 is closed locally on 2026-10-28. Its [Implementation, Covered-criterion evidence and Final verification](phase-9-complete-kiln-inspection-input.md#final-verification) record the completed repairs, independent reviews/hardening, complete non-green verification gate, exact baseline comparisons, unchanged focused reruns and passing installed-package gate. Original criterion ownership, every earlier Closed line and all partial supersessions remain intact. Scoped commits follow the implement skill default; publishing this implementation/later-audit commits and production release remain held under the exact authorization carried in Phase 9.
+
+After authorized publication and shared-checkout fast-forward, use Phase 9's prepared fresh-chat continuation for a whole-PRD delivery audit. It creates a new worktree and preserves these proof/authority limits; it does not reuse this implementation worktree. Whole-PRD test audit follows only current clean delivery. Other tracks remain independently owned.

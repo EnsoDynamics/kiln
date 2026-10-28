@@ -1,7 +1,8 @@
+import { AuditStore, hashBytes } from "../audit/storage.js";
 import { messageReceiptLabel } from "../live/target.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, openSync, closeSync, readSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { recentSavedOutput } from "./logs.js";
 import { readWork } from "./private-state.js";
@@ -11,16 +12,16 @@ import type { OutputLine } from "../session/session-output.js";
 import type { Engine } from "../engine/engine.js";
 import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type Snapshot, type LimitView } from "../engine/snapshot.js";
 import { freshSessionPrompt, resumePrompt, auditRecoveryPrompt, pullRequestSessionPrompt, codexSessionPrompt } from "../session/prompts.js";
-import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
+import { claudeHistoryAvailability } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
 import { selectedChoice } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { BillingView } from "../billing/authority.js";
-import { publicProvenance, publicUsage } from "./public-facts.js";
+import { publicProvenance, publicUsage, publicBillingSummary, publicCredits, fieldAvailability } from "./public-facts.js";
 import { ownResult } from "./spool.js";
 import type { AgentAccount } from "../agents/metadata.js";
-import { privateJson, deadlineCheck, safeSelector, type SavedWork } from "./private-state.js";
-import { chooseSession, readHistory, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
+import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork } from "./private-state.js";
+import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
 
@@ -57,18 +58,14 @@ function inspectionReader(engine: Engine, deadline: number): Engine {
   const sessionRecord = (phase: string, id: string): SessionRecord | undefined => {
     if (!safeSelector(phase) || !safeSelector(id)) return undefined;
     let session: SessionRecord;
-    try { session = privateJson<SessionRecord>(work.root, join(work.directory, phase, id, "session.json"), deadline); }
+    try { session = readInspectionSession(work, phase, id, deadline); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
-    if (session.sessionId !== id || sessionStorageKey(session) !== phase || session.executionId && session.executionId !== engine.record.executionId) throw new ControlFailure("state_unavailable", "Saved inspection session identity does not match this execution.");
-    if (!session.executionId) {
-      const binding = privateJson<{ execution_id: string; sessions: Record<string, string> }>(work.root, join(work.directory, "inspection-bindings.json"), deadline);
-      if (binding.execution_id !== engine.record.executionId || binding.sessions[`${phase}/${id}`] !== session.createdAt) throw new ControlFailure("state_unavailable", "Legacy inspection session ownership is unavailable.");
-    }
     return session;
   };
   const bounded = new Proxy(engine, { get(target, name, receiver) {
     deadlineCheck(deadline);
     if (name === "sessionRecord") return sessionRecord;
+    if (name === "transcriptMissing") return (session: SessionRecord) => session.agentId === "codex" ? target.transcriptMissing(session) : !claudeHistoryAvailability(target.environment, session.sessionId, deadline).available;
     if (name === "current" && target.current?.session) {
       const current = target.current; const saved = sessionRecord(current.phaseKey, current.session!.sessionId);
       if (!saved) throw new ControlFailure("state_unavailable", "The active inspection session is unavailable.");
@@ -86,7 +83,15 @@ function inspectionReader(engine: Engine, deadline: number): Engine {
 }
 export function inspectionSnapshot(engine: Engine, deadline = Date.now() + 5000): Snapshot {
   const bounded = inspectionReader(engine, deadline);
-  const snapshot = buildSnapshot(bounded, undefined, { includeTiming: false, output: session => bounded.outputLines(session) });
+  const store = new AuditStore(engine.stateDirectory);
+  const root = dirname(dirname(engine.stateDirectory));
+  const auditStore = { read<T>(id: string): T {
+    const bytes = privateBytes(root, store.path(id), deadline);
+    if (hashBytes(bytes) !== id) throw new ControlFailure("state_unavailable", "Retained audit evidence integrity is unavailable.");
+    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
+    deadlineCheck(deadline); return parsed;
+  } };
+  const snapshot = buildSnapshot(bounded, undefined, { includeTiming: false, output: session => bounded.outputLines(session), auditStore });
   deadlineCheck(deadline); return snapshot;
 }
 export function cacheSnapshot(engine: Engine, snapshot: Snapshot): void {
@@ -125,9 +130,9 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
   // Global lastLaunch can be saved before the next durable dispatch checkpoint.
   // Only the selected attempt's own dated observations establish its provenance.
   // Legacy run.account has no observation time or plan and cannot supply these.
-  const attemptAccount = (lastRun?.codex?.account ? publicProvenance(lastRun.codex.account) : null) ?? (lastRun?.billing ? publicBilling(lastRun.billing) : null);
+  const attemptAccount = (lastRun?.codex?.account ? publicProvenance(lastRun.codex.account) : null) ?? (lastRun?.billing ? publicBilling(lastRun.billing, !reachable) : null);
   const attemptAt = lastRun?.codex?.account?.at ?? lastRun?.billing?.observedAt ?? null;
-  const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account) : null;
+  const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
   const usageAt = account?.limitsObservedAt ?? null;
   return {
     agent: work.record.settings.agentId,
@@ -140,9 +145,10 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
 }
-function publicBilling(b: NonNullable<SavedWork["record"]["billing"]>["lastLaunch"]): unknown {
+function publicBilling(b: NonNullable<SavedWork["record"]["billing"]>["lastLaunch"], stale = false): unknown {
   if (!b) return null;
-  return { agent: b.agentId, route: b.route, provider: b.provider ?? null, email: b.email ?? null, account_id: b.accountId ?? null, plan: b.plan ?? null, credits: b.credits ?? null, overflow: b.overflow ?? null, approved: b.approved };
+  const summary = publicBillingSummary(b, stale);
+  return { ...summary, agent: b.agentId, account_id: b.accountId ?? null };
 }
 function billingFacts(view: BillingView | undefined, account: AgentAccount | undefined, reachable: boolean): unknown {
   const observation = (value: unknown, at?: string, reason?: string, stale = false) => ({ value: value ?? null, observed_at: at ?? null,
@@ -151,30 +157,31 @@ function billingFacts(view: BillingView | undefined, account: AgentAccount | und
   const next = view?.next;
   const codex = next?.agentId === "codex";
   const unavailable = codex && (!account || !!account.error && !account.stale);
-  const summaryFields = (summary: BillingView["lastLaunch"]) => summary ? { ...summary, provider: summary.provider ?? null, email: summary.email ?? null, orgId: summary.orgId ?? null, accountId: summary.accountId ?? null, plan: summary.plan ?? null, credits: summary.credits ?? null, overflow: summary.overflow ?? null } : {};
+  const summaryFields = (summary: BillingView["lastLaunch"]) => summary ? { ...summary, ...publicBillingSummary(summary, !reachable) } : {};
   return { ...(view ? { executionId: view.executionId, selectionGeneration: view.selectionGeneration, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
     reason: !next || unavailable ? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
-    next: { ...summaryFields(next), ...observation(unavailable ? null : publicBilling(next), next?.observedAt, codex ? account?.error : undefined, account?.stale || view?.pending), canApprove: reachable ? next?.canApprove ?? false : false, canClear: reachable ? next?.canClear ?? false : false },
-    lastLaunch: { ...summaryFields(view?.lastLaunch), ...observation(publicBilling(view?.lastLaunch), view?.lastLaunch?.observedAt) },
-    hold: { ...(view?.hold ?? {}), ...observation(view?.hold ? { phase_key: view.hold.phaseKey, action: view.hold.action, session_id: view.hold.sessionId ?? null, reason: view.hold.reason, observed: publicBilling(view.hold.observed) } : null, view?.hold?.at), ...(view?.hold ? { reason: view.hold.reason, observation_reason: !reachable ? "Controller disconnected; last-known billing hold." : null } : {}) },
+    next: { ...summaryFields(next), ...observation(unavailable ? null : publicBilling(next, !reachable), next?.observedAt, codex ? account?.error : undefined, account?.stale || view?.pending), canApprove: reachable ? next?.canApprove ?? false : false, canClear: reachable ? next?.canClear ?? false : false },
+    lastLaunch: { ...summaryFields(view?.lastLaunch), ...observation(publicBilling(view?.lastLaunch, !reachable), view?.lastLaunch?.observedAt) },
+    hold: { ...(view?.hold ? { ...view.hold, observed: publicBillingSummary(view.hold.observed, !reachable) } : {}), ...observation(view?.hold ? { phase_key: view.hold.phaseKey, action: view.hold.action, session_id: view.hold.sessionId ?? null, reason: view.hold.reason, observed: publicBilling(view.hold.observed, !reachable) } : null, view?.hold?.at), ...(view?.hold ? { reason: view.hold.reason, observation_reason: !reachable ? "Controller disconnected; last-known billing hold." : null } : {}) },
     canLaunch: reachable ? view?.canLaunch ?? false : false };
 }
-function publicAccount(a: AgentAccount): unknown {
-  return { agent: a.agentId ?? null, email: a.email ?? null, account_id: a.accountId ?? a.routingAccountId ?? null, plan: a.plan ?? null, error: a.error ?? null, credits: a.credits ?? null, identity_availability: a.email || a.accountId || a.routingAccountId ? "known" : "unknown", identity_reason: a.email || a.accountId || a.routingAccountId ? null : "Provider did not report identity; separately known plan and route remain available." };
+function publicAccount(a: AgentAccount, stale = false): unknown {
+  return { agent: a.agentId ?? null, email: a.email ?? null, account_id: a.accountId ?? a.routingAccountId ?? null, plan: a.plan ?? null, error: a.error ?? null, orgId: a.orgId ?? null, provider: null, credits: publicCredits(a.credits, stale), availability: fieldAvailability({ email: a.email ?? null, account_id: a.accountId ?? a.routingAccountId ?? null, orgId: a.orgId ?? null, plan: a.plan ?? null, credits: a.credits ?? null, provider: null }), identity_availability: a.email || a.accountId || a.routingAccountId ? "known" : "unknown", identity_reason: a.email || a.accountId || a.routingAccountId ? null : "Provider did not report identity; separately known plan and route remain available." };
 }
 /** Pure retained projection: nested usage facts cannot stay current after disconnect. */
 function retainedLimit(limit: LimitView): LimitView {
-  if (limit.agentId !== "codex") return limit;
   const observation = limit.allowancesObservation;
   const dated = observation && (observation.state === "current" || observation.state === "stale") && observation.observedAt && Number.isFinite(Date.parse(observation.observedAt));
   return { ...limit, allowances: dated ? limit.allowances ?? [] : [], allowancesObservation: dated
     ? { ...observation, state: "stale", reason: observation.reason ?? "Controller disconnected; last-known usage observation." }
-    : { observedAt: null, state: "unavailable", reason: "Dated Codex usage is unavailable in this saved observation." } };
+    : { observedAt: null, state: "unavailable", reason: "Dated provider usage is unavailable in this saved observation." } };
 }
-function publicLimit(limit: LimitView): Record<string, unknown> {
-  return { ...limit, allowances: limit.allowances?.map(publicUsage) ?? null,
+function publicLimit(limit: LimitView, stale = false): Record<string, unknown> {
+  const accountFields = { email: limit.account?.email ?? null, plan: limit.account?.plan ?? null, percent: limit.account?.percent ?? null, error: limit.account?.error ?? null, atLimitUntil: limit.account?.atLimitUntil ?? null };
+  return { ...limit, account: { ...accountFields, at: limit.account?.at ?? null, state: !limit.account?.at ? "unavailable" : stale ? "stale" : "current", reason: !limit.account?.at ? "Account observation date is unavailable." : stale ? "Controller disconnected; last-known account observation." : null, availability: fieldAvailability(accountFields) }, allowances: limit.allowances?.map(publicUsage) ?? null,
     allowancesObservation: limit.allowancesObservation ?? { observedAt: null, state: "unavailable", reason: "Dated provider usage is unavailable." } };
 }
+
 function publicIdentity(view: NonNullable<Snapshot["waiting"]> | NonNullable<Snapshot["needsYou"]>): Record<string, unknown> {
   return { originalAccount: view.originalAccount ? publicProvenance(view.originalAccount) : null, attemptAccount: view.attemptAccount ? publicProvenance(view.attemptAccount) : null };
 }
@@ -199,7 +206,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const sessionId = engine?.current?.session?.sessionId ?? (sessionKey ? record.phases[sessionKey]?.sessionIds.at(-1) : undefined);
   let modelSession: SessionRecord | undefined;
   if (sessionKey && sessionId) {
-    try { modelSession = privateJson<SessionRecord>(work.root, join(work.directory, sessionKey, sessionId, "session.json"), deadline); }
+    try { modelSession = readInspectionSession(work, sessionKey, sessionId, deadline); }
     catch { statusErrors.push(errorFact("state_unavailable", "The current session model observation is unavailable.")); }
   }
   const state = view?.feature.state ?? (!record.startedAt ? "not_started" : record.completedAt ? "complete" : savedStop ? "needs_you" : wait ? "waiting" : record.pause.activeSince ? "paused" : "implementing");
@@ -225,9 +232,9 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const retainedInstructions = sessionId ? cache?.handoffs?.[sessionId] : undefined;
   if (savedStop && !stop && !retainedInstructions) statusErrors.push(errorFact("state_unavailable", "Saved inspection stop details are unavailable; readable stop facts are retained, but no matching recovery instructions were saved."));
   const savedHumanRequests = modelSession?.agentId === "codex" ? modelSession.runs.at(-1)?.codex?.humanRequests ?? null : modelSession ? [] : null;
-  const stopDetail = stop ? { ...stop, ...publicIdentity(stop), ...(stop.limit ? { limit: publicLimit(stop.limit) } : {}), reason: stop.kind, final_message: stop.finalMessage ?? null, message_complete: true, failed_checks: stop.checks.filter(c => !c.passed), session_id: stop.sessionId ?? null, human_requests: stop.humanRequests ?? [], checked_at: stop.checkedAt ?? null }
-    : savedStop ? { reason: savedStop[1].stop!.kind, final_message: savedMessage?.trim() ? savedMessage : null, message_complete: !!modelSession, message_reason: savedMessage?.trim() ? null : "No final message was saved for this stop.", failed_checks: savedStop[1].stop!.checks.filter(c => !c.passed), checked_at: savedStop[1].stop!.checkedAt, human_requests: savedHumanRequests,
-      session_id: sessionId ?? null, sessionId: sessionId ?? null, activity: savedActivity, agent: modelSession?.agentId ?? record.settings.agentId,
+  const stopDetail = stop ? { ...stop, ...publicIdentity(stop), ...(stop.limit ? { limit: publicLimit(stop.limit, !reachable) } : {}), reason: stop.kind, final_message: stop.finalMessage ?? null, message_complete: true, failed_checks: stop.checks.filter(c => !c.passed), session_id: stop.sessionId ?? null, human_requests: stop.humanRequests ?? [], checked_at: stop.checkedAt ?? null }
+    : savedStop ? { reason: savedStop[1].stop!.kind, final_message: savedMessage?.trim() ? savedMessage : null, message_complete: !!modelSession, message_reason: !modelSession ? "Saved session is unavailable; its final message cannot be established." : savedMessage?.trim() ? null : "No final message was saved for this stop.", failed_checks: savedStop[1].stop!.checks.filter(c => !c.passed), checked_at: savedStop[1].stop!.checkedAt, human_requests: savedHumanRequests,
+      session_id: sessionId ?? null, sessionId: sessionId ?? null, activity: savedActivity, agent: modelSession ? modelSession.agentId ?? "claude_code" : null,
       recovery: retainedInstructions ? { state: "stale", observed_at: cache!.observed_at, reason: "Controller disconnected; last-known recovery instructions.", ...retainedInstructions } : { state: "unavailable", observed_at: null, reason: "Saved recovery instructions are unavailable without a matching inspection sidecar.", resume_command: null, continuation_prompt: null, fresh_session_instructions: null } } : null;
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
@@ -239,7 +246,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     pause_status: pauseStatus,
-    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit) } : wait?.[1].wait ?? null, stop: stopDetail,
+    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
@@ -268,7 +275,8 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     } }, history.errors);
   }
   const session = selected.record; const cwd = session.workingDirectory ?? work.record.settings.worktreePath;
-  const provider = session.agentId === "codex" ? session.conversation?.threadId : session.sessionId;
+  const rawProvider = session.agentId === "codex" ? session.conversation?.threadId : session.sessionId;
+  const provider = typeof rawProvider === "string" && safeSelector(rawProvider) ? rawProvider : null;
   let available = false; let reason = "Provider conversation identity is unknown.";
   if (activeId === selected.id || engine?.ownsInspectionSession(selected.id)) reason = "This conversation is currently running under Kiln; a concurrent manual resume is unavailable.";
   else if (!workingDirectoryAvailable(cwd)) reason = "The recorded working directory is unavailable.";
@@ -278,8 +286,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
         const rpc = new CodexHistoryRpc("codex", cwd, { ...env, ...(session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}) }, AbortSignal.timeout(30000));
         try { await rpc.initialize(); const response = await rpc.call<{ thread: { id: string } }>("thread/read", { threadId: provider, includeTurns: false }); available = response.thread.id === provider; } finally { await rpc.close(); }
       } else {
-        const file = findTranscripts(claudeConfigFolder(env), provider).main;
-        if (file) { const stat = statSync(file); available = stat.isFile() && stat.size > 0; if (available) { const fd = openSync(file, "r"); try { readSync(fd, Buffer.alloc(1), 0, 1, 0); } finally { closeSync(fd); } } }
+        available = claudeHistoryAvailability(env, provider).available;
       }
       reason = available ? "Saved provider conversation is available." : "Provider history is missing or unavailable.";
     } catch { reason = "Provider history could not be read within its deadline."; }

@@ -24,17 +24,21 @@ export function checkedPath(root: string, path: string): void {
 }
 /** One atomic record is a bounded allocation; aggregate history is disk-spooled. */
 export const INSPECTION_RECORD_BYTES = 16 * 1024 * 1024;
-export function privateJson<T>(root: string, path: string, deadline = Date.now() + 5000): T {
+export function privateBytes(root: string, path: string, deadline = Date.now() + 5000): Buffer {
   deadlineCheck(deadline); checkedPath(root, path);
+  if (!lstatSync(path).isFile()) throw new ControlFailure("state_unavailable", "Saved inspection metadata is not a regular file.");
   const fd = openSync(path, "r");
   try {
     const size = fstatSync(fd).size;
     if (size > INSPECTION_RECORD_BYTES) throw new ControlFailure("state_unavailable", "A saved inspection record exceeds the 16 MiB read-memory budget; the result is incomplete.");
     const bytes = Buffer.allocUnsafe(size); let n = 0;
     while (n < size) { deadlineCheck(deadline); const count = readSync(fd, bytes, n, Math.min(65536, size - n), n); if (!count) throw new ControlFailure("state_unavailable", "Saved state changed during the read."); n += count; }
-    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
-    deadlineCheck(deadline); return parsed;
+    deadlineCheck(deadline); return bytes;
   } finally { closeSync(fd); }
+}
+export function privateJson<T>(root: string, path: string, deadline = Date.now() + 5000): T {
+  const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(privateBytes(root, path, deadline))) as T;
+  deadlineCheck(deadline); return parsed;
 }
 export function privateNames(root: string, path: string): string[] {
   checkedPath(root, path);

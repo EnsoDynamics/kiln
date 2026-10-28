@@ -1,5 +1,5 @@
 import { InspectionSpool } from "./spool.js";
-import { publicProvenance } from "./public-facts.js";
+import { publicProvenance, publicBillingSummary, publicLegacyAccount } from "./public-facts.js";
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +35,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
     }
   } catch { unread("Session directories could not be enumerated within the read deadline."); }
   const phases: History["phases"] = [];
+  const selectors = new Set<string>();
   let exhausted = false;
   for (const [phase, ids] of references) {
     if (Date.now() > deadline) { unread("Remaining history directories and referenced sessions were not scanned because the read deadline expired."); exhausted = true; break; }
@@ -45,19 +46,13 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
         deadlineCheck(deadline);
         if (!safeSelector(phase) || !safeSelector(id)) throw new Error("Unsafe selector");
         const session = privateJson<SessionRecord>(root, join(directory, phase, id, "session.json"), deadline);
-        if (!Number.isInteger(session.schemaVersion) || session.schemaVersion < 1 || session.schemaVersion > SCHEMA_VERSION || session.schemaVersion >= 4 && session.agentId === undefined) throw new Error("Unsupported or incomplete saved session schema");
-        if (session.executionId && session.executionId !== record.executionId) {
-          if (record.phases[phase]?.sessionIds.includes(id)) unread(`Referenced session ${phase}/${id} belongs to a different execution.`);
-          continue;
-        }
-        // Pre-upgrade sessions need a binding recorded by the exclusively locked controller.
-        if (!session.executionId) {
-          const binding = privateJson<{ execution_id: string; sessions: Record<string, string> }>(root, join(directory, "inspection-bindings.json"));
-          if (binding.execution_id !== record.executionId || binding.sessions[`${phase}/${id}`] !== session.createdAt) throw new Error("Unproven legacy ownership");
-        }
-        if (session.sessionId !== id || sessionStorageKey(session) !== phase || !Array.isArray(session.runs) || !["claude_code", "codex", undefined].includes(session.agentId)) throw new Error("Invalid session identity");
-        deadlineCheck(deadline);
-        const provider = session.agentId === "codex" ? session.conversation?.threadId ?? null : session.sessionId;
+        if (session.executionId && session.executionId !== record.executionId && !record.phases[phase]?.sessionIds.includes(id)) continue;
+        validateInspectionSession(work, phase, id, session, deadline);
+        if (selectors.has(id)) unread(`Duplicate execution-local session selector: ${id}. Selection is ambiguous.`);
+        selectors.add(id);
+        const rawProvider = session.agentId === "codex" ? session.conversation?.threadId : session.sessionId;
+        const provider = typeof rawProvider === "string" && safeSelector(rawProvider) ? rawProvider : null;
+        if (session.agentId === "codex" && rawProvider != null && !provider) unread(`Saved session ${phase}/${id} has a malformed provider conversation ID.`);
         const attempt = session.runs.at(-1);
         const entry = { session_id: id, provider_session_id: provider, agent: session.agentId ?? "claude_code", activity_kind: session.kind,
           identity_availability: provider ? "known" : "unknown", identity_reason: provider ? null : "Provider conversation ID was never observed.",
@@ -67,7 +62,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
           attempts: session.runs.map((run, index) => ({ attempt_id: run.control?.attemptId ?? createHash("sha256").update(`${record.executionId}:${id}:${index}`).digest("hex"), started_at: run.startedAt, ended_at: run.endedAt ?? null, cause: run.cause,
             state: activeId === id && index === session.runs.length - 1 ? "running" : run.endedAt ? "stopped" : "unknown",
             requested: run.codex?.requested ?? { model: session.model, effort: session.effort ?? null }, effective: run.codex?.effective ?? (session.initModel ? { model: session.initModel } : null),
-            account: run.codex?.account ? publicProvenance(run.codex.account) : run.account ? { email: run.account.email ?? null, orgId: run.account.orgId ?? null } : null, billing: run.billing ?? null })) };
+            account: run.codex?.account ? publicProvenance(run.codex.account) : run.account ? publicLegacyAccount(run.account) : null, billing: run.billing ? publicBillingSummary(run.billing, true) : null })) };
         deadlineCheck(deadline);
         projected.append(entry); sessionList.append({ phase, id, record: session });
         deadlineCheck(deadline);
@@ -94,7 +89,9 @@ export function chooseSession(work: SavedWork, history: History, selector?: stri
   const stopped = Object.entries(work.record.phases).find(([, f]) => f.stop || f.wait);
   const id = activeId ?? stopped?.[1].sessionIds.at(-1);
   const preferred = id ? history.sessions.find(s => s.id === id) : undefined;
-  return preferred ?? newestSession(history);
+  if (preferred) return chooseSession(work, history, preferred.id);
+  const newest = newestSession(history);
+  return newest ? chooseSession(work, history, newest.id) : null;
 }
 /** Default output requires the active session or a complete inventory of saved work.
  * Explicit selectors and frozen cursors establish their identities independently.
@@ -130,4 +127,22 @@ export function newestSession(history: History, attemptsOnly = false): Conversat
     if (!latest || at >= (latest.record.runs.at(-1)?.startedAt ?? latest.record.createdAt)) latest = session;
   }
   return latest;
+}
+
+/** Identity checks apply before any saved session fact can be attributed to this execution. */
+export function readInspectionSession(work: SavedWork, phase: string, id: string, deadline: number): SessionRecord {
+  if (!safeSelector(phase) || !safeSelector(id)) throw new ControlFailure("state_unavailable", "Unsafe inspection session selector.");
+  const session = privateJson<SessionRecord>(work.root, join(work.directory, phase, id, "session.json"), deadline);
+  validateInspectionSession(work, phase, id, session, deadline);
+  return session;
+}
+function validateInspectionSession(work: SavedWork, phase: string, id: string, session: SessionRecord, deadline: number): void {
+  if (!session || !Number.isInteger(session.schemaVersion) || session.schemaVersion < 1 || session.schemaVersion > SCHEMA_VERSION || session.schemaVersion >= 4 && session.agentId === undefined
+    || session.sessionId !== id || sessionStorageKey(session) !== phase || !Array.isArray(session.runs) || !["claude_code", "codex", undefined].includes(session.agentId)
+    || session.executionId && session.executionId !== work.record.executionId) throw new ControlFailure("state_unavailable", "Saved inspection session identity does not match this execution.");
+  if (!session.executionId) {
+    const binding = privateJson<{ execution_id: string; sessions: Record<string, string> }>(work.root, join(work.directory, "inspection-bindings.json"), deadline);
+    if (binding.execution_id !== work.record.executionId || binding.sessions[`${phase}/${id}`] !== session.createdAt) throw new ControlFailure("state_unavailable", "Legacy inspection session ownership is unavailable.");
+  }
+  deadlineCheck(deadline);
 }

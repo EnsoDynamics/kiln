@@ -592,7 +592,7 @@ it('removes the CLI response spool after a real HTTP body fails mid-read', async
 it('withholds a restart handoff throughout asynchronous preflight before a current process exists', async () => {
   sandbox = createSandbox(); const gateFile = join(sandbox.root, 'never-finish');
   h = await createHarness({ sessions: [{ actions: [{ waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
-  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => !!h!.engine.current?.processRunning);
+  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => !!h!.engine.current?.processRunning && !!h!.engine.current?.session?.initModel);
   await h.engine.stop('sigint'); await h.engine.settled(); const saved = h.engine.latestSession('1')!; h.engine.close();
   let release!: () => void; let entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
   const prdTree = await (await import('../engine/worktree-setup.js')).prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
@@ -607,4 +607,223 @@ it('withholds a restart handoff throughout asynchronous preflight before a curre
     expect(h.claudeCalls()).toHaveLength(1);
   } finally { release(); await running; }
   expect(h.claudeCalls()).toHaveLength(2); expect(h.engine.latestSession('1')!.runs).toHaveLength(2);
+});
+
+it.each(['claude_code', 'codex'] as const)('rejects %s foreign, mismatched and unbound stop/model attribution through retained CLI', async agent => {
+  sandbox = createSandbox(); const f = fixture(); const saved = session(f, 'owned-stop', '1a', agent);
+  saved.record.initModel = 'foreign-effective'; saved.record.model = 'foreign-requested';
+  saved.record.runs.at(-1)!.result = { subtype: 'success', isError: false, text: 'FOREIGN FINAL MESSAGE' };
+  f.record.phases['1a']!.stop = { kind: 'done_check', at: saved.record.createdAt, checkedAt: saved.record.createdAt, checks: [] };
+  writePrdRecord(f.directory, f.record);
+  for (const change of [{ executionId: 'another-execution' }, { sessionId: 'another-selector' }, { phaseId: '2' }, { executionId: undefined }]) {
+    writeSessionRecord(f.directory, saved.record);
+    const file = join(f.directory, '1a', 'owned-stop', 'session.json');
+    writeJsonAtomically(file, { ...saved.record, ...change });
+    const before = tree(stateRoot(sandbox.env));
+    const answer = await command(['status', f.path, '--detail', 'full', '--json']);
+    expect(answer.code).toBe(4); expect(answer.stdout).not.toContain('FOREIGN FINAL MESSAGE'); expect(answer.stdout).not.toContain('foreign-requested'); expect(answer.stdout).not.toContain('foreign-effective');
+    expect(answer.json().stop).toMatchObject({ final_message: null, message_complete: false, human_requests: null, agent: null });
+    expect(tree(stateRoot(sandbox.env))).toEqual(before);
+  }
+  writeSessionRecord(f.directory, saved.record);
+  const valid = await command(['status', f.path, '--json']);
+  expect(valid.json().stop).toMatchObject({ final_message: 'FOREIGN FINAL MESSAGE', message_complete: true });
+  expect(valid.json().requested_model).toMatchObject({ model: 'foreign-requested' });
+});
+
+it('reports malformed Codex provider IDs and duplicate execution selectors as incomplete and refuses ambiguous handoff', async () => {
+  sandbox = createSandbox(); const f = fixture(); const one = session(f, 'duplicate', '1a');
+  writeJsonAtomically(join(f.directory, '1a', 'duplicate', 'session.json'), { ...one.record, conversation: { threadId: 42 } });
+  let answer = await command(['status', f.path, '--detail', 'full', '--json']);
+  expect(answer.code).toBe(4);
+  expect(answer.json().session_history).toMatchObject({ complete: false, phases: expect.arrayContaining([expect.objectContaining({ conversations: [expect.objectContaining({ provider_session_id: null, identity_availability: 'unknown' })] })]) });
+  writeSessionRecord(f.directory, one.record); session(f, 'duplicate', '2');
+  answer = await command(['status', f.path, '--detail', 'full', '--json']);
+  expect(answer.code).toBe(4); expect(answer.json().session_history).toMatchObject({ complete: false, errors: expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('Duplicate') })]) });
+  expect((await command(['handoff', f.path, '--session-id', 'duplicate', '--json'])).code).toBe(4);
+});
+
+it.each([true, false])('validates reused output descriptors and cursor metadata with exact errors in json=%s', async json => {
+  sandbox = createSandbox(); const f = fixture(); const saved = session(f);
+  writeFileSync(saved.output, Array.from({ length: 3 }, (_, i) => JSON.stringify({ line: i + 1, at: saved.record.createdAt, source: 'out', text: `exact ${i} 🐦\n"` }) + '\n').join(''));
+  const options = { max: 1, json }; const selected = { phase: '1a', id: saved.record.sessionId };
+  const first = outputPage(f.work(), selected, options); const file = join(f.directory, 'output-snapshots', `${String(first.snapshot_id)}.json`); const original = readFileSync(file, 'utf8');
+  expect(outputPage(f.work(), selected, options).lines).toEqual(first.lines);
+  for (const changed of ['garbage', JSON.stringify({ ...JSON.parse(original), version: 2 }), JSON.stringify({ ...JSON.parse(original), session: 'wrong' }), JSON.stringify({ ...JSON.parse(original), phase: 'wrong' }), JSON.stringify({ ...JSON.parse(original), frozen_byte_end: -1 }), JSON.stringify({ ...JSON.parse(original), observed_at: null }), JSON.stringify({ ...JSON.parse(original), last_record_number: 999 })]) {
+    writeFileSync(file, changed);
+    const answer = await command(['logs', f.path, ...(json ? ['--json'] : [])]);
+    expect(answer.code).toBe(4); expect(answer.stdout).toContain('saved_output_unavailable'); expect(Buffer.byteLength(answer.stdout)).toBeLessThanOrEqual(LOG_BYTES);
+  }
+  writeFileSync(file, 'garbage');
+  const cursor = await command(['logs', f.path, '--older-output-cursor', String(first.next_before), '--json']); expect(cursor.code).toBe(4); expect(cursor.json().errors[0]?.code).toBe('saved_output_unavailable');
+  writeFileSync(file, original); chmodSync(file, 0o000);
+  expect(() => outputPage(f.work(), selected, options)).toThrow(expect.objectContaining({ code: 'saved_output_unavailable' }));
+  chmodSync(file, 0o600); expect(outputPage(f.work(), selected, options).lines).toEqual(first.lines);
+});
+
+it('labels historical legacy identity, partial credits and absent billing fields without borrowing dates', async () => {
+  sandbox = createSandbox(); const f = fixture(); const saved = session(f, 'legacy', '1a', 'claude_code');
+  const run = saved.record.runs.at(-1)!; run.account = { email: 'legacy@example.invalid' };
+  run.billing = { agentId: 'claude_code', route: 'settings', observedAt: '2026-01-03T00:00:00Z', sources: [], diagnostics: [], approved: false, credits: [{ bucketId: 'bucket', accountId: 'workspace', observedAt: '2026-01-02T00:00:00Z', scope: 'workspace', balance: '7' }] };
+  writeSessionRecord(f.directory, saved.record);
+  const answer = await command(['status', f.path, '--detail', 'full', '--json']); expect(answer.code).toBe(0);
+  const history = answer.json().session_history as { phases: { conversations: { attempts: Record<string, unknown>[] }[] }[] };
+  expect(history.phases[0]!.conversations[0]!.attempts.at(-1)).toMatchObject({ account: { email: 'legacy@example.invalid', orgId: null, plan: null, observed_at: null, state: 'unavailable', reason: expect.any(String) }, billing: { provider: null, orgId: null, plan: null, overflow: null, observedAt: run.billing.observedAt, credits: [{ balance: '7', hasCredits: null, observedAt: '2026-01-02T00:00:00Z', availability: { unknown_fields: ['hasCredits'] } }] } });
+});
+
+it('checks usable Claude history for current/historical handoff and preserves exact fresh instructions without a model turn', async () => {
+  const { claudeConfigFolder, findTranscripts } = await import('../session/transcripts.js');
+  sandbox = createSandbox(); h = await createHarness({ sessions: [{ actions: [{ result: 'Stopped with usable history.' }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const saved = h.engine.latestSession('1')!; const file = findTranscripts(claudeConfigFolder(h.env), saved.sessionId).main!; const original = readFileSync(file, 'utf8');
+  const work = () => readWork(stateRoot(h!.env), h!.stateDirectory);
+  const valid = await handoffProjection(work(), saved.sessionId, h.env, h.engine);
+  expect(valid.ok).toBe(true); expect(valid.data).toMatchObject({ resumable: true, provider_history: { state: 'available' }, resume_argv: ['claude', '--resume', saved.sessionId] });
+  cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+  for (const corrupt of ['garbage\n', '{"type":"summary","summary":"not conversation history"}\n', JSON.stringify({ type: 'user', sessionId: 'different', message: { content: 'Foreign user message' } }) + '\n']) {
+    writeFileSync(file, corrupt);
+    for (const engine of [h.engine, undefined]) {
+      const answer = await handoffProjection(work(), saved.sessionId, h.env, engine);
+      expect(answer.ok).toBe(false); expect(answer.data).toMatchObject({ resumable: false, provider_history: { state: 'unavailable' }, resume_command: null, resume_argv: null, fresh_session_instructions: (valid.data as Record<string, unknown>).fresh_session_instructions });
+    }
+  }
+  writeFileSync(file, original + '\n{"type":');
+  expect((await handoffProjection(work(), saved.sessionId, h.env, h.engine)).data).toMatchObject({ resumable: true });
+  // An earlier owned phase uses its own retained prompt and the same usable-history check.
+  const historical = { ...saved, sessionId: 'historical-claude' }; writeSessionRecord(h.stateDirectory, historical);
+  h.engine.record.phases['1']!.sessionIds.unshift(historical.sessionId); writePrdRecord(h.stateDirectory, h.engine.record);
+  writeFileSync(join(dirname(file), 'historical-claude.jsonl'), 'garbage\n', { mode: 0o600 });
+  const past = await handoffProjection(work(), historical.sessionId, h.env, h.engine);
+  expect(past.data).toMatchObject({ session_id: historical.sessionId, resumable: false, provider_history: { state: 'unavailable' }, fresh_session_instructions: { prompt: expect.any(String) } });
+  expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it('preserves independent Claude waiting/stopped usage dates and explicit nested unknowns in live and retained commands', async () => {
+  const { ScriptedClaude, signedIn, usageRow } = await import('../test-support/scripted-claude.js');
+  const now = () => new Date(); const claude = new ScriptedClaude(now); claude.queue(signedIn([usageRow('session', 100)]), signedIn([usageRow('session', 100)]));
+  sandbox = createSandbox(); h = await createHarness({ engineOptions: { claude }, sessions: [{ actions: [{ refuse: { rateLimitType: 'five_hour', resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const refusal = h.engine.latestSession('1')!.runs.at(-1)!.limitRefusal!;
+  const usageAt = new Date(Date.parse(refusal.at) + 1000).toISOString(); const authAt = new Date(Date.parse(refusal.at) + 2000).toISOString();
+  claude.account = { startedAt: usageAt, updatedAt: authAt, limitsObservedAt: usageAt, limits: [usageRow('session', 87)] };
+  const target = join(h.repository, `docs/prds/${FOLDER}`);
+  for (const stopped of [false, true]) {
+    if (stopped) { const facts = h.engine.record.phases['1']!; delete facts.wait; facts.stop = { kind: 'done_check', at: refusal.at, checkedAt: authAt, checks: [], limit: { label: '5-hour window' } }; }
+    writePrdRecord(h.stateDirectory, h.engine.record);
+    const snapshot = inspectionSnapshot(h.engine); cacheSnapshot(h.engine, snapshot);
+    const key = stopped ? 'stop' : 'usage_wait';
+    const { statusProjection } = await import('./projection.js'); const live = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine);
+    const nested = live[key] as { limit: unknown };
+    expect(nested.limit).toMatchObject({ account: { email: null, plan: null, percent: 87, at: authAt }, allowancesObservation: { observedAt: usageAt, state: 'current' } });
+    const offline = await command(['status', target, '--json'], h.env, h.sandbox.root);
+    expect((offline.json()[key] as { limit: unknown }).limit).toMatchObject({ allowancesObservation: { observedAt: usageAt, state: 'stale' }, account: { email: null, plan: null, percent: 87 } });
+  }
+});
+
+it('guards audit result and work-snapshot sidecars through real controller/CLI serializers under a 48 MiB heap', async () => {
+  const { AuditStore, hashBytes } = await import('../audit/storage.js');
+  sandbox = createSandbox(); h = await createHarness({ sessions: [] });
+  h.engine.record.startedAt = new Date().toISOString(); h.engine.record.setupCompletedAt = h.engine.record.startedAt; h.engine.record.settings.worktreePath = h.repository;
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  const store = new AuditStore(h.stateDirectory); const valid = store.put({ repositories: [{ repository: 'fixture', head: 'saved-revision' }] });
+  const oversized = store.put({ repositories: [], padding: 'x'.repeat(INSPECTION_RECORD_BYTES + 1) });
+  const resultId = store.put({ activityId: 'inspection-audit', disposition: 'recorded', reportBytes: JSON.stringify({ outcome: 'passed', criteria: [], blockers: [], pendingHumanActions: [] }), checks: [] });
+  const corrupt = hashBytes('not json'); writeFileSync(store.path(corrupt), 'not json', { mode: 0o600 });
+  const unsafe = store.put({ repositories: [], unsafe: true }); chmodSync(store.path(unsafe), 0o666);
+  const missing = 'd'.repeat(64);
+  const activity = { activityId: 'inspection-audit', kind: 'delivery_audit', round: 1, continuationIndex: 1, sequence: 1, createdAt: h.engine.record.startedAt, sessionIds: [], reportPath: 'fixture.json', skill: { name: 'delivery-audit', path: 'fixture', digest: valid }, attempts: [], snapshots: [valid], acceptedResult: resultId };
+  const port = await freePort(); const path = join(h.repository, `docs/prds/${FOLDER}`);
+  const script = `
+    import { Engine } from ${JSON.stringify(new URL('../../dist/engine/engine.js', import.meta.url).href)};
+    import { startLocalServer } from ${JSON.stringify(new URL('../../dist/server/local-server.js', import.meta.url).href)};
+    import { readWork } from ${JSON.stringify(new URL('../../dist/control/private-state.js', import.meta.url).href)};
+    import { writePrdRecord } from ${JSON.stringify(new URL('../../dist/state/records.js', import.meta.url).href)};
+    const saved = readWork(${JSON.stringify(stateRoot(h.env))}, ${JSON.stringify(h.stateDirectory)});
+    const engine = new Engine({ paths: ${JSON.stringify(h.engine.paths)}, tools: ${JSON.stringify(h.tools)}, env: process.env, stateDirectory: saved.directory, record: saved.record, sleepReader: { next: async () => [] } });
+    const server = await startLocalServer({ engine, port: ${port}, folderName: ${JSON.stringify(FOLDER)}, featureName: 'Returns', token: engine.record.token });
+    process.on('message', async message => {
+      if (message === 'close') { await server.close(); engine.close(); process.exit(0); }
+      if (message && typeof message === 'object') {
+        engine.record.activities = [{ key: 'audit-inspection-audit', activityId: 'inspection-audit', sequence: 1, kind: 'delivery_audit', createdAt: engine.record.startedAt }];
+        engine.record.completionAudits.activities = [message]; writePrdRecord(saved.directory, engine.record); process.send('updated');
+      }
+    }); process.send('ready');
+  `;
+  const controller = spawn(process.execPath, ['--max-old-space-size=48', '--input-type=module', '-e', script], { env: h.env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  let stderr = ''; controller.stderr!.on('data', b => stderr += String(b));
+  const message = (expected: string) => new Promise<void>((resolve, reject) => {
+    const received = (v: unknown) => { if (v === expected) { controller.off('message', received); controller.off('exit', exit); resolve(); } };
+    const exit = () => { controller.off('message', received); reject(new Error(stderr)); };
+    controller.on('message', received); controller.once('exit', exit);
+  });
+  try {
+    await message('ready'); writeJsonAtomically(join(h.stateDirectory, 'instance.lock'), { pid: controller.pid!, processStartTime: await processStartTime(controller.pid!), port });
+    for (const [key, id] of [['snapshots', valid], ['snapshots', oversized], ['snapshots', unsafe], ['snapshots', missing], ['snapshots', corrupt], ['acceptedResult', oversized], ['attempts', oversized]] as const) {
+      const next = { ...activity, ...(key === 'attempts' ? { acceptedResult: undefined } : {}), [key]: key === 'acceptedResult' ? id : [id] };
+      const updated = message('updated'); controller.send(next); await updated;
+      for (const json of [true, false]) {
+        const child = spawnSync(process.execPath, ['--max-old-space-size=48', fileURLToPath(new URL('../../dist/cli.js', import.meta.url)), 'status', path, '--detail', 'full', ...(json ? ['--json'] : [])], { env: h.env, cwd: h.sandbox.root, encoding: 'utf8' });
+        expect(child.stderr).toBe(''); expect(child.status, child.stdout).toBe(id === valid ? 0 : 4);
+        if (json) { const answer = JSON.parse(child.stdout); expect(answer.ok).toBe(id === valid); if (id === valid) expect(answer.activity_history[0].audit.repositories).toEqual([{ name: 'fixture', revision: 'saved-revision' }]); else expect(answer.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable', message: expect.stringContaining('projection') })])); }
+        else expect(child.stdout).toContain(id === valid ? 'saved-revision' : 'state_unavailable');
+      }
+    }
+  } finally { const closed = new Promise<void>(resolve => controller.once('exit', () => resolve())); if (controller.exitCode === null && controller.connected) { controller.send('close'); await closed; } }
+}, 60000);
+
+it.each(['claude_code', 'codex'] as const)('withholds rejected %s session facts in live basic/full status and inventory', async agent => {
+  sandbox = createSandbox(); h = await createHarness({ sessions: [{ actions: [{ result: 'Owned stop' }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const port = await freePort(); server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: 'Returns', token: h.engine.record.token });
+  writeJsonAtomically(join(h.stateDirectory, 'instance.lock'), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
+  const path = join(h.repository, `docs/prds/${FOLDER}`); const saved = h.engine.latestSession('1')!;
+  const valid = await command(['status', path, '--json'], h.env, h.sandbox.root); expect(valid.code).toBe(0); expect(valid.json().stop).toMatchObject({ final_message: 'Owned stop' });
+  const foreign = { ...saved, agentId: agent, executionId: 'foreign-execution', model: 'FOREIGN MODEL', initModel: 'FOREIGN EFFECTIVE', runs: [{ ...saved.runs[0]!, result: { subtype: 'success', isError: false, text: 'FOREIGN MESSAGE' } }] };
+  writeJsonAtomically(join(h.stateDirectory, '1', saved.sessionId, 'session.json'), foreign);
+  for (const args of [['status', path, '--json'], ['status', path, '--detail', 'full', '--json'], ['status', '--json']]) {
+    const answer = await command(args, h.env, h.sandbox.root); expect(answer.code).toBe(4); expect(answer.stdout).not.toContain('FOREIGN MODEL'); expect(answer.stdout).not.toContain('FOREIGN EFFECTIVE'); expect(answer.stdout).not.toContain('FOREIGN MESSAGE');
+  }
+  expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it('finalizes a valid unavailable response when audit parsing finishes after the inspection deadline', async () => {
+  const { Hono } = await import('hono'); const { installInspectionRoutes } = await import('./server.js'); const { AuditStore } = await import('../audit/storage.js');
+  sandbox = createSandbox(); h = await createHarness({ sessions: [] }); h.engine.record.startedAt = new Date().toISOString();
+  const store = new AuditStore(h.stateDirectory); const id = store.put({ repositories: [], deadlineMarker: 'audit-parse-deadline' });
+  h.engine.record.activities = [{ activityId: 'late', key: 'audit-late', sequence: 1, kind: 'delivery_audit', createdAt: h.engine.record.startedAt }];
+  h.engine.record.completionAudits!.activities = [{ activityId: 'late', sequence: 1, kind: 'delivery_audit', round: 1, continuationIndex: 1, createdAt: h.engine.record.startedAt, sessionIds: [], reportPath: 'fixture.json', skill: { name: 'delivery-audit', path: 'fixture', digest: id }, snapshots: [id], attempts: [] }]; writePrdRecord(h.stateDirectory, h.engine.record);
+  const app = new Hono(); await installInspectionRoutes(app, h.engine, () => undefined);
+  const parse = JSON.parse; const now = Date.now; let late = false;
+  // Narrow late-parse injection; data still crosses the real guarded file reader,
+  // projection, route and finalized response spool. This is not elapsed-time proof.
+  const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => now() + (late ? 6000 : 0));
+  const parseSpy = vi.spyOn(JSON, 'parse').mockImplementation((text: string) => { const value = parse(text); if (text.includes('audit-parse-deadline')) late = true; return value; });
+  try {
+    const response = await app.request('http://localhost/api/control/v1/status?detail=full'); expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ ok: false, errors: expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable' })]) }); expect(late).toBe(true);
+  } finally { dateSpy.mockRestore(); parseSpy.mockRestore(); }
+});
+
+it.each(['claude_code', 'codex'] as const)('preserves positively bound legacy %s stop/model/history through pure retained CLI reads', async agent => {
+  sandbox = createSandbox(); const f = fixture(); const saved = session(f, 'bound-legacy', '1a', agent);
+  delete saved.record.executionId; saved.record.initModel = 'legacy-effective'; saved.record.runs.at(-1)!.result = { subtype: 'success', isError: false, text: 'Exact legacy stop\nSecond paragraph.' };
+  writeSessionRecord(f.directory, saved.record);
+  f.record.phases['1a']!.stop = { kind: 'done_check', at: saved.record.createdAt, checkedAt: saved.record.createdAt, checks: [] }; writePrdRecord(f.directory, f.record);
+  const binding = join(f.directory, 'inspection-bindings.json');
+  writeJsonAtomically(binding, { version: 1, execution_id: f.record.executionId, sessions: { '1a/bound-legacy': saved.record.createdAt } });
+  const before = tree(stateRoot(sandbox.env));
+  for (const json of [true, false]) {
+    const answer = await command(['status', f.path, '--detail', 'full', ...(json ? ['--json'] : [])]);
+    // A missing browser-instruction sidecar is independently unavailable; it
+    // must not erase the proven legacy session or claim unowned history.
+    expect(answer.code).toBe(4); expect(answer.stdout).toContain('Exact legacy stop'); expect(answer.stdout).toContain('legacy-effective');
+    if (json) {
+      expect(answer.json().session_history).toMatchObject({ complete: true, errors: [], phases: expect.arrayContaining([expect.objectContaining({ conversations: [expect.objectContaining({ session_id: 'bound-legacy', agent, provider_session_id: agent === 'codex' ? 'provider-bound-legacy' : 'bound-legacy', identity_availability: 'known' })] })]) });
+      expect(answer.json().stop).toMatchObject({ final_message: 'Exact legacy stop\nSecond paragraph.', message_complete: true, agent }); expect(answer.json().requested_model).toMatchObject({ model: saved.record.model });
+    }
+  }
+  expect(tree(stateRoot(sandbox.env))).toEqual(before);
+  writeJsonAtomically(binding, { version: 1, execution_id: f.record.executionId, sessions: { '1a/bound-legacy': 'mismatched-creation-time' } });
+  const rejected = await command(['status', f.path, '--detail', 'full', '--json']);
+  expect(rejected.code).toBe(4); expect(rejected.json().session_history).toMatchObject({ complete: false }); expect(rejected.json().stop).toMatchObject({ final_message: null, message_complete: false });
 });

@@ -278,6 +278,10 @@ describe("audit development owners", () => {
     const sessionId = randomUUID(); const key = `audit-${f.activity.activityId}`;
     const session: SessionRecord = { schemaVersion: SCHEMA_VERSION, sessionId, activityId: f.activity.activityId, phaseId: "", kind: "delivery_audit", agentId: "claude_code", createdAt: f.activity.createdAt, model: "sonnet", modelDisplayName: "Sonnet", runs: [{ cause: "launch", pid: 99999999, startedAt: f.activity.createdAt, endedAt: f.activity.createdAt }], sleeps: [], steps: [] };
     f.record.phases[key]!.sessionIds = [sessionId]; f.activity.sessionIds = [sessionId]; writeSessionRecord(f.h.stateDirectory, session);
+    // This case exercises a resumable conversation's authority prompt. Keep
+    // actual usable provider history; a PID alone cannot establish resumption.
+    const history = join(f.h.env.CLAUDE_CONFIG_DIR!, "projects", "manual-audit-authority"); mkdirSync(history, { recursive: true, mode: 0o700 });
+    writeFileSync(join(history, `${sessionId}.jsonl`), JSON.stringify({ type: "user", sessionId, uuid: randomUUID(), parentUuid: null, timestamp: session.createdAt, message: { role: "user", content: "Review the recorded audit with current authority." } }) + "\n", { mode: 0o600 });
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh();
     const authority = { executionId: f.record.executionId, authorizationRevision: 1, target: f.checkpoint.target, confirmedNonProduction: true };
     expect(engine.authorizeDevelopmentTarget(authority)).toEqual({ ok: true });
@@ -289,6 +293,7 @@ describe("audit development owners", () => {
     expect(await engine.deliveryCommand("assessment", { executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, phaseId: "1", documentsDigest: phaseStatus.documentsDigest, required: false, criteria: [], reason: "Historical phase needed no development work", checkpoints: [] })).toMatchObject({ ok: true });
     expect(await engine.deliveryCommand("assessment", f.assess({ checkpoints: [] , required: false }))).toMatchObject({ ok: true });
     const recovery = buildSnapshot(engine).needsYou!;
+    expect(recovery.resumeOffered).toBe(true);
     expect(recovery.resumePrompt).toContain("Delivery audit"); expect(recovery.resumePrompt).toContain(f.activity.reportPath); expect(recovery.resumePrompt).toContain("current saved authority".replace("current", "Current"));
     expect(recovery.resumePrompt).not.toContain("Carry on opening"); expect(recovery.resumePrompt).not.toContain("Carry on with `docs/prds/customer-returns/`");
     const state = readPrdRecord(f.h.stateDirectory)!;
