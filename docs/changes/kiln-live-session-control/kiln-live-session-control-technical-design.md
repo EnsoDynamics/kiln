@@ -2,7 +2,7 @@
 
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
-**Status:** All eleven implementation leaves are closed and published. The fresh whole-PRD [delivery audit after Phase 11](kiln-live-session-control-delivery-audit-after-phase-11.md) finds all 20 active criteria Implemented at final baseline `3aee728`, including Phase 11’s final resumed-input history guard and retained release/Verify siblings. The audit’s final record authorizes its publication and affected-row test-audit launch; later test-audit publication remains held. All normative design policies, provider limits and verification qualifications remain unchanged.
+**Status:** All eleven implementation leaves are closed and published. The clean whole-PRD delivery audit remains current, and the affected-row [test-audit reassessment](kiln-live-session-control-test-audit.md) is complete at `33161aa`: all 20 active criteria Adequate, with 13 rows reassessed and seven unchanged rows retained. The complete integration invocation remains non-green with named compatibility diagnostics; every historical proof qualification is preserved. No planned successor remains in this bounded PRD. Publication of this later test-audit work remains held.
 
 ## Overview
 
