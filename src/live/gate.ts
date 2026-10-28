@@ -9,24 +9,26 @@ import { consumedUuids } from "./target.js";
 import type { LiveTarget } from "./target.js";
 
 export interface GateState {
-  version: 1; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
+  version: 1 | 2; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
   inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
   operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown }>;
   tasks: Record<string, { toolId?: string; settled: boolean }>;
   tracked: { pid: number; startTime: string }[];
+  /** Observed descendant PIDs awaiting identity or conclusive disappearance. */
+  processObservations?: number[];
 }
 export function gateDirectory(directory: string, attemptId: string): string {
   return join(directory, "live-attempts", createHash("sha256").update(attemptId).digest("hex"));
 }
 export function readGate(directory: string): GateState {
   const state = JSON.parse(readFileSync(join(directory, "gate.json"), "utf8")) as GateState;
-  if (state.version !== 1 || !state.target || !state.operations || !state.tasks || !Array.isArray(state.tracked)) throw new Error("Attempt gate is unreadable or incompatible.");
+  if (![1, 2].includes(state.version) || !state.target || !state.operations || !state.tasks || !Array.isArray(state.tracked) || state.processObservations !== undefined && (!Array.isArray(state.processObservations) || !state.processObservations.every(pid => Number.isSafeInteger(pid) && pid > 0))) throw new Error("Attempt gate is unreadable or incompatible.");
   return state;
 }
 export function createGate(directory: string, target: LiveTarget): void {
   ensurePrivateDirectory(directory);
-  writeDurableMetadata(join(directory, "gate.json"), { version: 1, target, observedAt: new Date().toISOString(), operations: {}, tasks: {}, tracked: [] } satisfies GateState);
+  writeDurableMetadata(join(directory, "gate.json"), { version: 2, target, observedAt: new Date().toISOString(), operations: {}, tasks: {}, tracked: [] } satisfies GateState);
 }
 function syncDirectory(directory: string): void {
   const fd = openSync(directory, "r"); try { fsyncSync(fd); } finally { closeSync(fd); }

@@ -1,5 +1,9 @@
 # Phase 7: Preserve live session recovery safeguards
 
+**Closed:** 2026-10-28
+
+Closure records scoped implementation and verification; publication remains held for Doug.
+
 **Added by delivery audit:** 2026-10-28, after all six implementation/completion leaves closed. Completes the AC-MSG-05 and AC-BOT-02 gaps confirmed against `b774f87`, plus the AC-MSG-03 and AC-TAKE-02/04 gaps confirmed by the repeat audit at `eb363a9`.
 
 **Parent PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md)
@@ -47,3 +51,35 @@ This audit uses delivery-audit's scoped commit default and holds publication for
 
 
 Doug subsequently authorized this audit's repeat, publication and Phase 7 implementation-chat launch in source chat `01a17ff9-e25a-7a90-84d2-b5a2d823456d`: “So, do it one more time, then go ahead and commit and push the changes, and then just launch a new chat on your own to address phase seven, do the implementation for it.” This lifts the audit publication hold above and covers the expanded Phase 7 scope from that repeat pass. Phase 7 implementation uses the scoped commit default; publication of its later implementation remains held for Doug. No production changes or messages to other chats are authorized.
+
+## Implementation and acceptance evidence
+
+Recovery preserves uncertainty and its human acknowledgement independently of late correlated evidence. Saved events use the live acceptance-order/conversation validator before accounting can authorize progression. Descendant scans persist their observed subtree before identity reads and retain partial identities and unresolved PIDs through scanner shutdown, reparenting and restart. Release and final return use those durable observations; a generic inventory no longer clears an ownership obstacle.
+
+| Criteria | Evidence |
+|---|---|
+| AC-MSG-03 | `src/live/messages.integration.test.ts`: actual disposable-supervisor death after event append and before callback for reversed acceptance order and wrong conversation; saved contradictions also name already-accounted messages. Repeated restart retains uncertainty, exact target and progression holds without another send. Existing near-exit, capacity, write-intent/settlement, stale/retry and independent-pause cases remain. |
+| AC-MSG-05 | Same suite: late correlated result plus unreviewed restart, review, failed Verify, restarted acknowledgement, successful explicit Resume, resolved receipt and both resolved/unresolved prior-execution retention without a replacement-execution hold. Existing actual supervisor-death cases retain fully saved versus partial multi-message review reconciliation, successful Verify/advance and no hold resurrection. |
+| AC-TAKE-02/04 | `src/live/owned-processes.integration.test.ts`: real parent/two-child process tree and OS inventory, with narrowly injected throwing/blank identity read for B after A resolves. Real reparenting, attempt exit, scanner close, repeated reconciliation and restart retain A and unresolved B; Resume/Verify and terminal instructions stay blocked until fresh conclusive release evidence. The actual adapter scanner is also held in a delayed B lookup across OS attempt exit; readiness waits for its finalization. A real late process observation injected during terminal inventory invalidates the stale release ledger and retains the new child until natural exit. Existing takeover tests retain exact targeting, terminal ownership, final return races and phase/audit obligations. |
+| AC-BOT-02 | `src/control/live-commands.integration.test.ts`: built CLI and authenticated controller retain both uncertain receipts and per-message review after late results/restart; partial review/failed return survives another restart; explicit Resume/Verify resolves the hold and durable retries survive a further restart. Existing token/ID/authentication, browser contention, handoff, audit-round and retained-obligation cases remain. |
+| Browser recovery | `src/server/live-message-recovery-browser.integration.test.ts`: real restarted engine/journal and built Chrome at 1200px/390px, exact uncertain text/output link, required review, disabled Resume/Verify before acknowledgement, acknowledgement alone remaining held and failed Verify retaining recovery. Existing browser suites retain disconnected review rules, running takeover and all other availability states. |
+
+The existing portable real-provider foreground takeover and in-flight tool message proofs pass on Claude Code 2.1.311/macOS, with unfinished work preserved, exact literal input and no cancellation signal. Fault injection supplies identity-read and correlation/crash conditions; it does not qualify another provider or claim universal descendant discovery.
+
+The execution record/receipt schemas are unchanged; gate schema 2 retains pending process observations and rejects older readers. Clean schema 1 gates remain readable, while an old obstacle with no retained descendant observations stays held because fresh inventory cannot recover lost reparented identities. No new business assumption or supersession is needed. The conflict check remains the published audit's: no governing PRD changed since `71a2149`.
+
+Independent deliverable review found and fixed a final-scan release race: OS exit precedes adapter scanner/callback finalization. The exact old attempt must finish that finalization before release, and the engine rechecks the ledger after terminal ownership reads. Delta review found no remaining material issue. Test hardening added unresolved prior-execution retention and the final ownership-await ledger race. The new reversed-order and late-result regressions fail with their intended incorrect `received` states on an untouched `71a2149` export, then pass with this repair.
+
+The existing `write_completed` supervisor-death fixture raced its replay echo against SIGKILL of the echo's stdout reader, which could cause EPIPE and early provider exit. That boundary now remains quiet until the release marker; its independent stdin reader still records the actual input. The original alive-until-release, exact input, no-resend, hold and progression assertions remain intact. No application deadline or safety assertion changed.
+
+## Repository validation
+
+On 2026-10-28 UTC, the complete current-build `npm run verify` gate passed in one invocation: dependency audit with no blocking high/critical findings, ESLint, TypeScript/Svelte checks, all **624 unit tests**, all **17 Codex contract proofs**, and all **79 integration files** with **875 passed and two platform skips** (877 cases). Integration took **500.95 seconds**. Source, browser, test, prompt and configuration hashes remained unchanged throughout verification. The existing passive-billing qualification used retained Claude 2.1.307 on an isolated test PATH; the installed CLI and live-control qualification stayed at 2.1.311.
+
+The final five-file focused portfolio passed all 50 cases; the hardening rerun passed all 25 cases after adding the two evidence checks. Independent deliverable review, its release-race delta review, test hardening and its delta review are complete with no remaining material finding. Real Claude foreground takeover and in-flight-tool live-message proofs also pass. Phase 3's full-run/focused-retest portfolio, Phase 4's separate green full run, Phase 5's full-run/focused-retest qualification and Phase 6's green complete gate remain unchanged historical records.
+
+All **seven installed-package checks** passed after packing and installing this build into a disposable prefix (`npm run test:package`, **16.54 seconds**). No application deadline, safety assertion or provider qualification was weakened.
+
+## Next unit after publication
+
+Phase 7 closes the last implementation leaf. Publication of this implementation remains held under the starting authorization above. After Doug approves publication, obtain a fresh whole-PRD `delivery-audit`; historical delivery passes do not establish the repairs' whole-PRD completeness. A fresh `test-audit` follows only a clean delivery audit. Both audits run in fresh chats; no successor implementation leaf is currently planned. Bot-control and plan-continuation remain separate tracks. No production changes or messages to other chats are authorized.

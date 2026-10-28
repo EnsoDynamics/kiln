@@ -124,13 +124,20 @@ it.skipIf(process.platform !== "darwin")("uses one admission authority for brows
 });
 
 it.skipIf(process.platform !== "darwin").each(["resume", "verify-and-advance"])("requires per-message review for explicit %s and retains uncertainty after acknowledgement", async action => {
-  await setup([{ liveMessages: 2, uncorrelated: true, exitAfter: true }]);
+  const target = await setup([{ liveMessages: 2, uncorrelated: true, exitAfter: true }]);
   for (const id of ["uncertain-one", "uncertain-two"]) {
     const sent = await cli([...args("message", id), "--message-from-stdin"], Buffer.from("  exact " + id + "\n")); expect(sent.code, sent.text).toBe(0); await h.engine.commands.settled();
     if (id === "uncertain-one") expect((await cli(["command-status", path(), "--command-id", id])).body.message_receipt).toBe("Sent to session — not confirmed read");
   }
   await release();
   const ids = [receipt("uncertain-one").id, receipt("uncertain-two").id];
+  // Late provider evidence must survive restart without removing either review.
+  const { sessionFiles } = await import("../session/claude-session.js");
+  const { appendJsonLine } = await import("../state/state-files.js");
+  const at = new Date().toISOString();
+  appendJsonLine(sessionFiles(h.stateDirectory, h.engine.latestSession("1")!).events, { at, event: { type: "result", session_id: target.providerSessionId, user_message_uuids: ["uncertain-one", "uncertain-two"].map(id => receipt(id).message!.uuid) } });
+  for (const id of ["uncertain-one", "uncertain-two"]) { const r = h.engine.commands.all().find(r => r.command_id === id)!; r.message!.resultAt = at; h.engine.commands.checkpoint(r); }
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve();
   const uncertain = await status();
   expect(uncertain.live_control).toMatchObject({ reviewRequired: ids, messages: ids.map(id => ({ id, receipt: "Delivery uncertain" })) });
   expect((uncertain.controls as { name: string; available: boolean; reason: string | null }[]).find(c => c.name === "message")).toMatchObject({ available: false, reason: expect.stringContaining("Delivery uncertain") });
@@ -139,6 +146,10 @@ it.skipIf(process.platform !== "darwin").each(["resume", "verify-and-advance"])(
   expect(receipt("no-review").state).toBe("failed"); expect(h.claudeCalls()).toHaveLength(1);
   const partial = await cli([...args(action, "partial"), "--message-reviewed", ids[0]!]); expect(partial.code, partial.text).toBe(0); await h.engine.commands.settled();
   expect(receipt("partial").state).toBe("failed"); expect(receipt("uncertain-one").message!.reviewedAt).toBeDefined(); expect(h.engine.record.liveControl).toBeDefined();
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve();
+  expect(receipt("uncertain-one").message).toMatchObject({ delivery: "uncertain", reviewedAt: expect.any(String), resultAt: expect.any(String) });
+  expect(receipt("uncertain-two").message?.reviewedAt).toBeUndefined();
+  expect(h.engine.liveView()?.reviewRequired).toEqual([ids[1]]);
   h.engine.record.pause.requestedAt = new Date().toISOString();
   if (action === "verify-and-advance") {
     const file = join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-return-intake.md"); writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-27\n"));
@@ -152,6 +163,9 @@ it.skipIf(process.platform !== "darwin").each(["resume", "verify-and-advance"])(
   for (const id of ["uncertain-one", "uncertain-two"]) expect(receipt(id).message).toMatchObject({ delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) });
   expect(input()).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(action === "resume" ? 2 : 1);
   if (action === "verify-and-advance") expect(h.engine.record.pause.activeSince).toBeDefined();
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve();
+  expect(h.engine.record.liveControl).toBeUndefined();
+  for (const id of ["uncertain-one", "uncertain-two"]) expect(receipt(id).message).toMatchObject({ delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) });
   const retried = await cli([...returnArgs, "--message-reviewed", ids[0]!, "--message-reviewed", ids[1]!]);
   expect(retried.code, retried.text).toBe(0); expect(retried.body.operation).toMatchObject({ id: receipt("explicit-return").id });
 });

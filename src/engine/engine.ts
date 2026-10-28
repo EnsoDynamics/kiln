@@ -1,3 +1,4 @@
+import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
 import { sameLiveTarget, validLiveTarget, consumedUuids, messageProblem, type LiveTarget, type LiveView } from "../live/target.js";
@@ -486,6 +487,7 @@ export class Engine {
       return { ...receipt, state: complete ? "completed" : "failed", stage: "settled", outcome: complete ? "message_reviewed" : "message_review_incomplete", reason: complete ? null : "Not all acknowledgements were saved. Review the remaining messages; nothing resumed or advanced." };
     }
     if (receipt.instruction.action === "message") {
+      if (receipt.message?.delivery === "uncertain") return { ...receipt, state: "indeterminate", stage: "settled", outcome: "delivery_uncertain", effects: { ...receipt.effects, message: "unknown" } };
       if (!receipt.message?.writeStartedAt) return { ...receipt, state: "failed", stage: "settled", outcome: "not_sent", ...(receipt.message ? { message: { ...receipt.message, delivery: "not_sent" } } : {}), effects: { ...receipt.effects, message: "not_sent" } };
       // Never repeat external input after a controller crash. Full replay happens once the journal exists.
       return { ...receipt, state: receipt.message.resultAt ? "completed" : "indeterminate", stage: "settled", outcome: receipt.message.resultAt ? "message_received" : "delivery_uncertain", message: { ...receipt.message, delivery: receipt.message.resultAt ? "received" : "uncertain" }, effects: { ...receipt.effects, message: receipt.message.resultAt ? "received" : "unknown" } };
@@ -588,11 +590,16 @@ export class Engine {
   }
 
   private recoverLiveMessages(): void {
-    for (const r of this.messageReceipts()) {
-      if (!r.live_target || r.execution_id !== this.record.executionId || !r.message!.writeStartedAt || r.message!.resolvedBy) continue;
-      const session = this.sessionRecord(r.live_target.activityKey, r.live_target.sessionId);
-      const index = session?.runs.findIndex((run, i) => (run.control?.attemptId ?? this.legacyAttempt(session!, i)) === r.live_target!.attemptId);
-      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.projectMessage(r, saved.event, saved.at);
+    const messages = this.messageReceipts().filter(r => r.live_target && r.execution_id === this.record.executionId && r.message!.writeStartedAt && !r.message!.resolvedBy);
+    const targets = new Map(messages.map(r => [JSON.stringify(r.live_target), r.live_target!]));
+    // Replay the attempt ledger through the same identity/order validation as live
+    // callbacks, including contradictions naming an already-accounted receipt.
+    for (const target of targets.values()) {
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const index = session?.runs.findIndex((run, i) => (run.control?.attemptId ?? this.legacyAttempt(session!, i)) === target.attemptId);
+      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.observeLiveMessage(target, saved.event, saved.at);
+    }
+    for (const r of messages) {
       if (!r.message!.resultAt || r.message!.delivery === "uncertain") this.holdMessage(r);
       else { r.message!.delivery = "received"; r.effects.message = "received"; r.state = "completed"; }
       this.commands.checkpoint(r);
@@ -600,7 +607,7 @@ export class Engine {
   }
 
   private observeLiveMessage(target: LiveTarget, event: Record<string, unknown>, at: string): void {
-    const messages = this.messageReceipts(target);
+    const messages = this.messageReceipts(target).filter(r => !r.message!.resolvedBy);
     const observed = consumedUuids(event).filter(uuid => messages.some(r => r.message!.uuid === uuid));
     const accepted = messages.filter(r => observed.includes(r.message!.uuid)).map(r => r.message!.uuid);
     if (JSON.stringify(observed) !== JSON.stringify(accepted) || observed.length && event.session_id !== target.providerSessionId) {
@@ -748,6 +755,7 @@ export class Engine {
   private async reconcileTakeoverOnce(): Promise<void> {
     if (!this.record.liveControl) return;
     const hold = this.record.liveControl.takeover;
+    let releaseEvidence: { directory: string; state: string } | undefined;
     try {
       const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
       const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
@@ -755,6 +763,10 @@ export class Engine {
       const latestActivityAt = run.live ? readGate(run.live.gateDirectory).observedAt : runLastOutputAt(this.stateDirectory, session, session.runs.indexOf(run));
       if (latestActivityAt) hold.latestActivityAt = latestActivityAt;
       await requireExited(run);
+      // OS exit precedes adapter finalization, which awaits the last descendant
+      // scan and saved-event callbacks. No readiness may race those writers.
+      const running = this.current?.session; const attempt = running?.runs.at(-1);
+      if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("takeover_pending", "Waiting for final attempt and tracked-process observations to finish.");
       if (run.live) {
         if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
         if (resolve(run.live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "The Claude configuration root changed; restore the attempt profile before hand-back.");
@@ -774,20 +786,21 @@ export class Engine {
             }
           });
         }
-        const gate = readGate(run.live.gateDirectory);
+        let gate = readGate(run.live.gateDirectory);
         hold.latestActivityAt = gate.observedAt;
         if (!sameLiveTarget(gate.target, hold.target) || hold.kind !== "delivery_recovery" && gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
-        if (gate.obstacle) {
-          const inventory = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
-          if (inventory.failure || inventory.exitCode !== 0) throw new Error(gate.obstacle);
-          await withGate(run.live.gateDirectory, state => { delete state.obstacle; });
+        if (gate.obstacle || gate.processObservations?.length) {
+          await captureOwnedProcesses(run.live.gateDirectory, run.pid!, run.processStartTime!);
+          gate = readGate(run.live.gateDirectory);
         }
         const pending = unsettled(gate);
         if (pending.length) throw new OwnershipError("takeover_pending", `Waiting for completed-operation evidence: ${pending.join(", ")}.`);
         for (const identity of gate.tracked) await requireExited({ pid: identity.pid, processStartTime: identity.startTime });
+        releaseEvidence = { directory: run.live.gateDirectory, state: JSON.stringify(gate) };
       }
       requireHistory(this.environment, hold.target.providerSessionId);
       await requireNoTerminal(this.environment, hold.target.providerSessionId);
+      if (releaseEvidence && JSON.stringify(readGate(releaseEvidence.directory)) !== releaseEvidence.state) throw new OwnershipError("takeover_pending", "Tracked-process release evidence changed during ownership checks; retry reconciliation.");
       hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
     } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
     finally {

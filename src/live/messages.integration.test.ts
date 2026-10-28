@@ -98,11 +98,14 @@ it.skipIf(process.platform !== "darwin")("serializes takeover against message de
   const session = h.engine.latestSession("1")!; expect(readGate(session.runs[0]!.live!.gateDirectory).held).toBeDefined();
 });
 
-it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
+it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release"); const killedAt = join(h.sandbox.root, "boundary");
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" ? [] : [{ liveMessages: boundary === "partial_review" ? 2 : 1, ...(boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
+  // At write_completed the callback may settle before the provider's replay.
+  // Keep the fixture quiet until release so SIGKILL cannot race an echo into a
+  // closed stdout pipe. The stdin reader still independently records the input.
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary === "partial_review" || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { [boundary.slice(6)]: true } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
   const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url");
   const { readPrdRecord } = await import("../state/records.js"); const { git } = await import("../test-support/git-repositories.js"); const { isProcessLive } = await import("../platform/process-start-time.js");
   let port = 43060; while (!await isPortFree(port)) port++;
@@ -110,7 +113,7 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url)); const journalPath = fileURLToPath(new URL("../../dist/control/commands.js", import.meta.url));
   // Freeze only the disposable supervisor immediately around real durable writes.
   // For write_completed, freeze before saving that callback; for others, after save.
-  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||(boundary==='review'||boundary==='partial_review')&&r.message?.reviewedAt);if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
+  const code = `import{readFileSync,writeFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{CommandJournal}from${JSON.stringify(journalPath)};import{startLocalServer}from${JSON.stringify(serverPath)};const boundary=${JSON.stringify(boundary)};const original=CommandJournal.prototype.save;let stopped=false;CommandJournal.prototype.save=function(r){const hit=!stopped&&r.instruction.action==='message'&&(boundary==='intent'&&r.stage==='intent'||boundary==='write_started'&&r.message?.writeStartedAt&&!r.message?.writeCompletedAt||boundary==='write_completed'&&r.message?.writeCompletedAt||boundary==='evidence'&&r.message?.resultAt||(boundary==='review'||boundary==='partial_review')&&r.message?.reviewedAt);if(hit&&boundary==='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}const value=original.call(this,r);if(hit&&boundary!=='write_completed'){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'stopped');process.kill(process.pid,'SIGSTOP');}return value;};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));if(boundary.startsWith('saved_')){const observe=Engine.prototype.observeLiveMessage;Engine.prototype.observeLiveMessage=function(t,e,at){if(!stopped&&e.type==='result'&&e.user_message_uuids?.length===2){stopped=true;writeFileSync(${JSON.stringify(killedAt)},'saved before callback');process.kill(process.pid,'SIGSTOP');}return observe.call(this,t,e,at);};}const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Message crash proof',token:engine.record.token});const answer=await engine.start({refinementConfirmed:true});if(!answer.ok)throw Error(JSON.stringify(answer));`;
   const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit"); let diagnostic = ""; controller.stderr!.on("data", b => { diagnostic += String(b); });
   try {
     await waitFor(() => { if (controller.exitCode !== null) throw new Error(diagnostic); return existsSync(ready); }, 30000);
@@ -118,6 +121,11 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     const t: import("./target.js").LiveTarget = { executionId: disk.executionId!, activityId: disk.activities!.find(a => a.key === key)!.activityId, activityKey: key, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: run.live!.attemptId };
     origin = `http://127.0.0.1:${port}`;
     let request = post("live/message", { instructionId: `crash-${boundary}`, target: t, text: "literal instruction before supervisor death" }).catch(() => undefined);
+    if (boundary.startsWith("saved_")) {
+      await request;
+      await waitFor(() => readReceipts(h.stateDirectory).find(r => r.command_id === `crash-${boundary}`)?.state === "completed");
+      request = post("live/message", { instructionId: "crash-saved-second", target: t, text: "second accepted input before saved correlation crash" }).catch(() => undefined);
+    }
     if (boundary.endsWith("review")) {
       await request;
       if (boundary === "partial_review") { await waitFor(() => readReceipts(h.stateDirectory).find(r => r.command_id === `crash-${boundary}`)?.state === "completed"); expect((await post("live/message", { instructionId: "crash-second", target: t, text: "second uncertain instruction" })).status).toBe(202); }
@@ -134,7 +142,13 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     writeFileSync(release, "finish naturally"); await waitFor(async () => !await isProcessLive(run.pid!, run.processStartTime), 25000);
     expect(h.engine.record.phases[key]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
     const actual = existsSync(`${h.scenarioPath}.live-inputs.jsonl`) ? inputs().length : 0;
-    expect(actual).toBe(boundary === "intent" || boundary === "write_started" ? 0 : boundary === "partial_review" ? 2 : 1);
+    expect(actual).toBe(boundary === "intent" || boundary === "write_started" ? 0 : boundary === "partial_review" || boundary.startsWith("saved_") ? 2 : 1);
+    if (boundary.startsWith("saved_")) {
+      for (const id of [`crash-${boundary}`, "crash-saved-second"]) expect(receipt(id)).toMatchObject({ state: "indeterminate", message: { delivery: "uncertain" }, effects: { message: "unknown", plan: "not_advanced", session: "not_started" } });
+      expect(h.engine.liveView()?.reviewRequired).toHaveLength(2);
+      h.engine = h.reopenFromDisk(); await h.engine.prepare();
+      expect(h.engine.liveView()?.reviewRequired).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(1);
+    }
     if (boundary.endsWith("review")) {
       expect(receipt("review-crash").state).toBe(boundary === "review" ? "completed" : "failed");
       if (boundary === "partial_review") {
@@ -208,4 +222,84 @@ it.skipIf(process.platform !== "darwin")("accepts versioned bot messages through
   expect(inputs().map(i => i.message.content)).toEqual([text]); expect(h.claudeCalls()).toHaveLength(1);
   expect((await post("control/v1/commands", { ...body, command_id: "internal-review", action: "message-review", inputs: { target, receipt_ids: ["bot-live-enabled"] } })).status).toBe(400);
   expect(h.engine.commands.has("internal-review")).toBe(false);
+});
+
+it.skipIf(process.platform !== "darwin").each(["reverseOrder", "wrongSession", "unaccounted"])("validates saved %s evidence after the append/callback crash boundary, including accounted receipts", async fault => {
+  const target = await setup([{ liveMessages: 2, ...(fault === "unaccounted" ? { readOnly: true } : {}) }, { waitForFile: "release" }, { result: "Done." }, { exitNow: 0 }]);
+  for (const id of ["saved-first", "saved-second"]) { await post("live/message", { instructionId: id, target, text: `exact ${id}\n` }); await h.engine.commands.settled(); }
+  await waitFor(() => receipt("saved-second").message?.delivery === "received");
+  // Save an event without delivering its callback, the actual torn boundary.
+  const { sessionFiles } = await import("../session/claude-session.js");
+  const { appendJsonLine } = await import("../state/state-files.js");
+  const session = h.engine.latestSession("1")!;
+  const uuids = [receipt("saved-first").message!.uuid, receipt("saved-second").message!.uuid];
+  appendJsonLine(sessionFiles(h.stateDirectory, session).events, { at: new Date().toISOString(), event: { type: "result", session_id: fault === "wrongSession" ? "another-conversation" : target.providerSessionId, user_message_uuids: fault !== "wrongSession" ? [...uuids].reverse() : uuids } });
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  for (let restart = 0; restart < 2; restart++) {
+    for (const id of ["saved-first", "saved-second"]) expect(receipt(id)).toMatchObject({ state: "indeterminate", message: { delivery: "uncertain" }, effects: { message: "unknown", session: "not_started", plan: "not_advanced" } });
+    expect(h.engine.liveView()?.reviewRequired).toHaveLength(2);
+    expect(h.engine.record.liveControl).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  }
+  writeFileSync(join(h.sandbox.root, "release"), "exit naturally");
+  await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; });
+  expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget()! })).toMatchObject({ ok: false, code: "message_review_required" });
+  expect(inputs()).toHaveLength(2); expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it.skipIf(process.platform !== "darwin")("retains late correlated uncertainty through review, failed Verify, successful Resume and prior-execution restart", async () => {
+  const text = "  review this exact late instruction\n";
+  const target = await setup([{ liveMessages: 1, uncorrelated: true, exitAfter: true }]);
+  await post("live/message", { instructionId: "late-evidence", target, text }); await h.engine.settled();
+  const { sessionFiles } = await import("../session/claude-session.js");
+  const { appendJsonLine } = await import("../state/state-files.js");
+  const { writePrdRecord } = await import("../state/records.js");
+  const { newPrdRecord } = await import("../state/new-record.js");
+  const r = h.engine.commands.all().find(r => r.command_id === "late-evidence")!;
+  const session = h.engine.latestSession("1")!;
+  appendJsonLine(sessionFiles(h.stateDirectory, session).events, { at: new Date().toISOString(), event: { type: "result", session_id: target.providerSessionId, user_message_uuids: [r.message!.uuid] } });
+  // Reproduce the saved late-evidence state from the live callback.
+  r.message!.resultAt = new Date().toISOString(); h.engine.commands.checkpoint(r);
+  await server!.close(); server = undefined; h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(receipt("late-evidence").message).toMatchObject({ text, delivery: "uncertain", resultAt: expect.any(String) });
+  expect(h.engine.liveView()?.reviewRequired).toEqual([r.id]);
+  await h.engine.reconcileTakeover();
+  const recovery = h.engine.phaseRecoveryTarget()!;
+  expect(await h.engine.resume({ target: recovery })).toMatchObject({ ok: false, code: "message_review_required" });
+  expect(await h.engine.checkAgain({ target: recovery, intent: "verify" })).toMatchObject({ ok: false, code: "message_review_required" });
+  expect(h.engine.reviewMessages(target, [r.id])).toMatchObject({ ok: true });
+  expect(await h.engine.checkAgain({ target: recovery, intent: "verify" })).toMatchObject({ ok: true, outcome: "still_stopped" });
+  h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(receipt("late-evidence").message).toMatchObject({ text, delivery: "uncertain", reviewedAt: expect.any(String), resultAt: expect.any(String) });
+  expect(receipt("late-evidence").message?.resolvedBy).toBeUndefined(); expect(h.engine.record.liveControl).toBeDefined();
+  expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget()! })).toMatchObject({ ok: true }); await h.engine.settled();
+  const resolved = { ...receipt("late-evidence").message! };
+  expect(resolved.resolvedBy).toBeDefined();
+  h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(receipt("late-evidence").message).toEqual(resolved); expect(h.engine.record.liveControl).toBeUndefined();
+  h.engine.close(); const old = h.engine.record;
+  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory, featureName: old.featureName, settings: old.settings }));
+  h.engine = h.reopenFromDisk(); await h.engine.prepare();
+  expect(receipt("late-evidence").message).toEqual(resolved); expect(h.engine.record.liveControl).toBeUndefined();
+  expect(inputs()).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(2);
+});
+
+it.skipIf(process.platform !== "darwin")("retains unresolved late-evidence receipts from a prior execution without holding its replacement", async () => {
+  await setup([{ liveMessages: 1, uncorrelated: true, exitAfter: true }]);
+  const target = h.engine.liveTarget()!;
+  await post("live/message", { instructionId: "prior-uncertain", target, text: "  prior execution instruction\n" }); await h.engine.settled();
+  const r = h.engine.commands.all().find(r => r.command_id === "prior-uncertain")!;
+  expect(r.message?.delivery).toBe("uncertain");
+  r.message!.resultAt = new Date().toISOString(); h.engine.commands.checkpoint(r);
+  const prior = { ...r.message! }; expect(prior.reviewedAt).toBeUndefined(); expect(prior.resolvedBy).toBeUndefined();
+  await server!.close(); server = undefined; h.engine.close();
+  const { newPrdRecord } = await import("../state/new-record.js"); const { writePrdRecord } = await import("../state/records.js");
+  const old = h.engine.record;
+  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory, featureName: old.featureName, settings: old.settings }));
+  for (let i = 0; i < 2; i++) {
+    h.engine = h.reopenFromDisk(); await h.engine.prepare();
+    expect(receipt("prior-uncertain").message).toEqual(prior); expect(h.engine.record.liveControl).toBeUndefined();
+    expect(h.engine.commands.blocked).toBe(false);
+  }
+  expect(inputs()).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
 });
