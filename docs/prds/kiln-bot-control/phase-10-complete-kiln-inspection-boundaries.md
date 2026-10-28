@@ -98,6 +98,20 @@ Doug's exact instruction in source chat `01a182ef-0c8e-7cf1-aed8-75c2defb17e7` w
 
 After authorized Phase 10 publication and shared-checkout fast-forward, repeat whole-PRD delivery audit in a fresh chat/worktree from published `origin/develop`. Do not reuse this implementation worktree. Test audit waits for current clean delivery. Preserve original criterion ownership, all earlier Closed lines, partial supersessions, Phase 9/8/7/6/5 historical non-green gates and separately scoped provider/Grok release evidence. Other tracks remain independently owned.
 
+## Phase 10 publication and fresh-audit authorization
+
+Doug's exact instruction on 2026-10-28 in source chat `01a18319-4a12-7f70-ab07-bcea83979511` was “All right, go ahead and commit and push and then launch another chat to continue with the next step.” This authorizes publication of Phase 10 implementation `0c9a5fe` (rebased without patch changes from local `338f0f6`), this scoped handoff record, and launch of the next planned fresh whole-PRD delivery audit after publication and shared-checkout fast-forward. It supersedes only the Phase 10 publication and successor-launch holds above. The existing non-green full gate, qualified scoped outcomes, original ownership and historical verification limits remain intact.
+
+The fresh audit owns this PRD's audit documents in a new worktree from published `origin/develop`; other tracks remain independently owned. Scoped audit commits follow the skill default. Publishing later audit/implementation commits, further successor launches and production release remain held for explicit authorization. Test audit still waits for current clean whole-PRD delivery. This instruction is not a standing publication, launch or release grant.
+
+### Publication compatibility verification
+
+Before publication, the implementation and scoped authorization record were rebased onto published live-control commits `0cc1055` and `ae72a06`. `git range-diff` confirms that original local implementation `338f0f6` and rebased implementation `0c9a5fe` have identical patches. No conflict, runtime edit, assertion change or deadline change was needed.
+
+On the rebased source, `npm run build` and the new live-history unit case pass. The selected built-CLI integration portfolio passes **21 cases**, with 45 unselected: the 19 Phase 10 output/receipt cases plus existing complete conversation/attempt history and usable-Claude-history handoff checks (156.58 seconds). The first sandbox-restricted attempt passed ten and failed eleven: ten live fixtures reported no free test port and the history fixture had no transcript after startup. Repeating the identical command with localhost/process access enabled passes all 21; no test or source was changed between attempts. Supplementary logs are `/private/tmp/kiln-ph10-rebase-build.log`, `kiln-ph10-rebase-unit.log`, `kiln-ph10-rebase-integration.log` and `kiln-ph10-rebase-integration-unrestricted.log`.
+
+These compatibility checks do not replace or reclassify the complete non-green gate in Final verification. No new whole-repository gate, installed-package gate, provider turn or production release was run during publication.
+
 ### Prepared fresh-audit continuation
 
 Valid only after explicit Phase 10 publication and successor-launch authorization, publication and shared-checkout fast-forward. This prepared prompt grants none of those actions.
