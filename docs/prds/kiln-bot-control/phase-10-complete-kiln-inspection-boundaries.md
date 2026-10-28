@@ -38,3 +38,7 @@ After this phase closes and is authorized for publication, repeat whole-PRD deli
 ## Publication and launch boundary
 
 The [audit's Publication boundary](kiln-bot-control-delivery-audit-after-phase-9.md#publication-boundary) preserves Doug's exact authorization and source chat. It authorized Phase 9 publication and this delivery-audit launch. Scoped audit commits follow the skill default; this audit's publication, this Phase 10 implementation launch, future implementation/audit publication and production release remain held for explicit authorization. The prepared continuation is valid only after authorized audit publication, shared-checkout fast-forward and explicit Phase 10 launch authorization. Other tracks remain independently owned.
+
+## Implementation launch authorization
+
+Doug authorized publication of the after-Phase-9 audit and launch of this Phase 10 implementation on 2026-10-28. The [audit's authorization record](kiln-bot-control-delivery-audit-after-phase-9.md#audit-publication-and-phase-10-launch-authorization) preserves his exact instruction and source chat. This supersedes the audit-publication and implementation-launch holds above. After publication and shared-checkout fast-forward, the prepared fresh-chat continuation is valid immediately. Scoped implementation commits follow the skill default; publication of future implementation/later-audit commits and production release remain held.
