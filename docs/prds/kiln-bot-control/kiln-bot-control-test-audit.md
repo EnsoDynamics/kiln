@@ -247,3 +247,19 @@ The complete `verify`-equivalent stage sequence and separate installed-package s
 | `npm run test:package` | Eight pass | 28.20 |
 
 All 95 integration files were collected once, and all 71 cases in the real-browser file passed, including the new driver regression and the exact previously failing advancement workflow. The repaired test file remained byte-identical throughout the gate. Runtime source remains unchanged from `b1d91e3`; no product guard, timeout or existing workflow assertion was relaxed. Reports are retained in `/private/tmp/kiln-full-suite-repair/browser-action-fix`. Earlier failed CI runs retain their historical meaning; this local result does not establish a passing subsequent CI run.
+
+
+## Passing GitHub CI and final closeout
+
+Browser-driver repair `a0606b3` is published on `develop`. [CI run 40800203995](https://github.com/EnsoDynamics/kiln/actions/runs/40800203995) completed successfully on that exact commit (`a0606b30e658e85fb94f0a9090b1ee30aee62f4f`); all three jobs passed.
+
+| CI check | Actual result |
+|---|---|
+| macOS `npm run verify` | Audit, lint and type checks pass; 641 unit, 17 provider-contract and 1,006 integration checks pass with zero failures and 51 existing platform skips. All 95 integration files are collected; all 71 real-browser cases pass. |
+| macOS `npm run test:package` | Eight installed-package checks pass. |
+| Linux build and pack | Pass. |
+| Windows build and pack | Pass. |
+
+CI's 51 existing skips comprise 49 PowerShell parser cases and two Windows browser-opening cases. The complete local UTC gate additionally ran the PowerShell cases: 1,055 integration passes, zero failures and only the two Windows skips, plus 641 unit, 17 provider-contract and eight package checks. No case added by these repairs is skipped. The shared checkout was fast-forwarded, its locked dependencies installed with `npm ci`, and the qualified native Claude 2.1.307 fixture confirmed; all six passive-boundary cases passed from that checkout without tracked-file changes.
+
+The earlier failed CI/full-suite runs retain their historical meaning. This passing run closes the outstanding current verification gate; it does not extend the separately dated provider/Grok or Linux/Windows native-runtime qualification claims. All 18 active criteria meet the Adequate target. Strong remains an optional evidence upgrade, not an open planned child or a closeout gate. The PRD's implementation and audit track has no successor task. Production release requires separate authorization. A following documentation-only receipt changes no executable or test input from the CI-verified commit.
