@@ -1,13 +1,22 @@
 // Static syntax/dataflow only: never executes provider JavaScript or reads real tool outputs.
 import { parse } from 'acorn';
 import { Buffer } from 'node:buffer';
+import { posix, win32 } from 'node:path';
 
 const UNKNOWN = Symbol('opaque tool result');
-const TOOLS = new Set(['exec_command', 'write_stdin', 'apply_patch', 'spawn_agent', 'send_message', 'wait_agent', 'list_agents', 'followup_task', 'interrupt_agent']);
+const TOOLS = new Set(['exec_command', 'write_stdin', 'view_image', 'apply_patch', 'spawn_agent', 'send_message', 'wait_agent', 'list_agents', 'followup_task', 'interrupt_agent']);
 const OUTPUT = new Set(['text', 'notify', 'image', 'audio', 'generatedImage']);
 const RESERVED = new Set(['tools', 'Promise', 'JSON', 'ALL_TOOLS', ...OUTPUT]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_ARRAY = 1024;
+
+// This contract only reads an image; no output or destination parameter is admitted.
+function imageInput(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).some(key => !['path', 'detail'].includes(key))
+    || typeof input.path !== 'string' || !input.path || !(posix.isAbsolute(input.path) || win32.isAbsolute(input.path))
+    || input.detail !== undefined && !['high', 'original'].includes(input.detail)) throw new Error('Unsupported view_image input');
+}
 
 export function decodeWrapper(callId, program) {
   const operations = [];
@@ -227,6 +236,7 @@ export function decodeWrapper(callId, program) {
           const tool = name.slice(6);
           if (!TOOLS.has(tool) || node.arguments.length !== 1) fail(node, 'Unknown tool or invocation');
           const input = literal(read(node.arguments[0], scope), node);
+          if (tool === 'view_image') imageInput(input);
           operations.push({ name: tool, input });
           return pending(UNKNOWN);
         }
@@ -286,10 +296,11 @@ export function decodeRawCall(payload) {
     } catch { return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: 'Malformed or unsupported wait envelope' }; }
   }
   const name = payload.name;
-  const namespace = ['exec_command', 'write_stdin', 'apply_patch'].includes(name) ? 'functions' : 'collaboration';
+  const namespace = ['exec_command', 'write_stdin', 'apply_patch', 'view_image'].includes(name) ? 'functions' : 'collaboration';
   if (!['function_call', 'custom_tool_call'].includes(payload.type) || !TOOLS.has(name) || payload.namespace !== undefined && payload.namespace !== namespace || payload.type === 'custom_tool_call' && name !== 'apply_patch') return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: `Unknown raw tool form ${payload.namespace ?? ''}/${payload.name}` };
   try {
     const input = payload.type === 'custom_tool_call' ? payload.input : JSON.parse(payload.arguments);
+    if (name === 'view_image') imageInput(input);
     return { callId: payload.call_id, operations: [{ name, input }], coverage: 'complete' };
   } catch {
     return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: 'Malformed tool input' };

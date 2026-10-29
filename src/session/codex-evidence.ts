@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { comparable, realPathOfNearestAncestor } from "../engine/worktree-setup.js";
 import { findExecutable, runHelper } from "../platform/helper-process.js";
 import { CodexHistoryRpc, type HistoryRpc } from "./codex-history-rpc.js";
+import { retainedCompaction } from "./codex-compaction.js";
 import { decodeRawCall } from "./codex-wrapper-decoder.mjs";
 import { digest, EvidenceIndex, rawLines } from "./codex-evidence-store.js";
 import { readPowerShell } from "./codex-powershell.js";
@@ -20,7 +21,7 @@ export interface CodexFrontier { ownedTurnIds?: string[]; threadId: string; path
 export interface CodexAudit {
   mutations?: { conversationId: string; callId: string; at: string; paths: string[] }[];
   commands?: CommandEvidence[];
-  profile: "codex-0.162.1-static-v1"; coverage: "complete" | "inconclusive"; at: string;
+  profile: "codex-0.162.1-static-v1" | "codex-static-v2"; coverage: "complete" | "inconclusive"; at: string;
   fingerprint: string; frontiers: CodexFrontier[]; findings: OutsideChange[]; problems: string[]; operationsChecked: number;
 }
 export interface CodexEvidenceOptions {
@@ -43,13 +44,14 @@ interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
   started_at_ms?: number; completed_at_ms?: number;
   reason?: string;
-  type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string;
+  type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string; context_window?: { window_id?: string };
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
   internal_chat_message_metadata_passthrough?: { turn_id?: string };
   thread_id?: string; item?: { id: string; type: string; command: string[]; cwd: string; status: string; agent_thread_id?: string; changes?: Record<string, { move_path?: string }> };
   state?: { environments?: { environments?: { local?: { shell?: string } } } }; full?: boolean;
 }
+const EVIDENCE_READER_VERSIONS = ["codex-cli 0.162.1", "codex-cli 0.165.0"];
 const TERMINAL = new Set(["completed", "interrupted", "failed"]);
 const SETTLED_ITEM = new Set(["completed", "failed", "declined"]);
 const KINDS = ["subAgent", "subAgentThreadSpawn", "subAgentReview", "subAgentOther", "subAgentCompact"];
@@ -65,7 +67,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   const signal = controller.signal;
   const scratch = mkdtempSync(join(tmpdir(), "kiln-codex-evidence-"));
   const index = new EvidenceIndex(scratch);
-  const report: CodexAudit = { profile: "codex-0.162.1-static-v1", coverage: "inconclusive", at: new Date().toISOString(), fingerprint: "", frontiers: [], findings: [], problems: [], operationsChecked: 0 };
+  const report: CodexAudit = { profile: "codex-static-v2", coverage: "inconclusive", at: new Date().toISOString(), fingerprint: "", frontiers: [], findings: [], problems: [], operationsChecked: 0 };
   let owned: CodexHistoryRpc | undefined;
   let checkedRoots: string[] | undefined;
   const problem = (text: string) => { if (report.problems.length < 200) report.problems.push(text); };
@@ -77,7 +79,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     if (!roots.length) throw new Error("No assigned Codex worktrees.");
     if (!options.rpc) {
       const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, signal, timeoutMs: 30_000 });
-      if (version.exitCode !== 0 || version.stdout.trim() !== "codex-cli 0.162.1") throw new Error("Codex evidence requires qualified codex-cli 0.162.1.");
+      if (version.exitCode !== 0 || !EVIDENCE_READER_VERSIONS.includes(version.stdout.trim())) throw new Error(`Codex evidence reader ${version.stdout.trim() || "version unavailable"} is incompatible. Qualified readers: ${EVIDENCE_READER_VERSIONS.join(", ")}.`);
     }
     const rpc = options.rpc ?? (owned = new CodexHistoryRpc(options.executable, options.cwd, { ...options.env, CODEX_HOME: home }, signal));
     if (owned) await owned.initialize();
@@ -176,7 +178,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       for await (const { value } of rawLines(path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
         if (!payload || typeof payload !== "object" || Array.isArray(payload) || typeof record.type !== "string") throw new Error(`${id}: malformed raw envelope.`);
-        if (!["session_meta", "world_state", "turn_context", "event_msg", "response_item"].includes(record.type)) {
+        if (!["session_meta", "world_state", "turn_context", "event_msg", "response_item", "compacted"].includes(record.type)) {
           // Verified non-executing envelope variants retained in the original gate-1 tree.
           const fields = Object.keys(payload).sort();
           const usage = record.type === "token_usage_record" && digest(fields) === digest(["thread_id", "turn_id", "session_id", "root_turn_id", "response_id", "usage", "turn_token_usage", "thread_token_usage"].sort())
@@ -264,8 +266,11 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (index.get<string>(`commandEvent:${origin}`, command.id) !== command.sha256) problem(`${id}: changed inherited native command.`);
       }
       let currentTurn: string | undefined; let shell: string | undefined;
+      let windows: Parameters<typeof retainedCompaction>[1];
       for await (const { value } of rawLines(frontier.path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
+        if (record.type === "session_meta" && payload.context_window?.window_id && windows === undefined) windows = { first: payload.context_window.window_id, current: payload.context_window.window_id, number: 0 };
+        if (record.type === "compacted") windows = retainedCompaction(payload, windows, id, turnId => !!index.get(`context:${id}`, turnId) && !!index.get(`task_started:${id}`, turnId));
         if (record.type === "world_state") { const env = payload.state?.environments?.environments?.local; if (env || payload.full) shell = env?.shell; }
         if (record.type === "turn_context") currentTurn = payload.turn_id;
         if (record.type === "turn_context" || record.type === "event_msg" && payload.type === "task_started") {

@@ -1,7 +1,7 @@
 // Recorded-protocol peer for adverse history conditions. It never executes a model turn.
 import { readFileSync, appendFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-if (process.argv.includes('--version')) { console.log('codex-cli 0.162.1'); process.exit(0); }
+if (process.argv.includes('--version')) { console.log(process.env.KILN_CODEX_HISTORY_VERSION ?? 'codex-cli 0.162.1'); process.exit(0); }
 let calls = 0;
 for await (const line of createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);

@@ -10,6 +10,8 @@ Codex uses the same Kiln package and `kiln run <PRD directory>` command as Claud
 - An available model catalogue with the selected model/effort. First Codex selection uses the latest reported GPT Sol at High; catalogue presence does not guarantee account entitlement. Refusal remains visible without substituting another model.
 - The workspace-write/on-request/automatic-review profile must be allowed by local and managed settings. Kiln checks the effective profile and does not bypass policy or grant a source checkout merely to write linked Git metadata. Human questions stop at Needs you.
 
+Workspace-evidence reading is separately qualified for **codex-cli 0.162.1 and 0.165.0**. An installed 0.165.0 reader can verify retained 0.162.1 conversations, including recorded screenshot inspection and the qualified retained-context compaction form. Unknown reader versions still fail closed. This does not qualify 0.165.0 for new or resumed model work: the launch prerequisite above remains 0.162.1. See [evidence compatibility proof](../prds/kiln-codex-support/kiln-codex-evidence-compatibility-results.md).
+
 Only the selected agent needs to be installed and ready. Existing saved Claude work remains Claude work and does not require Codex.
 
 ## Validation scope and recovery limits
