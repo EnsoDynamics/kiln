@@ -39,6 +39,6 @@ After rebasing cleanly onto `aa64983`, lint, TypeScript/Svelte checks and all 64
 
 Independent deliverable review found no actionable issue. Test hardening added regressions for context written after the compaction snapshot and for legacy-profile confirmation rejection.
 
-## Pending human actions
+## Delivery authorization
 
-Doug: authorize landing this repair on `develop`; the isolated worktree and local commit remain available for review.
+Doug authorized landing on `develop` and local installation in chat `01a187cd-9607-7141-8563-3631b137f4dd` on 2026-10-29: “All right, go ahead and push it and land it on develop and then install it so I can use it.” This does not authorize production deployment or changes to the affected dashboard controller.
