@@ -151,6 +151,8 @@ describe("Claude billing browser controls", () => {
     await server!.close(); server = undefined;
     await narrow.waitFor(`${panel}.innerText.includes('last known')`);
     expect(await narrow.evaluate(`${panel}.querySelectorAll('input,button').length`)).toBe(0);
+    // Each page observes its own SSE disconnect; the narrow page cannot synchronize the wide page.
+    await page.waitFor(`${panel}.innerText.includes('last known')`);
     expect(await page.evaluate(`document.querySelector('#refined').disabled`)).toBe(true);
   });
   it("keeps unavailable optional billing neutral and recheck separate from approval, with bounded API validation", async () => {
