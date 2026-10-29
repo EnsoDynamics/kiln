@@ -24,6 +24,26 @@ it.each(["select", "grant"] as const)("disables the %s action when its screen is
   expect(action).toMatch(/\bdisabled(?:[\s=>])/);
 });
 
+// AC-PERMIT-03: explain the remembered choice without suggesting automatic authority.
+it.each([0, 1])("explains local early-merge choices at saved revision %s", revision => {
+  const snapshot = documentsFoundSnapshot();
+  snapshot.settings.developmentDeployments = { enabled: false, targets: [] };
+  snapshot.savedDevelopmentTargets = {
+    group: { repository: "github.com/acme/product", mainCheckoutPath: "/workspace/product" },
+    revision, enabled: true, targets: revision ? [{ repository: "github.com/acme/api", baseBranch: "develop" }] : [],
+  };
+  const html = render(DocumentsFound, { props: { snapshot, config: { token: "fixture-token", base: "/customer-returns" }, connected: true, now: Date.now() } }).body;
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  expect(text).toContain("Remember these early-merge choices for future PRDs");
+  expect(text).toContain("Remember the early-merge on/off choice and selected repository branches");
+  expect(text).toContain("Each future PRD asks whether to reuse them; nothing is authorized automatically");
+  expect(text).toContain("github.com/acme/product");
+  expect(text).toContain("/workspace/product");
+  expect(text.includes("Use these saved early-merge choices for this PRD")).toBe(revision > 0);
+  if (revision) expect(text).toContain("github.com/acme/api · develop");
+  expect(text).not.toMatch(/storage group|requirements repository|saved targets/i);
+});
+
 // AC-DISPLAY-01/02/03: exercise the actual screen boundary, not just snapshot helpers.
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
