@@ -1,7 +1,7 @@
 // Real Git, filesystem, HTTP and CLI; fabricated transcripts exercise refusal cases beside
 // the actual-provider proof in scripts/proof-run/completion-audit-proof.mjs.
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -86,6 +86,38 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
 function commit(sandbox: Sandbox, root: string, paths: string[]) { git(sandbox, root, "add", "--", ...paths); git(sandbox, root, "commit", "--allow-empty", "-qm", "test(audit): fixture work"); git(sandbox, root, "push", "-qu", "origin", "develop"); }
 
 describe("audit evidence admission", () => {
+  it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
+    const f = await fixture();
+    const source = f.store.putBytes("Shared retained transcript\n".repeat(40_000));
+    const seed = auditEvidence(f.context)[0]!;
+    for (let index = 0; index < 32; index++) {
+      const entry: EvidenceEntry = { ...seed, evidenceId: `shared-${index}`, locator: `shared-${index}`, retainedSource: source, sourceDigest: source };
+      f.record.completionAudits!.evidence.push(f.store.put(entry));
+    }
+    const metadata = f.record.completionAudits!.evidence.at(-1)!;
+    f.saveReport();
+    let sourceReads = 0;
+    const original = AuditStore.prototype.bytes;
+    const spy = vi.spyOn(AuditStore.prototype, "bytes").mockImplementation(function(this: AuditStore, id: string) {
+      if (id === source) sourceReads++;
+      return original.call(this, id);
+    });
+    try {
+      expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
+      expect(sourceReads).toBe(1);
+      sourceReads = 0;
+      expect(await auditCurrentness(f.context, f.activity)).toMatchObject({ deliveryCurrent: true, testsCurrent: true });
+      expect(sourceReads).toBe(1);
+      writeFileSync(f.store.path(source), "corrupt retained transcript");
+      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
+      unlinkSync(f.store.path(source));
+      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
+      f.store.putBytes("Shared retained transcript\n".repeat(40_000));
+      writeFileSync(f.store.path(metadata), "corrupt catalog entry");
+      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
+    } finally { spy.mockRestore(); }
+  });
+
   it("accepts an aliased workspace root without accepting writes to another checkout", async () => {
     const f = await fixture();
     const alias = join(f.sandbox.root, "worktree-alias");

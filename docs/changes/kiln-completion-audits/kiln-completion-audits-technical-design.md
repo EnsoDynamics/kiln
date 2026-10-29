@@ -121,6 +121,8 @@ A snapshot stores canonical repository identities, assigned branches, HEADs, tre
 
 Record hashes of installed audit skill sources for provenance, without making a later skill installation alone invalidate completed history.
 
+During admission and currentness checks, verify every evidence catalog entry and verify each distinct retained-source content hash once per operation. Many entries can refer to the same immutable transcript. Do not cache verification across operations: missing or corrupt catalog entries and retained sources still refuse the check.
+
 Use content equality for currentness, with commit IDs retained for inspectability. A record-only or synchronization commit with unchanged relevant content does not force another audit. Current checks still require clean assigned worktrees and verified pushed heads. Repo additions, deleted/missing sources, requirements changes or unknown changed paths invalidate delivery and test conclusions. New plan leaves take scheduling priority; changes to phase scope/dependencies count as requirements changes.
 
 Classify deltas conservatively:

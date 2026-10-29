@@ -142,7 +142,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     const checked = activity.snapshots.map(id => store.read<WorkSnapshot>(id)).find(s => s.id === snapshotKey);
     requireAudit(checked, "Checked snapshot is missing or was never issued for this activity.", "stale_snapshot"); snapshotId = checked.id;
     const evidence = await refreshAuditEvidence(context);
-    for (const entry of evidence) store.bytes(entry.retainedSource);
+    for (const source of new Set(evidence.map(entry => entry.retainedSource))) store.bytes(source);
     const current = await captureSnapshot({ ...context, activity, evidence, now: new Date().toISOString() }, checked.testPaths, checked.evidencePaths);
     const equality = compareSnapshots(checked, current);
     requireAudit(equality.deliveryCurrent && (activity.kind !== "test_audit" || equality.testsCurrent), "Requirements, implementation or checked test content changed after the audit snapshot.", "stale_snapshot");
@@ -194,7 +194,7 @@ export async function auditCurrentness(context: AdmissionContext, activity: Audi
     const method = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), `${context.record.prdDirectory}/test-audit.md`), "utf8");
     requireAudit(hashBytes(method) === result.methodRecordDigest, "Latest test-audit.md differs from its accepted record.", "stale_snapshot");
   }
-  const evidence = auditEvidence(context); for (const entry of evidence) store.bytes(entry.retainedSource);
+  const evidence = auditEvidence(context); for (const source of new Set(evidence.map(entry => entry.retainedSource))) store.bytes(source);
   const current = await captureSnapshot({ ...context, activity, evidence, now: new Date().toISOString(), retainedClassification: true }, checked.testPaths, checked.evidencePaths);
   return compareSnapshots(checked, current);
 }
