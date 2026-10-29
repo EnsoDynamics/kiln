@@ -1,3 +1,4 @@
+import { readPlanAt } from "../engine/plan-reading.js";
 import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -300,4 +301,77 @@ it('rechecks Claude history after awaited launch metadata before recording or st
   expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession('1')!.runs).toHaveLength(1);
   expect(h.engine.record.phases['1']!.stop?.kind).toBe('not_resumable');
   expect(h.engine.commands.lookup('late-history-loss').operation).toMatchObject({ effects: { session: 'not_started', reply: 'not_sent', plan: 'not_advanced' } });
+});
+
+async function stopOnInvalidPlan() {
+  await setup();
+  // Real invalid plan and persisted stop, as an audit/plan Check again presents.
+  const file = join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-return-intake.md");
+  writeFileSync(join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-duplicate.md"), readFileSync(file, "utf8"));
+  expect(readPlanAt(h.engine.worktreePath, h.engine.record.prdDirectory).ok).toBe(false);
+  h.engine.record.phases["1"]!.stop!.kind = "plan";
+  records.writePrdRecord(h.stateDirectory, h.engine.record);
+}
+it("settles an interrupted Check again after restart without replay, then permits a fresh check", async () => {
+  await stopOnInvalidPlan();
+  const read = vi.spyOn(h.engine, "readPlan").mockImplementationOnce(() => { throw new Error("interrupted plan read"); });
+  const body = instruction("check-again", "interrupted-check");
+  expect(h.engine.commands.submit(body).ok).toBe(true); await h.engine.commands.settled();
+  expect(readReceipts(h.stateDirectory).find(r => r.command_id === body.command_id)).toMatchObject({ state: "indeterminate", stage: "applying", effects: { session: "not_started", plan: "unknown" } });
+  const stopBeforeRestart = structuredClone(h.engine.record.phases["1"]!.stop);
+  read.mockRestore(); h.engine.close(); h.engine = h.reopenFromDisk();
+  expect(h.engine.commands.lookup(body.command_id).operation).toMatchObject({ state: "failed", stage: "settled", outcome: "check_interrupted", effects: { session: "not_started", plan: "unknown" } });
+  expect(h.engine.commands.busy).toBe(false);
+  expect(h.engine.record.phases["1"]!.stop).toEqual(stopBeforeRestart);
+  const checkedAt = stopBeforeRestart!.checkedAt;
+  expect(h.engine.commands.submit(body).operation).toMatchObject({ outcome: "check_interrupted" });
+  expect(h.engine.record.phases["1"]!.stop!.checkedAt).toBe(checkedAt); expect(h.claudeCalls()).toHaveLength(1);
+  const next = await submit("check-again", "fresh-check");
+  expect(next.answer.ok).toBe(true); expect(next.receipt.state).toBe("completed");
+  expect(h.engine.record.phases["1"]!.stop!.checks.flatMap(c => c.facts).join("\n")).toContain("both have phase id 1");
+  expect(h.engine.commands.busy).toBe(false); expect(h.claudeCalls()).toHaveLength(1);
+});
+it("retains a proven Check again result when only receipt settlement was interrupted", async () => {
+  await stopOnInvalidPlan();
+  const write = durable.writeDurableMetadata;
+  const failure = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
+    const r = (value as { receipt?: Receipt }).receipt;
+    if (r?.command_id === "checked-before-crash" && r.stage === "settled") throw new Error("interrupted check settlement");
+    write(path, value);
+  });
+  h.engine.commands.submit(instruction("check-again", "checked-before-crash")); await h.engine.commands.settled();
+  const operation = h.engine.record.controlApplied!.operationId;
+  failure.mockRestore(); h.engine.close(); h.engine = h.reopenFromDisk();
+  expect(h.engine.commands.lookup("checked-before-crash").operation).toMatchObject({ id: operation, state: "completed", outcome: "completed" });
+  expect(h.engine.commands.busy).toBe(false); expect(h.claudeCalls()).toHaveLength(1);
+});
+it.each([
+  { stage: "applying" as const, session: "unknown" as const, reply: "not_applicable" as const },
+  { stage: "dispatching" as const, session: "not_started" as const, reply: "not_applicable" as const },
+  { stage: "applying" as const, session: "not_started" as const, reply: "unknown" as const },
+])("keeps an unsafe Check again receipt blocked ($stage / $session / $reply)", async ({ stage, session, reply }) => {
+  await stopOnInvalidPlan();
+  vi.spyOn(h.engine, "readPlan").mockImplementationOnce(() => { throw new Error("interrupted plan read"); });
+  h.engine.commands.submit(instruction("check-again", "uncertain-check")); await h.engine.commands.settled();
+  const r = h.engine.commands.all().find(r => r.command_id === "uncertain-check")!;
+  r.stage = stage; r.effects.session = session; r.effects.reply = reply; h.engine.commands.checkpoint(r);
+  vi.restoreAllMocks(); h.engine.close(); h.engine = h.reopenFromDisk();
+  expect(h.engine.commands.lookup("uncertain-check").operation).toMatchObject({ state: "indeterminate" });
+  expect(h.engine.commands.busy).toBe(true); expect(h.claudeCalls()).toHaveLength(1);
+});
+
+it("honors a Check again completion marker even without a final applied-operation stamp", async () => {
+  await stopOnInvalidPlan();
+  vi.spyOn(h.engine, "readPlan").mockImplementationOnce(() => { throw new Error("interrupted plan read"); });
+  h.engine.commands.submit(instruction("check-again", "completed-check")); await h.engine.commands.settled();
+  const operation = h.engine.commands.all().find(r => r.command_id === "completed-check")!;
+  // Simulate the durable completion write before the later controlApplied/receipt writes.
+  h.engine.record.phases["1"]!.doneAt = new Date().toISOString();
+  h.engine.record.phases["1"]!.completedByOperation = operation.id;
+  delete h.engine.record.phases["1"]!.stop;
+  expect(h.engine.record.controlApplied?.operationId).not.toBe(operation.id);
+  records.writePrdRecord(h.stateDirectory, h.engine.record);
+  vi.restoreAllMocks(); h.engine.close(); h.engine = h.reopenFromDisk();
+  expect(h.engine.commands.lookup("completed-check").operation).toMatchObject({ id: operation.id, state: "completed", outcome: "advanced", effects: { plan: "advanced" } });
+  expect(h.engine.commands.busy).toBe(false); expect(h.claudeCalls()).toHaveLength(1);
 });

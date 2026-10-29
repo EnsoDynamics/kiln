@@ -545,6 +545,12 @@ export class Engine {
       const outcome = persisted.controlApplied.outcome;
       return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(outcome === "advanced" ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
     }
+    // Check again never directly dispatches a session. A verification interrupted
+    // before settlement can fail honestly without retaining control forever.
+    // Proven completion above wins; unknown plan effects are retained, not undone.
+    if (receipt.instruction.action === "check-again" && receipt.stage === "applying" && receipt.effects.session === "not_started" && receipt.effects.reply === "not_applicable") {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "check_interrupted", reason: "The completion check was interrupted before its result was settled. Request a fresh check against the current work." };
+    }
     if (receipt.phase_key && receipt.session_id) {
       const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
