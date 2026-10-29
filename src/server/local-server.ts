@@ -344,7 +344,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
-    if (engine.record.pause.activeSince) return legacyControl(c, "continue");
+    if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     const result = await engine.start(body.refinementConfirmed === true ? { refinementConfirmed: true } : {});
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);

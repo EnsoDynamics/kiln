@@ -1958,11 +1958,11 @@
       "path": [
         "run"
       ],
-      "purpose": "Start or reopen one PRD in the browser; retains existing execution output and exits.",
+      "purpose": "Open one PRD for review, or immediately continue started work with --resume.",
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln run <PRD-path>",
+      "usage": "kiln run <PRD-path> [--resume]",
       "arguments": [
         {
           "name": "PRD-path",
@@ -1978,13 +1978,17 @@
         "help": {
           "value": null,
           "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "resume": {
+          "value": null,
+          "source": "Immediately continue an already-started execution with saved settings; skips restart review only. Intentional pauses and recovery, billing and delivery restrictions remain. Never starts a new execution."
         }
       },
       "required_exclusive_groups": [],
       "limits": [
         "Existing run behavior and exits 0/1/2 and signal exits 129/130/143; --json is help-only.",
         "Error names below describe legacy conditions in help; execution prints readable diagnostics, not bot-control error codes or receipts.",
-        "Starts or reopens the local browser/controller and stays in the foreground until stopped, including while paused, at Needs you or complete. Initial setup and Start are in the browser; reopening started work follows its saved state and existing eligibility/authority. Keep this terminal open.",
+        "Starts or reopens the local browser/controller and stays in the foreground until stopped. Reopened eligible work waits at the phase overview for Resume, or status-bound kiln continue. --resume skips that review for already-started work. Needs you, intentional pauses and completed work retain their existing behavior. Initial setup and Start remain in the browser.",
         "New-work checks require Git, a clean checkout, a GitHub origin, gh signed in to github.com, the PRD/technical design/phase documents and a valid phase plan; named repositories must be eligible sibling checkouts. Provider readiness and all billing/delivery gates still apply before model work."
       ],
       "result_fields": {
@@ -2014,6 +2018,16 @@
             "/work/shop/docs/prds/orders"
           ],
           "preparation": "Use the actual refined PRD directory containing its design and phase documents. This absolute path works from any directory; quote it in a shell if it contains spaces. Review setup and press Start in the browser for a new execution."
+        },
+        {
+          "request": "Immediately continue an existing execution without a browser click.",
+          "argv": [
+            "kiln",
+            "run",
+            "/work/shop/docs/prds/orders",
+            "--resume"
+          ],
+          "preparation": "Execution must already have been started with saved choices. Use existing status-bound controls if its controller is already running."
         }
       ],
       "error_meanings": {

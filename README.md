@@ -39,7 +39,9 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 3. Kiln runs one session per phase and checks in Git that each phase landed. Work can span several repositories, with a pull request for each. Whole-PRD delivery and test audits run before completion. Keep its terminal open; Ctrl+C interrupts the current session.
 4. When a phase doesn't land, **Needs you** shows the session’s message and what remains. Send a reply to let Kiln finish, or copy the command to discuss it in that same conversation in your terminal. Exit the terminal session, then resume in Kiln without repeating the answer. If you finished the entire phase yourself, use **Verify Phase … & advance**. A Resume that finds the phase already complete asks before advancing and preserves any unsent reply.
 
-`kiln run` again, after Ctrl+C or a restart, picks the feature up wherever it stopped.
+`kiln run` again, after Ctrl+C or a restart, checks the saved work and opens the phase overview without starting model work. Review completed and planned phases, then press **Resume Kiln**. Unresolved Needs you and intentional pauses retain their existing controls.
+
+For terminal or bot orchestration, `kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved agent, model, effort and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the existing status-bound `kiln continue` command.
 
 By default, work stays on feature branches for review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may merge there early when a PRD criterion needs deployment or verification; the repository’s existing CI/CD controls deployment. No environment name or non-production declaration is needed. Required checks and reviews still apply, and remaining work ends in a review PR. Other branches, separate release workflows and destructive actions remain unauthorized.
 

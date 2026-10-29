@@ -29,11 +29,12 @@ export function terminalColors(stream: { isTTY?: boolean }, env: NodeJS.ProcessE
 }
 
 export const USAGE = [
-  "Usage: kiln run <PRD directory or PRD file>",
+  "Usage: kiln run <PRD directory or PRD file> [--resume]",
   "       kiln add-repository <folder name>",
   "       kiln delivery status | assess|prepare|evidence <JSON file>",
   "",
-  "  kiln run moves one PRD's phase plan forward. The path is one PRD's directory,",
+  "  kiln run opens one PRD for review; --resume immediately continues started work.",
+  "  The path is one PRD's directory,",
   "  docs/prds/<name>/ or docs/changes/<name>/, or the PRD file in it. Everything",
   "  else happens in the browser view.",
   "",

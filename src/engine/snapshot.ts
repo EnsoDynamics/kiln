@@ -317,6 +317,7 @@ export interface Snapshot {
     repositories: RepositoryCommits[];
   };
   pause: { pending: boolean; active: boolean };
+  restartReview?: { activityKey: string; action: "start" | "resume" | "wait" };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
   account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
@@ -352,7 +353,9 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
-        : waitingKey !== undefined
+        : engine.restartReview
+          ? "paused"
+          : waitingKey !== undefined
           ? "waiting"
           : record.pause.activeSince !== undefined
           ? "paused"
@@ -419,6 +422,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     repositories: repositoryRows(engine, state),
     ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: views,
+    ...optional("restartReview", engine.restartReview),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
     billing: record.settings.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch),

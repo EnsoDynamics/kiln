@@ -341,6 +341,8 @@ export class Engine {
   private control: SessionControl | undefined;
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
+  restartReview: { activityKey: string; action: "start" | "resume" | "wait" } | undefined;
+  private reviewingRestart = false;
   /** Read-only inspection ownership spans asynchronous resume preflight before current exists. */
   private inspectionResumingSession: string | undefined;
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
@@ -450,13 +452,13 @@ export class Engine {
   }
 
   controlRunState(): string {
-    return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
+    return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.restartReview ? "paused" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
   }
 
   /** Inspection only: synchronous ownership after any awaited provider history read. */
   ownsInspectionSession(id: string): boolean {
     if (this.current?.session?.sessionId === id || this.inspectionResumingSession === id) return true;
-    for (const phase of [this.pendingResume, this.requestedResume?.phaseKey]) if (phase && this.record.phases[phase]?.sessionIds.at(-1) === id) return true;
+    for (const phase of [this.reviewingRestart ? undefined : this.pendingResume, this.requestedResume?.phaseKey]) if (phase && this.record.phases[phase]?.sessionIds.at(-1) === id) return true;
     const wait = this.waitingPhaseKey();
     if (this.checking && wait && this.record.phases[wait]?.wait?.sessionId === id) return true;
     for (const receipt of [this.controlDispatch, this.commands.active]) {
@@ -478,14 +480,14 @@ export class Engine {
     const key = this.stoppedPhaseKey(); const wait = this.waitingPhaseKey();
     const target = JSON.stringify(this.phaseRecoveryTarget() ?? { live: this.liveTarget(), execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
-    const paused = !!this.record.pause.activeSince;
+    const paused = !!this.record.pause.activeSince || !!this.restartReview;
     const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending";
     const available: Record<Action, boolean> = {
       message: !!this.liveView()?.input?.available && !this.commands?.busy,
       "message-review": !!this.record.liveControl && !this.commands?.busy,
       "take-over": !!this.liveView()?.available && !this.commands?.busy,
       reply: !!key && this.resumeOffered(key) && !busy,
-      resume: !!(wait || key && this.resumeOffered(key)) && !busy,
+      resume: !this.restartReview && !!(wait || key && this.resumeOffered(key)) && !busy,
       "verify-and-advance": !!this.phaseRecoveryTarget() && !busy && !releasePending,
       "request-pause": this.isUnderway && !this.currentlyComplete && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
@@ -1123,8 +1125,20 @@ export class Engine {
     const { record } = this;
     if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
-    if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
-    if (this.selectionError) return refuse(this.selectionError);
+    if (!this.restartReview || this.restartReview.action === "start") {
+      if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
+      if (this.selectionError) return refuse(this.selectionError);
+    }
+    if (this.restartReview) {
+      // The work may have changed in a terminal while the overview was open.
+      this.pendingResume = undefined;
+      await this.decide({ review: true });
+      this.restartReview = undefined;
+      this.reviewingRestart = false;
+      this.changed();
+      this.kick();
+      return { ok: true };
+    }
     if (record.pause.activeSince !== undefined) {
       record.pause = {};
       this.save();
@@ -1339,6 +1353,7 @@ export class Engine {
    * then the same session on whichever account is signed in, without waiting for a reading.
    */
   async resume(body: Record<string, unknown> = {}): Promise<CommandResult> {
+    if (this.restartReview) return refuse("Review the phase plan and use Continue to resume Kiln.");
     if (this.phaseRecoveryTarget() || "target" in body) return this.recoverPhase("resume", body);
     const waiting = this.record.billing?.hold ? undefined : this.waitingPhaseKey();
     if (waiting !== undefined) {
@@ -1964,11 +1979,22 @@ export class Engine {
    * says what Kiln does next (the ● line). An interrupted session is left untouched for a Kiln
    * that can resume it.
    */
-  async decide(): Promise<UnderwayDecision> {
+  async decide(options: { review?: boolean } = {}): Promise<UnderwayDecision> {
+    if (options.review) this.reviewingRestart = true;
     // The ● line says what these checks found, so their own terminal lines would repeat it.
     this.quiet = true;
     try {
-      return await this.decideQuietly();
+      const decision = await this.decideQuietly();
+      if (options.review) {
+        this.restartReview = decision.kind === "start_phase" ? { activityKey: decision.phaseId, action: "start" }
+          : decision.kind === "start_audit" ? { activityKey: decision.phaseKey, action: "start" }
+          : decision.kind === "start_pull_request" ? { activityKey: PR_PHASE_KEY, action: "start" }
+          : decision.kind === "resume" ? { activityKey: decision.phaseKey, action: "resume" }
+          : decision.kind === "waiting" ? { activityKey: decision.phaseKey, action: "wait" } : undefined;
+        this.reviewingRestart = !!this.restartReview;
+        this.changed();
+      }
+      return decision;
     } finally {
       this.quiet = false;
     }
@@ -2124,7 +2150,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
+      if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
@@ -3328,6 +3354,8 @@ export class Engine {
   }
 
   private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
+    // A real stop replaces the overview with its own recovery controls.
+    if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
@@ -3536,6 +3564,7 @@ export class Engine {
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
   private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+    if (this.reviewingRestart) return;
     if (cause === "limit_resume" && !this.commands.active) {
       if (this.commands.busy || this.checking || this.driving) return;
       const view = this.controlView();
@@ -3561,7 +3590,7 @@ export class Engine {
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
   private watchWait(): void {
     const key = this.waitingPhaseKey();
-    if (key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
+    if (this.reviewingRestart || key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
     this.unwatchWait();
     this.waitWatch = { phaseKey: key, readings: 0 };
     this.watchSleep();

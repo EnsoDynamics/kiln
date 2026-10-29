@@ -100,7 +100,6 @@
     {#if stop.sessionId}<a href={outputLink} onclick={event => routedClick(event, router, outputLink)}>Full session output{#if stop.outputLineCount !== undefined} · {stop.outputLineCount} lines{/if}</a>{/if}
   </section>
   <CodexSessionFacts facts={stop} />
-  <BillingPanel {snapshot} {connected} />
   {#if stop.limit && limit}
     <section class="card">
       <p>{limit.reported} {limit.reset ?? ""}</p>
@@ -202,6 +201,7 @@
     </section>
   {/if}
   {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
+  <BillingPanel {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
 

@@ -189,11 +189,12 @@ describe("the installed package", () => {
     }
     for (const group of ["audit", "delivery"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
     for (const [name, usage, errors] of [
-      ["run", "kiln run <PRD-path>", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
+      ["run", "kiln run <PRD-path> [--resume]", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
       ["add-repository", "kiln add-repository <folder-name>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
     ] as const) {
       const c = JSON.parse(help([name], true)).command; const text = help([name]);
       expect(c.usage).toBe(usage); expect(c.errors).toEqual(errors);
+      if (name === "run") expect(c.flags.resume.source).toContain("already-started execution");
       for (const error of errors) { expect(c.error_meanings[error]).toMatch(/^Exit [12]:/); expect(text).toContain(c.error_meanings[error]); }
       expect(c.flags.json.source).toContain("Help only"); expect(c.examples[0].preparation).toBeTruthy();
       expect(text).not.toContain("Existing helper-specific errors"); expect(text).not.toContain("[options]");

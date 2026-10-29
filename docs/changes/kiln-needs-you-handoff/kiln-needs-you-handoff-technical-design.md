@@ -138,6 +138,8 @@ Claude resumes its recorded session in its recorded working directory. Codex res
 
 ## Needs you Layout
 
+Show billing below the reply/terminal choices and the terminal-return controls. Its eligibility and refresh behavior remain unchanged; launch restrictions still disable unavailable actions.
+
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
