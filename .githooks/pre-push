@@ -1,0 +1,4 @@
+#!/bin/sh
+# Kiln release version gate
+# Check the committed objects Git is about to push, never rewrite a commit.
+exec node "$(git rev-parse --show-toplevel)/scripts/release.mjs" pre-push "$@"

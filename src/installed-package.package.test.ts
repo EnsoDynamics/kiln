@@ -1,8 +1,8 @@
 // The package as npm would publish it, installed the way a person installs it (AC-INSTALL-01):
 // `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed
 // `kiln` command run against a real temporary repository. One install has to bring the command,
-// the browser view with its fonts, and the prompt templates; CI runs this on macOS, Linux and
-// Windows (AC-INSTALL-03).
+// the browser view with its fonts, and the prompt templates. Release CI installs the exact
+// Ubuntu-built archive on macOS (AC-INSTALL-03/05); local runs pack the working source.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -55,10 +55,18 @@ function end(child: ChildProcess): void {
 
 beforeAll(() => {
   sandbox = createSandbox();
-  const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", sandbox.root], repositoryRoot)) as [{ filename: string; files: { path: string }[] }];
-  packedFiles = packed[0].files.map((file) => file.path.replace(/\\/g, "/"));
+  let archive = process.env.KILN_PACKAGE_TARBALL;
+  if (archive) {
+    const listing = spawnSync("tar", ["-tzf", archive], { encoding: "utf8", timeout: 30_000 });
+    if (listing.status !== 0) throw new Error(`Cannot inspect candidate archive: ${listing.stderr}`);
+    packedFiles = listing.stdout.trim().split("\n").filter(path => !path.endsWith("/")).map(path => path.replace(/^package\//, ""));
+  } else {
+    const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", sandbox.root], repositoryRoot)) as [{ filename: string; files: { path: string }[] }];
+    packedFiles = packed[0].files.map((file) => file.path.replace(/\\/g, "/"));
+    archive = join(sandbox.root, packed[0].filename);
+  }
   const prefix = join(sandbox.root, "prefix");
-  npm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", join(sandbox.root, packed[0].filename)], sandbox.root);
+  npm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", archive], sandbox.root);
   kilnCommand = windows ? join(prefix, "kiln.cmd") : join(prefix, "bin", "kiln");
   installedPackage = windows ? join(prefix, "node_modules", "@ensodynamics", "kiln") : join(prefix, "lib", "node_modules", "@ensodynamics", "kiln");
 
@@ -74,6 +82,9 @@ afterAll(() => sandbox?.cleanup());
 
 describe("the installed package", () => {
   it("holds the compiled command, the built view and the prompts, and nothing else", () => {
+    const source = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { name: string; version: string };
+    const installed = JSON.parse(readFileSync(join(installedPackage, "package.json"), "utf8")) as { name: string; version: string };
+    expect(installed).toMatchObject({ name: source.name, version: source.version });
     const prompts = readdirSync(join(repositoryRoot, "prompts")).map((name) => `prompts/${name}`);
     expect(prompts.length).toBeGreaterThan(0);
     expect(packedFiles).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE", "dist/cli.js", "dist/view/index.html", ...prompts]));
