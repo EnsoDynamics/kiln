@@ -33,6 +33,25 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
     const runners = Object.entries(ci.jobs).filter(([name, job]) => name !== 'preflight' && (!job.if || evaluate(job.if, context))).map(([, job]) => job['runs-on']).sort();
     assert.deepEqual(runners, expected ? ['macos-latest', 'ubuntu-latest', 'windows-latest'] : ['ubuntu-latest']);
   }
+  const developmentVerify = ci.jobs.build.steps.find(step => step.run === 'npm run verify');
+  const candidateBuild = ci.jobs.build.steps.find(step => step.run === 'npm run verify:development');
+  const developmentPackage = ci.jobs.build.steps.find(step => step.run === 'npm run test:package');
+  assert.ok(developmentVerify && candidateBuild && developmentPackage);
+  for (const full of ['false', 'true']) {
+    const context = { needs: { preflight: { outputs: { full } } } };
+    assert.equal(evaluate(developmentVerify.if, context), full === 'false', 'development must run the full suite on Ubuntu');
+    assert.equal(evaluate(candidateBuild.if, context), full === 'true', 'main keeps its full suite on macOS');
+    assert.equal(evaluate(developmentPackage.if, context), full === 'false');
+  }
+  const developmentPackIndex = ci.jobs.build.steps.findIndex(step => step.id === 'pack');
+  assert.ok(developmentPackIndex >= 0 && developmentPackIndex < ci.jobs.build.steps.indexOf(developmentPackage));
+  assert.equal(developmentPackage.env.KILN_PACKAGE_TARBALL, '${{ runner.temp }}/kiln-package/${{ steps.pack.outputs.filename }}');
+  assert.equal(ci.jobs.build['timeout-minutes'], 45);
+  const scripts = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8')).scripts;
+  assert.ok(scripts.verify.split('&&').map(command => command.trim()).includes('npm run test:integration'));
+  assert.ok(ci.jobs.macos.steps.some(step => step.run === 'npm run verify'));
+  assert.ok(ci.jobs.windows.steps.some(step => step.run === 'npm run build'));
+  assert.ok(ci.jobs.windows.steps.some(step => step.run === 'npm pack --ignore-scripts'));
   for (const name of Object.keys(ci.jobs).filter(name => name !== 'preflight')) assert.ok(ancestors(ci.jobs, name).includes('preflight'), `${name} must wait for package/version checks`);
   assert.ok(ancestors(ci.jobs, 'macos').includes('build'), 'macOS must wait for the candidate archive');
   for (const name of ['verify', 'publish']) assert.ok(ancestors(release.jobs, name).includes('preflight'));

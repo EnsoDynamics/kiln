@@ -8,7 +8,7 @@ Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics
 
 | Event | Checks | Distribution |
 | --- | --- | --- |
-| Push to develop, or PR targeting another development branch | Ubuntu audit, lint, types, unit and contract tests, build and pack | No publication or retained development archive |
+| Push to develop, or PR targeting another development branch | Ubuntu full verification, including integration tests, and installed-package checks against the built archive; no macOS/Windows jobs | No publication or retained development archive |
 | PR targeting main | Cheap package/version/registry preflight, Ubuntu checks, full macOS verification and installed-package tests, Windows build/pack | Candidate archive and checksum retained seven days |
 | Push to main, or manual Release retry on main | Cheap version/publishing preflight, then the same full candidate checks once | With publication enabled: npm package, version tag and GitHub Release |
 
@@ -16,7 +16,7 @@ Release preflight precedes every expensive platform job. It rejects inconsistent
 
 Ubuntu builds the archive once and produces `SHA256SUMS`. macOS verifies that checksum, installs the downloaded archive and runs the installed-package suite against it. Publishing downloads and checks that same archive without rebuilding. `actions/upload-artifact` retains the candidate for seven days; after publication, the GitHub Release keeps the archive and checksum with its release notes. Tags created by this workflow trigger no duplicate verification run. A held main run still performs candidate checks and saves the archive, but does not publish, create a tag or create a GitHub Release.
 
-Development CI deliberately omits the macOS integration suite. Run `npm run verify` and `npm run test:package` locally before releasing product changes. The full release checks remain mandatory on main. Native Windows/Linux agent, console, sleep and desktop behavior remains best effort, not a first-release proof gate.
+Development CI runs `npm run verify` and installed-package checks on Ubuntu only, with a 45-minute job budget; test and hook deadlines stay unchanged. Main candidates retain the full macOS integration and installed-package suite and Windows build/pack checks. Run relevant local checks before delivery; CI provides the full development gate without requiring expensive macOS runners on each development push. Native Windows/Linux agent, console, sleep and desktop behavior remains best effort, not a first-release proof gate.
 
 ## Local version gate
 
