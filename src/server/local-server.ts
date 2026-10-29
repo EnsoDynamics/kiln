@@ -363,6 +363,14 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/pause", (c) => legacyControl(c, "request-pause"));
   app.delete("/api/pause", (c) => legacyControl(c, "cancel-pause"));
+  app.post("/api/continuation/check", async c => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected an empty JSON object."); }
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return refuse(c, 400, "Expected an empty JSON object.");
+    try { const check = await engine.checkCompletedPlan(); return c.json({ check }, check.status === "failed" ? 503 : 200); }
+    catch (error) { return auditError(c, error); }
+  });
+
   app.post("/api/check-again", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);

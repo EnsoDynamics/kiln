@@ -640,6 +640,13 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
         }
         await page.evaluate(FONTS_LOADED);
         if (changedPause) await page.evaluate(LEGACY_PAUSE_LAYOUT);
+        // Continue Added Phases AC-FIND-01/02 supersede the old Complete layout by
+        // adding the live check above delivery. Compare the retained history against
+        // these legacy drawings; the actual panel is exercised with real Git/Chrome
+        // in completed-plan-discovery.integration.test.ts at desktop and narrow widths.
+        if (["complete", "complete-repositories"].includes(screen.name)) {
+          await page.evaluate("document.querySelector('[aria-label=\"Current plan check\"]')?.remove()");
+        }
         const decided = mockup.map((box) => ({ ...box, text: screen.decided?.[box.text] ?? box.text }));
         expect(layoutDifferences(decided, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
       } finally {

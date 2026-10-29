@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Source Reconciliation → Completed feature discovery (completed-run current-plan checks only; fresh execution acceptance is separate).
+
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (coherent active/known-source document reads before advancement; unrelated startup checks remain skipped).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (automatic audit gates before final delivery), implemented in Phase 2b. Existing authority and evidence protections remain.

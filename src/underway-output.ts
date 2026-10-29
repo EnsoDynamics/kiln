@@ -18,7 +18,7 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
  */
 export function whereItStands(engine: Engine): string {
   const { record } = engine;
-  if (engine.currentlyComplete) return "complete";
+  if (engine.currentlyComplete) return engine.record.completedPlanCheck ? "earlier delivery complete; current plan checked" : "complete";
   if (record.completedAt && record.developmentAuthorization?.enabled) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
   if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting), engine)} is waiting for usage`;
@@ -80,6 +80,18 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     }
     case "complete":
+      if (engine.record.completedPlanCheck) {
+        const check = engine.record.completedPlanCheck;
+        if (check.status === "failed") text = `Could not check for new phases: ${check.errors.join(" ")}`;
+        else if (check.status === "checking") text = "Checking for new phases. The current phase count is unknown.";
+        else if (check.status === "blocked") text = `Plan needs reconciliation. The current phase count is unresolved. ${check.result?.problems.join(" ") ?? ""}`;
+        else if (check.status === "unchanged") text = "No new phases found. Earlier delivery remains complete.";
+        else {
+          const count = check.result!.added.length;
+          text = `${count} new unfinished ${count === 1 ? "phase" : "phases"} found. Review the current plan on the feature page.`;
+        }
+        break;
+      }
       text = engine.record.developmentAuthorization?.enabled ? developmentDeliverySummary(engine.record) : engine.record.mergedBranches?.length
         ? `${engine.record.pullRequests?.length ? pullRequestsReady(engine.record.pullRequests) + " " : ""}Already merged: ${engine.record.mergedBranches.map(branch => `${branch.repository} into ${branch.base}`).join(" · ")}.`
         : pullRequestsReady(engine.record.pullRequests ?? []);

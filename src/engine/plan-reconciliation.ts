@@ -129,7 +129,13 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
   };
   const first = read(); const second = read();
   if (digest(first) !== digest(second)) throw new Error(`source_changed: documents changed while reading ${path}; retry the handback.`);
-  const plan = readPhasePlan(first.phases.map(fileName => ({ fileName, markdown: first.documents[`${prdDirectory}/${fileName}`]! })));
+  return planSourceFromDocuments(root, prdDirectory, first.documents);
+}
+
+/** Shared parser for a coherent saved checkout or one immutable Git tree. */
+export function planSourceFromDocuments(path: string, prdDirectory: string, documents: Record<string, string>): PlanSource {
+  const phases = Object.keys(documents).filter(file => posix.dirname(file) === prdDirectory && isPhaseFileName(posix.basename(file))).map(file => posix.basename(file));
+  const plan = readPhasePlan(phases.map(fileName => ({ fileName, markdown: documents[`${prdDirectory}/${fileName}`]! })));
   const problems = [...plan.problems, ...(plan.problems.length ? [] : planStartProblems(plan, prdDirectory))];
   if (problems.length) throw new Error(problems.join(" "));
   const phasePaths = new Set(plan.phases.map(p => `${prdDirectory}/${p.fileName}`));
@@ -137,13 +143,13 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
     const file = `${prdDirectory}/${phase.fileName}`;
     const links = new Map<string, string>();
     for (const other of plan.phases) { links.set(other.fileName, other.id); links.set(`./${other.fileName}`, other.id); }
-    return [phase.id, phaseScopeDigest(first.documents[file]!, phase.fileName, links)];
+    return [phase.id, phaseScopeDigest(documents[file]!, phase.fileName, links)];
   }));
   // File names may change without changing phase identity; requirements are compared separately.
-  const requirements = digest(Object.entries(first.documents).filter(([file]) => !phasePaths.has(file)).map(([file, bytes]) => [file, normalizedScope(bytes)]));
-  const prdPath = Object.keys(first.documents).find(file => file.startsWith(`${prdDirectory}/`) && file.endsWith("-prd.md"))!;
-  const manifest = requirementManifest(root, prdPath, digest(first.documents[prdPath]), first.documents[prdPath]!);
-  return { path: root, digest: digest(first.documents), documents: first.documents, plan, scopes, requirements, manifest };
+  const requirements = digest(Object.entries(documents).filter(([file]) => !phasePaths.has(file)).map(([file, bytes]) => [file, normalizedScope(bytes)]));
+  const prdPath = Object.keys(documents).find(file => file.startsWith(`${prdDirectory}/`) && file.endsWith("-prd.md"))!;
+  const manifest = requirementManifest(path, prdPath, digest(documents[prdPath]), documents[prdPath]!);
+  return { path, digest: digest(documents), documents: documents, plan, scopes, requirements, manifest };
 }
 
 export function completedScopeProblems(previous: PlanSource, current: PlanSource): string[] {

@@ -1,3 +1,4 @@
+import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
@@ -297,6 +298,7 @@ export class Engine {
   settingUp = false;
   /** True while Check again's check runs. */
   checking = false;
+  private completedPlanReading: Promise<CompletedPlanCheck> | undefined;
   private phaseCheckError: { target: PhaseRecoveryTarget; reason: string; attemptedAt: string } | undefined;
   private announcedDelivery = new Set<string>();
   private deliveryBusy = false;
@@ -494,7 +496,7 @@ export class Engine {
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
-      settings: !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
+      settings: !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
       "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
     };
     const unavailable: Partial<Record<Action, string>> = {
@@ -1969,11 +1971,33 @@ export class Engine {
   // ---- `kiln run` on a feature underway --------------------------------------------------
 
   /**
-   * The first half of `kiln run` for a feature underway: finishes an interrupted setup and
-   * reads the plan, so the summary line can be printed before any check runs.
+   * Read current scope without changing the completed execution or authorizing work.
+   * Concurrent refreshes share this read under the existing command admission.
    */
+  checkCompletedPlan(): Promise<CompletedPlanCheck> {
+    if (this.completedPlanReading) return this.completedPlanReading;
+    if (!this.currentlyComplete) return Promise.reject(new AuditRefusal("wrong_activity", "Only a completed feature can check for added phases.", 409));
+    if (this.commands.busy || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping) return Promise.reject(new AuditRefusal("busy", "Kiln is already checking or changing work.", 409));
+    this.checking = true;
+    const previous = this.record.completedPlanCheck;
+    const attemptedAt = this.now().toISOString();
+    this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
+    this.changed();
+    const reading = discoverCompletedPlan({ record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt }).then(check => {
+      if (this.stopping || this.closed) return check;
+      this.record.completedPlanCheck = check;
+      // The accepted historical pointer is immutable. Recovery may establish it once.
+      if (!this.record.planReconciliation?.baselineId && check.result) this.record.planReconciliation = { ...this.record.planReconciliation, baselineId: check.result.baselineId };
+      try { this.save(); }
+      catch (error) { this.commands.fault = "Plan check could not be durably saved. Restart Kiln before changing work."; throw error; }
+      return check;
+    }).catch(error => { if (error instanceof DiscoveryWriteFailure) this.commands.fault = error.message; throw error; }).finally(() => { this.checking = false; this.completedPlanReading = undefined; this.changed(); });
+    this.completedPlanReading = reading;
+    return reading;
+  }
+
   async prepare(): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (this.record.completedAt) return { ok: true };
+    if (this.record.completedAt) { if (this.currentlyComplete) await this.checkCompletedPlan(); return { ok: true }; }
     if (this.record.setupCompletedAt === undefined) {
       const setup = await this.finishSetup();
       if (!setup.ok) return setup;

@@ -6,6 +6,7 @@
   // multi-repository PRD (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-complete-repositories.html) lists every pull request with its repository, and
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
+  import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { DeliveryEvent, PullRequestFacts } from "../../../src/state/records.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
@@ -49,6 +50,7 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
+  <CompletedPlanCheck check={snapshot.continuation?.check} {config} {connected} />
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}

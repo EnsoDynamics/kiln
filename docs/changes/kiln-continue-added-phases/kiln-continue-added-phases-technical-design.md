@@ -73,6 +73,12 @@ The required sources must either be read successfully or be positively identifie
 
 A candidate read detects concurrent edits by checking its document membership and bytes before/after extraction, and remote revision before publication. If inputs move, publish `source_changed` and allow retry; never combine revisions. Bound the discovery operation to the existing 120-second reconciliation deadline, cancel on engine shutdown, and retain per-source failure facts. Required network failures do not trigger agent work or an unbounded retry loop.
 
+### Implemented completed-check observation (Phase 2a)
+
+Private schema 14 adds `completedPlanCheck`: current status, attempt and last-success timestamps, per-source path/revision/digest/error facts, and either a current result or explicitly earlier retained result. A result references immutable baseline and candidate sidecars and records observed added leaves, earlier-scope problems and relevant documents absent from the delivery base. It is an observation, not an executable proposal or authorization; Phase 2b builds classification/readiness on this boundary.
+
+`Engine.checkCompletedPlan()` joins concurrent reads under the existing engine checking/command admission. `prepare()` checks a historically completed execution before CLI output; `POST /api/continuation/check` serves authenticated same-origin refreshes; the Complete component checks once on mount and exposes the same retry action. Snapshot reads and SSE reconnects do not initiate discovery. The check cannot create provider work, reset execution state, replace the accepted baseline, or change repository checkouts. Legacy recovery uses the recorded delivery revision and original completion receipts, including recursive split-first-leaf ownership; current source bytes alone cannot establish the historical baseline.
+
 ### Active execution handback
 
 Reconcile before accepting advancement on manual Verify/Resume, settling a returned provider session, restarting unfinished work, selecting final audits/delivery, and recording completion. Read the active workspace PRD and phase set, then compare known other sources with their last accepted source observations. A stale shared checkout that predates the active plan is not a conflict merely because its Closed lines or phase count lag behind.

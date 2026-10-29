@@ -3,7 +3,6 @@ import { readWork, retainedAliases } from "./control/private-state.js";
 import { runInspectionCommand } from "./control/client.js";
 import { runDelivery } from "./delivery-command.js";
 import { runAudit } from "./audit-command.js";
-import { deliveryEnabled } from "./engine/development-delivery.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
@@ -337,7 +336,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   const colors = terminalColors(context.stdout, context.env);
   const write = terminalWriter(run);
   const engine = makeEngine(run, record, write);
-  if (record.completedAt === undefined || deliveryEnabled(record)) {
+  {
     const prepared = await engine.prepare();
     if (stop.stopping) return await stop.done;
     if (!prepared.ok) {

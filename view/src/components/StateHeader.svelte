@@ -22,7 +22,7 @@
 </script>
 
 <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
-  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing"} large>{state.label}</Pill>
+  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing"} large>{snapshot.feature.state === "complete" && snapshot.continuation?.check && snapshot.continuation.check.status !== "unchanged" ? snapshot.continuation.check.status === "checking" ? "Checking for new phases" : snapshot.continuation.check.status === "failed" ? "Could not check for new phases" : snapshot.continuation.check.result?.added.length ? "New phases found" : "Plan needs reconciliation" : state.label}</Pill>
   {#each state.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="fact">{fact}</span>{/each}
 </FeatureHeader>
 
