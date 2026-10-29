@@ -64,9 +64,11 @@ createInterface({ input: process.stdin }).on('line', async line => {
       threadId = params.threadId ?? (fixture.dynamicRecord ? randomUUID() : threadId);
       mkdirSync(join(fixture.home, 'sessions'), { recursive: true });
       if (!existsSync(threadPath())) { raw('session_meta', { id: threadId }); raw('world_state', { full: true, state: { environments: { environments: { local: { shell: 'sh' } } } } }); }
-      const sandbox = { type: 'workspaceWrite', writableRoots: params.config.sandbox_workspace_write.writable_roots, networkAccess: true };
+      // Recorded codex-cli 0.162.1 contract: cwd is implicit, so it is omitted.
+      const sandbox = { type: 'workspaceWrite', writableRoots: params.config.sandbox_workspace_write.writable_roots.filter(root => root !== params.cwd), networkAccess: true };
       result = { model: fixture.mismatch ? 'different-model' : params.model, reasoningEffort: params.config.model_reasoning_effort, modelProvider: 'openai', cwd: params.cwd, approvalPolicy: 'on-request', approvalsReviewer: fixture.badReviewer ? 'user' : 'auto_review', sandbox, instructionSources: [fixture.skill], thread: { id: threadId, sessionId: 'tree-parent', ephemeral: false, path: threadPath() } };
       if (fixture.badRoots) result.sandbox.writableRoots = [fixture.home];
+      if (fixture.omitRoots) result.sandbox.writableRoots = [];
       break;
     }
     case 'thread/turns/list': threadId = params.threadId; if (history().length) result = { data: history(), nextCursor: null }; break;

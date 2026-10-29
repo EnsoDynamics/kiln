@@ -546,7 +546,7 @@ export class Engine {
     if (receipt.phase_key && receipt.session_id) {
       const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
-      if (run?.spawnError && !run.pid) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
+      if (run && (run.spawnError && !run.pid || session?.agentId === "codex" && codexNotDispatched(run))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
       if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: "session_resumed", effects: { ...receipt.effects, session: "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
     }
     // Dispatch is saved as dispatching before spawn; completion is stamped in
@@ -2689,7 +2689,9 @@ export class Engine {
     if (!dispatchFailed) this.observeControlDispatch(session);
     if (this.controlDispatch === dispatchedControl && dispatchedControl) {
       const run = session.runs.find(r => r.control?.operationId === dispatchedControl.id);
-      const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && session.agentId !== "codex" && !!run.endedAt && !runReportedInit(this.stateDirectory, session, session.runs.indexOf(run));
+      const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && !!run.endedAt && (session.agentId === "codex"
+        ? codexNotDispatched(run)
+        : !runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)));
       dispatchedControl.effects.session = neverStarted ? "not_started" : "unknown";
       if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = dispatchedControl.effects.session === "unknown" ? "unknown" : "not_sent";
       try { this.commands.finishAutomatic(dispatchedControl); } catch { /* Journal fault keeps dispatch blocked. */ }
@@ -2882,6 +2884,13 @@ export class Engine {
       const session = this.latestSession(phaseKey);
       const runIndex = (session?.runs.length ?? 0) - 1;
       const run = session?.runs[runIndex];
+      if (run?.cause === "launch" && session?.runs.length === 1 && run.codex?.verificationFailure && codexNotDispatched(run)) {
+        // A rejected first launch has no materialized provider history to audit.
+        // This also handles a restart after an older Kiln left it implementing.
+        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
+        this.emitSessionEvent(phaseKey, "stopped");
+        return { kind: "stopped" };
+      }
       const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -3046,7 +3055,9 @@ export class Engine {
 
   private codexSafetyProblems(phaseKey: string, includeVerification = true): string[] {
     return (this.record.phases[phaseKey]?.sessionIds ?? []).flatMap(id => {
-      const run = this.sessionRecord(phaseKey, id)?.runs.at(-1);
+      const session = this.sessionRecord(phaseKey, id);
+      if (codexSessionNotDispatched(session)) return [];
+      const run = session?.runs.at(-1);
       if (!run?.codex) return [];
       return [
         ...(includeVerification && run.codex.verificationFailure ? [run.codex.verificationFailure] : []),
@@ -4087,6 +4098,7 @@ export class Engine {
     const scanSignal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     for (const sessionId of facts.sessionIds) {
       const session = this.sessionRecord(phaseKey, sessionId);
+      if (codexSessionNotDispatched(session)) continue;
       if (session?.agentId === "codex") await this.readCodexAvailability(session, true);
       const conversation = session?.agentId === "codex" ? session.conversation : undefined;
       if (!conversation?.threadId || !conversation.codexHome || !this.options.tools.codex) {
@@ -4112,12 +4124,12 @@ export class Engine {
   stayedInWorkspace(phaseKey: string): StayedOutcome {
     if (this.record.settings.agentId === "codex") {
       const facts = this.record.phases[phaseKey];
-      const results = (facts?.sessionIds ?? []).map(id => codexStayedOutcome(id,
+      const results = (facts?.sessionIds ?? []).filter(id => !codexSessionNotDispatched(this.sessionRecord(phaseKey, id))).map(id => codexStayedOutcome(id,
         facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
         (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : [])));
       // Before the final session exists there are no final-session operations to audit.
-      // Any recorded session, including one with a missing file, is still checked above.
-      if (!results.length && phaseKey !== PR_PHASE_KEY) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
+      // Proven unused attempts need no history. Missing records still fail above.
+      if (!results.length && phaseKey !== PR_PHASE_KEY && !facts?.sessionIds.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
       const changes = results.flatMap(result => result.changes);
       const transcripts = results.flatMap(result => result.transcripts);
       const passed = results.every(result => result.passed);
@@ -4288,6 +4300,14 @@ export class Engine {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
     if (!this.quiet || event.kind === "repository_added") this.options.onTerminal?.(event);
   }
+}
+
+function codexNotDispatched(run: SessionRun): boolean {
+  return !!run.endedAt && !!run.codex && !run.codex.dispatch && run.codex.reconciliation !== "ambiguous" && run.codex.cleanup === "tracked_processes_stopped";
+}
+
+function codexSessionNotDispatched(session: SessionRecord | undefined): boolean {
+  return session?.agentId === "codex" && session.runs.length > 0 && session.runs.every(codexNotDispatched);
 }
 
 /** A refusal's facts as a stop carries them. */
