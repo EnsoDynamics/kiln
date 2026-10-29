@@ -18,6 +18,31 @@ const TYPE_LABELS: Record<string, string> = {
 /** The label of a type with no reading row: "A usage limit". */
 export const UNKNOWN_LIMIT_LABEL = "A usage limit";
 
+/** Allow the provider's window a minute to roll over before a reset-based retry. */
+export const RESET_READING_DELAY_MS = 60_000;
+
+/** The same reset-based schedule drives the engine's reading and the waiting screen. */
+export function automaticResumeSchedule(refusal: LimitRefusal, reading: AccountView | undefined, model: string): { label: string; at?: string } {
+  let label = refusal.label;
+  let reset = refusal.resetsAt;
+  if (reading && Date.parse(reading.startedAt) >= Date.parse(refusal.at) && readingAccount(reading) && !reading.limitsError) {
+    const own = limitRow(refusal.rateLimitType, reading.limits);
+    const other = blockingRow(reading, refusal, model);
+    const decided = judgeReading(reading, refusal, model) !== "undecided";
+    if (decided) {
+      // A released stopping limit (or another account without that limit) no longer
+      // constrains this wait. An exhausted row without a reset remains unknown.
+      label = own && own.percent >= 100 ? own.label : other?.label ?? refusal.label;
+      reset = own && own.percent >= 100 ? own.resetsAt ?? (sameAccount(readingAccount(reading), refusal.account) ? refusal.resetsAt : undefined) : other?.resetsAt;
+    }
+    if (other && (other.resetsAt === undefined || reset !== undefined && Date.parse(other.resetsAt) > Date.parse(reset))) {
+      label = other.label;
+      reset = other.resetsAt;
+    }
+  }
+  return { label, ...(reset === undefined ? {} : { at: new Date(Date.parse(reset) + RESET_READING_DELAY_MS).toISOString() }) };
+}
+
 export function labelForType(rateLimitType: string | undefined): string {
   return (rateLimitType !== undefined && TYPE_LABELS[rateLimitType]) || UNKNOWN_LIMIT_LABEL;
 }

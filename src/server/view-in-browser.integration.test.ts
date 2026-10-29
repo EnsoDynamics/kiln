@@ -491,11 +491,12 @@ const SCREENS: {
     clock: USAGE_LIMIT_NOW,
     copy: [
       "Customer returns Waiting for usage Phase 2b · Store credit · Waiting since 2:28 PM",
+      "Will resume automatically in 1h 13m No action needed. Kiln checks the 5-hour usage limit at 3:41 PM, including a 1-minute reset buffer.",
       "Phase 2b is waiting for the 5-hour usage limit to reset. Claude Code reported that the account’s 5-hour usage limit was used up. Resets at 3:40 PM, in 1h 12m. Kiln resumes this session by itself at the first reading that shows usage left: after the reset, or sooner if you sign in to another account.",
       "exit 1 2:28 PM last skill seen: implement-from-requirements, 3 min earlier Last message from Claude Code 5-hour limit reached · resets 3:40pm Full session output · 248 lines",
       "Go sooner on another account 1 Sign in to another Claude account in a terminal Use an account that has usage left. claude auth login Copy command To fill in the other account’s email, add it: claude auth login --email <address>",
       "2 Then press Resume now It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks Git first, then picks up the same session. If you don’t, Kiln resumes by itself at the first reading that shows usage left.",
-      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and at the reset. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.",
+      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and after the reset buffer. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.",
       `Settings for this PRD Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On ${LIMIT_SETTING.label} ${LIMIT_SETTING.help} On`,
     ],
   },

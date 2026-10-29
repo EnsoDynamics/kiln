@@ -20,7 +20,7 @@
   import { PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { earlier, limitTime } from "../lib/time.js";
-  import { atLimitLine, waitingCopy } from "../lib/usage-limit.js";
+  import { atLimitLine, automaticResumeStatus, waitingCopy } from "../lib/usage-limit.js";
   import { viewContext } from "../lib/view-context.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
@@ -31,6 +31,7 @@
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
   const copy = $derived(waitingCopy(waiting.phaseId, waiting.limit, nowDate, waiting.agent ?? snapshot.settings.agent));
   const atLimit = $derived(atLimitLine(waiting.limit, nowDate));
+  const resume = $derived(automaticResumeStatus(waiting.limit, waiting.since, nowDate, settings.resumeAfterUsageLimit, waiting.checking === true));
   const ending = $derived(waiting.signal ?? (waiting.exitCode === undefined ? undefined : `exit ${waiting.exitCode}`));
   const outputLink = $derived(phasePath(config.base, waiting.phaseId));
   let pressing = $state(false);
@@ -52,12 +53,18 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
-  <BillingPanel {snapshot} />
   <div class="columns-main">
     <div class="column-wide">
       <section class="card ended">
         <div class="headline">
-          <h2>{copy.headline}</h2>
+          <h2>{resume.headline}</h2>
+          <p class="line">{resume.detail}</p>
+          {#if resume.progress !== undefined}
+            <progress max="100" value={resume.progress} aria-label="Elapsed wait until automatic usage check">{Math.floor(resume.progress)}%</progress>
+          {/if}
+        </div>
+        <div class="headline">
+          <h3>{copy.headline}</h3>
           <p class="line">{copy.reported} {#if copy.reset}<strong>{copy.reset}</strong>{/if} {copy.resumes}</p>
         </div>
         {#if waiting.cleanupWarning}<p class="line">{waiting.cleanupWarning}</p>{/if}
@@ -125,12 +132,18 @@
     </div>
   </div>
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
+  <BillingPanel {snapshot} />
 </main>
 
 <style>
   .ended { gap: 18px; }
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
+  h3 { margin: 0; font-size: 17px; line-height: 1.4; font-weight: 500; color: var(--text); }
+  progress { display: block; width: 100%; height: 8px; margin-top: 8px; border: 0; border-radius: 999px; overflow: hidden; appearance: none; background: var(--line); color: var(--text); }
+  progress::-webkit-progress-bar { background: var(--line); border-radius: 999px; }
+  progress::-webkit-progress-value { background: var(--text); border-radius: 999px; }
+  progress::-moz-progress-bar { background: var(--text); border-radius: 999px; }
   .line { margin: 0; font-size: 15.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
   .line strong { color: var(--text); font-weight: 600; }
   .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--dim); }

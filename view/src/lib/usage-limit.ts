@@ -63,6 +63,30 @@ export interface WaitingCopy {
   footnote: string;
 }
 
+/** A time bar measures this wait only, never the account's usage or work completed. */
+export function automaticResumeStatus(limit: LimitView, since: string, now: Date, enabled: boolean, checking: boolean) {
+  if (!enabled) return { headline: "Automatic resume is off", detail: "Resume the session when you are ready." };
+  if (checking) return { headline: "Resuming automatically…", detail: "Kiln is checking the saved work before continuing the session. No action needed." };
+  const at = limit.automaticResume?.at;
+  if (at === undefined) return {
+    headline: "Will resume automatically when usage is available",
+    detail: limit.agentId === "codex" ? "No action needed. Kiln checks fresh Codex permission before resuming." : "No action needed. The reset time is unavailable; Kiln keeps checking usage.",
+  };
+  const remaining = Date.parse(at) - now.getTime();
+  if (remaining <= 0) return { headline: "Checking usage availability…", detail: "No action needed. Kiln will resume automatically once usage is available and its checks pass." };
+  const minutes = Math.ceil(remaining / 60_000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes % 1440 / 60);
+  const duration = [days ? `${days}d` : "", hours ? `${hours}h` : "", minutes % 60 ? `${minutes % 60}m` : ""].filter(Boolean).join(" ");
+  const total = Date.parse(at) - Date.parse(since);
+  const elapsed = total > 0 ? Math.max(0, Math.min(100, (now.getTime() - Date.parse(since)) / total * 100)) : 0;
+  return {
+    headline: `Will resume automatically in ${duration}`,
+    detail: `No action needed. Kiln checks ${limitSentence(limit.automaticResume!.label)} at ${limitTime(at, now)}, including a 1-minute reset buffer.`,
+    progress: elapsed,
+  };
+}
+
 /** Authentication and optional allowance reads have independent dates. */
 function codexUsageObservation(limit: LimitView, now: Date): string {
   const observation = limit.allowancesObservation;
@@ -88,7 +112,7 @@ export function waitingCopy(phaseId: string, limit: LimitView, now: Date, agent 
     reported: `${agent} reported that ${owned(limit.label, "the account")} was used up.`,
     ...(reset === undefined ? {} : { reset: `${reset}.` }),
     resumes: `Kiln resumes this session by itself at the first reading that shows usage left${toCome ? ": after the reset, or sooner if you sign in to another account" : ""}.${others}`,
-    footnote: `${limit.account ? `As of Kiln’s latest reading, ${limitTime(limit.account.at, now)}. ` : ""}Kiln reads again every 5 minutes${toCome ? " and at the reset" : ""}.`,
+    footnote: `${limit.account ? `As of Kiln’s latest reading, ${limitTime(limit.account.at, now)}. ` : ""}Kiln reads again every 5 minutes${toCome ? " and after the reset buffer" : ""}.`,
   };
 }
 

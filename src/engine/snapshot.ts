@@ -24,7 +24,7 @@ import { auditRecoveryPrompt, codexSessionPrompt, freshSessionOutsideNote, fresh
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
-import { blockingRow, limitRow } from "../session/usage-limit.js";
+import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
@@ -50,6 +50,8 @@ export interface LimitView {
   label: string;
   resetsAt?: string;
   resetPassed: boolean;
+  /** Effective reset plus the provider buffer; absent time means no reliable countdown. */
+  automaticResume?: { label: string; at?: string };
   account?: { email?: string; plan?: string; error?: string; percent?: number; at: string; atLimitUntil?: string };
   blockingLimit?: { label: string; resetsAt?: string };
 }
@@ -690,6 +692,7 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   view.agentId = "claude_code";
   view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Claude usage reading is available after the refusal." };
   const reading = engine.claude?.account;
+  if (waitingScreen && found && refusal) view.automaticResume = automaticResumeSchedule(refusal, reading, found.session.initModel ?? found.session.model);
   if (!found || !refusal || reading === undefined || Date.parse(reading.startedAt) < Date.parse(refusal.at)) return view;
   const usageAt = reading.limitsObservedAt;
   const stale = !!(reading.limitsError || reading.error);

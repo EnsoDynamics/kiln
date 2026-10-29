@@ -556,7 +556,7 @@ export function waitingSnapshot(): Snapshot {
     waiting: {
       phaseId: "2b",
       since: "2026-10-17T18:28:00Z",
-      limit: fiveHourLimit("2026-10-17T18:28:00Z"),
+      limit: { ...fiveHourLimit("2026-10-17T18:28:00Z"), automaticResume: { label: "5-hour window", at: "2026-10-17T19:41:00Z" } },
       sessionId: SESSION_2B,
       stoppedAt: "2026-10-17T18:28:00Z",
       finalMessage: "5-hour limit reached · resets 3:40pm",

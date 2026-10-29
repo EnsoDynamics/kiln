@@ -52,7 +52,7 @@ describe("the waiting screen's limit and reset (AC-LIMIT-01, AC-LIMIT-04)", () =
       "Phase 2b is waiting for the 5-hour usage limit to reset. Claude Code reported that the account’s 5-hour usage limit was used up. Resets at 3:40 PM, in 1h 12m. Kiln resumes this session by itself at the first reading that shows usage left: after the reset, or sooner if you sign in to another account.",
     );
     // The label stands alone only as the limit's name, in the account card; the reading's fractional reset rounds to the minute.
-    expect(words).toContain("Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and at the reset. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.");
+    expect(words).toContain("Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and after the reset buffer. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.");
     for (const absent of ["Check again", "claude --resume", "Pause", "Phase plan", "Claude account alex@acme-shop.dev"]) expect(words).not.toContain(absent);
   });
 
@@ -101,7 +101,8 @@ describe("the waiting screen's limit and reset (AC-LIMIT-01, AC-LIMIT-04)", () =
     const snapshot = waitingWith({}, { phaseId: "pr" });
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "waiting", finishedByPerson: false });
     const words = text(waitingPage(snapshot));
-    expect(words).toContain("Waiting for usage PR · Final pull request · Waiting since 2:28 PM The pull-request session is waiting for the 5-hour usage limit to reset.");
+    expect(words).toContain("Waiting for usage PR · Final pull request · Waiting since 2:28 PM Will resume automatically in 1h 13m");
+    expect(words).toContain("The pull-request session is waiting for the 5-hour usage limit to reset.");
     expect(words).toContain("Kiln checks GitHub first, then picks up the same session.");
   });
 });
@@ -109,7 +110,7 @@ describe("the waiting screen's limit and reset (AC-LIMIT-01, AC-LIMIT-04)", () =
 describe("the account card on both screens (AC-LIMIT-03)", () => {
   it("says Kiln is reading the account before a reading taken after the refusal, with no amber line", () => {
     const words = text(waitingPage(waitingWith({ account: undefined })));
-    expect(words).toContain("Signed in now Reading the signed-in account… Kiln reads again every 5 minutes and at the reset. Resume now");
+    expect(words).toContain("Signed in now Reading the signed-in account… Kiln reads again every 5 minutes and after the reset buffer. Resume now");
     expect(words).not.toContain("is at 100% until");
     expect(text(needsYouPage(limitStop({}, { account: undefined })))).toContain("Signed in now Reading the signed-in account… Switch accounts and this changes within 5 minutes.");
   });

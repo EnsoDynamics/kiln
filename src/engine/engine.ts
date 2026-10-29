@@ -85,7 +85,7 @@ import {
 } from "../session/prompts.js";
 import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
-import { judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
+import { automaticResumeSchedule, judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
 import { CodexLaunchCancelled, CodexUsageRecoveryUnavailable, codexUsageRelease } from "../session/codex-usage.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import {
@@ -238,8 +238,6 @@ const SLEEP_CHECK_MS = 10_000;
 const WINDOWS_EXIT_GRACE_MS = 1_000;
 /** How long a resume waits for its account reading (usage-limit recovery "Resume"). */
 const RESUME_READING_MS = 30_000;
-/** A reading is taken this long after a limit's reset time, since the server's window may roll over a little late. */
-const RESET_READING_DELAY_MS = 60_000;
 /** The longest a Node timer waits; a later reset is re-armed. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 /** The longest note Resume takes (usage-limit recovery technical design, "Prompts"). */
@@ -3628,9 +3626,11 @@ export class Engine {
     if (!watch) return;
     if (watch.resetTimer) clearTimeout(watch.resetTimer);
     delete watch.resetTimer;
-    const resetsAt = this.refusedRun(watch.phaseKey)?.refusal.resetsAt;
-    if (resetsAt === undefined) return;
-    const due = Date.parse(resetsAt) + RESET_READING_DELAY_MS - this.now().getTime();
+    const found = this.refusedRun(watch.phaseKey);
+    if (!found || found.session.agentId === "codex") return;
+    const schedule = automaticResumeSchedule(found.refusal, this.claude?.account, found.session.initModel ?? found.session.model);
+    if (schedule.at === undefined) return;
+    const due = Date.parse(schedule.at) - this.now().getTime();
     if (due <= 0) return;
     const delay = Math.min(due, LONGEST_TIMER_MS);
     watch.resetTimer = setTimeout(() => {
@@ -3704,9 +3704,11 @@ export class Engine {
     if (facts.wait === undefined || watch?.phaseKey !== key) return;
     const first = watch.readings === 0;
     watch.readings++;
+    this.armResetReading();
     const verdict = judgeReading(reading, refusal, session.initModel ?? session.model);
     if (verdict === "no_usage_left") return;
-    const resetPassed = refusal.resetsAt !== undefined && this.now().getTime() >= Date.parse(refusal.resetsAt);
+    const schedule = automaticResumeSchedule(refusal, reading, session.initModel ?? session.model);
+    const resetPassed = schedule.at !== undefined && this.now().getTime() >= Date.parse(schedule.at);
     if (verdict === "usage_left" || resetPassed) void this.resumeWait(key, "limit_resume");
     else if (refusal.resetsAt === undefined && first) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
   }
