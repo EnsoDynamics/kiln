@@ -371,6 +371,69 @@ describe("completion phase admission (AC-LOOP-01)", () => {
   });
 });
 
+describe("required documents and reference-only provenance", () => {
+  const capture = (f: Awaited<ReturnType<typeof fixture>>, testPaths: Parameters<typeof captureSnapshot>[1] = []) =>
+    captureSnapshot({ ...f.context, activity: f.activity, evidence: auditEvidence(f.context), now: new Date().toISOString() }, testPaths, []);
+  const put = (f: Awaited<ReturnType<typeof fixture>>, path: string, content: string) => {
+    mkdirSync(join(f.root, path, ".."), { recursive: true }); writeFileSync(join(f.root, path), content);
+  };
+  it("accepts provenance with missing targets and preserves accepted history and repository invalidation", async () => {
+    const f = await fixture("delivery_audit", { source: prd + '\n[handoff](../../../source-material/index.md "kiln:reference")\n' });
+    const code = f.report.criteria[0]!.parts[0]!.code;
+    f.report.criteria[0]!.parts[0]!.code = [{ repository: "proof", path: "source-material/index.md", blob: "0".repeat(40) }];
+    f.saveReport();
+    expect(await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).toMatchObject({ disposition: "unresolved", refusal: { code: "missing_evidence" } });
+    expect(f.activity.acceptedResult).toBeUndefined();
+    f.report.criteria[0]!.parts[0]!.code = code;
+    f.saveReport(); expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
+    const accepted = f.activity.acceptedResult;
+    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
+    put(f, "source-material/index.md", "# Archive\n[never captured](missing.md)\n");
+    const snapshot = await capture(f);
+    expect(snapshot.documents.some(d => d.path.startsWith("source-material/"))).toBe(false);
+    expect(snapshot.repositories[0]!.files["source-material/index.md"]).toBeDefined();
+    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: false, testsCurrent: false });
+    expect(f.activity.acceptedResult).toBe(accepted);
+    expect(f.store.read(accepted!)).toBeDefined();
+  });
+  it("retains transitive requirements outside the PRD folder, cycle handling, test-only protection and development bindings", async () => {
+    const f = await fixture();
+    put(f, "docs/roadmaps/contracts.md", '[design](../changes/shared/technical-design.md)\n');
+    put(f, "docs/changes/shared/technical-design.md", '[cycle](../../roadmaps/contracts.md)\n');
+    put(f, `${directory}/proof-prd.md`, prd + '\n[contracts](../../roadmaps/contracts.md)\n[background](../../../source-material/absent.md "kiln:reference")\n');
+    const snapshot = await capture(f);
+    expect(snapshot.documents.map(d => d.path)).toEqual(expect.arrayContaining(["docs/roadmaps/contracts.md", "docs/changes/shared/technical-design.md"]));
+    expect(new Set(snapshot.documents.map(d => d.path)).size).toBe(snapshot.documents.length);
+    const reference = snapshot.documents.find(d => d.path === "docs/roadmaps/contracts.md")!;
+    await expect(capture(f, [{ ...reference, configuration: [], selectors: [], runEvidenceIds: [], assessmentEvidenceId: "none", shared: false }])).rejects.toThrow("cannot be test-only");
+    f.activity.snapshots.push(f.store.put(snapshot));
+    const context = { ...f.context, owner: { kind: "audit" as const, activityId: f.activity.activityId } } as unknown as DeliveryContext;
+    const before = ownerDocuments(context, context.owner!);
+    put(f, "docs/changes/shared/technical-design.md", "# Changed governing design\n");
+    expect(ownerDocuments(context, context.owner!).documentsDigest).not.toBe(before.documentsDigest);
+    expect(compareSnapshots(snapshot, await capture(f))).toEqual({ deliveryCurrent: false, testsCurrent: false });
+  });
+  it.each(["unmarked", "unknown title", "replacement", "markdown replacement"])("refuses missing required evidence with its full chain: %s", async mode => {
+    const f = await fixture();
+    put(f, `${directory}/proof-prd.md`, prd + '\n[contracts](../../roadmaps/contracts.md)\n');
+    const title = mode === "unknown title" ? ' "background"' : '';
+    const content = mode === "markdown replacement"
+      ? 'Replaces in part: [replacement](missing.md "kiln:reference")\n'
+      : mode === "replacement"
+      ? '[background](missing.md "kiln:reference")\nSuperseded by: AC-NEXT-01 in `docs/roadmaps/missing.md`\n'
+      : `[required](missing.md${title})\n`;
+    put(f, "docs/roadmaps/contracts.md", content);
+    await expect(capture(f)).rejects.toMatchObject({ code: "missing_evidence", message: expect.stringContaining(`${directory}/proof-prd.md -> docs/roadmaps/contracts.md -> docs/roadmaps/missing.md`) });
+  });
+  it("keeps a reference-only target required when another dependency requires it", async () => {
+    const f = await fixture();
+    put(f, `${directory}/proof-prd.md`, prd + '\n[optional](missing.md "kiln:reference")\n[required](missing.md)\n');
+    await expect(capture(f)).rejects.toMatchObject({ code: "missing_evidence" });
+    put(f, `${directory}/proof-prd.md`, prd + '\n[optional design](technical-design.md "kiln:reference")\n');
+    expect((await capture(f)).documents.some(d => d.path === `${directory}/technical-design.md`)).toBe(true);
+  });
+});
+
 describe("current requirements and classified content", () => {
   it("keeps delivery current for classified test edits and invalidates both when configuration changes", async () => {
     const f = await fixture(); const files = f.checked.repositories[0]!.files;

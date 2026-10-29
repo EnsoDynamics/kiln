@@ -120,19 +120,41 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const required = new Set([prdPath, ...normalizedPlan.map(p => p.file)]);
   for (const name of readdirSync(folder)) if (/assumptions|technical-design/.test(name) && name.endsWith(".md")) required.add(`${record.prdDirectory}/${name}`);
   requireAudit([...required].some(p => /technical-design/.test(p)), "The governing technical design is missing.", "missing_evidence");
-  // Resolve local document/replacement links recursively, retaining the original source bytes.
+  // Only explicitly declared provenance edges are optional. Every other local document
+  // and every replacement pointer remains required, including outside the PRD folder.
+  const parents = new Map<string, string>();
+  const chain = (path: string): string => {
+    const paths = [path];
+    while (parents.has(paths[0]!)) paths.unshift(parents.get(paths[0]!)!);
+    return paths.join(" -> ");
+  };
+  const addRequired = (source: string, target: string) => {
+    if (required.has(target)) return;
+    parents.set(target, source);
+    try {
+      assignedPath(prdRepo, target);
+      requireAudit(repositories.find(r => r.repository === prdRepo.name)!.files[target], `Missing required document ${target}`, "missing_evidence");
+    } catch (error) {
+      if (!(error instanceof AuditRefusal)) throw error;
+      throw new AuditRefusal(error.code, `${error.message}. Required document chain: ${chain(target)}`, error.status, error.criteria);
+    }
+    required.add(target);
+  };
   for (const path of required) {
     const file = repositories.find(r => r.repository === prdRepo.name)!.files[path]; requireAudit(file, `Missing required document ${path}`, "missing_evidence");
     snapshot.documents.push({ repository: prdRepo.name, path, blob: file.blob });
     const content = readFileSync(assignedPath(prdRepo, path), "utf8");
-    for (const link of content.matchAll(/\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g)) {
+    for (const link of content.matchAll(/\[[^\]]*\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/g)) {
+      const linePrefix = content.slice(content.lastIndexOf("\n", link.index) + 1, link.index);
+      const replacementPointer = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(linePrefix);
+      if (link[2] === "kiln:reference" && !replacementPointer) continue;
       const href = link[1]!.split(/[?#]/)[0]!;
       if (!href || /^[a-z]+:/i.test(href) || !href.endsWith(".md")) continue;
       const target = posix.normalize(posix.join(posix.dirname(path), decodeURIComponent(href)));
-      assignedPath(prdRepo, target); required.add(target);
+      addRequired(path, target);
     }
     for (const pointer of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) {
-      assignedPath(prdRepo, pointer[1]!); required.add(pointer[1]!);
+      addRequired(path, pointer[1]!);
     }
   }
   requireAudit(Array.isArray(testPaths) && Array.isArray(evidencePaths), "Snapshot declarations must be arrays.");
