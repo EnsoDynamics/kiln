@@ -65,6 +65,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       plan: "Max plan",
       startedAt: "2026-10-17T13:15:00Z",
       updatedAt: "2026-10-17T13:15:00Z",
+      limitsObservedAt: "2026-10-17T13:15:00Z",
       limits: [
         { kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 13, nearLimit: false },
         { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 22, nearLimit: false },
@@ -143,6 +144,7 @@ const ACCOUNT: NonNullable<Snapshot["account"]> = {
   plan: "Max plan",
   startedAt: "2026-10-17T15:45:00Z",
   updatedAt: "2026-10-17T15:45:00Z",
+  limitsObservedAt: "2026-10-17T15:45:00Z",
   limits: [
     { kind: "session", label: "5-hour window", shortLabel: "5-hour", percent: 82, resetsAt: "2026-10-17T16:59:00Z", nearLimit: true },
     { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 41, resetsAt: "2026-10-21T16:00:00Z", nearLimit: false },
@@ -533,7 +535,7 @@ function fiveHourLimit(readAt: string): NonNullable<Snapshot["waiting"]>["limit"
 
 /** The account panel's reading behind the limit card, the 5-hour window at 100%. */
 function accountAtLimit(readAt: string): NonNullable<Snapshot["account"]> {
-  return { ...ACCOUNT, startedAt: readAt, updatedAt: readAt, limits: [{ ...ACCOUNT.limits[0]!, percent: 100, resetsAt: "2026-10-17T19:39:59.700Z" }, ...ACCOUNT.limits.slice(1)] };
+  return { ...ACCOUNT, startedAt: readAt, updatedAt: readAt, limitsObservedAt: readAt, limits: [{ ...ACCOUNT.limits[0]!, percent: 100, resetsAt: "2026-10-17T19:39:59.700Z" }, ...ACCOUNT.limits.slice(1)] };
 }
 
 const LIMIT_STEPS: NonNullable<NonNullable<Snapshot["waiting"]>["steps"]> = [
@@ -554,7 +556,7 @@ export function waitingSnapshot(): Snapshot {
     waiting: {
       phaseId: "2b",
       since: "2026-10-17T18:28:00Z",
-      limit: fiveHourLimit("2026-10-17T18:28:00Z"),
+      limit: { ...fiveHourLimit("2026-10-17T18:28:00Z"), automaticResume: { label: "5-hour window", at: "2026-10-17T19:41:00Z" } },
       sessionId: SESSION_2B,
       stoppedAt: "2026-10-17T18:28:00Z",
       finalMessage: "5-hour limit reached · resets 3:40pm",

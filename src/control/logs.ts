@@ -1,9 +1,9 @@
 /** Frozen output pages: bounded file reads, authenticated cursors, final stdout budget. */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { openSync, closeSync, readSync, fstatSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { constants, openSync, closeSync, readSync, fstatSync, lstatSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { writeDurableMetadata } from "./durable-file.js";
-import { checkedPath, privateJson, deadlineCheck, type SavedWork } from "./private-state.js";
+import { checkedPath, privateJson, safeSelector, type SavedWork } from "./private-state.js";
 import { ControlFailure, commandText, result, serialize, type Result } from "./result.js";
 
 export const LOG_BYTES = 16384;
@@ -16,6 +16,24 @@ interface Snapshot {
 interface Position { snapshot: string; end: number; scalar: number | null }
 interface Line { number: number; at: string; source: string; text: string; fragment: { start: number; end: number; total: number; unit: "unicode_scalar" } | null }
 function unavailable(reason: string): never { throw new ControlFailure("saved_output_unavailable", reason); }
+function deadlineCheck(deadline: number): void { if (Date.now() > deadline) unavailable("The saved-output validation deadline expired."); }
+/** Reject special files before open; nonblocking/no-follow flags also cover replacement races. */
+function openSavedOutput(root: string, path: string, deadline: number): number {
+  let fd: number | undefined;
+  try {
+    deadlineCheck(deadline); checkedPath(root, path);
+    if (!lstatSync(path).isFile()) unavailable("Saved output is not a regular file.");
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0));
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) unavailable("Saved output is not a regular file.");
+    if ((process.getuid && stat.uid !== process.getuid()) || (process.platform !== "win32" && ((stat.mode & 0o022) !== 0 || (stat.mode & 0o400) === 0))) unavailable("Saved output is not readable and owner controlled.");
+    deadlineCheck(deadline); return fd;
+  } catch (error) {
+    if (fd !== undefined) closeSync(fd);
+    if (error instanceof ControlFailure && error.code === "saved_output_unavailable") throw error;
+    unavailable("Saved output is missing, unreadable or not owner controlled.");
+  }
+}
 function previousNewline(fd: number, before: number, deadline: number): number {
   let end = before;
   while (end > 0) {
@@ -112,6 +130,15 @@ function decoded(cursor: string, token: string): Position {
   if (!/^[a-f0-9]{64}$/.test(p.snapshot) || !Number.isSafeInteger(p.end) || p.end < 0 || (p.scalar !== null && (!Number.isSafeInteger(p.scalar) || p.scalar < 0))) throw new ControlFailure("invalid_cursor", "Invalid output cursor position.", 2);
   return p;
 }
+function readDescriptor(root: string, path: string, id: string, deadline: number): Snapshot {
+  let snapshot: Snapshot;
+  try { snapshot = privateJson<Snapshot>(root, path, deadline); } catch { unavailable("The output snapshot descriptor is unavailable."); }
+  if (!snapshot || snapshot.version !== 1 || snapshot.id !== id || typeof snapshot.execution !== "string" || typeof snapshot.session !== "string" || !safeSelector(snapshot.session) || typeof snapshot.phase !== "string" || !safeSelector(snapshot.phase)
+    || typeof snapshot.generation !== "string" || typeof snapshot.file_identity !== "string" || !Number.isSafeInteger(snapshot.frozen_byte_end) || snapshot.frozen_byte_end < 0
+    || !Number.isSafeInteger(snapshot.last_record_number) || snapshot.last_record_number < 0 || !/^[a-f0-9]{64}$/.test(snapshot.prefix_sha256)
+    || typeof snapshot.observed_at !== "string" || !Number.isFinite(Date.parse(snapshot.observed_at))) unavailable("The output snapshot descriptor is corrupt or unsupported.");
+  deadlineCheck(deadline); return snapshot;
+}
 export function outputPage(work: SavedWork, selected: { phase: string; id: string } | null, options: { session?: string; cursor?: string; max: number; json: boolean }, deadline = Date.now() + 5000): Result {
   const { record, directory, root, canonical } = work;
   const base = { prd_path: canonical, execution_id: record.executionId!, session_id: selected?.id ?? null, response_byte_limit: LOG_BYTES, requested_lines: options.max };
@@ -119,18 +146,19 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
   if (options.cursor) {
     position = decoded(options.cursor, record.token);
     const descriptor = join(directory, "output-snapshots", `${position.snapshot}.json`);
-    try { snapshot = privateJson<Snapshot>(root, descriptor); } catch { unavailable("The output snapshot descriptor is unavailable."); }
-    if (snapshot.version !== 1 || snapshot.id !== position.snapshot || snapshot.execution !== record.executionId || (options.session && options.session !== snapshot.session)) throw new ControlFailure("cursor_target_mismatch", "Cursor does not belong to this execution and session.", 2);
+    snapshot = readDescriptor(root, descriptor, position.snapshot, deadline);
+    if (snapshot.execution !== record.executionId || (options.session && options.session !== snapshot.session)) throw new ControlFailure("cursor_target_mismatch", "Cursor does not belong to this execution and session.", 2);
     selected = { id: snapshot.session, phase: snapshot.phase }; base.session_id = selected.id;
     if (position.end > snapshot.frozen_byte_end) throw new ControlFailure("invalid_cursor", "Invalid cursor byte position.", 2);
   }
   if (!selected) return result({ ...base, reason: "no_session", lines: [], range: null, has_older: false, next_before: null, next_command: null, next_argv: null });
   const path = join(directory, selected.phase, selected.id, "output.jsonl");
-  let fd: number;
-  try { checkedPath(root, path); fd = openSync(path, "r"); } catch { unavailable("Saved output is missing, unreadable or not owner controlled."); }
+  const fd = openSavedOutput(root, path, deadline);
   try {
     const stat = fstatSync(fd); const identity = `${stat.dev}:${stat.ino}`;
-    const session = privateJson<{ outputGeneration?: string }>(root, join(directory, selected.phase, selected.id, "session.json"));
+    let session: { outputGeneration?: string };
+    try { session = privateJson(root, join(directory, selected.phase, selected.id, "session.json"), deadline); }
+    catch { unavailable("The saved session output generation is missing, corrupt or unreadable."); }
     const generation = session.outputGeneration ?? `legacy:${identity}`;
     if (!snapshot) {
       const end = previousNewline(fd, stat.size, deadline) + 1;
@@ -138,7 +166,10 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
       const hash = prefixHash(fd, end, deadline);
       const id = createHash("sha256").update(JSON.stringify([record.executionId, selected.id, generation, identity, end, hash])).digest("hex");
       const descriptor = join(directory, "output-snapshots", `${id}.json`);
-      if (existsSync(descriptor)) snapshot = privateJson<Snapshot>(root, descriptor);
+      if (existsSync(descriptor)) {
+        snapshot = readDescriptor(root, descriptor, id, deadline);
+        if (snapshot.execution !== record.executionId || snapshot.session !== selected.id || snapshot.phase !== selected.phase || snapshot.frozen_byte_end !== end || snapshot.prefix_sha256 !== hash) unavailable("The reused output snapshot descriptor does not match this execution and session.");
+      }
       else {
         const last = end ? readRecord(fd, previousNewline(fd, end - 1, deadline) + 1, end, null, deadline).line.number : 0;
         snapshot = { version: 1, id, execution: record.executionId!, session: selected.id, phase: selected.phase, generation, file_identity: identity, frozen_byte_end: end, prefix_sha256: hash, last_record_number: last, observed_at: new Date().toISOString() };
@@ -147,12 +178,15 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
       position = { snapshot: snapshot.id, end: snapshot.frozen_byte_end, scalar: null };
     }
     if (snapshot.generation !== generation || snapshot.file_identity !== identity || stat.size < snapshot.frozen_byte_end || prefixHash(fd, snapshot.frozen_byte_end, deadline) !== snapshot.prefix_sha256) unavailable("Saved output was replaced, rebuilt, shortened or changed inside the frozen snapshot.");
+    const last = snapshot.frozen_byte_end ? readRecord(fd, previousNewline(fd, snapshot.frozen_byte_end - 1, deadline) + 1, snapshot.frozen_byte_end, null, deadline).line.number : 0;
+    if (last !== snapshot.last_record_number) unavailable("The output snapshot descriptor has an inconsistent final record number.");
+    const collectedAt = new Date().toISOString();
     const lines: Line[] = []; let cursor = position!; let byteLimit = false;
     const answer = (next: Position, entries: Line[]): Result => {
       const older = next.end > 0;
       const token = older ? signed(next, record.token) : null;
       const argv = token ? ["kiln", "logs", canonical, "--older-output-cursor", token, "--max-lines", String(options.max), ...(options.json ? ["--json"] : [])] : null;
-      return result({ ...base, snapshot_id: snapshot!.id, snapshot_observed_at: snapshot!.observed_at, snapshot_end_line: snapshot!.last_record_number,
+      return result({ ...base, observed_at: collectedAt, snapshot_id: snapshot!.id, snapshot_observed_at: snapshot!.observed_at, snapshot_end_line: snapshot!.last_record_number,
         byte_limit_reached: byteLimit, range: entries.length ? { first: entries[0]!.number, last: entries.at(-1)!.number } : null,
         lines: entries, has_older: older, next_before: token, next_command: argv ? commandText(argv) : null, next_argv: argv,
         ...(snapshot!.frozen_byte_end === 0 ? { reason: "no_output" } : cursor.end === 0 && !entries.length ? { reason: "end_of_history" } : {}) });
@@ -185,6 +219,7 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
     }
     const final = answer(cursor, lines);
     if (Buffer.byteLength(serialize(final, options.json)) > LOG_BYTES) throw new ControlFailure("metadata_too_large", "Output metadata exceeds the response budget.", 2);
+    deadlineCheck(deadline);
     return final;
   } finally { closeSync(fd); }
 }
@@ -192,8 +227,13 @@ export function outputPage(work: SavedWork, selected: { phase: string; id: strin
 /** Bounded observation for status; creates no output snapshot or cursor. */
 export function recentSavedOutput(work: SavedWork, phase: string, id: string, limit = 10, deadline = Date.now() + 5000): { line: number; at: string; source: string; text: string; fragment: Line["fragment"] }[] {
   const path = join(work.directory, phase, id, "output.jsonl");
-  if (!existsSync(path)) return [];
-  checkedPath(work.root, path); const fd = openSync(path, "r");
+  checkedPath(work.root, dirname(path));
+  try { lstatSync(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    unavailable("Saved output could not be inspected.");
+  }
+  const fd = openSavedOutput(work.root, path, deadline);
   try {
     let end = previousNewline(fd, fstatSync(fd).size, deadline) + 1; const rows = [];
     while (end > 0 && rows.length < limit) {

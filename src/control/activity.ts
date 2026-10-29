@@ -20,7 +20,9 @@ export function latestActivity(work: SavedWork, history: History, view?: Snapsho
   const record = work.record;
   observe(record.startedAt, "Run started.");
   observe(retained?.observed_at, retained?.description ?? null, retained?.fragment);
-  for (const { phase, id, record: session } of history.sessions) {
+  for (let index = 0; index < history.sessions.length; index++) {
+    if (Date.now() > deadline) { errors.push(errorFact("state_unavailable", "Remaining session activity was not scanned because the read deadline expired.")); break; }
+    const { phase, id, record: session } = history.sessions[index]!;
     for (const run of session.runs) {
       observe(run.startedAt, "Session attempt started.");
       observe(run.endedAt, run.result?.text ?? "Session attempt ended.");

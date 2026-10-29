@@ -20,6 +20,10 @@ Ship a read-only discovery panel and CLI result through the real foreground engi
 
 ## Phase 1 handoff
 
-Phase 1 establishes private schema 12, after integrating the live-session-control schema 11 change. Reuse the immutable retained-plan and coherent-source contracts in `src/engine/plan-reconciliation.ts`; do not replace the accepted pointer before comparing candidates. Historical completed-feature recovery remains this phase's responsibility. Active legacy recovery verifies earlier Kiln phase documents against their recorded published revisions; an initial active observation is not historical scope proof.
+Phase 1 establishes private schema 13, after integrating the current live-session-control schema 12 change. Reuse the immutable retained-plan and coherent-source contracts in `src/engine/plan-reconciliation.ts`; do not replace the accepted pointer before comparing candidates. Historical completed-feature recovery remains this phase's responsibility. Active legacy recovery verifies earlier Kiln phase documents against their recorded published revisions; an initial active observation is not historical scope proof.
 
 [Active-plan validation](kiln-active-plan-handback-validation.md) records the actual Claude/Codex, Git, browser and workflow evidence. Keep the existing terminal-ownership admission ahead of handback checks and dispatch. Split-parent repository additions retain Multi-Repo Delivery AC-ADD-04 behavior for remaining children.
+
+## Current-code recovery handoff
+
+The 2026-10-29 Phase 1 recovery reconciles current develop and uses schema 13. Reuse the current provenance-link contract, repository-completeness checks and audit-failure retention; the validation record distinguishes historical evidence from the recovery gates. Continue from the recovered committed baseline when integration publication is held. Current-code source and command-owner contracts govern subsequent schema changes.

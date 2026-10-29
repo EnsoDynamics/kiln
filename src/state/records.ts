@@ -18,7 +18,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -274,7 +274,7 @@ export interface PrdRecord {
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
 
 export interface SessionRun {
-  live?: { attemptId: string; gateDirectory: string; configRoot: string; profile: string };
+  live?: { attemptId: string; gateDirectory: string; configRoot: string; profile: string; literalInput?: boolean };
   control?: { operationId: string; attemptId: string; submitted?: boolean; promptDigest: string; delivered?: boolean };
   billing?: BillingSummary;
   /** Codex semantic turn/dispatch facts, independent of the private server's exit. */
@@ -299,6 +299,8 @@ export interface SessionRun {
   note?: string;
   interruptedBy?: InterruptCause;
   interruptedAt?: string;
+  /** Result sidecars retain per-result cost deltas; this is the final cumulative observation, never their sum. */
+  claudeResults?: { count: number; cumulativeCostUsd?: number };
   result?: { subtype: string; isError: boolean; text?: string };
 }
 
@@ -465,7 +467,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);

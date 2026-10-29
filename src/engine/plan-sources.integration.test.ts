@@ -48,3 +48,15 @@ it("rejects missing linked files, escaping links, symlinks, oversized sources an
   writeFileSync(file, "x".repeat(8 * 1024 * 1024)); expect(() => observePlan(root, "plan")).toThrow("plan_too_large");
   writeFileSync(file, "# Design\n"); writeFileSync(join(root, "plan/phase-1a-search.md"), "# Phase 1a: Search\n"); expect(() => observePlan(root, "plan")).toThrow("doesn't list it");
 });
+
+it("preserves the current audit contract for optional provenance and mandatory replacement links", () => {
+  const root = fixture(); const file = join(root, "plan/comet-technical-design.md");
+  writeFileSync(file, '# Design\n[Background](missing.md "kiln:reference")\n');
+  expect(Object.keys(observePlan(root, "plan").documents)).not.toContain("plan/missing.md");
+  writeFileSync(file, '# Design\nReplaces: [Requirement](missing.md "kiln:reference")\n');
+  expect(() => observePlan(root, "plan")).toThrow();
+  writeFileSync(file, '# Design\nReplaces: AC-OLD-01 in `plan/missing.md`\n');
+  expect(() => observePlan(root, "plan")).toThrow();
+  writeFileSync(file, '# Design\n[Requirement](missing.md)\n');
+  expect(() => observePlan(root, "plan")).toThrow();
+});

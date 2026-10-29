@@ -1,4 +1,5 @@
-import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync, statSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +11,73 @@ const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; 
 afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 
 describe("authoritative Codex conversation audit", () => {
+  it.each(["0.162.1", "0.165.0"])("reads historical evidence with qualified installed reader %s", async version => {
+    const f = fixture();
+    f.options.env.KILN_CODEX_HISTORY_VERSION = `codex-cli ${version}`;
+    const path = f.state.threads.parent!.metadata.path;
+    writeFileSync(path, readFileSync(path, "utf8").replace('"id":"parent"', '"id":"parent","cli_version":"0.162.1"'));
+    const result = await auditCodexConversation(f.options);
+    expect(result.problems).toEqual([]);
+    expect(result.coverage).toBe("complete");
+    expect(result.operationsChecked).toBe(1);
+    expect(f.calls().every(call => ["initialize", "thread/list", "thread/read", "thread/turns/list"].includes(call.method))).toBe(true);
+  });
+  it.each(["codex-cli 0.165.1", "codex-cli 9.0.0", "codex-cli 0.165.0-dev", "unrecognized"])("rejects unqualified reader %s before history access", async version => {
+    const f = fixture(); f.options.env.KILN_CODEX_HISTORY_VERSION = version;
+    const result = await auditCodexConversation(f.options);
+    expect(result.coverage).toBe("inconclusive");
+    expect(result.frontiers).toEqual([]);
+    expect(result.problems.join(" ")).toContain(version);
+    expect(result.problems.join(" ")).toContain("0.162.1");
+    expect(result.problems.join(" ")).toContain("0.165.0");
+    expect(codexStayedOutcome("local", result, [result.fingerprint]).passed).toBe(false);
+  });
+  it("covers recorded image inspection outside the workspace without concealing mutations", async () => {
+    const f = fixture();
+    const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/image-inspection-wrappers.json", import.meta.url)), "utf8")) as { calls: { raw: Record<string, unknown> }[] };
+    f.options.env.KILN_CODEX_HISTORY_VERSION = "codex-cli 0.165.0";
+    for (const call of recorded.calls) f.append("parent", f.record("response_item", { ...call.raw, internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    const clean = await auditCodexConversation(f.options);
+    expect(clean.problems).toEqual([]); expect(clean.coverage).toBe("complete");
+    expect(clean.findings).toEqual([]); expect(clean.operationsChecked).toBe(1);
+    expect(codexStayedOutcome("local", clean, []).passed).toBe(true);
+    f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "outside-command", input: `image(await tools.view_image({path:"/PROOF/image.png"})); text(await tools.exec_command({cmd:"git commit -m proof", workdir:${JSON.stringify(f.outside)}}));`, internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    const outside = await auditCodexConversation(f.options);
+    expect(outside.problems).toEqual([]); expect(outside.coverage).toBe("complete");
+    expect(outside.findings.map(finding => finding.fact).join(" ")).toContain("git commit");
+    expect(codexStayedOutcome("local", outside, []).passed).toBe(false);
+    f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "unknown-after-image", input: 'image(await tools.view_image({path:"/PROOF/image.png"})); await tools.unknown_writer({path:"/outside"});', internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    const unknown = await auditCodexConversation(f.options);
+    expect(unknown.coverage).toBe("inconclusive");
+    expect(codexStayedOutcome("local", unknown, [unknown.fingerprint]).passed).toBe(false);
+  });
+
+  it.each(["retained", "deferred-context", "missing-prefix", "missing-call", "wrong-window", "missing-window", "unknown-field", "executable-snapshot", "missing-context", "wrong-thread", "incomplete"])("checks retained compaction against original execution evidence: %s", async mode => {
+    const f = fixture();
+    const captured = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/retained-compaction-0.165.0.json", import.meta.url)), "utf8")) as { initialWindow: string; payload: Record<string, unknown> };
+    const path = f.state.threads.parent!.metadata.path;
+    let raw = readFileSync(path, "utf8").replace('"id":"parent"', `"id":"parent","context_window":{"window_id":${JSON.stringify(captured.initialWindow)}}`);
+    if (mode === "missing-prefix") raw = raw.split("\n").filter(line => !line.includes('"type":"task_started"')).join("\n");
+    if (mode === "missing-call") raw = raw.split("\n").filter(line => !line.includes('"type":"custom_tool_call"')).join("\n");
+    if (mode === "missing-window") raw = raw.replace(captured.initialWindow, "unqualified-window");
+    const payload = captured.payload;
+    if (mode === "wrong-window") payload.previous_window_id = "other-window";
+    if (mode === "unknown-field") payload.unknown_execution = "hidden";
+    if (mode === "executable-snapshot") (payload.replacement_history as Record<string, unknown>[])[0] = { type: "function_call", name: "exec_command", arguments: '{"cmd":"git push"}' };
+    if (mode === "missing-context") (payload.latest_token_usage_record as Record<string, unknown>).turn_id = "missing-turn";
+    if (mode === "wrong-thread") (payload.latest_token_usage_record as Record<string, unknown>).thread_id = "other-thread";
+    if (mode === "incomplete") (payload.retained_context as Record<string, unknown>).incomplete = true;
+    const snapshot = f.record("compacted", payload);
+    if (mode === "deferred-context") {
+      const context = raw.split("\n").find(line => line.includes('"type":"turn_context"'))!;
+      raw = raw.replace(context, snapshot + context);
+    } else raw += snapshot;
+    writeFileSync(path, raw);
+    const result = await auditCodexConversation(f.options);
+    expect(result.coverage).toBe(["retained", "deferred-context"].includes(mode) ? "complete" : "inconclusive");
+    if (["retained", "deferred-context"].includes(mode)) { expect(result.problems).toEqual([]); expect(result.operationsChecked).toBe(1); }
+    else expect(codexStayedOutcome("local", result, [result.fingerprint]).passed).toBe(false);
+  });
   it.each(["qualified", "wrong-turn", "wrong-status", "wrong-reason", "conflicting"])("checks the recorded interrupted terminal contract: %s", async mode => {
     const f = fixture();
     const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/interrupted-frontier-0.162.1.json", import.meta.url)), "utf8")) as { raw: { type: string; payload: Record<string, unknown> } };
@@ -50,6 +118,14 @@ describe("authoritative Codex conversation audit", () => {
   it("confirms only identified changes, preserving the exact frontier across a fresh read", async () => {
     const f = fixture(); f.addThread("parent", { target: join(f.outside, "marker.txt") });
     const first = await auditCodexConversation(f.options); expect(first.problems).toEqual([]);
+    expect(first.profile).toBe("codex-static-v2");
+    const physicalRoot = realpathSync(f.root);
+    const roots = [process.platform === "win32" ? physicalRoot.toLowerCase() : physicalRoot];
+    const fingerprintFor = (profile: string) => createHash("sha256").update(JSON.stringify({ profile, roots, frontiers: first.frontiers, findings: first.findings })).digest("hex");
+    const legacyFingerprint = fingerprintFor("codex-0.162.1-static-v1");
+    expect(first.fingerprint).toBe(fingerprintFor("codex-static-v2"));
+    expect(first.fingerprint).not.toBe(legacyFingerprint);
+    expect(codexStayedOutcome("local", first, [legacyFingerprint]).passed).toBe(false);
     expect(codexStayedOutcome("local", first, []).passed).toBe(false);
     const same = await auditCodexConversation(f.options); expect(same.fingerprint).toBe(first.fingerprint);
     expect(codexStayedOutcome("local", same, [first.fingerprint]).passed).toBe(true);

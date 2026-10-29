@@ -1,13 +1,14 @@
+import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
-import { sameLiveTarget, validLiveTarget, type LiveTarget, type LiveView } from "../live/target.js";
+import { sameLiveTarget, validLiveTarget, consumedUuids, messageProblem, type LiveTarget, type LiveView } from "../live/target.js";
 import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from "../live/ownership.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, type Receipt, type Action, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, readReceipts, type Receipt, type Action, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -85,7 +86,7 @@ import {
 } from "../session/prompts.js";
 import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
-import { judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
+import { automaticResumeSchedule, judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
 import { CodexLaunchCancelled, CodexUsageRecoveryUnavailable, codexUsageRelease } from "../session/codex-usage.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import {
@@ -112,7 +113,7 @@ import {
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../session/codex-evidence.js";
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
-import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
+import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { phaseScopeDigest, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
@@ -240,8 +241,6 @@ const SLEEP_CHECK_MS = 10_000;
 const WINDOWS_EXIT_GRACE_MS = 1_000;
 /** How long a resume waits for its account reading (usage-limit recovery "Resume"). */
 const RESUME_READING_MS = 30_000;
-/** A reading is taken this long after a limit's reset time, since the server's window may roll over a little late. */
-const RESET_READING_DELAY_MS = 60_000;
 /** The longest a Node timer waits; a later reset is re-armed. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 /** The longest note Resume takes (usage-limit recovery technical design, "Prompts"). */
@@ -343,6 +342,10 @@ export class Engine {
   private control: SessionControl | undefined;
   /** An interrupted session `kiln run` decided to resume, once its ● line is printed. */
   private pendingResume: string | undefined;
+  restartReview: { activityKey: string; action: "start" | "resume" | "wait" } | undefined;
+  private reviewingRestart = false;
+  /** Read-only inspection ownership spans asynchronous resume preflight before current exists. */
+  private inspectionResumingSession: string | undefined;
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
   private requestedResume: ResumeRequest | undefined;
   /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
@@ -415,9 +418,18 @@ export class Engine {
     });
     this.commands = new CommandJournal(this.stateDirectory, resolve(this.record.repository.mainCheckoutPath, this.record.prdDirectory), {
       execution: () => this.record.executionId!, view: () => this.controlView(), runState: () => this.controlRunState(),
+      staleReason: instruction => {
+        const target = instruction.inputs.target;
+        if (instruction.action !== "take-over" || !validLiveTarget(target) || target.executionId !== this.record.executionId || !this.record.phases[target.activityKey]?.doneAt) return undefined;
+        const activity = activityHistory(this.record, this.stateDirectory).find(a => a.key === target.activityKey && a.activityId === target.activityId);
+        const session = this.sessionRecord(target.activityKey, target.sessionId);
+        if (activity && session?.executionId === target.executionId && session.sessionId === target.providerSessionId && session.runs.some((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === target.attemptId)) return "The targeted activity finished before takeover was accepted. Its successor was not paused.";
+        return undefined;
+      },
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
       reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
     });
+    this.recoverLiveMessages();
     this.record.controlEpoch = this.controlEpoch;
     this.save();
     if (this.record.liveControl) this.watchTakeover();
@@ -441,19 +453,43 @@ export class Engine {
   }
 
   controlRunState(): string {
-    return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
+    return this.current?.processRunning ? "implementing" : this.stoppedPhaseKey() || this.record.billing?.hold ? "needs_you" : this.restartReview ? "paused" : this.waitingPhaseKey() ? "waiting" : this.record.pause.activeSince ? "paused" : this.currentlyComplete ? "complete" : this.isUnderway ? "implementing" : "not_started";
+  }
+
+  /** Inspection only: synchronous ownership after any awaited provider history read. */
+  ownsInspectionSession(id: string): boolean {
+    if (this.current?.session?.sessionId === id || this.inspectionResumingSession === id) return true;
+    for (const phase of [this.reviewingRestart ? undefined : this.pendingResume, this.requestedResume?.phaseKey]) if (phase && this.record.phases[phase]?.sessionIds.at(-1) === id) return true;
+    const wait = this.waitingPhaseKey();
+    if (this.checking && wait && this.record.phases[wait]?.wait?.sessionId === id) return true;
+    for (const receipt of [this.controlDispatch, this.commands.active]) {
+      if (!receipt || !["reply", "resume"].includes(receipt.instruction.action)) continue;
+      if (receipt.session_id === id) return true;
+      try {
+        const target: unknown = JSON.parse(receipt.target);
+        if (validRecoveryTarget(target) && target.executionId === this.record.executionId && target.sessionId === id) return true;
+        if (target && typeof target === "object" && "execution" in target && target.execution === this.record.executionId && "key" in target && typeof target.key === "string") {
+          const facts = this.record.phases[target.key];
+          if ((facts?.wait?.sessionId ?? facts?.sessionIds.at(-1)) === id) return true;
+        }
+      } catch { /* An unrecognized target cannot claim a different conversation. */ }
+    }
+    return false;
   }
 
   controlView(): ControlView {
     const key = this.stoppedPhaseKey(); const wait = this.waitingPhaseKey();
     const target = JSON.stringify(this.phaseRecoveryTarget() ?? { live: this.liveTarget(), execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
-    const paused = !!this.record.pause.activeSince;
+    const paused = !!this.record.pause.activeSince || !!this.restartReview;
+    const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending";
     const available: Record<Action, boolean> = {
+      message: !!this.liveView()?.input?.available && !this.commands?.busy,
+      "message-review": !!this.record.liveControl && !this.commands?.busy,
       "take-over": !!this.liveView()?.available && !this.commands?.busy,
       reply: !!key && this.resumeOffered(key) && !busy,
-      resume: !!(wait || key && this.resumeOffered(key)) && !busy,
-      "verify-and-advance": !!this.phaseRecoveryTarget() && !busy,
+      resume: !this.restartReview && !!(wait || key && this.resumeOffered(key)) && !busy,
+      "verify-and-advance": !!this.phaseRecoveryTarget() && !busy && !releasePending,
       "request-pause": this.isUnderway && !this.currentlyComplete && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
@@ -462,17 +498,36 @@ export class Engine {
       "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
     };
     const unavailable: Partial<Record<Action, string>> = {
+      "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
+      message: this.liveView()?.input?.reason ?? "No active supported Claude input is available.",
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
       "outside-confirmation": "Stayed in the workspace hasn't failed, so there is nothing to confirm.",
+      "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
     };
     const controls = ACTIONS.map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
-    const fingerprint = { epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+    const live = this.liveView();
+    const fingerprint = { live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       outside: key && { checks: this.record.phases[key]?.stop?.checks, confirmations: this.record.phases[key]?.outsideConfirmations, codex: this.record.phases[key]?.codexConfirmations }, unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (receipt.instruction.action === "message-review") {
+      // Constructor reconciliation precedes Engine.commands assignment. Read the
+      // same authoritative journal directly, never dispatch or replay a review.
+      const inputs = receipt.instruction.inputs;
+      const retained = readReceipts(this.stateDirectory);
+      const selected = Array.isArray(inputs.receipt_ids) ? inputs.receipt_ids.map(id => retained.find(r => (r.id === id || r.command_id === id) && sameLiveTarget(r.live_target, inputs.target as LiveTarget))) : [];
+      const complete = selected.length > 0 && selected.every(r => r?.message?.delivery === "uncertain" && !!r.message.reviewedAt);
+      return { ...receipt, state: complete ? "completed" : "failed", stage: "settled", outcome: complete ? "message_reviewed" : "message_review_incomplete", reason: complete ? null : "Not all acknowledgements were saved. Review the remaining messages; nothing resumed or advanced." };
+    }
+    if (receipt.instruction.action === "message") {
+      if (receipt.message?.delivery === "uncertain") return { ...receipt, state: "indeterminate", stage: "settled", outcome: "delivery_uncertain", effects: { ...receipt.effects, message: "unknown" } };
+      if (!receipt.message?.writeStartedAt) return { ...receipt, state: "failed", stage: "settled", outcome: "not_sent", ...(receipt.message ? { message: { ...receipt.message, delivery: "not_sent" } } : {}), effects: { ...receipt.effects, message: "not_sent" } };
+      // Never repeat external input after a controller crash. Full replay happens once the journal exists.
+      return { ...receipt, state: receipt.message.resultAt ? "completed" : "indeterminate", stage: "settled", outcome: receipt.message.resultAt ? "message_received" : "delivery_uncertain", message: { ...receipt.message, delivery: receipt.message.resultAt ? "received" : "uncertain" }, effects: { ...receipt.effects, message: receipt.message.resultAt ? "received" : "unknown" } };
+    }
     if (receipt.instruction.action === "take-over" && validLiveTarget(receipt.instruction.inputs.target)) {
       const target = receipt.instruction.inputs.target;
       const session = this.sessionRecord(target.activityKey, target.sessionId);
@@ -491,11 +546,23 @@ export class Engine {
       const outcome = persisted.controlApplied.outcome;
       return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(outcome === "advanced" ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
     }
+    // Check again never directly dispatches a session. A verification interrupted
+    // before settlement can fail honestly without retaining control forever.
+    // Proven completion above wins; unknown plan effects are retained, not undone.
+    if (receipt.instruction.action === "check-again" && receipt.stage === "applying" && receipt.effects.session === "not_started" && receipt.effects.reply === "not_applicable") {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "check_interrupted", reason: "The completion check was interrupted before its result was settled. Request a fresh check against the current work." };
+    }
     if (receipt.phase_key && receipt.session_id) {
       const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
-      if (run?.spawnError && !run.pid) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
+      if (run && (run.spawnError && !run.pid || session?.agentId === "codex" && codexNotDispatched(run))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
       if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: "session_resumed", effects: { ...receipt.effects, session: "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
+    }
+    // Dispatch is saved as dispatching before spawn; completion is stamped in
+    // its atomic record write. After ruling out both above, applying proves
+    // only saved reviews, which survive without replaying this hand-back.
+    if (["resume", "verify-and-advance", "reply"].includes(receipt.instruction.action) && receipt.stage === "applying" && Array.isArray(receipt.instruction.inputs.reviewed_receipt_ids) && receipt.instruction.inputs.reviewed_receipt_ids.length && receipt.effects.session === "not_started" && receipt.effects.plan !== "advanced") {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "hand_back_not_started", reason: "Saved message acknowledgements are retained. No dispatch or completion was recorded; submit a new explicit hand-back after reviewing any remaining messages.", effects: { ...receipt.effects, session: "not_started", plan: "not_advanced" } };
     }
     return undefined;
   }
@@ -505,7 +572,10 @@ export class Engine {
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
+    if (["reply", "resume", "verify-and-advance"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
     switch (action) {
+      case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
+      case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
@@ -542,6 +612,126 @@ export class Engine {
     return createHash("sha256").update(`${this.record.executionId}:${session.sessionId}:${index}`).digest("hex");
   }
 
+  messageReceipts(target?: LiveTarget): Receipt[] {
+    return this.commands.all().filter(r => r.message && (!target || sameLiveTarget(r.live_target, target)));
+  }
+
+  private projectMessage(r: Receipt, event: Record<string, unknown>, at: string): void {
+    if (!r.message?.writeStartedAt || event.session_id !== r.live_target?.providerSessionId || !consumedUuids(event).includes(r.message.uuid)) return;
+    const m = r.message;
+    const uuids = consumedUuids(event);
+    m.evidence ??= [];
+    if (!m.evidence.some(e => e.result === (event.type === "result"))) m.evidence.push({ uuids, at, result: event.type === "result", ...(typeof event.uuid === "string" ? { eventUuid: event.uuid } : {}) });
+    m.receivedAt ??= at;
+    if (event.type === "result") m.resultAt ??= at;
+    // Evidence arriving late is retained; explicit recovery still owns an uncertain receipt.
+    if (m.delivery !== "uncertain") { m.delivery = "received"; r.effects.message = "received"; }
+  }
+
+  private holdMessage(r: Receipt): void {
+    if (!r.live_target || r.execution_id !== this.record.executionId) return;
+    const m = r.message!;
+    m.delivery = "uncertain"; r.state = "indeterminate"; r.outcome = "delivery_uncertain"; r.effects.message = "unknown";
+    r.reason = "Delivery uncertain. Review this exact message in the conversation; it will never be resent automatically.";
+    this.record.liveControl ??= { version: 1, revision: 1, takeover: { kind: "delivery_recovery", target: r.live_target, operationId: r.id, instructionId: r.command_id, requestedAt: r.accepted_at, state: "pending", observedAt: this.now().toISOString(), reason: "Message delivery is uncertain. Review the conversation before explicit hand-back; wait for safe release before opening Claude." } };
+    this.save();
+  }
+
+  private recoverLiveMessages(): void {
+    const messages = this.messageReceipts().filter(r => r.live_target && r.execution_id === this.record.executionId && r.message!.writeStartedAt && !r.message!.resolvedBy);
+    const targets = new Map(messages.map(r => [JSON.stringify(r.live_target), r.live_target!]));
+    // Replay the attempt ledger through the same identity/order validation as live
+    // callbacks, including contradictions naming an already-accounted receipt.
+    for (const target of targets.values()) {
+      // Reconstruct first-consumption chronology from the event stream, never
+      // from receipt fields that may already contain later results after a crash.
+      const consumed = new Set<string>();
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const index = session?.runs.findIndex((run, i) => (run.control?.attemptId ?? this.legacyAttempt(session!, i)) === target.attemptId);
+      if (session && index !== undefined && index >= 0) for (const saved of eventsOfRun(this.stateDirectory, session, index)) this.observeLiveMessage(target, saved.event, saved.at, consumed);
+    }
+    for (const r of messages) {
+      if (!r.message!.resultAt || r.message!.delivery === "uncertain") this.holdMessage(r);
+      else { r.message!.delivery = "received"; r.effects.message = "received"; r.state = "completed"; }
+      this.commands.checkpoint(r);
+    }
+  }
+
+  private observeLiveMessage(target: LiveTarget, event: Record<string, unknown>, at: string, consumedBefore?: Set<string>): void {
+    const messages = this.messageReceipts(target).filter(r => !r.message!.resolvedBy);
+    const consumed = consumedBefore ?? new Set(messages.filter(r => r.message!.receivedAt).map(r => r.message!.uuid));
+    const observed = consumedUuids(event).filter(uuid => messages.some(r => r.message!.uuid === uuid));
+    const accepted = messages.filter(r => observed.includes(r.message!.uuid)).map(r => r.message!.uuid);
+    const skipped = messages.filter((r, i) => r.message!.writeStartedAt && !consumed.has(r.message!.uuid) && !observed.includes(r.message!.uuid) && messages.slice(i + 1).some(later => observed.includes(later.message!.uuid)));
+    if (JSON.stringify(observed) !== JSON.stringify(accepted) || observed.length && event.session_id !== target.providerSessionId) {
+      for (const r of messages.filter(r => observed.includes(r.message!.uuid))) { this.holdMessage(r); this.commands.checkpoint(r); }
+      return;
+    }
+    if (skipped.length) for (const r of messages.filter(r => skipped.includes(r) || observed.includes(r.message!.uuid))) { this.holdMessage(r); this.commands.checkpoint(r); }
+    for (const r of messages) {
+      if (!consumedUuids(event).includes(r.message!.uuid)) continue;
+      this.projectMessage(r, event, at); this.commands.checkpoint(r);
+      if (r.message!.writeStartedAt && event.session_id === target.providerSessionId) consumed.add(r.message!.uuid);
+    }
+    this.changed();
+  }
+
+  private endLiveMessages(target: LiveTarget): void {
+    for (const r of this.messageReceipts(target)) if (r.message!.writeStartedAt && !r.message!.resultAt) {
+      this.holdMessage(r); this.commands.checkpoint(r);
+    }
+    if (this.record.liveControl) this.watchTakeover();
+  }
+
+  private async acceptLiveMessage(raw: unknown, text: unknown, receipt: Receipt) {
+    const fail = (code: string, reason: string) => { receipt.message!.delivery = "not_sent"; receipt.effects.message = "not_sent"; return { ok: false, code, reason }; };
+    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget())) return fail("stale_target", "This attempt ended or changed; the message was not sent.");
+    if (messageProblem(text)) return fail("invalid_request", messageProblem(text)!);
+    const run = this.latestSession(raw.activityKey)?.runs.at(-1);
+    if (!run?.live?.literalInput || !this.control?.sendMessage || !this.control.inputOpen?.() || !!this.record.liveControl || !this.current?.processRunning) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
+    const control = this.control;
+    let admitted = false;
+    let writing: Promise<"written" | "uncertain"> | undefined;
+    try { await withGate(run.live.gateDirectory, gate => {
+      if (gate.sealed || gate.held || this.record.liveControl || !sameLiveTarget(raw, this.liveTarget()) || !control.inputOpen?.()) return;
+      const inputs = gate.inputs ??= {};
+      if (Object.values(inputs).filter(i => !i.terminal).length >= 32) return;
+      receipt.live_target = raw;
+      receipt.message!.writeStartedAt = this.now().toISOString();
+      receipt.effects.message = "unknown";
+      this.commands.checkpoint(receipt); // fsync before any bytes can be supplied to stdin.
+      inputs[receipt.message!.uuid] = { terminal: false };
+      writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), gate);
+      admitted = true;
+      writing = control.sendMessage!(text as string, receipt.message!.uuid);
+    }); } catch (error) {
+      if (!receipt.message!.writeStartedAt) return fail("state_unavailable", `Message admission failed before writing: ${(error as Error).message}`);
+      this.holdMessage(receipt); this.commands.checkpoint(receipt); this.watchTakeover();
+      return { ok: true, outcome: "delivery_uncertain" };
+    }
+    if (!admitted) return fail("busy", "Input admission closed or reached 32 unsettled messages. Nothing was sent.");
+    const outcome = await writing!;
+    receipt.message!.writeSettledAt = this.now().toISOString();
+    if (outcome === "uncertain") { this.holdMessage(receipt); this.watchTakeover(); }
+    else {
+      receipt.message!.writeCompletedAt = receipt.message!.writeSettledAt;
+      if (receipt.message!.delivery === "submitting") { receipt.message!.delivery = "submitted"; receipt.effects.message = "submitted"; }
+    }
+    this.commands.checkpoint(receipt); this.changed();
+    return { ok: true, outcome: outcome === "uncertain" ? "delivery_uncertain" : "message_submitted" };
+  }
+
+  reviewMessages(raw: unknown, ids: unknown) {
+    const hold = this.record.liveControl?.takeover;
+    if (!validLiveTarget(raw) || !sameLiveTarget(hold?.target, raw) || !Array.isArray(ids) || !ids.length) return { ok: false, code: "stale_target", reason: "Review belongs to another held conversation." };
+    const receipts = this.messageReceipts(raw);
+    const selected = ids.map(id => receipts.find(r => r.id === id || r.command_id === id));
+    if (selected.some(r => !r || r.message?.delivery !== "uncertain")) return { ok: false, code: "invalid_request", reason: "A selected receipt is not an uncertain message for this attempt." };
+    for (const r of selected) { r!.message!.reviewedAt ??= this.now().toISOString(); this.commands.checkpoint(r!); }
+    this.changed();
+    return { ok: true, outcome: "message_reviewed" };
+  }
+
   liveTarget(): LiveTarget | undefined {
     if (this.record.liveControl) return this.record.liveControl.takeover.target;
     const current = this.current;
@@ -560,11 +750,19 @@ export class Engine {
     const hold = this.record.liveControl?.takeover;
     const run = this.latestSession(target.activityKey)?.runs.at(-1);
     const capable = process.platform === "darwin" && (!!run?.live || this.recoveredLive);
-    return { target, label, observedAt: this.now().toISOString(), available: capable && !hold && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    const messages = this.messageReceipts(target);
+    let sealed = true;
+    try { sealed = !run?.live || !!readGate(run.live.gateDirectory).sealed; } catch { /* unknown input is unavailable */ }
+    const pending = messages.filter(r => r.message?.writeStartedAt && !r.message.resultAt).length;
+    const uncertain = messages.some(r => r.message?.delivery === "uncertain");
+    const submitting = messages.some(r => r.message?.delivery === "submitting");
+    const inputAvailable = !submitting && !!run?.live?.literalInput && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
+    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : !run?.live?.literalInput ? "Live messages require the validated Claude Code 2.1.311/macOS profile." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
-    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget()) || this.record.liveControl || !this.current?.processRunning || !this.liveView()?.available) return { ok: false, code: "stale_target", reason: "This attempt ended or changed. Refresh the active session." };
+    if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget()) || this.record.liveControl?.takeover.kind !== "delivery_recovery" && !!this.record.liveControl || !this.current?.processRunning || !this.liveView()?.available) return { ok: false, code: "stale_target", reason: "This attempt ended or changed. Refresh the active session." };
     const session = this.latestSession(raw.activityKey)!; const run = session.runs.at(-1)!;
     const held = { operationId: receipt.id, instructionId: receipt.command_id, requestedAt: this.now().toISOString() };
     const persist = () => {
@@ -613,6 +811,7 @@ export class Engine {
   private async reconcileTakeoverOnce(): Promise<void> {
     if (!this.record.liveControl) return;
     const hold = this.record.liveControl.takeover;
+    let releaseEvidence: { directory: string; state: string } | undefined;
     try {
       const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
       const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
@@ -620,15 +819,22 @@ export class Engine {
       const latestActivityAt = run.live ? readGate(run.live.gateDirectory).observedAt : runLastOutputAt(this.stateDirectory, session, session.runs.indexOf(run));
       if (latestActivityAt) hold.latestActivityAt = latestActivityAt;
       await requireExited(run);
+      // OS exit precedes adapter finalization, which awaits the last descendant
+      // scan and saved-event callbacks. No readiness may race those writers.
+      const running = this.current?.session; const attempt = running?.runs.at(-1);
+      if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("takeover_pending", "Waiting for final attempt and tracked-process observations to finish.");
+      requireHistory(this.environment, hold.target.providerSessionId);
       if (run.live) {
         if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
         if (resolve(run.live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "The Claude configuration root changed; restore the attempt profile before hand-back.");
         // Rebuild the projection after a crash between event append and gate update.
-        for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event);
+        for (const saved of eventsOfRun(this.stateDirectory, session, session.runs.indexOf(run))) await observeGate(run.live.gateDirectory, saved.event, saved.at);
         const transcript = findTranscripts(run.live.configRoot, session.sessionId).main;
         if (transcript) {
-          for (const row of readJsonLines<Record<string, unknown>>(transcript)) {
-            if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result });
+          const history = readTranscriptRecords<Record<string, unknown>>(transcript);
+          if (history.problem) throw new OwnershipError("history_unavailable", `Saved conversation history is unreadable: ${history.problem}. Restore its history and retry release checks.`);
+          for (const row of history.records) {
+            if (row.type === "user") await observeGate(run.live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result }, typeof row.timestamp === "string" ? row.timestamp : undefined);
           }
           const read = readTranscript(transcript);
           if (read.problem) throw new Error(read.problem);
@@ -639,20 +845,22 @@ export class Engine {
             }
           });
         }
-        const gate = readGate(run.live.gateDirectory);
-        if (!sameLiveTarget(gate.target, hold.target) || gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
-        if (gate.obstacle) {
-          const inventory = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
-          if (inventory.failure || inventory.exitCode !== 0) throw new Error(gate.obstacle);
-          await withGate(run.live.gateDirectory, state => { delete state.obstacle; });
+        let gate = readGate(run.live.gateDirectory);
+        hold.latestActivityAt = gate.observedAt;
+        if (!sameLiveTarget(gate.target, hold.target) || hold.kind !== "delivery_recovery" && gate.held?.operationId !== hold.operationId) throw new Error("Durable checkpoint hold cannot be established.");
+        if (gate.obstacle || gate.processObservations?.length) {
+          await captureOwnedProcesses(run.live.gateDirectory, run.pid!, run.processStartTime!);
+          gate = readGate(run.live.gateDirectory);
         }
         const pending = unsettled(gate);
         if (pending.length) throw new OwnershipError("takeover_pending", `Waiting for completed-operation evidence: ${pending.join(", ")}.`);
         for (const identity of gate.tracked) await requireExited({ pid: identity.pid, processStartTime: identity.startTime });
+        releaseEvidence = { directory: run.live.gateDirectory, state: JSON.stringify(gate) };
       }
-      requireHistory(this.environment, hold.target.providerSessionId);
       await requireNoTerminal(this.environment, hold.target.providerSessionId);
-      hold.state = "released"; hold.reason = "Paused for terminal takeover.";
+      requireHistory(this.environment, hold.target.providerSessionId);
+      if (releaseEvidence && JSON.stringify(readGate(releaseEvidence.directory)) !== releaseEvidence.state) throw new OwnershipError("takeover_pending", "Tracked-process release evidence changed during ownership checks; retry reconciliation.");
+      hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
     } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
     finally {
       hold.observedAt = this.now().toISOString();
@@ -703,13 +911,22 @@ export class Engine {
     return createHash("sha256").update(JSON.stringify({ repositories, report, authorization: this.record.developmentAuthorization, settings: this.record.settings, confirmations: this.record.phases[key]?.outsideConfirmations })).digest("hex");
   }
 
+  private resolveMessageHold(): void {
+    const target = this.record.liveControl?.takeover.target;
+    const operation = this.controlDispatch ?? this.commands.active;
+    if (!target) return;
+    const operationId = operation?.id ?? randomUUID();
+    for (const r of this.messageReceipts(target)) if (r.message?.delivery === "uncertain" && r.message.reviewedAt) { r.message.resolvedBy = operationId; this.commands.checkpoint(r); }
+  }
+
   private async requireTakeoverReturn(): Promise<void> {
     const hold = this.record.liveControl?.takeover;
     if (!hold) return;
+    if (this.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt)) throw new OwnershipError("message_review_required", "Review each uncertain message in the conversation before Resume or Verify.");
     await this.reconcileTakeover();
     if (hold.state !== "released") throw new OwnershipError("takeover_pending", hold.reason);
-    requireHistory(this.environment, hold.target.providerSessionId);
     await requireNoTerminal(this.environment, hold.target.providerSessionId);
+    requireHistory(this.environment, hold.target.providerSessionId);
   }
 
   get savedDevelopmentTargets(): DevelopmentPreference | undefined {
@@ -915,8 +1132,20 @@ export class Engine {
     const { record } = this;
     if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
-    if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
-    if (this.selectionError) return refuse(this.selectionError);
+    if (!this.restartReview || this.restartReview.action === "start") {
+      if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
+      if (this.selectionError) return refuse(this.selectionError);
+    }
+    if (this.restartReview) {
+      // The work may have changed in a terminal while the overview was open.
+      this.pendingResume = undefined;
+      await this.decide({ review: true });
+      this.restartReview = undefined;
+      this.reviewingRestart = false;
+      this.changed();
+      this.kick();
+      return { ok: true };
+    }
     if (record.pause.activeSince !== undefined) {
       record.pause = {};
       this.save();
@@ -1076,7 +1305,7 @@ export class Engine {
         try {
           if (this.record.liveControl) await this.requireTakeoverReturn();
           await this.recordDone(key, outcome, true, true, evaluatedMaterial);
-          if (this.record.liveControl) { delete this.record.liveControl; this.save(); }
+          if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
         } catch (error) {
           Object.assign(this.record, before);
           throw error;
@@ -1091,6 +1320,7 @@ export class Engine {
       return { ok: true, outcome: "resume_requested", target: target! };
     } catch (error) {
       const reason = (error as Error).message;
+      if (error instanceof OwnershipError && error.code === "message_review_required") return fail("message_review_required", reason);
       this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
       return fail(error instanceof RecoveryStateWriteFailed ? "state_write_failed" : "check_unavailable", reason, error instanceof RecoveryStateWriteFailed ? 500 : 503);
     } finally {
@@ -1131,6 +1361,7 @@ export class Engine {
    * then the same session on whichever account is signed in, without waiting for a reading.
    */
   async resume(body: Record<string, unknown> = {}): Promise<CommandResult> {
+    if (this.restartReview) return refuse("Review the phase plan and use Continue to resume Kiln.");
     if (this.phaseRecoveryTarget() || "target" in body) return this.recoverPhase("resume", body);
     const waiting = this.record.billing?.hold ? undefined : this.waitingPhaseKey();
     if (waiting !== undefined) {
@@ -1756,11 +1987,22 @@ export class Engine {
    * says what Kiln does next (the ● line). An interrupted session is left untouched for a Kiln
    * that can resume it.
    */
-  async decide(): Promise<UnderwayDecision> {
+  async decide(options: { review?: boolean } = {}): Promise<UnderwayDecision> {
+    if (options.review) this.reviewingRestart = true;
     // The ● line says what these checks found, so their own terminal lines would repeat it.
     this.quiet = true;
     try {
-      return await this.decideQuietly();
+      const decision = await this.decideQuietly();
+      if (options.review) {
+        this.restartReview = decision.kind === "start_phase" ? { activityKey: decision.phaseId, action: "start" }
+          : decision.kind === "start_audit" ? { activityKey: decision.phaseKey, action: "start" }
+          : decision.kind === "start_pull_request" ? { activityKey: PR_PHASE_KEY, action: "start" }
+          : decision.kind === "resume" ? { activityKey: decision.phaseKey, action: "resume" }
+          : decision.kind === "waiting" ? { activityKey: decision.phaseKey, action: "wait" } : undefined;
+        this.reviewingRestart = !!this.restartReview;
+        this.changed();
+      }
+      return decision;
     } finally {
       this.quiet = false;
     }
@@ -1768,8 +2010,20 @@ export class Engine {
 
   private async decideQuietly(): Promise<UnderwayDecision> {
     if (this.record.liveControl) {
+      const target = this.record.liveControl.takeover.target;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.at(-1);
+      if (session && run && !run.endedAt && (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) === target.attemptId) {
+        try { await requireExited(run); }
+        catch {
+          this.current = { phaseKey: target.activityKey, session, processRunning: true, commits: [] };
+          this.recoveredLive = true;
+          this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
+          this.recoveredTimer.unref();
+        }
+      }
       await this.reconcileTakeover();
-      return { kind: "needs_you", phaseKey: this.record.liveControl.takeover.target.activityKey, again: true };
+      return { kind: "needs_you", phaseKey: target.activityKey, again: true };
     }
     const previous = this.latestSessionOverall();
     const previousRun = previous?.session.runs.at(-1);
@@ -1832,11 +2086,12 @@ export class Engine {
             ? await this.judgeEndedSession(latest.phaseKey, false)
             : await this.checkInterrupted(latest.phaseKey);
           if (verdict.kind === "complete") return { kind: "complete" };
+          if (verdict.kind === "stopping") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
           if (verdict.kind === "resume") {
             this.pendingResume = latest.phaseKey;
             return { kind: "resume", phaseKey: latest.phaseKey, sessionId: latest.session.sessionId };
           }
-          if (verdict.kind !== "stopping") this.interruptedKey = undefined;
+          this.interruptedKey = undefined;
           if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: latest.phaseKey, limit: this.waitLimit(latest.phaseKey) };
           // It worked outside the workspace: Needs you, never resumed (multi-repo AC-OUTSIDE-04).
           if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
@@ -1846,6 +2101,7 @@ export class Engine {
           this.current = { phaseKey: latest.phaseKey, session: latest.session, commits: [], processRunning: false };
           const verdict = await this.judgeEndedSession(latest.phaseKey, false);
           if (verdict.kind === "complete") return { kind: "complete" };
+          if (verdict.kind === "stopping") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
           if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
           if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: latest.phaseKey, limit: this.waitLimit(latest.phaseKey) };
           if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
@@ -1904,7 +2160,7 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
-      if (this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
+      if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
         const request = this.requestedResume;
@@ -2080,20 +2336,28 @@ export class Engine {
 
   private async auditDoneCheck(key: string): Promise<DoneCheckOutcome> {
     await this.deliveryPending; await this.additionChain; this.activeCheck = key;
-    const before = structuredClone(this.record);
+    let before: PrdRecord | undefined;
     try {
+      const plan = await this.readPlan();
+      if (!plan.ok) throw new CompletionCheckUnavailable(plan.problem);
+      before = structuredClone(this.record);
       const activity = this.auditActivity(key)!; const context = this.admissionContext();
       if (deliveryEnabled(this.record)) context.developmentChecks = () => [ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId })];
       const stayed = await this.readWorkspaceEvidence(key);
-      const plan = await this.readPlan(); const checks: CheckResult[] = [];
-      if (!plan.ok) checks.push(planCheck(plan));
-      if (deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext(key));
+      const checks: CheckResult[] = [];
+      if (deliveryEnabled(this.record)) {
+        await reconcileDelivery(this.deliveryContext(key));
+        if (ledger(this.record).sourceUnavailable) throw new CompletionCheckUnavailable(ledger(this.record).lastReadError ?? "Required development-delivery evidence is unavailable.");
+      }
       try {
         if (!activity.acceptedResult) {
           const result = await submitAudit(context, { executionId: this.record.executionId, activityId: activity.activityId, revision: this.record.completionAudits!.revision, reportPath: activity.reportPath });
+          if (result.refusal && (result.refusal.status === 503 || result.refusal.code === "evidence_unavailable")) throw new CompletionCheckUnavailable(result.refusal.reason);
           checks.push(...result.checks);
         } else {
-          const accepted = acceptedAudit(this.stateDirectory, activity)!;
+          let accepted: NonNullable<ReturnType<typeof acceptedAudit>>;
+          try { accepted = acceptedAudit(this.stateDirectory, activity)!; }
+          catch (error) { throw new CompletionCheckUnavailable((error as Error).message); }
           checks.push({ name: "Audit result recorded", passed: true, facts: [`Accepted ${activity.reportPath}: ${accepted.report.outcome}.`] });
           try {
             const current = await auditCurrentness(context, activity);
@@ -2103,12 +2367,16 @@ export class Engine {
             checks.push({ name: "Audit evidence is current", passed: false, facts: [error.message] });
           }
         }
-      } catch (error) { if (error instanceof CompletionCheckUnavailable) throw error; checks.push({ name: "Audit result recorded", passed: false, facts: [(error as Error).message] }); }
+      } catch (error) {
+        if (error instanceof CompletionCheckUnavailable) throw error;
+        if (!(error instanceof AuditRefusal) || error.status === 503 || error.code === "evidence_unavailable") throw new CompletionCheckUnavailable((error as Error).message);
+        checks.push({ name: "Audit result recorded", passed: false, facts: [error.message] });
+      }
       checks.push(...await repositoryChecks(context), ...(stayed.passed ? [] : [stayed.check]));
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       this.save();
       return this.withCodexSafety(key, { passed: checks.every(c => c.passed), checks, plan, judgedLeafId: key, stayed });
-    } catch (error) { Object.assign(this.record, before); throw error; }
+    } catch (error) { if (before && !this.commands.fault) Object.assign(this.record, before); throw error; }
     finally { this.activeCheck = undefined; }
   }
 
@@ -2219,6 +2487,9 @@ export class Engine {
   private async resumeSession(phaseKey: string, request?: ResumeRequest): Promise<void> {
     const session = this.latestSession(phaseKey);
     if (!session) return;
+    const priorInspectionOwner = this.inspectionResumingSession;
+    this.inspectionResumingSession = session.sessionId;
+    try {
     if (this.record.liveControl) {
       try { await this.requireTakeoverReturn(); }
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
@@ -2237,6 +2508,11 @@ export class Engine {
         this.recordStop(phaseKey, this.transcriptMissing(session) ? "not_resumable" : phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", [{ name: "Codex recovery", passed: false, facts: [...this.codexSafetyProblems(phaseKey), ...(session.codex?.resumeError ? [session.codex.resumeError] : [])] }]);
         return;
       }
+    }
+    if (session.agentId !== "codex" && this.transcriptMissing(session)) {
+      this.checking = false;
+      this.recordStop(phaseKey, "not_resumable", [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history. Use the fresh-session recovery instructions."] }]);
+      return;
     }
     const facts = this.record.phases[phaseKey]!;
     const account = request === undefined || session.agentId === "codex" ? undefined : await this.readAccountBeforeResume();
@@ -2288,6 +2564,7 @@ export class Engine {
     // A resumed run gets the flags for the workspace as it now stands.
     const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
     await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
+    } finally { this.inspectionResumingSession = priorInspectionOwner; }
   }
 
   /**
@@ -2370,14 +2647,26 @@ export class Engine {
         const target: LiveTarget = { executionId: this.record.executionId!, activityId: activity.activityId, activityKey: phaseKey, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId };
         const directory = gateDirectory(this.stateDirectory, attemptId);
         createGate(directory, target);
-        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin" };
+        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin", literalInput: true };
         const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
-        args = [...args, "--settings", JSON.stringify({ hooks })];
+        args = [...args, "--replay-user-messages", "--settings", JSON.stringify({ hooks })];
       }
     }
     if (this.record.liveControl) {
       try { await this.requireTakeoverReturn(); }
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
+    }
+    if (cause !== "launch" && session.agentId !== "codex" && this.transcriptMissing(session)) {
+      this.checking = false;
+      this.recordStop(phaseKey, "not_resumable", [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history. Use the fresh-session recovery instructions."] }]);
+      if (dispatchedControl) {
+        dispatchedControl.effects.session = "not_started";
+        if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = "not_sent";
+        this.commands.checkpoint(dispatchedControl);
+        this.commands.finishAutomatic(dispatchedControl);
+      }
+      this.controlDispatch = undefined;
+      return;
     }
     const current: CurrentPhase = { phaseKey, session, commits: [], processRunning: true };
     this.current = current;
@@ -2387,6 +2676,7 @@ export class Engine {
     this.changed();
     // A missing folder given with --add-dir is silently dropped, so the workspace folder is made first; it is outside every checkout.
     mkdirSync(this.workspaceFolder, { recursive: true });
+    const liveExitTarget = live ? readGate(live.gateDirectory).target : undefined;
     let dispatchFailed = false;
     try { if (session.agentId === "codex") {
       await this.runCodexProcess(current, session, prompt, cause, cwd, note, started);
@@ -2402,8 +2692,18 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
-      ...(live ? { live } : {}),
-      ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => { const local = this.takeoverLocalMaterial(phaseKey); if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); await requireNoTerminal(launchEnv, session.sessionId, identity); if (local !== this.takeoverLocalMaterial(phaseKey)) { if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete(); throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back."); } } } : {}),
+      ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(liveExitTarget!) } : {}),
+      ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => {
+        const local = this.takeoverLocalMaterial(phaseKey);
+        if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
+        await requireNoTerminal(launchEnv, session.sessionId, identity);
+        if (local !== this.takeoverLocalMaterial(phaseKey)) {
+          if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
+          throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back.");
+        }
+        // Final synchronous admission after the async checks, using this dispatch's profile.
+        requireHistory(launchEnv, session.sessionId);
+      } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
       exitGraceMs: this.options.exitGraceMs ?? (process.platform === "win32" ? WINDOWS_EXIT_GRACE_MS : 0),
@@ -2441,7 +2741,9 @@ export class Engine {
     if (!dispatchFailed) this.observeControlDispatch(session);
     if (this.controlDispatch === dispatchedControl && dispatchedControl) {
       const run = session.runs.find(r => r.control?.operationId === dispatchedControl.id);
-      const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && session.agentId !== "codex" && !!run.endedAt && !runReportedInit(this.stateDirectory, session, session.runs.indexOf(run));
+      const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && !!run.endedAt && (session.agentId === "codex"
+        ? codexNotDispatched(run)
+        : !runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)));
       dispatchedControl.effects.session = neverStarted ? "not_started" : "unknown";
       if (dispatchedControl.reply_text !== null) dispatchedControl.effects.reply = dispatchedControl.effects.session === "unknown" ? "unknown" : "not_sent";
       try { this.commands.finishAutomatic(dispatchedControl); } catch { /* Journal fault keeps dispatch blocked. */ }
@@ -2458,7 +2760,7 @@ export class Engine {
     if (!receipt) return;
     const run = session.runs.find(r => r.control?.operationId === receipt.id);
     if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
-    if (this.returningTakeover && this.record.liveControl) { delete this.record.liveControl; this.returningTakeover = false; this.save(); }
+    if (this.returningTakeover && this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.returningTakeover = false; this.save(); }
     receipt.effects.session = "resumed";
     if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
     this.commands.checkpoint(receipt);
@@ -2634,6 +2936,13 @@ export class Engine {
       const session = this.latestSession(phaseKey);
       const runIndex = (session?.runs.length ?? 0) - 1;
       const run = session?.runs[runIndex];
+      if (run?.cause === "launch" && session?.runs.length === 1 && run.codex?.verificationFailure && codexNotDispatched(run)) {
+        // A rejected first launch has no materialized provider history to audit.
+        // This also handles a restart after an older Kiln left it implementing.
+        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
+        this.emitSessionEvent(phaseKey, "stopped");
+        return { kind: "stopped" };
+      }
       const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -2798,7 +3107,9 @@ export class Engine {
 
   private codexSafetyProblems(phaseKey: string, includeVerification = true): string[] {
     return (this.record.phases[phaseKey]?.sessionIds ?? []).flatMap(id => {
-      const run = this.sessionRecord(phaseKey, id)?.runs.at(-1);
+      const session = this.sessionRecord(phaseKey, id);
+      if (codexSessionNotDispatched(session)) return [];
+      const run = session?.runs.at(-1);
       if (!run?.codex) return [];
       return [
         ...(includeVerification && run.codex.verificationFailure ? [run.codex.verificationFailure] : []),
@@ -2855,11 +3166,11 @@ export class Engine {
     this.activeCheck = phaseKey;
     await this.deliveryPending;
     await this.additionChain;
-    const beforePlan = await this.readPlan();
-    const beforeBaseline = this.record.planReconciliation?.baselineId;
     // A wake during the check restarts its origin retry, so the sleep watch runs through it.
     this.watchSleep();
     try {
+      const beforePlan = await this.readPlan();
+      const beforeBaseline = this.record.planReconciliation?.baselineId;
       const outcome = await runDoneCheck({
         stayed: await this.readWorkspaceEvidence(phaseKey),
         git: this.git,
@@ -2899,8 +3210,8 @@ export class Engine {
   private async pullRequestCheck(phaseKey?: string) {
     if (phaseKey !== undefined) this.activeCheck = phaseKey;
     await this.deliveryPending;
-    if (!this.record.completedAt) await this.readPlan();
     try {
+      if (!this.record.completedAt) await this.readPlan();
       if (deliveryEnabled(this.record)) {
         const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
         const histories = await Promise.all(Object.keys(this.record.phases).map(key => this.readWorkspaceEvidence(key)));
@@ -3081,6 +3392,8 @@ export class Engine {
   }
 
   private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
+    // A real stop replaces the overview with its own recovery controls.
+    if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
@@ -3289,6 +3602,7 @@ export class Engine {
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
   private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+    if (this.reviewingRestart) return;
     if (cause === "limit_resume" && !this.commands.active) {
       if (this.commands.busy || this.checking || this.driving) return;
       const view = this.controlView();
@@ -3314,7 +3628,7 @@ export class Engine {
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
   private watchWait(): void {
     const key = this.waitingPhaseKey();
-    if (key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
+    if (this.reviewingRestart || key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
     this.unwatchWait();
     this.waitWatch = { phaseKey: key, readings: 0 };
     this.watchSleep();
@@ -3346,9 +3660,11 @@ export class Engine {
     if (!watch) return;
     if (watch.resetTimer) clearTimeout(watch.resetTimer);
     delete watch.resetTimer;
-    const resetsAt = this.refusedRun(watch.phaseKey)?.refusal.resetsAt;
-    if (resetsAt === undefined) return;
-    const due = Date.parse(resetsAt) + RESET_READING_DELAY_MS - this.now().getTime();
+    const found = this.refusedRun(watch.phaseKey);
+    if (!found || found.session.agentId === "codex") return;
+    const schedule = automaticResumeSchedule(found.refusal, this.claude?.account, found.session.initModel ?? found.session.model);
+    if (schedule.at === undefined) return;
+    const due = Date.parse(schedule.at) - this.now().getTime();
     if (due <= 0) return;
     const delay = Math.min(due, LONGEST_TIMER_MS);
     watch.resetTimer = setTimeout(() => {
@@ -3422,9 +3738,11 @@ export class Engine {
     if (facts.wait === undefined || watch?.phaseKey !== key) return;
     const first = watch.readings === 0;
     watch.readings++;
+    this.armResetReading();
     const verdict = judgeReading(reading, refusal, session.initModel ?? session.model);
     if (verdict === "no_usage_left") return;
-    const resetPassed = refusal.resetsAt !== undefined && this.now().getTime() >= Date.parse(refusal.resetsAt);
+    const schedule = automaticResumeSchedule(refusal, reading, session.initModel ?? session.model);
+    const resetPassed = schedule.at !== undefined && this.now().getTime() >= Date.parse(schedule.at);
     if (verdict === "usage_left" || resetPassed) void this.resumeWait(key, "limit_resume");
     else if (refusal.resetsAt === undefined && first) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
   }
@@ -3850,6 +4168,7 @@ export class Engine {
     const scanSignal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     for (const sessionId of facts.sessionIds) {
       const session = this.sessionRecord(phaseKey, sessionId);
+      if (codexSessionNotDispatched(session)) continue;
       if (session?.agentId === "codex") await this.readCodexAvailability(session, true);
       const conversation = session?.agentId === "codex" ? session.conversation : undefined;
       if (!conversation?.threadId || !conversation.codexHome || !this.options.tools.codex) {
@@ -3875,12 +4194,12 @@ export class Engine {
   stayedInWorkspace(phaseKey: string): StayedOutcome {
     if (this.record.settings.agentId === "codex") {
       const facts = this.record.phases[phaseKey];
-      const results = (facts?.sessionIds ?? []).map(id => codexStayedOutcome(id,
+      const results = (facts?.sessionIds ?? []).filter(id => !codexSessionNotDispatched(this.sessionRecord(phaseKey, id))).map(id => codexStayedOutcome(id,
         facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
         (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : [])));
       // Before the final session exists there are no final-session operations to audit.
-      // Any recorded session, including one with a missing file, is still checked above.
-      if (!results.length && phaseKey !== PR_PHASE_KEY) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
+      // Proven unused attempts need no history. Missing records still fail above.
+      if (!results.length && phaseKey !== PR_PHASE_KEY && !facts?.sessionIds.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
       const changes = results.flatMap(result => result.changes);
       const transcripts = results.flatMap(result => result.transcripts);
       const passed = results.every(result => result.passed);
@@ -3942,7 +4261,7 @@ export class Engine {
       if (!session.conversation?.threadId) return true;
       return session.codex?.conversationUnavailable === true;
     }
-    return session.initModel !== undefined && findTranscripts(claudeConfigFolder(this.options.env), session.sessionId).main === undefined;
+    return !claudeHistoryAvailability(this.options.env, session.sessionId).available;
   }
 
   sessionRecord(phaseKey: string, sessionId: string): SessionRecord | undefined {
@@ -4007,6 +4326,8 @@ export class Engine {
       return read;
     }
     const attemptedAt = this.now().toISOString();
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    const git = { ...this.git, signal };
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
@@ -4040,7 +4361,7 @@ export class Engine {
             if (!previous) {
               const historicalFile = this.record.plan?.find(p => p.id === phase.id)?.file;
               if (!revision || !historicalFile) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-              const original = await runGit(this.git, this.worktreePath, ["show", `${revision}:${this.paths.prdDirectoryFromRoot}/${historicalFile}`]);
+              const original = await runGit(git, this.worktreePath, ["show", `${revision}:${this.paths.prdDirectoryFromRoot}/${historicalFile}`]);
               const links = new Map<string, string>((this.record.plan ?? []).flatMap(p => [[p.file, p.id], [`./${p.file}`, p.id]]));
               if (original.exitCode !== 0 || !readPhaseDocument(historicalFile, original.stdout).closed || phaseScopeDigest(original.stdout, historicalFile, links) !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
             }
@@ -4049,6 +4370,9 @@ export class Engine {
           continue;
         }
         if (completions[phase.id]) continue;
+        const affectedNames = namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName);
+        const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
+        if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);
         // A Closed phase already published on the setup base needs no feature-branch push.
         // Prove exact document bytes, clean assigned workspace and published base independently.
         if (!previous) {
@@ -4057,18 +4381,18 @@ export class Engine {
           const proofs = await Promise.all(entries.map(async entry => {
             const cwd = expandHome(entry.worktreePath);
             const [status, head, branch, published] = await Promise.all([
-              runGit(this.git, cwd, ["status", "--porcelain"]), runGit(this.git, cwd, ["rev-parse", "HEAD"]),
-              runGit(this.git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]), runGit(this.git, cwd, ["ls-remote", "origin", `refs/heads/${entry.baseBranch}`]),
+              runGit(git, cwd, ["status", "--porcelain"]), runGit(git, cwd, ["rev-parse", "HEAD"]),
+              runGit(git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]), runGit(git, cwd, ["ls-remote", "origin", `refs/heads/${entry.baseBranch}`]),
             ]);
             return [status, head, branch, published].every(result => result.exitCode === 0) && !status.stdout.trim() && head.stdout.trim() === entry.baseCommit && branch.stdout.trim() === this.record.settings.featureBranch && published.stdout.trim().split(/\s/)[0] === entry.baseCommit;
           }));
           const prd = entries.find(entry => entry.kind === "prd");
-          const blob = prd?.baseCommit ? await runGit(this.git, this.worktreePath, ["show", `${prd.baseCommit}:${file}`]) : undefined;
+          const blob = prd?.baseCommit ? await runGit(git, this.worktreePath, ["show", `${prd.baseCommit}:${file}`]) : undefined;
           if (entries.length && proofs.every(Boolean) && blob?.exitCode === 0 && blob.stdout === active.documents[file]) {
             completions[phase.id] = { kind: "external", revision: prd!.baseCommit!, repositories: Object.fromEntries(entries.map(entry => [entry.name, { identity: entry.github, revision: entry.baseCommit! }])) }; continue;
           }
         }
-        const outcome = await runDoneCheck({ git: this.git, prdWorktreePath: this.worktreePath, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
+        const outcome = await runDoneCheck({ git, prdWorktreePath: this.worktreePath, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
           repositories: this.setUpRepositories.map(entry => this.checkedRepository(entry)), branch: this.record.settings.featureBranch, launchedLeafId: phase.id,
           stayed: { passed: true, check: { name: STAYED_CHECK_NAME, passed: true, facts: ["No Kiln session owned this external work; provider provenance is not applicable."] }, changes: [], transcripts: [] },
           ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }) });
@@ -4079,6 +4403,7 @@ export class Engine {
         }
         completions[phase.id] = { kind: "external", revision: outcome.pushedShas![this.paths.repositoryName]!, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: outcome.pushedShas![entry.name]! }])) };
       }
+      signal.throwIfAborted();
       // Remote/provenance checks can take time. Recheck all candidate membership and bytes.
       for (const source of [active, ...sources]) if (observePlan(source.path, this.paths.prdDirectoryFromRoot).digest !== source.digest) throw new Error(`source_changed: ${source.path} changed during plan reconciliation. Retry the handback.`);
       added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
@@ -4143,6 +4468,14 @@ export class Engine {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
     if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated") this.options.onTerminal?.(event);
   }
+}
+
+function codexNotDispatched(run: SessionRun): boolean {
+  return !!run.endedAt && !!run.codex && !run.codex.dispatch && run.codex.reconciliation !== "ambiguous" && run.codex.cleanup === "tracked_processes_stopped";
+}
+
+function codexSessionNotDispatched(session: SessionRecord | undefined): boolean {
+  return session?.agentId === "codex" && session.runs.length > 0 && session.runs.every(codexNotDispatched);
 }
 
 /** A refusal's facts as a stop carries them. */

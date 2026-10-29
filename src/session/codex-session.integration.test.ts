@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -74,6 +74,15 @@ describe("durable protected Codex attempts", () => {
     const run = await runCodexSession(f.options);
     expect(run.codex?.failure).toMatch(/recorded|protected/); expect(f.record.conversation?.threadId).toBe("work-parent");
     expect(f.calls().some(call => call.method === "turn/start")).toBe(false);
+  });
+  it.each([false, true])("requires every additional assigned root when cwd is implicit (missing root: %s)", async missing => {
+    const f = fixture();
+    const extra = join(f.sandbox.root, "additional-workspace"); mkdirSync(extra);
+    f.set({ omitRoots: missing });
+    const run = await runCodexSession({ ...f.options, writableRoots: [f.root, extra] });
+    if (missing) expect(run.codex?.verificationFailure).toContain("protected launch profile");
+    else expect(run.codex?.failure).toBeUndefined();
+    expect(f.calls().some(call => call.method === "turn/start")).toBe(!missing);
   });
   // AC-CODEX-03: a persisted conversation never inherits earlier eligibility.
   it.each([

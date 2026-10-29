@@ -20,7 +20,7 @@
     optimistic = { ...saved, ...settings, rememberForPrdRepository: settings.rememberForPrdRepository ?? false, preferenceRevision: settings.preferenceRevision ?? preference?.revision };
     saving = true;
     const answer = await changeSettings(config, { developmentDeployments: optimistic });
-    error = answer.ok ? "" : answer.reason ?? "Could not save development targets.";
+    error = answer.ok ? "" : answer.reason ?? "Could not save early-merge choices.";
     if (answer.ok) { optimistic = (answer.settings as Snapshot["settings"]).developmentDeployments; }
     else optimistic = undefined;
     saving = false;
@@ -41,17 +41,18 @@
 {#if (editable && snapshot.settings.developmentDeployments !== undefined) || delivery?.authorization.enabled || snapshot.needsYou}
 <section class="delivery" aria-label="Early merges">
   {#if editable}
-    <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: saved.targets })} /> Allow early merges</label>
+    <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: saved.targets })} /> <span>Allow early merges</span></label>
     <p>Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     {#if preference}
-      <p>Saved-target storage group: <strong>{preference.group.repository}</strong> · {preference.group.mainCheckoutPath}. Sharing this requirements repository grants no authority.</p>
+      <p>Choices are saved locally for PRDs in <strong>{preference.group.repository}</strong>, from this checkout: <span class="checkout">{preference.group.mainCheckoutPath}</span></p>
+      <p>Remember the early-merge on/off choice and selected repository branches. Each future PRD asks whether to reuse them; nothing is authorized automatically.</p>
       {#if preference.revision > 0}
         <ul>{#each preference.targets as target}<li>{target.repository} · {target.baseBranch}{#if target.environment}{" · "}Existing scope: {target.environment}{/if}</li>{/each}</ul>
         {#if !preference.enabled}<p>The saved choice keeps early merges off.</p>{/if}
-        <label><input type="checkbox" checked={saved.useSavedTargetsForThisPrd === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, useSavedTargetsForThisPrd: event.currentTarget.checked, ...(event.currentTarget.checked ? {} : { enabled: false, targets: [] }) })} /> Use these saved targets for this PRD</label>
+        <label><input type="checkbox" checked={saved.useSavedTargetsForThisPrd === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, useSavedTargetsForThisPrd: event.currentTarget.checked, ...(event.currentTarget.checked ? {} : { enabled: false, targets: [] }) })} /> <span>Use these saved early-merge choices for this PRD</span></label>
       {/if}
-      <label><input type="checkbox" checked={saved.rememberForPrdRepository === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, rememberForPrdRepository: event.currentTarget.checked })} /> Save these targets with this requirements repository</label>
-      {#if saved.useSavedTargetsForThisPrd}<p>Selected branches below were explicitly reused from {preference.group.repository}. New or changed targets require confirmation.</p>{/if}
+      <label><input type="checkbox" checked={saved.rememberForPrdRepository === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, rememberForPrdRepository: event.currentTarget.checked })} /> <span>Remember these early-merge choices for future PRDs</span></label>
+      {#if saved.useSavedTargetsForThisPrd}<p>Only matching repository branches are reused. Select any new or changed branches separately.</p>{/if}
     {/if}
     {#if saved.enabled}
       <div class="merge-targets">
@@ -104,7 +105,9 @@
 <style>
   .delivery { border-top: 1px solid var(--line); padding: 18px 0; font-size: 13px; }
   p { line-height: 1.55; color: var(--muted); overflow-wrap: anywhere; }
-  label { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+  label { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; margin: 10px 0; font-size: 14.5px; line-height: 1.5; cursor: pointer; }
+  input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
+  .checkout { display: block; overflow-wrap: anywhere; }
   article { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--line); padding: 12px; margin: 12px 0; }
   .merge-targets { display: grid; gap: 10px; margin: 16px 0; }
   .scope-note { font-size: 12px; }

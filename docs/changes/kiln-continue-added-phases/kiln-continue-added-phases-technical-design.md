@@ -77,7 +77,7 @@ A candidate read detects concurrent edits by checking its document membership an
 
 Reconcile before accepting advancement on manual Verify/Resume, settling a returned provider session, restarting unfinished work, selecting final audits/delivery, and recording completion. Read the active workspace PRD and phase set, then compare known other sources with their last accepted source observations. A stale shared checkout that predates the active plan is not a conflict merely because its Closed lines or phase count lag behind.
 
-An addition, reopened leaf, changed dependency or material scope edit in a known other source that is absent from the active workspace creates a plan discrepancy. Show source path/revision, affected phases and the concrete instruction to reconcile the documents into the active workspace, commit/push under the normal execution rules, then use the existing handback control. Kiln does not import, merge or overwrite those documents itself. Missing required source evidence is a failed reconciliation, not permission to complete.
+An addition, reopened leaf, changed dependency or material scope edit in a known other source that is absent from the active workspace creates a plan discrepancy. Show source path/revision, affected phases and the concrete instruction to reconcile the documents into the active workspace, commit/push under the normal execution rules, then use the existing handback control. Kiln does not import, merge or overwrite those documents itself. Missing required source evidence is a failed reconciliation, not permission to complete. Use the current completion-audit document contract: an explicitly marked `kiln:reference` provenance link is not traversed; governing seeds, unmarked local links and replacement pointers remain required.
 
 After a coherent compatible plan is accepted, atomically record its baseline, added IDs and remaining count before another activity is selected. Require the current activity's normal completion checks before advancing. Once they pass, run the next eligible unfinished leaf automatically; no completed-feature Continue action is involved. Preserve pending/active pauses and usage/billing holds. A plan edit or page load while the person controls the stopped session is observational only and cannot release that stop.
 
@@ -218,7 +218,7 @@ Render the seven mock-up states with the same titles, order and control emphasis
 
 ## Data Models and Migration
 
-Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 11 to 12 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
+Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 12 to 13 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
 
 | Record | Authoritative fields and lifecycle |
 |---|---|

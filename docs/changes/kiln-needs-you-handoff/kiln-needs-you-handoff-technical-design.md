@@ -31,6 +31,8 @@ The independent review is recorded in `a2b1909`, with the sizing handoff pushed 
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
 Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
 
 ### Applicability and ownership
@@ -62,6 +64,8 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 ## Local Interfaces
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
+
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
 
@@ -109,6 +113,8 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan/source failures prevent advancement while preserving session facts).
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
 Use every applicable existing completion obligation, including all repositories, workspace history/confirmations, Codex cleanup/dispatch safety and required development delivery. Preserve first-child judgement after a phase split and existing retained workspace-check rows. Render the evaluator’s requirement rows, facts and repository names beside Verify; derive passed/total from those rows rather than a literal three or a repository count. Do not create a second browser predicate for completion.
 
 Every completed evaluation, including a failed one, replaces all requirement results and `checkedAt` together. Preserve the existing conditional visibility of the workspace row and its retained passed row after a prior failure; the count uses that applicable displayed set, not every theoretically possible check. Launch eligibility such as billing approval remains visible separately and never changes this denominator. Label the summary as a point-in-time check. A copy action, clock tick, billing hold or background account refresh does not refresh completion evidence.
@@ -123,6 +129,8 @@ Replaces in part: [Kiln v1 design](../../prds/kiln-v1/technical-design.md), §Th
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
 Store the draft in browser page memory above the screen component, keyed by the recovery target. This preserves it when Needs you unmounts for Full session output, disconnect/reconnect, checking results or the already-complete choice. Do not put an unsent draft in snapshots, disk, URLs or provider history. A new page load need not restore it. Never transfer it into another stopped session’s reply field.
 
 Only the direct-reply action reads the draft into a request. Copy, Verify, advance and no-reply Resume omit it. Refusals and incomplete/error results retain it. Returning from the complete choice restores its exact contents with **Your reply has not been sent**; advance explicitly warns it will proceed without sending. Preserve the original draft while a request’s outcome is uncertain; do not automatically retry delivery.
@@ -133,7 +141,11 @@ Claude resumes its recorded session in its recorded working directory. Codex res
 
 ## Needs you Layout
 
+Show billing below the reply/terminal choices and the terminal-return controls. Its eligibility and refresh behavior remain unchanged; launch restrictions still disable unavailable actions.
+
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
+
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Build the arrangement and action wording from the saved mockup; sample agent, phase, question and check count are illustrative. Keep feature/repository/PRD identity and connection state visible. Lead with the recorded last message verbatim, or existing output/error evidence if absent; never assert that a failed check means the agent asked a question. Then show peer reply/terminal choices, followed by **Back from your terminal?**, with unfinished-work Resume and finished-personally Verify beside its visible check results. Stack in that reading order on narrow screens.
 

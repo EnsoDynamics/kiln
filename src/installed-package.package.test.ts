@@ -1,8 +1,8 @@
 // The package as npm would publish it, installed the way a person installs it (AC-INSTALL-01):
 // `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed
 // `kiln` command run against a real temporary repository. One install has to bring the command,
-// the browser view with its fonts, and the prompt templates; CI runs this on macOS, Linux and
-// Windows (AC-INSTALL-03).
+// the browser view with its fonts, and the prompt templates. Release CI installs the exact
+// Ubuntu-built archive on macOS (AC-INSTALL-03/05); local runs pack the working source.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -55,10 +55,18 @@ function end(child: ChildProcess): void {
 
 beforeAll(() => {
   sandbox = createSandbox();
-  const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", sandbox.root], repositoryRoot)) as [{ filename: string; files: { path: string }[] }];
-  packedFiles = packed[0].files.map((file) => file.path.replace(/\\/g, "/"));
+  let archive = process.env.KILN_PACKAGE_TARBALL;
+  if (archive) {
+    const listing = spawnSync("tar", ["-tzf", archive], { encoding: "utf8", timeout: 30_000 });
+    if (listing.status !== 0) throw new Error(`Cannot inspect candidate archive: ${listing.stderr}`);
+    packedFiles = listing.stdout.trim().split("\n").filter(path => !path.endsWith("/")).map(path => path.replace(/^package\//, ""));
+  } else {
+    const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", sandbox.root], repositoryRoot)) as [{ filename: string; files: { path: string }[] }];
+    packedFiles = packed[0].files.map((file) => file.path.replace(/\\/g, "/"));
+    archive = join(sandbox.root, packed[0].filename);
+  }
   const prefix = join(sandbox.root, "prefix");
-  npm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", join(sandbox.root, packed[0].filename)], sandbox.root);
+  npm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", archive], sandbox.root);
   kilnCommand = windows ? join(prefix, "kiln.cmd") : join(prefix, "bin", "kiln");
   installedPackage = windows ? join(prefix, "node_modules", "@ensodynamics", "kiln") : join(prefix, "lib", "node_modules", "@ensodynamics", "kiln");
 
@@ -74,6 +82,9 @@ afterAll(() => sandbox?.cleanup());
 
 describe("the installed package", () => {
   it("holds the compiled command, the built view and the prompts, and nothing else", () => {
+    const source = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { name: string; version: string };
+    const installed = JSON.parse(readFileSync(join(installedPackage, "package.json"), "utf8")) as { name: string; version: string };
+    expect(installed).toMatchObject({ name: source.name, version: source.version });
     const prompts = readdirSync(join(repositoryRoot, "prompts")).map((name) => `prompts/${name}`);
     expect(prompts.length).toBeGreaterThan(0);
     expect(packedFiles).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE", "dist/cli.js", "dist/view/index.html", ...prompts]));
@@ -131,7 +142,7 @@ describe("the installed package", () => {
     const inventory = collect(runInstalled(["status", "--json"], sandbox.root));
     expect(await inventory.exit).toBe(0);
     expect(JSON.parse(inventory.text())).toMatchObject({ schema_version: "1", ok: true, inventory_complete: true, counts: { live_controllers: 0 }, runs: [] });
-    for (const path of [["handoff"], ["reply"], ["audit", "submit"], ["delivery", "evidence"]]) {
+    for (const path of [["handoff"], ["message"], ["take-over"], ["reply"], ["audit", "submit"], ["delivery", "evidence"]]) {
       const help = collect(runInstalled([...path, "--help", "--json"], sandbox.root));
       expect(await help.exit).toBe(0);
       expect(JSON.parse(help.text())).toMatchObject({ schema_version: "1", command: { path } });
@@ -147,14 +158,14 @@ describe("the installed package", () => {
       return child.stdout;
     };
     const root = JSON.parse(help([]));
-    expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["reply", "resume", "verify-and-advance", "command-status", "settings"]));
+    expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["message", "take-over", "reply", "resume", "verify-and-advance", "command-status", "settings"]));
     for (const c of root.commands.filter((c: {path: string[]}) => !['run', 'add-repository', 'audit', 'delivery'].includes(c.path[0]!))) {
       for (const code of c.errors) expect(c.error_meanings[code], `${c.path.join(' ')} ${code}`).toMatch(/^Exit [234]:/);
     }
     const status = JSON.parse(help(["status"])).command;
     expect(status.result_fields.status_token).toContain("Opaque current");
     expect(status.result_fields.controls).toContain("live controller");
-    for (const name of ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "settings"]) {
+    for (const name of ["message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "settings"]) {
       const c = JSON.parse(help([name])).command;
       const text = help([name], false);
       for (const code of ["stale_status_token", "busy", "command_id_conflict", "operation_indeterminate"]) {
@@ -171,6 +182,87 @@ describe("the installed package", () => {
     expect(receipt.result_fields['operation.effects.reply']).toContain("submitted");
     expect(receipt.result_fields['operation.effects.reply']).toContain("provider conversation evidence");
     expect(receipt.result_fields['operation.reply_text']).toContain("not_sent");
+  });
+
+  it("inventories every command in root text and supplies usable legacy syntax, context and refusals", () => {
+    const help = (path: string[], json = false) => {
+      const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
+    };
+    const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string }[];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence"];
+    expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
+    const root = help([]);
+    for (const c of inventory) {
+      expect(root).toContain(`${c.path.join(" ")} — ${c.purpose}`);
+      expect(help(c.path)).toContain(c.purpose);
+      expect(JSON.parse(help(c.path, true)).command.path).toEqual(c.path);
+    }
+    for (const group of ["audit", "delivery"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
+    for (const [name, usage, errors] of [
+      ["run", "kiln run <PRD-path> [--resume]", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
+      ["add-repository", "kiln add-repository <folder-name>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
+    ] as const) {
+      const c = JSON.parse(help([name], true)).command; const text = help([name]);
+      expect(c.usage).toBe(usage); expect(c.errors).toEqual(errors);
+      if (name === "run") expect(c.flags.resume.source).toContain("already-started execution");
+      for (const error of errors) { expect(c.error_meanings[error]).toMatch(/^Exit [12]:/); expect(text).toContain(c.error_meanings[error]); }
+      expect(c.flags.json.source).toContain("Help only"); expect(c.examples[0].preparation).toBeTruthy();
+      expect(text).not.toContain("Existing helper-specific errors"); expect(text).not.toContain("[options]");
+    }
+    const run = JSON.parse(help(["run"], true)).command;
+    expect(run.arguments[0].source).toContain("docs/changes"); expect(run.limits.join(" ")).toContain("foreground");
+    const add = JSON.parse(help(["add-repository"], true)).command;
+    expect(add.arguments[0].source).toContain("cwd selects the PRD"); expect(add.error_meanings.addition_refused).toContain("checking/resuming");
+  });
+
+  it("ships complete helper JSON file contracts, contents and refusal meanings without Git or providers", () => {
+    const help = (path: string[], json: boolean) => {
+      const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
+    };
+    const fields: Record<string, string[]> = {
+      "audit snapshot": ["executionId", "activityId", "revision", "testPaths", "evidencePaths"],
+      "audit submit": ["executionId", "activityId", "revision", "reportPath"],
+      "delivery assess": ["executionId", "revision", "owner", "documentsDigest", "requirementManifestDigest", "required", "criteria", "reason", "checkpoints"],
+      "delivery prepare": ["executionId", "revision", "owner", "checkpointId", "operation"],
+      "delivery evidence": ["executionId", "revision", "owner", "checkpointId", "operationId", "references"],
+    };
+    for (const [name, required] of Object.entries(fields)) {
+      const path = name.split(" "); const c = JSON.parse(help(path, true)).command;
+      expect(Object.keys(c.input_contract.fields)).toEqual(expect.arrayContaining(required));
+      expect(c.usage).toBe(`kiln ${name} <JSON-file>`);
+      const text = help(path, false);
+      for (const field of required) expect(text).toContain(field);
+      expect(c.examples.length).toBeGreaterThan(0);
+      for (const example of c.examples) {
+        expect(example.preparation).toContain("status");
+        const file = example.argv.at(-1); expect(example.files[file]).toBeDefined();
+        expect(text).toContain(JSON.stringify(example.files[file], null, 2));
+        expect(example.files[file].revision).toEqual(expect.any(Number));
+      }
+      for (const error of c.errors) expect(c.error_meanings[error].length).toBeGreaterThan(30);
+      expect(text).not.toContain("existing audit/delivery contract");
+      expect(c.exits).toMatchObject({ "0": expect.any(String), "1": expect.stringContaining("failure"), "2": expect.stringContaining("syntax") });
+    }
+    const snapshot = JSON.parse(help(["audit", "snapshot"], true)).command;
+    expect(snapshot.input_contract.types.TestPath).toHaveProperty("assessmentEvidenceId");
+    const submit = JSON.parse(help(["audit", "submit"], true)).command;
+    expect(submit.input_contract.types.AuditReport).toHaveProperty("methodEvidence");
+    expect(submit.input_contract.types.MethodEvidence).toHaveProperty("redChecks");
+    const assess = JSON.parse(help(["delivery", "assess"], true)).command;
+    expect(assess.input_contract.types.Checkpoint).toHaveProperty("requirements");
+    expect(assess.input_contract.types.EvidenceRequirement).toHaveProperty("match.command");
+    const prepare = JSON.parse(help(["delivery", "prepare"], true)).command;
+    expect(prepare.result_fields.result).toContain("operationId");
+    expect(prepare.error_meanings.unresolved).toContain("no new operation");
+    for (const group of ["audit", "delivery"]) {
+      const root = JSON.parse(help([], true)); const nested = JSON.parse(help([group], true));
+      for (const name of Object.keys(fields).filter(name => name.startsWith(`${group} `))) {
+        expect(root.commands.find((c: { path: string[] }) => c.path.join(" ") === name).input_contract).toBeDefined();
+        expect(nested.subcommands.find((c: { path: string[] }) => c.path.join(" ") === name).input_contract).toBeDefined();
+      }
+    }
   });
 
   it("serves the browser view, its scripts, styles and bundled fonts, from that one install", async () => {

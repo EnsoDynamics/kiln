@@ -10,7 +10,7 @@
   let { account, agent = account.agentId === "codex" ? "Codex" : "Claude Code", paused, notStarted = false, pullRequest = false, now }: { account: NonNullable<Snapshot["account"]>; agent?: string; paused: boolean; notStarted?: boolean; pullRequest?: boolean; now: number } = $props();
   const nowDate = $derived(new Date(now));
   const nearNote = $derived(notStarted ? "Close to the limit. Sign in to another account before starting." : paused ? "Close to the limit. Switch accounts before you start the next phase." : pullRequest ? "Close to the limit." : "Close to the limit. Pause after this phase to switch accounts.");
-  const updated = $derived(`usage updated ${ago(account.updatedAt, nowDate)}`);
+  const updated = $derived(account.limitsObservedAt ? `usage updated ${ago(account.limitsObservedAt, nowDate)}` : "usage observation time unavailable");
 </script>
 
 <section class="card account" aria-labelledby="acct-h">
@@ -39,6 +39,7 @@
     </div>
   {/if}
   {#if account.stale}<p class="message">Stale reading · last successful update {new Date(account.lastSuccessfulAt ?? account.updatedAt).toLocaleString()}</p>{/if}
+  {#if (account.limitsStale || account.stale) && account.limitsObservedAt}<p class="message">Stale usage reading · last successful usage update {new Date(account.limitsObservedAt).toLocaleString()}</p>{/if}
   {#if account.agentId === "codex"}<p class="sub">Account allowances are shared across PRDs. Missing information is unknown. Sign in or change accounts in a terminal with <span class="code-inline">codex login</span>.</p>{/if}
   {#if paused}<p class="switch">To switch accounts, run <span class="code-inline">{account.agentId === "codex" ? "codex login" : "claude auth login"}</span> in another terminal, then press Start. The next phase uses whichever account is signed in.</p>{/if}
 </section>

@@ -58,15 +58,33 @@ describe("a schema 1 record read by this Kiln", () => {
     harness = await createHarness({ sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Partway." }, { exit: 0 }] }] });
     await harness.engine.start({ refinementConfirmed: true });
     await harness.engine.settled();
+    // Launch readiness is auth-only, while the phase's independent usage read can
+    // finish afterward. Establish the stale-usage precondition through real reads,
+    // rather than relying on which startup/dispatch read happens to finish last.
+    await harness.engine.refreshBilling();
+    await harness.engine.agents.refresh();
+    const usageAt = harness.engine.agents.state.account!.limitsObservedAt;
+    expect(usageAt).toEqual(expect.any(String));
+    await harness.engine.agents.refreshClaudeForLaunch(harness.engine.worktreePath, harness.env, AbortSignal.timeout(10_000));
     const before = buildSnapshot(harness.engine);
+    expect(before.account?.limitsObservedAt).toBe(usageAt);
     expect(before.needsYou).toBeDefined();
     const engine = reopenAsSchemaOne(harness);
+    // Settle auth-only startup before the independent fresh usage read. Phase 6
+    // deliberately gives those observations separate dates and freshness states.
+    await engine.refreshBilling();
     await engine.agents.refresh();
     // The next kiln run checks the stop again, reading its commits from Git, as v1 does.
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
     await engine.settled();
     const after = buildSnapshot(engine);
-    expect(after.account).toEqual({ ...before.account, ...(before.account?.extraUsage ? { extraUsage: { ...before.account.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(before.account?.limitsStale).toBe(true);
+    expect(after.account?.limitsStale).toBeUndefined();
+    // AC-SEE-03: usage completes before its final corroborating authentication read.
+    expect(Date.parse(after.account!.limitsObservedAt!)).toBeLessThan(Date.parse(after.account!.updatedAt));
+    expect(Date.parse(after.account!.limitsObservedAt!)).toBeGreaterThan(Date.parse(before.account!.limitsObservedAt!));
+    const priorAccount = { ...before.account }; delete priorAccount.limitsStale;
+    expect(after.account).toEqual({ ...priorAccount, ...(before.account?.extraUsage ? { extraUsage: { ...before.account.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String), limitsObservedAt: expect.any(String) });
     // A stopped run keeps accruing waiting time during the restart; all other timing facts survive migration.
     const advanceWaiting = (earlier: Timing, later: Timing): Timing => ({ ...earlier, asOf: later.asOf, waitingMs: earlier.waitingMs + Date.parse(later.asOf) - Date.parse(earlier.asOf) });
     expect(after).toEqual({

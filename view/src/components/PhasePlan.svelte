@@ -29,7 +29,7 @@
   };
 </script>
 
-<section class="plan" aria-labelledby="plan-h">
+<section class="plan" class:restart-review={!!snapshot.restartReview} aria-labelledby="plan-h">
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>
   <ol>
     {#each (snapshot.activities ?? snapshot.phases) as row (row.id)}
@@ -69,5 +69,7 @@
   .phase-link > span::after { content: " ›"; color: var(--red); }
   .file { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .state { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+  .restart-review .state { max-width: 100%; }
+  .restart-review .facts { white-space: normal; overflow-wrap: anywhere; }
   .facts { font-size: 13px; color: var(--dim); white-space: nowrap; }
 </style>

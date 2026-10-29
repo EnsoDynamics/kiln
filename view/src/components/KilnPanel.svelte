@@ -14,7 +14,7 @@
     <p>{#each parts as part, index (index)}{#if index > 0}<span class="code-inline">kiln run</span>{/if}{part}{/each}</p>
   {:else}
     <div class="status"><Icon name="warning" size={18} />Disconnected</div>
-    <p>The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again.</p>
+    <p>The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting.</p>
   {/if}
 </section>
 

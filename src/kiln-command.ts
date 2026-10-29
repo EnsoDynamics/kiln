@@ -134,9 +134,11 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   if (command === "add-repository") return runAddRepository(rest, context);
   if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
   if (rest.length === 0) return usageError(context);
-  if (rest.length > 1) return usageError(context, "kiln: kiln run takes one path.");
+  const resumeImmediately = rest.includes("--resume");
+  const paths = rest.filter(arg => arg !== "--resume");
+  if (paths.length !== 1 || paths[0]!.startsWith("-") || rest.filter(arg => arg === "--resume").length > 1) return usageError(context, "kiln: kiln run takes one path and an optional --resume.");
 
-  const pathArgument = rest[0]!;
+  const pathArgument = paths[0]!;
   const errColors = terminalColors(context.stderr, context.env);
   const git = findExecutable("git", context.env);
   if (!git) {
@@ -172,7 +174,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   }
 
   const stop = new StopControl(context);
-  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port };
+  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port, resumeImmediately };
   try {
     let record: PrdRecord | undefined;
     try {
@@ -182,6 +184,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
       context.stderr.write(`kiln: ${error.message}\n`);
       return EXIT_START_CHECKS_FAILED;
     }
+    if (resumeImmediately && record?.startedAt === undefined) return usageError(context, "kiln: --resume requires an already-started execution. Run without --resume and press Start first.");
     const work = record?.startedAt === undefined ? notStarted(run, record) : underway(run, record);
     return await Promise.race([work, stop.done]);
   } finally {
@@ -193,6 +196,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
 }
 
 interface KilnRun {
+  resumeImmediately: boolean;
   location: PrdLocation;
   tools: { git: string; gh: string | undefined; claude: string | undefined; codex: string | undefined };
   context: CommandContext;
@@ -343,12 +347,12 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
     }
   }
   write(formatSummaryLine(engine, colors));
-  const decision = await engine.decide();
+  const decision = await engine.decide({ review: !run.resumeImmediately });
   if (stop.stopping) return await stop.done;
   const { address, openError } = await serveAndOpen(run, engine);
   write(formatDecisionLine(decision, engine, colors, openError === undefined ? address : undefined));
   if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
-  // Only once the view is served and opened does a session spawn or resume.
+  // Default restarts stay at review; --resume permits eligible continuation after serving.
   await engine.continue();
   // Kiln stays in the foreground, through Needs you, a pause and Complete, until Ctrl+C (AC-KEEP-01).
   return stop.done;

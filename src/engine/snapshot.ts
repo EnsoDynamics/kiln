@@ -24,7 +24,7 @@ import { auditRecoveryPrompt, codexSessionPrompt, freshSessionOutsideNote, fresh
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
-import { blockingRow, limitRow } from "../session/usage-limit.js";
+import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
@@ -46,9 +46,12 @@ export interface LimitView {
   agentId?: AgentId;
   recovery?: { state: "allowed" | "blocked" | "unknown"; reason: string };
   allowances?: AgentAccount["limits"];
+  allowancesObservation?: { observedAt: string | null; state: "current" | "stale" | "unavailable"; reason: string | null };
   label: string;
   resetsAt?: string;
   resetPassed: boolean;
+  /** Effective reset plus the provider buffer; absent time means no reliable countdown. */
+  automaticResume?: { label: string; at?: string };
   account?: { email?: string; plan?: string; error?: string; percent?: number; at: string; atLimitUntil?: string };
   blockingLimit?: { label: string; resetsAt?: string };
 }
@@ -317,6 +320,7 @@ export interface Snapshot {
     repositories: RepositoryCommits[];
   };
   pause: { pending: boolean; active: boolean };
+  restartReview?: { activityKey: string; action: "start" | "resume" | "wait" };
   /** The signed-in account and its usage, once the first calls return (Startup order). */
   account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
@@ -333,7 +337,14 @@ export interface Snapshot {
  *   const snapshot = buildSnapshot(engine, documentsFound);
  *   snapshot.feature.state  // "implementing"
  */
-export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snapshot {
+export interface SnapshotReads {
+  /** Inspection publishes saved attempt times directly and avoids aggregate browser timing. */
+  includeTiming?: boolean;
+  auditStore?: Pick<AuditStore, "read">;
+  output?: (session: SessionRecord) => OutputLine[];
+}
+export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {
+  const includeTiming = reads.includeTiming !== false;
   const { record } = engine;
   const plan = record.plan ?? [];
   const leaves = recordedLeaves(plan);
@@ -345,7 +356,9 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
-        : waitingKey !== undefined
+        : engine.restartReview
+          ? "paused"
+          : waitingKey !== undefined
           ? "waiting"
           : record.pause.activeSince !== undefined
           ? "paused"
@@ -353,18 +366,18 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
 
   const needsYou = stoppedKey === undefined ? undefined : needsYouView(engine, stoppedKey);
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
-  const current = state === "implementing" ? currentView(engine) : undefined;
+  const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
   const entry = engine.modelEntry(selectedChoice(settings).model);
   const metadata = engine.agents.state;
 
-  const views = phaseViews(engine, state);
+  const views = phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
     ...(record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.planReconciliation.handback ? { handback: record.planReconciliation.handback } : {}),
       ...(record.planReconciliation.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
-    activities: activityViews(engine, state, views),
+    activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -377,7 +390,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      ...optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)),
+      ...(includeTiming ? optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)) : {}),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -416,6 +429,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound): Snaps
     repositories: repositoryRows(engine, state),
     ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: views,
+    ...optional("restartReview", engine.restartReview),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
     billing: record.settings.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch),
@@ -448,7 +462,7 @@ function judgedKeyFor(plan: RecordedPlanPhase[], launchedKey: string): string {
   return judgedPhase(plan, launchedKey)?.id ?? launchedKey;
 }
 
-function currentView(engine: Engine): Snapshot["current"] {
+function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] {
   const current = engine.current;
   if (!current) return undefined;
   const plan = engine.record.plan ?? [];
@@ -464,7 +478,7 @@ function currentView(engine: Engine): Snapshot["current"] {
   if (latestStep) seen = { text: stepLine(latestStep.name), at: latestStep.startedAt };
   if (session.lastSkill && (!seen || session.lastSkill.at > seen.at)) seen = { text: `${session.lastSkill.name} skill started`, at: session.lastSkill.at };
   return {
-    ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session) } : {}),
+    ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session, reads.output) } : {}),
     phaseId: judgedKeyFor(plan, current.phaseKey),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
@@ -602,7 +616,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(resumable ? {
-      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId).replace("\n", " && ") : resumeCommand(folder, session.sessionId),
+      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId, process.platform, true) : resumeCommand(folder, session.sessionId),
       ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
         deliveryAuthority: engine.deliveryAuthority(),
         agentId: session.agentId ?? "claude_code",
@@ -667,17 +681,28 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
   if (found?.session.agentId === "codex") {
     view.agentId = "codex";
+    view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Codex usage reading is available after the refusal." };
     const release = found.session.codex?.usageRecovery?.release;
     if (release) view.recovery = { state: release.state, reason: release.reason };
     const current = engine.agents.state.account;
     if (current && Date.parse(current.startedAt) >= Date.parse(refusal!.at)) {
       view.account = { ...optional("email", current.email), ...optional("plan", current.plan), ...optional("error", current.error ?? current.limitsError), at: current.updatedAt };
-      view.allowances = current.limits;
+      const usageAt = current.limitsObservedAt;
+      const stale = !!(current.stale || current.limitsStale || current.limitsError || current.error);
+      view.allowances = usageAt ? current.limits : [];
+      view.allowancesObservation = { observedAt: usageAt ?? null, state: !usageAt ? "unavailable" : stale ? "stale" : "current", reason: current.limitsError ?? current.error ?? (!usageAt ? "Dated Codex usage is unavailable." : stale ? "Usage was retained without a fresh usage reading." : null) };
     }
     return view;
   }
+  view.agentId = "claude_code";
+  view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Claude usage reading is available after the refusal." };
   const reading = engine.claude?.account;
+  if (waitingScreen && found && refusal) view.automaticResume = automaticResumeSchedule(refusal, reading, found.session.initModel ?? found.session.model);
   if (!found || !refusal || reading === undefined || Date.parse(reading.startedAt) < Date.parse(refusal.at)) return view;
+  const usageAt = reading.limitsObservedAt;
+  const stale = !!(reading.limitsError || reading.error);
+  view.allowances = usageAt ? reading.limits : [];
+  view.allowancesObservation = { observedAt: usageAt ?? null, state: !usageAt ? "unavailable" : stale ? "stale" : "current", reason: reading.limitsError ?? reading.error ?? (!usageAt ? "Dated Claude usage is unavailable." : stale ? "Usage was retained without a fresh usage reading." : null) };
   const account: NonNullable<LimitView["account"]> = { ...optional("email", reading.error === undefined ? reading.email : undefined), ...optional("plan", reading.error === undefined ? reading.plan : undefined), ...optional("error", reading.error), at: reading.updatedAt };
   if (reading.error === undefined && reading.limitsError === undefined) {
     const row = limitRow(refusal.rateLimitType, reading.limits);
@@ -728,18 +753,18 @@ function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snap
  * `claude --resume <id>`, the path shown under `~/` and quoted only where the shell needs it.
  * On Windows, the PowerShell form.
  */
-export function resumeCommand(worktreePath: string, sessionId: string, platform: NodeJS.Platform = process.platform): string {
-  return claudeCommand(worktreePath, `--resume ${sessionId}`, platform);
+export function resumeCommand(worktreePath: string, sessionId: string, platform: NodeJS.Platform = process.platform, conditional = false): string {
+  return claudeCommand(worktreePath, `--resume ${sessionId}`, platform, conditional);
 }
 
 /** `cd <worktree>` then `claude`, with any arguments: the path quoted as `resumeCommand` gives. */
-export function claudeCommand(worktreePath: string, args?: string, platform: NodeJS.Platform = process.platform): string {
+export function claudeCommand(worktreePath: string, args?: string, platform: NodeJS.Platform = process.platform, conditional = false): string {
   const claude = args === undefined ? "claude" : `claude ${args}`;
   if (platform === "win32") return `cd '${worktreePath.replace(/'/g, "''")}'; ${claude}`;
   const shown = displayPath(worktreePath);
   const quote = (text: string) => (text === "" || /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`);
   const path = shown === "~" ? "~" : shown.startsWith("~/") ? `~/${quote(shown.slice(2))}` : quote(shown);
-  return `cd ${path}\n${claude}`;
+  return `cd ${path}${conditional ? " && " : "\n"}${claude}`;
 }
 
 function shellArgument(value: string, platform: NodeJS.Platform): string {
@@ -774,7 +799,7 @@ function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: strin
   return runTiming(runs, from, doneAt ?? new Date().toISOString(), doneAt ? undefined : running ? "running" : "waiting");
 }
 
-function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
+function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean): PhaseView[] {
   const { record } = engine;
   const plan = record.plan ?? [];
   // Kiln's facts are keyed by the leaf it launched; rows follow the plan as last read.
@@ -810,7 +835,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     const startedAt = firstSession?.runs[0]?.startedAt;
     if (startedAt && session) {
       view.sessionStartedAt = startedAt;
-      view.timing = timingFor(engine, [key!], startedAt, facts?.doneAt)!;
+      if (includeTiming) view.timing = timingFor(engine, [key!], startedAt, facts?.doneAt)!;
       // Done records its count and pushed commit; a stopped row has the commits Kiln read for the stop, newest first.
       const read = engine.stoppedCommits;
       const stopped = (view.state === "needs_you" || view.state === "waiting") && read?.phaseKey === key ? read?.commits : undefined;
@@ -844,7 +869,7 @@ function phaseViews(engine: Engine, state: FeatureState): PhaseView[] {
     else if (state === "paused") row.state = "next";
     if (startedAt) {
       row.sessionStartedAt = startedAt;
-      row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
+      if (includeTiming) row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
     }
     rows.push(row);
   }
@@ -935,8 +960,8 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
 }
 
 /** Labels actual tool invocations or observed remote activity, never a prepared intent. */
-function observedDeliveryActivity(engine: Engine, session: SessionRecord): NonNullable<NonNullable<Snapshot["current"]>["deliveryActivity"]> {
-  const tool = readOutputLines(engine.stateDirectory, session).filter(line => line.source === "tool").at(-1);
+function observedDeliveryActivity(engine: Engine, session: SessionRecord, output?: SnapshotReads["output"]): NonNullable<NonNullable<Snapshot["current"]>["deliveryActivity"]> {
+  const tool = (output ? output(session) : readOutputLines(engine.stateDirectory, session)).filter(line => line.source === "tool").at(-1);
   if (!tool) return { label: "Implementing" };
   let command = tool.text.replace(/^Bash /, "");
   let commands = simpleCommands(command);
@@ -961,7 +986,7 @@ function sessionSteps(engine: Engine, key: string, session: SessionRecord): Step
   ];
 }
 
-function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[]): PhaseView[] {
+function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[], includeTiming: boolean, inspectionStore?: Pick<AuditStore, "read">): PhaseView[] {
   const { record } = engine;
   const rows: PhaseView[] = [];
   const started = new Set<string>();
@@ -981,20 +1006,21 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[])
       const from = first?.runs[0]?.startedAt;
       row.outputLineCount = engine.outputLines(session).length;
       if (from) {
-        row.sessionStartedAt = from; row.timing = timingFor(engine, [activity.key], from, facts?.doneAt)!;
+        row.sessionStartedAt = from; if (includeTiming) row.timing = timingFor(engine, [activity.key], from, facts?.doneAt)!;
         row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.worktreePath), branch: record.settings.featureBranch, sessionId: session.sessionId, ...optional("commitCount", facts?.repositories[engine.paths.repositoryName]?.commitCount), ...optional("latestCommit", facts?.repositories[engine.paths.repositoryName]?.pushedSha) };
       }
     }
     try {
-      const accepted = acceptedAudit(engine.stateDirectory, audit);
-      const attempt = accepted?.result ?? (audit.attempts.at(-1) ? new AuditStore(engine.stateDirectory).read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
+      const store = inspectionStore ?? new AuditStore(engine.stateDirectory);
+      const accepted = acceptedAudit(engine.stateDirectory, audit, store);
+      const attempt = accepted?.result ?? (audit.attempts.at(-1) ? store.read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
-      const snapshot = audit.snapshots.at(-1) ? new AuditStore(engine.stateDirectory).read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
+      const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       row.audit = { ...optional("outcome", report?.outcome), checks: facts?.stop?.checks ?? attempt?.checks ?? [], criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
       if (accepted?.report.outcome === "passed" && facts?.doneAt) {
         row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
-    } catch (error) { row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
+    } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     rows.push(row); started.add(row.id);
   }
   // Closed-at-start phases have no activity history; show their preserved history before audits.

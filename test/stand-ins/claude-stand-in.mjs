@@ -76,6 +76,10 @@ const logHelper = (kind) => scenarioPath && appendFileSync(`${scenarioPath}.help
 const isSession = args.includes("--session-id") || args.includes("--resume");
 if (args[0] === "auth" && args[1] === "status") {
   logHelper("account");
+  const authCalls = scenarioPath ? readFileSync(`${scenarioPath}.helpers.jsonl`, "utf8").split("\n").filter(line => line.includes('"kind":"account"')).length : 1;
+  const authWait = authCalls > 1 ? process.env.KILN_STANDIN_AUTH_AFTER_WAIT : process.env.KILN_STANDIN_AUTH_WAIT;
+  while (authWait && !existsSync(authWait)) await new Promise(resolve => setTimeout(resolve, 25));
+  if (process.env.KILN_STANDIN_AUTH_OBSERVED) writeFileSync(process.env.KILN_STANDIN_AUTH_OBSERVED, new Date().toISOString());
   const account = process.env.KILN_STANDIN_ACCOUNT;
   process.stdout.write(account ? readFileSync(account, "utf8") : JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email: "alex@acme-shop.dev", subscriptionType: "max" }));
   process.stdout.write("", () => process.exit(0));
@@ -88,7 +92,10 @@ if (!isSession && args[0] === "-p" && args[1] === "/usage") {
   await new Promise(() => {});
 }
 if (!isSession && args.includes("--input-format")) {
-  logHelper(args.includes("--setting-sources=user,project,local") ? "skills" : "models");
+  const skillsRead = args.includes("--setting-sources=user,project,local");
+  logHelper(skillsRead ? "skills" : "models");
+  const metadataWait = skillsRead ? process.env.KILN_STANDIN_SKILLS_WAIT : process.env.KILN_STANDIN_MODELS_WAIT;
+  while (metadataWait && !existsSync(metadataWait)) await new Promise(resolve => setTimeout(resolve, 25));
   const modelsPath = process.env.KILN_STANDIN_MODELS;
   const answer = modelsPath ? JSON.parse(readFileSync(modelsPath, "utf8")) : { models: JSON.parse(readFileSync(join(fixtures, "supported-models.json"), "utf8")).models };
   if (answer.fail) {
@@ -154,6 +161,9 @@ const toolResult = (id, content, isError = false) => {
 };
 
 let stdinText = "";
+let stdinBuffer = "";
+const liveInputs = [];
+let firstInput = true;
 let stdinClosed = false;
 let interruptBy;
 let onInterrupt = () => {};
@@ -172,10 +182,13 @@ const exitAfterFlush = (code) =>
 const firstLine = new Promise((resolve) => {
   process.stdin.on("data", (chunk) => {
     stdinText += chunk.toString("utf8");
-    const lines = stdinText.split("\n");
-    if (lines.length > 1) resolve(lines[0]);
-    for (const line of lines.slice(1, -1)) {
-      if (line.includes('"control_request"') && line.includes('"interrupt"')) interrupt("request");
+    stdinBuffer += chunk.toString("utf8");
+    const lines = stdinBuffer.split("\n"); stdinBuffer = lines.pop();
+    for (const line of lines) {
+      if (firstInput) { firstInput = false; resolve(line); continue; }
+      const input = JSON.parse(line);
+      if (input.type === "control_request") interrupt("request");
+      if (input.type === "user") { liveInputs.push(input); appendFileSync(`${scenarioPath}.live-inputs.jsonl`, `${JSON.stringify(input)}\n`); }
     }
   });
   process.stdin.on("end", () => {
@@ -369,9 +382,28 @@ for (const action of session.actions) {
     emit({ type: "assistant", parent_tool_use_id: null, error: "rate_limit", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your limit" }] } });
     emit({ type: "result", subtype: "success", is_error: true, result: "You've hit your limit" });
     resultSent = true;
+  } else if (action.liveMessages) {
+    const until = Date.now() + 15000;
+    while (liveInputs.length < action.liveMessages && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20));
+    if (liveInputs.length < action.liveMessages) throw new Error("Live fixture did not receive its expected inputs.");
+    const inputs = liveInputs.splice(0, action.liveMessages);
+    const uuids = inputs.map(input => input.uuid);
+    if (action.reverseOrder) uuids.reverse();
+    for (const input of inputs) { keepRecord("user", input.message); emit(input); }
+    if (action.consumptionEvents) for (const observation of action.consumptionEvents) {
+      const correlated = observation.indices.map(i => inputs[i].uuid);
+      emit(observation.type === "assistant" ? { type: "assistant", user_message_uuids: correlated, message: { content: [{ type: "text", text: "Read the selected live inputs." }] } } : { type: "result", subtype: "success", is_error: false, user_message_uuids: correlated, result: "Selected live inputs accounted." });
+    }
+    else if (action.readOnly) emit({ type: "assistant", user_message_uuids: uuids, message: { content: [{ type: "text", text: "Read the live inputs." }] } });
+    else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: uuids, queued_turn_count: 0, result: "Live instructions accounted." });
+    if (action.exitAfter) await exitAfterFlush(0);
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
     resultSent = true;
+  } else if (action.rawEvent) {
+    process.stdout.write(JSON.stringify({ session_id: sessionId, ...action.rawEvent }) + (action.withNewline ? "\n" : ""));
+  } else if (action.exitNow !== undefined) {
+    await exitAfterFlush(action.exitNow);
   } else if (action.exit !== undefined) {
     exitCode = action.exit;
   }

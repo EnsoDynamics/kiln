@@ -1,5 +1,5 @@
 /** Read-only owner-controlled state access. Never invokes migration-writing readers. */
-import { lstatSync, readFileSync, readdirSync, realpathSync, existsSync, statSync } from "node:fs";
+import { lstatSync, openSync, closeSync, readSync, fstatSync, readdirSync, opendirSync, realpathSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep, basename } from "node:path";
 import { migrateRecord, SCHEMA_VERSION, type PrdRecord } from "../state/records.js";
 import { stateRoot } from "../state/state-files.js";
@@ -22,13 +22,35 @@ export function checkedPath(root: string, path: string): void {
     }
   }
 }
-export function privateJson<T>(root: string, path: string): T {
-  checkedPath(root, path);
-  return JSON.parse(readFileSync(path, "utf8")) as T;
+/** One atomic record is a bounded allocation; aggregate history is disk-spooled. */
+export const INSPECTION_RECORD_BYTES = 16 * 1024 * 1024;
+export function privateBytes(root: string, path: string, deadline = Date.now() + 5000): Buffer {
+  deadlineCheck(deadline); checkedPath(root, path);
+  if (!lstatSync(path).isFile()) throw new ControlFailure("state_unavailable", "Saved inspection metadata is not a regular file.");
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    if (size > INSPECTION_RECORD_BYTES) throw new ControlFailure("state_unavailable", "A saved inspection record exceeds the 16 MiB read-memory budget; the result is incomplete.");
+    const bytes = Buffer.allocUnsafe(size); let n = 0;
+    while (n < size) { deadlineCheck(deadline); const count = readSync(fd, bytes, n, Math.min(65536, size - n), n); if (!count) throw new ControlFailure("state_unavailable", "Saved state changed during the read."); n += count; }
+    deadlineCheck(deadline); return bytes;
+  } finally { closeSync(fd); }
+}
+export function privateJson<T>(root: string, path: string, deadline = Date.now() + 5000): T {
+  const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(privateBytes(root, path, deadline))) as T;
+  deadlineCheck(deadline); return parsed;
 }
 export function privateNames(root: string, path: string): string[] {
   checkedPath(root, path);
   return readdirSync(path).sort();
+}
+/** History scans avoid allocating an entire directory before their first deadline check. */
+export function* privateEntries(root: string, path: string, deadline: number): Generator<string> {
+  deadlineCheck(deadline); checkedPath(root, path);
+  const directory = opendirSync(path);
+  try {
+    for (;;) { deadlineCheck(deadline); const entry = directory.readSync(); if (!entry) break; yield entry.name; }
+  } finally { directory.closeSync(); }
 }
 export interface SavedWork { root: string; directory: string; record: PrdRecord; canonical: string; observedAt: string }
 export function readWork(root: string, directory: string): SavedWork {
@@ -47,7 +69,10 @@ export function readWork(root: string, directory: string): SavedWork {
 export function enumerateWork(env: NodeJS.ProcessEnv, deadline = Date.now() + 5000): { work: SavedWork[]; errors: ControlError[] } {
   const root = stateRoot(env); const work: SavedWork[] = []; const errors: ControlError[] = [];
   try {
-    if (!existsSync(root)) return { work, errors };
+    try { lstatSync(root); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { work, errors };
+      throw error;
+    }
     for (const repository of privateNames(root, root)) {
       deadlineCheck(deadline);
       const repo = join(root, repository);

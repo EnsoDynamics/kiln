@@ -100,6 +100,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     }
   }
+  if (engine.restartReview) text = "Ready to resume. Review the phase plan and press Resume in Kiln, or use kiln run <path> --resume on the next launch.";
   const doneFirst = "doneFirst" in decision ? decision.doneFirst : undefined;
   if (doneFirst) text = `${capitalized(phaseName(doneFirst.phaseId, engine))} is done${doneFirst.byPerson ? ", finished by you" : ""}. ${text}`;
   return `${colors.red("●")} ${text}${openedAddress === undefined ? "" : ` Opened ${colors.red(openedAddress)}`}`;

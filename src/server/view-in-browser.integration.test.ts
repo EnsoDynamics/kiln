@@ -141,8 +141,40 @@ async function waitUntil(condition: () => boolean, ms = 10_000): Promise<void> {
   }
 }
 
-/** Clicks the first button or link whose text is exactly `label`. */
-const click = (page: BrowserPage, label: string) => page.evaluate(`[...document.querySelectorAll("button, a")].find((e) => e.textContent.trim() === ${JSON.stringify(label)}).click()`);
+/** Clicks the first button or link whose text is exactly `label`, once it is enabled. */
+async function click(page: BrowserPage, label: string): Promise<void> {
+  const target = `[...document.querySelectorAll("button, a")].find((e) => e.textContent.trim() === ${JSON.stringify(label)})`;
+  await page.waitFor(`(() => { const element = ${target}; return element && !element.matches(":disabled"); })()`);
+  // Recheck in the click's browser task; never retry an action or bypass its guard.
+  await page.evaluate(`(() => { const element = ${target}; if (!element || element.matches(":disabled")) throw new Error("Control is not enabled."); element.click(); })()`);
+}
+
+describe("browser control actions", () => {
+  it("waits for an enabled control before issuing exactly one click", async () => {
+    const html = `<button disabled data-clicks="0" onclick="this.dataset.clicks = String(Number(this.dataset.clicks) + 1)">Continue</button>`;
+    const page = await chrome.open(`data:text/html,${encodeURIComponent(html)}`);
+    let action: Promise<void> | undefined;
+    let completed = false;
+    try {
+      await page.waitFor(`document.querySelector("button")?.disabled === true`);
+      action = click(page, "Continue").then(() => { completed = true; });
+      // A DevTools round trip is a barrier after the driver's initial browser work.
+      // A raw .click() on a disabled button completes silently without an event.
+      await page.evaluate(`document.querySelector("button").disabled`);
+      expect(completed).toBe(false);
+      expect(await page.evaluate(`document.querySelector("button").dataset.clicks`)).toBe("0");
+      await page.evaluate(`document.querySelector("button").disabled = false`);
+      await action;
+      expect(completed).toBe(true);
+      expect(await page.evaluate(`document.querySelector("button").dataset.clicks`)).toBe("1");
+      expect(page.problems).toEqual([]);
+    } finally {
+      await page.evaluate(`document.querySelector("button").disabled = false`).catch(() => undefined);
+      await action?.catch(() => undefined);
+      await page.close();
+    }
+  });
+});
 
 /** Replaces the clipboard with a recorder, so a test can read what each Copy button copied. */
 const recordClipboard = (page: BrowserPage) => page.evaluate(`window.__copied = []; Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text) => { window.__copied.push(text); } } }); true`);
@@ -235,6 +267,23 @@ const USE_VIEW_FONTS = `(async () => {
 // Codex support AC-AGENT-01/MODEL-02 change these exact controls. Adapt the
 // earlier reference before measuring; all unaffected boxes still use the original layout.
 const WITH_AGENT_METADATA = `(() => {
+  // AC-LIVE-02 replaces transport-loss claims in the earlier disconnected reference.
+  // Adapt only that copy/command region; continue comparing every unaffected text box.
+  const disconnected = document.querySelector('[aria-labelledby="disc-h"]');
+  if (disconnected) {
+    disconnected.querySelector('h2').textContent = 'Connection to Kiln lost';
+    disconnected.querySelector('p').textContent = 'Last-known state, observed at 11:47 AM, in phase 2b. Work may still be running. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal.';
+    disconnected.lastElementChild.remove();
+    for (const node of document.querySelectorAll('span')) {
+      if (node.textContent === 'Interrupted in phase 2b') node.textContent = 'Last known: phase 2b';
+      if (node.textContent === 'Interrupted') node.textContent = 'Last known: Implementing';
+      if (node.textContent === 'Settings can be changed again once Kiln is running.') node.textContent = 'Reconnect to Kiln before changing settings.';
+    }
+    document.querySelector('[aria-labelledby="kiln-h"] p').textContent = 'The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting.';
+  }
+  // AC-LIVE-01 replaces only this live-output link label; retain its existing layout.
+  const liveLink = [...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'Watch live');
+  if (liveLink) liveLink.firstChild.textContent = 'Control live session';
   const model = document.querySelector('#model');
   if (model) {
     const pair = model.parentElement.parentElement;
@@ -371,7 +420,7 @@ const SCREENS: {
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Implementing phase 2b 2 of 5 phases done",
       "2b Now implementing · phase 2b of 5 Store credit Claude Code · Opus 5.5 · high effort Started 10:58 AM · 49 min",
       "Build Deliverable review Test hardening Commit Refactor pass Push",
-      "Seen in the session: deliverable-review skill started · 2 min ago Watch live",
+      "Seen in the session: deliverable-review skill started · 2 min ago Control live session",
       "● The credit multiplier is applied before rounding; checking that against… · reviewer Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
@@ -442,11 +491,12 @@ const SCREENS: {
     clock: USAGE_LIMIT_NOW,
     copy: [
       "Customer returns Waiting for usage Phase 2b · Store credit · Waiting since 2:28 PM",
+      "Will resume automatically in 1h 13m No action needed. Kiln checks the 5-hour usage limit at 3:41 PM, including a 1-minute reset buffer.",
       "Phase 2b is waiting for the 5-hour usage limit to reset. Claude Code reported that the account’s 5-hour usage limit was used up. Resets at 3:40 PM, in 1h 12m. Kiln resumes this session by itself at the first reading that shows usage left: after the reset, or sooner if you sign in to another account.",
       "exit 1 2:28 PM last skill seen: implement-from-requirements, 3 min earlier Last message from Claude Code 5-hour limit reached · resets 3:40pm Full session output · 248 lines",
       "Go sooner on another account 1 Sign in to another Claude account in a terminal Use an account that has usage left. claude auth login Copy command To fill in the other account’s email, add it: claude auth login --email <address>",
       "2 Then press Resume now It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks Git first, then picks up the same session. If you don’t, Kiln resumes by itself at the first reading that shows usage left.",
-      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and at the reset. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.",
+      "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% As of Kiln’s latest reading, 2:28 PM. Kiln reads again every 5 minutes and after the reset buffer. Resume now This account’s 5-hour usage limit is at 100% until 3:40 PM.",
       `Settings for this PRD Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On ${LIMIT_SETTING.label} ${LIMIT_SETTING.help} On`,
     ],
   },
@@ -668,7 +718,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
 });
 
 describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
-  it("says plainly it is disconnected, keeps the last snapshot with the phase shown as Interrupted, and restores the live view when Kiln returns", async () => {
+  it("says plainly it is disconnected, keeps the last snapshot with the phase labeled last known, and restores the live view when Kiln returns", async () => {
     const thePort = await nextPort();
     let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
@@ -680,17 +730,17 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
       expect(lost).toMatch(/Disconnected from Kiln · last seen 11:4\d AM/i);
-      expect(lost).toContain(flat("Interrupted in phase 2b 2 of 5 phases done"));
-      expect(lost).toMatch(/Kiln isn’t running Nothing is being worked on\. This page shows what Kiln last saw, at 11:4\d AM, in phase 2b\. Its work is kept\. To pick up where it left off, run this in a terminal: kiln run docs\/prds\/customer-returns\/ Copy command/i);
+      expect(lost).toContain(flat("Last known: phase 2b 2 of 5 phases done"));
+      expect(lost).toMatch(/Connection to Kiln lost Last-known state, observed at 11:4\d AM, in phase 2b\. Work may still be running\. Reconnecting automatically; reconnect before acting or opening the conversation in your terminal\./i);
       expect(lost).toContain(flat("Last seen · phase 2b of 5 Store credit"));
-      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md 49m Interrupted"));
-      expect(lost).toContain(flat("Settings for this PRD Settings can be changed again once Kiln is running."));
-      expect(lost).toContain(flat("Kiln Disconnected The terminal running Kiln was closed or stopped. Controls come back when Kiln is running again."));
+      expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md 49m Last known: Implementing"));
+      expect(lost).toContain(flat("Settings for this PRD Reconnect to Kiln before changing settings."));
+      expect(lost).toContain(flat("Kiln Disconnected The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting."));
       expect(await largestText(page)).toBe("Customer returns");
       // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
       expect(lost).not.toContain(flat("When should Kiln pause?"));
       expect(lost).not.toContain(flat("Claude account"));
-      expect(lost).not.toContain(flat("Watch live"));
+      expect(lost).not.toContain(flat("Control live session"));
       expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter((b) => ["Change"].includes(b.textContent.trim())).map((b) => b.disabled)`)).toEqual([true]);
       expect(await page.evaluate<boolean>(`document.querySelector('input[type="checkbox"]').disabled`)).toBe(true);
 
@@ -699,14 +749,14 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       const back = await words(page);
       expect(back).toContain(flat("Implementing phase 2b"));
       expect(back).toContain(flat("When should Kiln pause?"));
-      expect(back).not.toContain(flat("Kiln isn’t running"));
+      expect(back).not.toContain(flat("Connection to Kiln lost"));
     } finally {
       await page.close();
       await server.close();
     }
   });
 
-  it("shows a waiting phase as Interrupted in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
+  it("shows a waiting phase as last known in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
     const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: waitingSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: USAGE_LIMIT_NOW, timeZone: TIME_ZONE });
     try {
@@ -714,10 +764,10 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
-      expect(lost).toContain(flat("Interrupted in phase 2b"));
-      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
-      expect(lost).toMatch(/2b store credit phase-2b-store-credit\.md [\dhm ]+ interrupted/);
-      expect(lost).not.toContain(flat("Waiting for usage"));
+      expect(lost).toContain(flat("Last known: phase 2b"));
+      expect(lost).toContain(flat("Connection to Kiln lost"));
+      expect(lost).toMatch(/2b store credit phase-2b-store-credit\.md [\dhm ]+ last known: waiting for usage/);
+      expect(lost).toContain(flat("Last known: Waiting for usage"));
       expect(lost).not.toContain(flat("Resume now"));
     } finally {
       await page.close();
@@ -735,7 +785,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const lost = await words(page);
-      expect(lost).toContain(flat("Kiln isn’t running Nothing is being worked on."));
+      expect(lost).toContain(flat("Connection to Kiln lost"));
       expect(lost).toContain(flat("2b Store credit phase-2b-store-credit.md Needs you"));
       expect(lost).not.toContain(flat("Check again"));
       expect(lost).not.toContain(flat("Pick it up yourself"));
@@ -744,7 +794,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
       const back = await words(page);
       expect(back).toContain(flat("Check again"));
-      expect(back).not.toContain(flat("Kiln isn’t running"));
+      expect(back).not.toContain(flat("Connection to Kiln lost"));
     } finally {
       await page.close();
       await server.close();
@@ -763,7 +813,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await server.close();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 20_000);
       const text = await words(page);
-      expect(text).toContain(flat("All phases 2b Store credit Interrupted"));
+      expect(text).toContain(flat("All phases 2b Store credit Last known: Implementing"));
       expect(text).toContain(flat("23 passed in 4.81s"));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
       expect(text).not.toContain(flat("Load earlier"));
@@ -1388,7 +1438,7 @@ describe("the controls, in a real browser", () => {
   it("links to the live output, the full output and the pull request (AC-WATCH-03, AC-WATCH-10, AC-PR-04)", async () => {
     const hrefOf = (page: BrowserPage, label: string) => page.evaluate<string>(`[...document.querySelectorAll("a")].find((a) => a.textContent.trim().startsWith(${JSON.stringify(label)})).getAttribute("href")`);
     for (const [snapshot, label, href] of [
-      [runningSnapshot(), "Watch live", "/customer-returns/phase/2b"],
+      [runningSnapshot(), "Control live session", "/customer-returns/phase/2b"],
       [needsYouMessageSnapshot(), "Full session output", "/customer-returns/phase/2b"],
       [completeSnapshot(), "Open on GitHub", "https://github.com/acme/acme-shop/pull/218"],
     ] as const) {
@@ -1494,7 +1544,7 @@ describe("the look (AC-LOOK-04)", () => {
       // Green: done and connected.
       expect(await style("[data-phase='1'] .pill", "color")).toBe("rgb(156, 196, 154)");
       expect(await style(".dot.connected", "backgroundColor")).toBe("rgb(156, 196, 154)");
-      // Amber, once Kiln is gone: the disconnected Kiln and the phase it was working on, now Interrupted.
+      // Amber, once Kiln is gone: the disconnected Kiln and the last-known phase it was working on.
       await running.server.close();
       await running.page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`);
       expect(await style(".lost", "color")).toBe(AMBER);
@@ -1551,7 +1601,7 @@ describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
       const connectedAt = Date.now();
       await page.waitFor(`document.body.innerText.includes("Disconnected from Kiln")`, 25_000);
       expect(Date.now() - connectedAt).toBeGreaterThan(12_000);
-      expect(await words(page)).toContain(flat("Interrupted in phase 2b"));
+      expect(await words(page)).toContain(flat("Last known: phase 2b"));
     } finally {
       await page.close();
       await server.close();

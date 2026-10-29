@@ -1,6 +1,6 @@
 # Phase 1: Continue added work after handback
 
-**Closed:** 2026-10-27
+**Closed:** 2026-10-29
 
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — relevant sections: Plan Identity and Comparison; Source Reconciliation → Active execution handback; Continuation Acceptance and Recovery → Start, interruption and completion (active-run additions); Data Models and Migration; Validation and Criteria Coverage.
@@ -22,6 +22,6 @@ Establish the shared baseline/comparison and coherent-source contracts through t
 
 ## Implementation evidence
 
-[Active-plan handback validation](kiln-active-plan-handback-validation.md) records the scoped boundaries and actual-provider proof. Private schema 12 retains immutable plan sidecars; completed-feature consumers must reuse these contracts without treating a failed observation as an empty plan.
+[Active-plan handback validation](kiln-active-plan-handback-validation.md) records the scoped boundaries and actual-provider proof. Private schema 13 retains immutable plan sidecars; completed-feature consumers must reuse these contracts without treating a failed observation as an empty plan.
 
-Repository validation covered the dependency audit (0 blocking findings), lint, type checks, 626 unit tests, 17 Codex proof checks and all 827 applicable integration tests (2 existing skips). The full integration run passed 826 tests and timed out one multi-stage recovery fixture; after tracing its complete assertions at 82 seconds and budgeting that workflow at 120 seconds, its original two-test file passed. Six package tests, both actual-provider handbacks and Chrome at 390/1200 pixels also passed. Independent conflict, deliverable and hardening reviews completed. The validation note retains the separate full-run/rerun results and the isolated qualified-CLI/two-worker environment.
+The original implementation closed on 2026-10-27; current-code recovery was revalidated on 2026-10-29 against develop `6fcc057`. Dependency audit, lint, type checks, 653 unit tests, 14 release checks, 18 Codex proof checks and 8 installed-package tests passed. The complete integration verification set covers all 100 current files: 1,129 applicable cases passed across the full runs and focused rechecks, with 2 existing skips. The validation record retains the exact combined accounting and resolved browser-cleanup/workflow-budget failures rather than claiming one uninterrupted green command. Both actual-provider handbacks passed again against the final compiled build; real browser coverage passed at desktop and narrow widths. Independent deliverable review and test hardening completed, including the final harness and budget changes.

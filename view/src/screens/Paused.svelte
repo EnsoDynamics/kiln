@@ -20,7 +20,7 @@
   let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const { config } = viewContext();
   const after = $derived(pausedAfter(snapshot));
-  const next = $derived(nextPhase(snapshot));
+  const next = $derived(snapshot.restartReview ? (snapshot.activities ?? snapshot.phases).find(row => row.id === snapshot.restartReview!.activityKey) : nextPhase(snapshot));
   const nextIsPr = $derived(next?.id === PR_ID);
   const nextName = $derived(next ? phaseName(next.id, snapshot) : "");
   let pressing = $state(false);
@@ -36,19 +36,21 @@
 
 <main class="page-main">
   <StateHeader {snapshot} {connected} now={connected ? now : (lastSeenAt ?? now)} />
-  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} workKept prdFolder={snapshot.feature.prdFolder} {now} />{/if}
+  {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   <section class="held" aria-labelledby="now-h">
     <div class="words">
-      <span class="eyebrow">{after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>
+      <span class="eyebrow">{snapshot.restartReview ? "Ready to resume" : after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>
       <h2 id="now-h">{#if nextIsPr}Next: the pull request{:else if next}Next: {nextName}, {next.title}{/if}</h2>
-      <p>{after ? `${capitalized(phaseName(after.id, snapshot))} finished. Paused before the next activity.` : "Paused before the next activity."}</p>
+      <p>{snapshot.restartReview ? snapshot.restartReview.action === "resume" ? "Resume the interrupted conversation with its saved history." : snapshot.restartReview.action === "wait" ? "Resume automatic usage recovery for the saved conversation." : "Review the phase plan, then resume when you’re ready." : after ? `${capitalized(phaseName(after.id, snapshot))} finished. Paused before the next activity.` : "Paused before the next activity."}</p>
       <p>
         {#if after?.doneAt}{capitalized(phaseName(after.id, snapshot))}, {after.title}, finished with its commit and push at {clockTime(after.doneAt, new Date(now), { afterWord: true })}.{/if}
-        Nothing is running. Change the model or effort first if you want; they apply to {nextIsPr ? "the pull request" : nextName}.
+        Nothing is running.
+        {#if snapshot.restartReview && snapshot.restartReview.action !== "start"}The saved conversation keeps its original model and effort. Setting changes apply to later new sessions.
+        {:else}Change the model or effort first if you want; they apply to {nextIsPr ? "the pull request" : nextName}.{/if}
       </p>
       {#if reason}<span class="message">{reason}</span>{/if}
     </div>
-    <button type="button" class="button solid start" disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
+    <button type="button" class="button solid start" disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{snapshot.restartReview ? "Resume Kiln" : nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
   </section>
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>

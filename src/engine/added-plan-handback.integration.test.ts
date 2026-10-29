@@ -208,3 +208,24 @@ it("requires committed and published evidence for a newly externally Closed leaf
   expect(h.engine.record.phases["2b"]?.stop?.kind).toBe("done_check");
   expect(h.claudeCalls()).toHaveLength(2);
 });
+
+it.each([false, true])("refuses externally Closed work with an unchecked repository (inherited=%s)", async inherited => {
+  h = await createHarness({ sessions: [asking] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const baseline = h.engine.record.planReconciliation!.baselineId;
+  const stopped = structuredClone(h.engine.record.phases["1"]);
+  const folder = join(h.engine.worktreePath, directory);
+  const repos = "\n\n**Repositories:** comet-index\n";
+  if (inherited) {
+    writeFileSync(join(folder, extra), "# Phase 4: Lending — split into 4a" + repos + "\n## Split into\n\n| Phase | Work |\n|---|---|\n| [4a](phase-4a-index.md) | Index |\n");
+    writeFileSync(join(folder, "phase-4a-index.md"), "# Phase 4a: Index\n\n**Closed:** 2026-10-29\n\n## Acceptance criteria covered\nAC-RET-01\n");
+  } else writeFileSync(join(folder, extra), extraText.replace("\n", "\n\n**Closed:** 2026-10-29\n" + repos));
+  git(h.sandbox, h.engine.worktreePath, "add", directory);
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test(comet): publish external scope naming unchecked index");
+  git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: false, code: "check_unavailable" });
+  expect(h.engine.record.planReconciliation!.check!.problem).toContain("comet-index");
+  expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline);
+  expect(h.engine.record.phases["1"]).toEqual(stopped);
+  expect(h.claudeCalls()).toHaveLength(1);
+});

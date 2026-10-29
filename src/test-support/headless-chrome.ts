@@ -55,6 +55,9 @@ export async function launchChrome(): Promise<HeadlessChrome> {
   const child: ChildProcess = spawn(chromePath(), ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb", "about:blank"], {
     stdio: ["ignore", "ignore", "pipe"],
   });
+  // Retain closure before any request: a signal exit leaves exitCode null, and
+  // teardown may begin after the process's one close event has already arrived.
+  const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
   const endpoint = await new Promise<string>((resolve, reject) => {
     let text = "";
     const timer = setTimeout(() => reject(new Error(`Chrome didn't start: ${text}`)), 30_000);
@@ -77,6 +80,13 @@ export async function launchChrome(): Promise<HeadlessChrome> {
   let nextId = 0;
   const pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   const eventListeners = new Set<(message: Message) => void>();
+  const disconnected = () => {
+    for (const request of pending.values()) request.reject(new Error("Chrome DevTools connection closed."));
+    pending.clear();
+    eventListeners.clear();
+  };
+  socket.addEventListener("close", disconnected);
+  socket.addEventListener("error", disconnected);
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data)) as Message;
     if (message.id !== undefined) {
@@ -88,6 +98,7 @@ export async function launchChrome(): Promise<HeadlessChrome> {
   });
   const send = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (socket.readyState !== WebSocket.OPEN) { reject(new Error("Chrome DevTools connection closed.")); return; }
       const id = ++nextId;
       pending.set(id, { resolve, reject });
       socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
@@ -155,7 +166,7 @@ export async function launchChrome(): Promise<HeadlessChrome> {
     async close() {
       await send("Browser.close").catch(() => undefined);
       socket.close();
-      if (child.exitCode === null) await new Promise((resolve) => child.once("exit", resolve));
+      await closed;
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };

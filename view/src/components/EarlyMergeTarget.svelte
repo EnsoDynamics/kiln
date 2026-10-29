@@ -26,14 +26,14 @@
   .merge-target { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--panel); }
   .target-copy { min-width: 0; }
   h4, label { margin: 0; font-size: 13px; font-weight: 400; line-height: 1.5; }
-  label { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
-  input { accent-color: var(--text); }
+  label { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 0 12px; cursor: pointer; }
+  input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
   p { margin: 5px 0 0; overflow-wrap: anywhere; line-height: 1.5; color: var(--muted); font-size: 12px; }
   strong { font-weight: 600; overflow-wrap: anywhere; }
   button { flex-shrink: 0; border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
   button:hover:not(:disabled) { background: var(--line); }
   button:disabled { opacity: .45; cursor: default; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+  button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
   .authorized { color: var(--muted); font-size: 12px; flex-shrink: 0; }
   @media (max-width: 640px) { .merge-target { align-items: flex-start; flex-direction: column; gap: 12px; } }
 </style>

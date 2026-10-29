@@ -109,6 +109,62 @@ function finishByHand(h: Harness): void {
 }
 
 describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
+  it("keeps an undecided periodic reading inside the reset buffer from launching a retry", async () => {
+    const s = await setup(reset => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
+    await startToWait(s);
+    s.claude.deliver(signedIn([usageRow("session", 100, resetIso(s.reset))]));
+    const schedule = buildSnapshot(s.h.engine).waiting!.limit.automaticResume;
+    expect(schedule).toEqual({ label: "5-hour window", at: new Date(s.reset * 1000 + 60_000).toISOString() });
+    s.clock.advance(s.reset * 1000 + 20_000 - s.clock.now().getTime());
+    void s.claude.refreshAccount();
+    s.claude.deliver({ error: "Usage unavailable", limits: [] });
+    expect(s.h.engine.waitingPhaseKey()).toBe("1");
+    expect(s.h.claudeCalls()).toHaveLength(1);
+    s.clock.advance(41_000);
+    s.claude.queue({ error: "Usage unavailable", limits: [] }, { error: "Usage unavailable", limits: [] });
+    void s.claude.refreshAccount();
+    await untilSettled(s.h.engine, () => s.h.engine.isPhaseDone("1"));
+    expect(s.h.engine.latestSession("1")!.runs[1]!.cause).toBe("limit_resume");
+  });
+
+  it("shows the weekly blocking reset before the five-hour window resets", async () => {
+    const s = await setup(reset => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset })]);
+    await startToWait(s);
+    const weekly = new Date(s.reset * 1000 + 4 * 86_400_000).toISOString();
+    s.claude.deliver(signedIn([usageRow("session", 100, resetIso(s.reset)), usageRow("weekly_all", 100, weekly)]));
+    expect(buildSnapshot(s.h.engine).waiting!.limit).toMatchObject({ resetPassed: false, automaticResume: { label: "Weekly", at: new Date(Date.parse(weekly) + 60_000).toISOString() } });
+    expect(s.h.claudeCalls()).toHaveLength(1);
+  });
+
+  it("does not retry ahead of a known weekly blocker when the stopping row cannot be read", async () => {
+    const s = await setup(reset => [refusedSession({ rateLimitType: "overage", resetsAt: reset })]);
+    await startToWait(s);
+    const weekly = new Date(s.reset * 1000 + 4 * 86_400_000).toISOString();
+    s.claude.deliver(signedIn([usageRow("weekly_all", 100, weekly)]));
+    s.clock.advance(3_700_000);
+    void s.claude.refreshAccount();
+    s.claude.deliver(signedIn([usageRow("weekly_all", 100, weekly)]));
+    expect(s.h.engine.waitingPhaseKey()).toBe("1");
+    expect(buildSnapshot(s.h.engine).waiting!.limit.automaticResume!.at).toBe(new Date(Date.parse(weekly) + 60_000).toISOString());
+    expect(s.h.claudeCalls()).toHaveLength(1);
+  });
+
+  it("replaces the old weekly deadline with the switched account's five-hour deadline", async () => {
+    const s = await setup(reset => [refusedSession({ rateLimitType: "seven_day", resetsAt: reset + 4 * 86_400 })]);
+    await startToWait(s);
+    s.claude.deliver(signedIn([usageRow("weekly_all", 100, resetIso(s.reset + 4 * 86_400))]));
+    // The new account's reset was 58 seconds ago: its buffered check is due in about
+    // two seconds, while the obsolete weekly deadline is still days away.
+    const switchedReset = Math.floor(s.clock.now().getTime() / 1000) - 58;
+    void s.claude.refreshAccount();
+    s.claude.deliver(signedIn([usageRow("weekly_all", 10), usageRow("session", 100, resetIso(switchedReset))], { email: "new@example.test", orgId: "new-org" }));
+    expect(buildSnapshot(s.h.engine).waiting!.limit.automaticResume).toEqual({ label: "5-hour window", at: new Date(switchedReset * 1000 + 60_000).toISOString() });
+    expect(s.h.engine.waitingPhaseKey()).toBe("1");
+    const asked = s.claude.asked;
+    await waitFor(() => s.claude.asked > asked, 10_000);
+    expect(s.clock.now().getTime()).toBeGreaterThanOrEqual(switchedReset * 1000 + 60_000);
+  });
+
   it("waits instead of stopping, keeps waiting at a reading with no usage left, and resumes the same session at the first with usage left", async () => {
     const { states, holder } = keepAwakeRecorder();
     const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")], { keepAwake: holder });
@@ -217,20 +273,29 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
   });
 
   it("takes a reading a minute after the limit's reset time", async () => {
-    // Hold setup time still: real Git/worktree admission can itself exceed five seconds
-    // under load, consuming the timer window before this test starts observing it.
-    // Once waiting, let the clock run normally; the reset reading is then due in five seconds.
-    const initial = Date.now(); const observation: { at?: number } = {};
-    const clock = { now: () => new Date(initial + (observation.at === undefined ? 0 : Date.now() - observation.at)), advance: () => undefined };
+    // Keep Git/setup duration out of the reset window while retaining ordered
+    // observation timestamps. The reset timer itself uses real elapsed time.
+    const clock = testClock();
+    let tick = clock.now().getTime();
+    let waitingAt: number | undefined;
+    const waitingEngine: { current?: Engine } = {};
+    clock.now = () => {
+      if (waitingAt === undefined && waitingEngine.current?.waitingPhaseKey() === "1") waitingAt = Date.now();
+      return new Date(waitingAt === undefined ? tick++ : tick + Date.now() - waitingAt);
+    };
     const claude = scriptedClaude(clock);
     const reset = Math.floor(clock.now().getTime() / 1000) - 55;
     harness = await createHarness({ sessions: [refusedSession({ rateLimitType: "five_hour", resetsAt: reset })], engineOptions: { claude, now: clock.now } });
-    const s: Setup = { h: harness, claude, clock, reset };
-    await startToWait(s);
-    observation.at = Date.now();
+    waitingEngine.current = harness.engine;
+    await harness.engine.start({ refinementConfirmed: true });
+    // Observe the wait immediately; unrelated commit reads may settle after
+    // the real timer fires on a busy workstation.
+    await waitFor(() => harness!.engine.waitingPhaseKey() === "1" && claude.waiting);
     claude.deliver(signedIn([usageRow("session", 100)]));
     const asked = claude.asked;
     await waitFor(() => claude.asked > asked, 10_000);
+    expect(clock.now().getTime()).toBeGreaterThanOrEqual(reset * 1000 + 60_000);
+    await harness.engine.settled();
   });
 
   it("asks for a reading on waking from a sleep during a wait (AC-AUTO-03)", async () => {
@@ -252,7 +317,7 @@ describe("a usage limit with no reset time (AC-AUTO-02)", () => {
     const s = await setup(() => [refusedSession({ rateLimitType: "overage", resetsAt: null })]);
     const { h, claude } = s;
     await startToWait(s);
-    expect(buildSnapshot(h.engine).waiting!.limit).toEqual({ label: "A usage limit", resetPassed: false });
+    expect(buildSnapshot(h.engine).waiting!.limit).toEqual({ label: "A usage limit", resetPassed: false, automaticResume: { label: "A usage limit" }, agentId: "claude_code", allowancesObservation: { observedAt: null, state: "unavailable", reason: "No dated Claude usage reading is available after the refusal." } });
     claude.deliver(signedIn([usageRow("session", 40)]));
     const stop = h.engine.record.phases["1"]!.stop!;
     expect(stop).toMatchObject({ kind: "done_check", limit: { rateLimitType: "overage", label: "A usage limit" } });

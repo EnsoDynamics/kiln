@@ -24,7 +24,7 @@
   let reason = $state<string | undefined>(undefined);
 
   const note = $derived.by(() => {
-    if (!connected) return "Settings can be changed again once Kiln is running.";
+    if (!connected) return "Reconnect to Kiln before changing settings.";
     if (snapshot.feature.state === "paused") return "Model and effort changes apply from the next phase you start.";
     const current = snapshot.current?.phaseId;
     if (current === PR_ID && snapshot.current?.sessionId !== undefined) return "Model and effort changes apply from the next phase; the pull-request session keeps what it started with.";

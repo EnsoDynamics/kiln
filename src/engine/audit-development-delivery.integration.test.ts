@@ -17,13 +17,12 @@ import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type
 import { captureSnapshot } from "../audit/snapshots.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
 import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts.js";
-import { startLocalServer } from "../server/local-server.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { runDelivery } from "../delivery-command.js";
 import { buildSnapshot } from "./snapshot.js";
 import { git } from "../test-support/git-repositories.js";
 import { launchChrome } from "../test-support/headless-chrome.js";
+import { commandContracts } from "../control/help.js";
 
 const directory = "docs/prds/customer-returns";
 const prd = "# PRD: Audit development proof\n\n## Acceptance Criteria\n\n- [ ] **AC-RET-01 — Verify the value.** The return value is checked in development.\n- [ ] **AC-RET-02 — Preserve other work.** The unrelated requirement stays separate.\n";
@@ -91,7 +90,7 @@ describe("audit development owners", () => {
     for (const assessment of f.record.developmentDelivery!.assessments) delete assessment.owner;
     const path = join(f.h.stateDirectory, "prd.json"); const bytes = JSON.stringify(f.record); writeFileSync(path, bytes);
     const migrated = readPrdRecord(f.h.stateDirectory)!;
-    expect(migrated.schemaVersion).toBe(12); expect(migrated.executionId).toBe(f.record.executionId);
+    expect(migrated.schemaVersion).toBe(13); expect(migrated.executionId).toBe(f.record.executionId);
     expect(migrated.developmentDelivery!.checkpoints[0]?.owner).toEqual({ kind: "phase", phaseId: "1" });
     expect(migrated.developmentDelivery!.checkpoints[0]?.operations).toEqual(f.checkpoint.operations);
     expect(readFileSync(path, "utf8")).toBe(bytes);
@@ -210,11 +209,14 @@ describe("audit development owners", () => {
     const f = await fixture();
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: { ...f.h.tools, gh: f.context.gh }, env: f.context.env });
     cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
-    const lock = await takeInstanceLock(stateRoot(f.h.env), f.h.stateDirectory); if (!lock.taken) throw new Error("No instance lock"); cleanups.push(async () => lock.release());
-    const server = await startLocalServer({ engine, port: lock.port, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token }); cleanups.push(() => server.close());
+    const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
+    const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const address = new URL(server.address).origin;
     expect((await fetch(`${address}/api/delivery`, { headers: { Origin: address } })).status).toBe(403);
     const status = engine.deliveryStatus(); expect(status.owner).toEqual(f.owner); expect(status.phaseId).toBeUndefined(); expect(status.requirementManifestDigest).toBe(f.snapshot.requirements.id);
+    // AC-ACT-01: construct real helper requests from the shipped file examples,
+    // substituting the documented status/provider values, then use the actual CLI.
+    const exampleInput = (command: string, index = 0) => structuredClone(Object.values(commandContracts.find(c => c.path.join(" ") === `delivery ${command}`)!.examples[index]!.files!)[0]) as Record<string, unknown>;
     const file = join(f.h.sandbox.root, "assess.json"); writeFileSync(file, JSON.stringify(f.assess()));
     let stdout = ""; let stderr = "";
     expect(await runDelivery(["assess", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
@@ -229,13 +231,19 @@ describe("audit development owners", () => {
     // immutable provider reference through the real client after preparing the operation.
     f.checkpoint.references = f.checkpoint.references!.filter(one => one.requirementId !== "verify");
     f.responses[`repos/acme/acme-shop/actions/workflows/${encodeURIComponent(".github/workflows/deploy.yml")}/runs?head_sha=${f.merged}&per_page=100&page=1`] = { body: { workflow_runs: [] } }; f.save();
-    writeFileSync(file, JSON.stringify({ executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, owner: f.owner, checkpointId: f.checkpoint.id, operation: { kind: "verify" } }));
+    const prepareInput = exampleInput("prepare");
+    Object.assign(prepareInput, { executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, owner: f.owner, checkpointId: f.checkpoint.id });
+    (prepareInput.operation as { requirementIds: string[] }).requirementIds = ["verify"];
+    writeFileSync(file, JSON.stringify(prepareInput));
     stdout = "";
     expect(await runDelivery(["prepare", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
     const prepared = JSON.parse(stdout) as { revision: number; result: { operationId: string; disposition: string } };
     expect(prepared.result.disposition).toBe("proceed");
     expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.checkpoints[0]!.operations.at(-1)).toMatchObject({ id: prepared.result.operationId, kind: "verify", requirementIds: ["verify"], state: "prepared" });
-    writeFileSync(file, JSON.stringify({ executionId: f.record.executionId, revision: prepared.revision, owner: f.owner, checkpointId: f.checkpoint.id, operationId: prepared.result.operationId, references: [{ requirementId: "verify", kind: "github_workflow", id: "21" }] }));
+    const evidenceInput = exampleInput("evidence", 1);
+    Object.assign(evidenceInput, { executionId: f.record.executionId, revision: prepared.revision, owner: f.owner, checkpointId: f.checkpoint.id, operationId: prepared.result.operationId });
+    Object.assign((evidenceInput.references as Record<string, unknown>[])[0]!, { requirementId: "verify", id: "21" });
+    writeFileSync(file, JSON.stringify(evidenceInput));
     stdout = "";
     expect(await runDelivery(["evidence", file], { cwd: engine.worktreePath, env: f.context.env, stdout: { write: text => stdout += text }, stderr: { write: text => stderr += text } })).toBe(0);
     const observed = readPrdRecord(f.h.stateDirectory)!;
@@ -250,8 +258,8 @@ describe("audit development owners", () => {
   it("shows the stopped audit's retained owner in the real first-grant browser control", async () => {
     const f = await fixture(); f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] }; f.record.developmentDelivery!.assessments = [];
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
-    const lock = await takeInstanceLock(stateRoot(f.h.env), f.h.stateDirectory); if (!lock.taken) throw new Error("No browser proof lock"); cleanups.push(async () => lock.release());
-    const server = await startLocalServer({ engine, port: lock.port, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token }); cleanups.push(() => server.close());
+    const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
+    const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const chrome = await launchChrome(); cleanups.push(() => chrome.close()); const page = await chrome.open(server.address);
     await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"] button')`);
     await page.evaluate(`document.querySelector('article[aria-label="Early merges for acme-shop"] button').click()`);
@@ -268,6 +276,10 @@ describe("audit development owners", () => {
     const sessionId = randomUUID(); const key = `audit-${f.activity.activityId}`;
     const session: SessionRecord = { schemaVersion: SCHEMA_VERSION, sessionId, activityId: f.activity.activityId, phaseId: "", kind: "delivery_audit", agentId: "claude_code", createdAt: f.activity.createdAt, model: "sonnet", modelDisplayName: "Sonnet", runs: [{ cause: "launch", pid: 99999999, startedAt: f.activity.createdAt, endedAt: f.activity.createdAt }], sleeps: [], steps: [] };
     f.record.phases[key]!.sessionIds = [sessionId]; f.activity.sessionIds = [sessionId]; writeSessionRecord(f.h.stateDirectory, session);
+    // This case exercises a resumable conversation's authority prompt. Keep
+    // actual usable provider history; a PID alone cannot establish resumption.
+    const history = join(f.h.env.CLAUDE_CONFIG_DIR!, "projects", "manual-audit-authority"); mkdirSync(history, { recursive: true, mode: 0o700 });
+    writeFileSync(join(history, `${sessionId}.jsonl`), JSON.stringify({ type: "user", sessionId, uuid: randomUUID(), parentUuid: null, timestamp: session.createdAt, message: { role: "user", content: "Review the recorded audit with current authority." } }) + "\n", { mode: 0o600 });
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh();
     const authority = { executionId: f.record.executionId, authorizationRevision: 1, target: f.checkpoint.target, confirmedNonProduction: true };
     expect(engine.authorizeDevelopmentTarget(authority)).toEqual({ ok: true });
@@ -279,6 +291,7 @@ describe("audit development owners", () => {
     expect(await engine.deliveryCommand("assessment", { executionId: f.record.executionId, revision: f.record.developmentDelivery!.revision, phaseId: "1", documentsDigest: phaseStatus.documentsDigest, required: false, criteria: [], reason: "Historical phase needed no development work", checkpoints: [] })).toMatchObject({ ok: true });
     expect(await engine.deliveryCommand("assessment", f.assess({ checkpoints: [] , required: false }))).toMatchObject({ ok: true });
     const recovery = buildSnapshot(engine).needsYou!;
+    expect(recovery.resumeOffered).toBe(true);
     expect(recovery.resumePrompt).toContain("Delivery audit"); expect(recovery.resumePrompt).toContain(f.activity.reportPath); expect(recovery.resumePrompt).toContain("current saved authority".replace("current", "Current"));
     expect(recovery.resumePrompt).not.toContain("Carry on opening"); expect(recovery.resumePrompt).not.toContain("Carry on with `docs/prds/customer-returns/`");
     const state = readPrdRecord(f.h.stateDirectory)!;

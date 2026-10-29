@@ -31,19 +31,27 @@ export function latestSol(models: ModelEntry[]): string | undefined {
   if (!first || (candidates[1] && compare(first.version, candidates[1].version) === 0) || !first.model.supportedEffortLevels.includes("high")) return undefined;
   return first.model.value;
 }
-export function codexAccount(account: AccountResult, usage: CodexLimits | undefined, startedAt: string): AgentAccount {
+/** A usage account ID alone cannot bind two otherwise unidentified auth reads. */
+function usageBindingError(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult): string | undefined {
+  if (before.account?.type !== "chatgpt" || after.account?.type !== "chatgpt") return "Codex ChatGPT authentication changed or is unavailable.";
+  if (before.account.email !== after.account.email || before.account.planType !== after.account.planType) return "Codex account identity changed during the usage reading.";
+  if (!usage?.accountId?.trim()) return "Codex did not establish a stable usage account identity.";
+  const routes = [before.workspaceRouting?.chatgptAccountId, after.workspaceRouting?.chatgptAccountId];
+  if (routes.some(route => route !== undefined && route !== usage.accountId)) return "Codex account identity changed during the usage reading.";
+  if (!after.account.email?.trim() && !routes.every(route => route === usage.accountId)) return "Codex account identity could not be corroborated across the usage reading.";
+  return undefined;
+}
+export function codexAccount(before: AccountResult, usage: CodexLimits | undefined, account: AccountResult, startedAt: string, usageObservedAt: string): AgentAccount {
   const result: AgentAccount = { agentId: "codex", startedAt, updatedAt: new Date().toISOString(), limits: [] };
   if (account.account?.type !== "chatgpt") result.error = "Sign in to Codex with ChatGPT in a terminal: codex login. API-key-only accounts are not supported.";
-  if (account.account?.email) result.email = account.account.email;
-  if (account.account?.planType) result.plan = account.account.planType;
-  if (usage?.accountId) result.accountId = usage.accountId;
+  if (account.account?.type === "chatgpt" && account.account.email) result.email = account.account.email;
+  if (account.account?.type === "chatgpt" && account.account.planType) result.plan = account.account.planType;
   const routing = account.workspaceRouting?.chatgptAccountId;
-  if (routing) result.routingAccountId = routing;
-  if (routing && usage?.accountId && routing !== usage.accountId) {
-    result.limitsError = "Codex account changed during the reading. Refresh to read its usage.";
-    return result;
-  }
-  const buckets = usage?.rateLimitsByLimitId !== undefined && usage.rateLimitsByLimitId !== null ? Object.entries(usage.rateLimitsByLimitId) : usage?.rateLimits ? [["legacy", usage.rateLimits] as const] : [];
+  if (routing && account.account?.type === "chatgpt") result.routingAccountId = routing;
+  const bindingError = usageBindingError(before, usage, account);
+  if (bindingError) { result.limitsError = bindingError; return result; }
+  result.accountId = usage!.accountId!;
+  const buckets = usage?.rateLimitsByLimitId !== undefined && usage!.rateLimitsByLimitId !== null ? Object.entries(usage!.rateLimitsByLimitId) : usage?.rateLimits ? [["legacy", usage!.rateLimits] as const] : [];
   for (const [id, bucket] of buckets) {
     for (const role of ["primary", "secondary"] as const) {
       const window = bucket[role];
@@ -56,20 +64,17 @@ export function codexAccount(account: AccountResult, usage: CodexLimits | undefi
         ...(typeof window.resetsAt === "number" && Number.isFinite(window.resetsAt) && Math.abs(window.resetsAt * 1000) < 8.64e15 ? { resetsAt: new Date(window.resetsAt * 1000).toISOString() } : {}) });
     }
   }
-  if (!result.limits.length) result.limitsError = "Codex did not report usage windows. Allowance is unknown.";
+  if (result.limits.length) { result.limitsObservedAt = usageObservedAt; result.limitsAccountId = usage!.accountId!; }
+  else result.limitsError = "Codex did not report usage windows. Allowance is unknown.";
   return result;
 }
 
 /** Optional workspace facts, qualified against the pinned schema and live metadata-only reads.
  * Credits never participate in ordinary-usage permission or recovery authorization. */
 export function codexCredits(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult, observedAt: string): NonNullable<AgentAccount["credits"]> {
-  const accountId = usage?.accountId;
-  if (!usage || typeof accountId !== "string" || !accountId.trim() || before.account?.type !== "chatgpt" || after.account?.type !== "chatgpt") return [];
-  if (before.account.email !== after.account.email || before.account.planType !== after.account.planType) return [];
-  const routes = [before.workspaceRouting?.chatgptAccountId, after.workspaceRouting?.chatgptAccountId];
-  if (routes.some(route => route !== undefined && route !== accountId)) return [];
-  if (!before.account.email && !routes.every(route => route === accountId)) return [];
-  const buckets = usage.rateLimitsByLimitId != null ? Object.entries(usage.rateLimitsByLimitId) : usage.rateLimits ? [["legacy", usage.rateLimits] as const] : [];
+  if (usageBindingError(before, usage, after)) return [];
+  const accountId = usage!.accountId!;
+  const buckets = usage!.rateLimitsByLimitId != null ? Object.entries(usage!.rateLimitsByLimitId) : usage!.rateLimits ? [["legacy", usage!.rateLimits] as const] : [];
   return buckets.flatMap(([bucketId, bucket]) => {
     const credits = bucket?.credits;
     if (!credits || typeof credits !== "object") return [];
@@ -83,27 +88,24 @@ export function codexCredits(before: AccountResult, usage: CodexLimits | undefin
 /** The pinned schema supplies account-wide permission, never model scope via normalModelSlug. */
 export function codexUsagePermission(before: AccountResult, usage: CodexLimits | undefined, after: AccountResult): NonNullable<AgentAccount["codexUsage"]> {
   const unknown = (reason: string) => ({ state: "unknown" as const, reason });
-  if (before.account?.type !== "chatgpt" || after.account?.type !== "chatgpt") return unknown("Codex ChatGPT authentication changed or is unavailable.");
-  if (!usage?.accountId?.trim()) return unknown("Codex did not establish a stable usage account identity.");
-  for (const account of [before, after]) {
-    const routing = account.workspaceRouting?.chatgptAccountId;
-    if (routing !== undefined && routing !== usage.accountId) return unknown("Codex account identity changed during the usage reading.");
-  }
-  const buckets = usage.rateLimitsByLimitId != null ? Object.values(usage.rateLimitsByLimitId) : usage.rateLimits ? [usage.rateLimits] : [];
+  const bindingError = usageBindingError(before, usage, after);
+  if (bindingError) return unknown(bindingError);
+  const buckets = usage!.rateLimitsByLimitId != null ? Object.values(usage!.rateLimitsByLimitId) : usage!.rateLimits ? [usage!.rateLimits] : [];
   // This profile reports no authoritative model scope. Never treat a quota alias as one.
   if (buckets.some(bucket => bucket.spendControlReached === true || bucket.rateLimitReachedType != null && bucket.rateLimitReachedType !== "rate_limit_reached")) return { state: "blocked", administrative: true, reason: "Codex reports an administrative, credit or spend-control block. Resolve it in Codex before resuming." };
-  if (usage.ordinaryUsageAllowed === false) return { state: "blocked", reason: "Codex reports that ordinary included usage is blocked." };
-  if (usage.ordinaryUsageAllowed === true) return { state: "allowed", reason: "Codex permits one original-model attempt using ordinary included usage; model access is not guaranteed." };
+  if (usage!.ordinaryUsageAllowed === false) return { state: "blocked", reason: "Codex reports that ordinary included usage is blocked." };
+  if (usage!.ordinaryUsageAllowed === true) return { state: "allowed", reason: "Codex permits one original-model attempt using ordinary included usage; model access is not guaranteed." };
   return unknown("Codex ordinary-usage permission is unavailable. This version supplies no applicable structured reset; resume manually when ready.");
 }
 export async function readCodexMetadata(options: { executable: string | undefined; cwd: string; cwds: string[]; env: NodeJS.ProcessEnv; signal?: AbortSignal }): Promise<CodexMetadata> {
   const startedAt = new Date().toISOString();
   const deadline = Date.now() + 30_000;
-  const result: CodexMetadata = { account: { agentId: "codex", startedAt, updatedAt: startedAt, limits: [] }, blockers: [], skills: [] };
-  if (!options.executable) { result.blockers.push("Codex is not on PATH. Install codex-cli 0.162.1 and sign in with codex login."); return result; }
+  const unavailable = (reason: string): AgentAccount => ({ agentId: "codex", startedAt, updatedAt: new Date().toISOString(), limits: [], error: reason, limitsError: "Codex usage is unavailable because account metadata could not be read." });
+  const result: CodexMetadata = { account: unavailable("Codex account metadata has not been read."), blockers: [], skills: [] };
+  if (!options.executable) { result.account = unavailable("Codex is not on PATH. Install codex-cli 0.162.1 and sign in with codex login."); result.blockers.push(result.account.error!); return result; }
   const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: 30_000 });
   result.version = version.stdout.trim();
-  if (version.exitCode !== 0 || result.version !== `codex-cli ${CODEX_VERSION}`) { result.blockers.push(`Codex ${result.version || "version unavailable"} is incompatible. This candidate requires codex-cli ${CODEX_VERSION}.`); return result; }
+  if (version.exitCode !== 0 || result.version !== `codex-cli ${CODEX_VERSION}`) { result.account = unavailable(`Codex ${result.version || "version unavailable"} is incompatible. This candidate requires codex-cli ${CODEX_VERSION}.`); result.blockers.push(result.account.error!); return result; }
   const rpc = new CodexMetadataRpc(options.executable, options.cwd, options.env, options.signal, Math.max(1, deadline - Date.now()));
   try {
     await rpc.initialize();
@@ -121,11 +123,14 @@ export async function readCodexMetadata(options: { executable: string | undefine
     const readAccount = async () => {
       const before = await rpc.call<AccountResult>("account/read", { refreshToken: false });
       let usage: CodexLimits | undefined;
-      try { usage = await rpc.call<CodexLimits>("account/rateLimits/read"); } catch { /* Display the failed read as unknown; normal work remains permitted. */ }
+      let usageObservedAt = "";
+      try { usage = await rpc.call<CodexLimits>("account/rateLimits/read"); usageObservedAt = new Date().toISOString(); } catch { /* Display the failed read as unknown; normal work remains permitted. */ }
       const after = await rpc.call<AccountResult>("account/read", { refreshToken: false });
-      const account = codexAccount(after, usage, startedAt);
+      const account = codexAccount(before, usage, after, startedAt, usageObservedAt);
       account.codexUsage = codexUsagePermission(before, usage, after);
-      const credits = codexCredits(before, usage, after, account.updatedAt);
+      account.codexUsageObservedAt = account.updatedAt;
+      account.codexUsageStale = false;
+      const credits = codexCredits(before, usage, after, usageObservedAt);
       if (credits.length) account.credits = credits;
       if (!usage) account.limitsError = "Could not refresh Codex usage. Allowance is unknown.";
       return account;
@@ -138,7 +143,7 @@ export async function readCodexMetadata(options: { executable: string | undefine
     ]);
     if (models.status === "fulfilled") result.models = models.value; else result.modelListError = "Could not read Codex models. Refresh before starting a session.";
     if (account.status === "fulfilled") result.account = account.value;
-    else result.account.error = "Could not read Codex account. Check codex login in a terminal.";
+    else result.account = unavailable("Could not read Codex account. Check codex login in a terminal.");
     if (result.account.error) result.blockers.push(result.account.error);
     if (requirements.status === "rejected") result.blockers.push("Could not read Codex managed requirements. Check Codex in a terminal.");
     else if (requirements.value.requirements !== null) {
@@ -169,9 +174,7 @@ export async function readCodexMetadata(options: { executable: string | undefine
         try { readFileSync(matches[0]!.path, "utf8"); } catch { result.blockers.push(`Enso Method ${required} is unreadable at ${matches[0]!.path}. Reinstall that skill.`); }
       }
     }
-  } catch { result.blockers.push("Codex metadata failed. Check Codex installation and sign-in in a terminal."); }
+  } catch { result.account = unavailable("Codex metadata failed. Check Codex installation and sign-in in a terminal."); result.blockers.push(result.account.error!); }
   finally { await rpc.close(); }
-  result.account.updatedAt = new Date().toISOString();
-  if (result.account.codexUsage) { result.account.codexUsageObservedAt = result.account.updatedAt; result.account.codexUsageStale = false; }
   return result;
 }

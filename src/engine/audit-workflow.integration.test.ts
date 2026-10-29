@@ -3,13 +3,12 @@ import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auditAdmission from "../audit/admission.js";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { takeInstanceLock } from "../state/instance-lock.js";
-import { stateRoot } from "../state/state-files.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
+import { startFixtureController } from "../test-support/controller-server.js";
 import { launchChrome } from "../test-support/headless-chrome.js";
 import { writePrdRecord } from "../state/records.js";
 import { ownerDocuments, type DeliveryContext } from "./development-delivery.js";
@@ -32,14 +31,29 @@ async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession
   h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true, engineOptions });
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
   if (auditSessions) writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions }));
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory); if (!lock.taken) throw new Error("Fixture lock unavailable"); release = lock.release;
-  server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+  server = hosted.server; release = hosted.release;
   return h;
 }
 const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
 // Multi-cycle scenarios below run several real provider/Git/audit boundaries. Their
 // two-minute budgets cover that complete workflow, not an individual operation.
 describe("automatic completion activities", () => {
+  it("retains a failed handback observation when an audit completion read is unavailable", async () => {
+    const current = await fixture([auditSession({ noReport: true })]);
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const activity = current.engine.record.completionAudits!.activities.at(-1)!;
+    const key = auditKey(activity);
+    const stop = structuredClone(current.engine.record.phases[key]);
+    const baseline = current.engine.record.planReconciliation!.baselineId;
+    rmSync(join(current.repository, "docs/prds/proof/technical-design.md"));
+    await expect(current.engine.checkAgain()).rejects.toThrow("Missing technical design");
+    expect(current.engine.record.planReconciliation!.check).toMatchObject({ status: "failed", problem: expect.stringContaining("Missing technical design") });
+    expect(buildSnapshot(current.engine).continuation!.planCheck!.problem).toContain("Missing technical design");
+    expect(current.engine.record.planReconciliation!.baselineId).toBe(baseline);
+    expect(current.engine.record.phases[key]).toEqual(stop);
+    expect(current.engine.record.completedAt).toBeUndefined();
+  });
   it.each([
     { entry: "completed", stopping: true },
     { entry: "completed", stopping: false },
@@ -215,6 +229,7 @@ describe("automatic completion activities", () => {
     expect(buildSnapshot(h.engine).activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Repair value", "First repair", "Second repair", "Delivery audit", "Repair value", "Delivery audit", "Test audit", "Final pull request"]);
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
     expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
+  // Eight real process sessions plus Git/audit handoffs have a whole-workflow budget.
   });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
@@ -229,6 +244,7 @@ describe("automatic completion activities", () => {
     expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
     const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(4);
+  // Four sessions include full test-audit red/restore evidence and real Git work.
   });
 
   it.each([undefined, "Reworded missing assertion, with no changed evidence."])("stops unfinished test work without substantive progress (%s)", async findingText => {
@@ -330,7 +346,8 @@ describe("automatic completion activities", () => {
     await h.engine.start(); await h.engine.settled(); expect(h.engine.record.completedAt).toBeTruthy(); expect(h.claudeCalls()).toHaveLength(3);
   });
 
-  it("shows audit rows and findings in the real browser, with pause and immediate continuation", async () => {
+  // The complete browser workflow spans both audits, a pause/restart and the final PR.
+  it("shows audit rows and findings in the real browser, with pause and immediate continuation", { timeout: 120_000 }, async () => {
     const h = await fixture(); const marker = join(h.sandbox.root, "audit-ready");
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [auditSession({ beforeSubmitFile: marker })] }));
     const chrome = await launchChrome();

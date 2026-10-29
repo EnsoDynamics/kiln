@@ -63,13 +63,44 @@ export interface WaitingCopy {
   footnote: string;
 }
 
+/** A time bar measures this wait only, never the account's usage or work completed. */
+export function automaticResumeStatus(limit: LimitView, since: string, now: Date, enabled: boolean, checking: boolean) {
+  if (!enabled) return { headline: "Automatic resume is off", detail: "Resume the session when you are ready." };
+  if (checking) return { headline: "Resuming automatically…", detail: "Kiln is checking the saved work before continuing the session. No action needed." };
+  const at = limit.automaticResume?.at;
+  if (at === undefined) return {
+    headline: "Will resume automatically when usage is available",
+    detail: limit.agentId === "codex" ? "No action needed. Kiln checks fresh Codex permission before resuming." : "No action needed. The reset time is unavailable; Kiln keeps checking usage.",
+  };
+  const remaining = Date.parse(at) - now.getTime();
+  if (remaining <= 0) return { headline: "Checking usage availability…", detail: "No action needed. Kiln will resume automatically once usage is available and its checks pass." };
+  const minutes = Math.ceil(remaining / 60_000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes % 1440 / 60);
+  const duration = [days ? `${days}d` : "", hours ? `${hours}h` : "", minutes % 60 ? `${minutes % 60}m` : ""].filter(Boolean).join(" ");
+  const total = Date.parse(at) - Date.parse(since);
+  const elapsed = total > 0 ? Math.max(0, Math.min(100, (now.getTime() - Date.parse(since)) / total * 100)) : 0;
+  return {
+    headline: `Will resume automatically in ${duration}`,
+    detail: `No action needed. Kiln checks ${limitSentence(limit.automaticResume!.label)} at ${limitTime(at, now)}, including a 1-minute reset buffer.`,
+    progress: elapsed,
+  };
+}
+
+/** Authentication and optional allowance reads have independent dates. */
+function codexUsageObservation(limit: LimitView, now: Date): string {
+  const observation = limit.allowancesObservation;
+  if (!observation?.observedAt || observation.state === "unavailable") return "Usage observation unavailable. ";
+  return `${observation.state === "stale" ? "Stale usage last updated" : "Usage last updated"} ${limitTime(observation.observedAt, now)}. `;
+}
+
 /** The waiting screen's words (AC-LIMIT-01, AC-LIMIT-02, AC-LIMIT-04). */
 export function waitingCopy(phaseId: string, limit: LimitView, now: Date, agent = "Claude Code"): WaitingCopy {
   if (limit.agentId === "codex") return {
     headline: `${sessionName(phaseId)} is waiting for Codex usage permission.`,
     reported: "Codex reported an exhausted allowance. No applicable reset was reported.",
     resumes: limit.recovery?.reason ?? "Kiln checks fresh Codex permission before one attempt with the original model and effort.",
-    footnote: `${limit.account ? `Usage last updated ${limitTime(limit.account.at, now)}. ` : ""}These are account allowances, not usage solely from this PRD. Kiln reads again every 5 minutes and on waking.`,
+    footnote: `${codexUsageObservation(limit, now)}These are account allowances, not usage solely from this PRD. Kiln reads again every 5 minutes and on waking.`,
   };
   const reset = resetLine(limit, now);
   const passed = resetHasPassed(limit, now);
@@ -81,7 +112,7 @@ export function waitingCopy(phaseId: string, limit: LimitView, now: Date, agent 
     reported: `${agent} reported that ${owned(limit.label, "the account")} was used up.`,
     ...(reset === undefined ? {} : { reset: `${reset}.` }),
     resumes: `Kiln resumes this session by itself at the first reading that shows usage left${toCome ? ": after the reset, or sooner if you sign in to another account" : ""}.${others}`,
-    footnote: `${limit.account ? `As of Kiln’s latest reading, ${limitTime(limit.account.at, now)}. ` : ""}Kiln reads again every 5 minutes${toCome ? " and at the reset" : ""}.`,
+    footnote: `${limit.account ? `As of Kiln’s latest reading, ${limitTime(limit.account.at, now)}. ` : ""}Kiln reads again every 5 minutes${toCome ? " and after the reset buffer" : ""}.`,
   };
 }
 
@@ -103,7 +134,7 @@ export function limitStopCopy(phaseId: string, limit: LimitView & { refusedAgain
     headline: `${sessionName(phaseId)} stopped at a Codex usage limit.`,
     reported: limit.recovery?.reason ?? "Codex reported an exhausted allowance. Automatic usage recovery is off or a recovery check failed.",
     waitText: "Check usage in Codex, then press Resume when ready. No applicable reset was reported.",
-    footnote: `${limit.account ? `Usage last updated ${limitTime(limit.account.at, now)}. ` : ""}These are account allowances, not usage solely from this PRD. Sign in with codex login in a terminal to change accounts. Close the session first if you opened it in a terminal.`,
+    footnote: `${codexUsageObservation(limit, now)}These are account allowances, not usage solely from this PRD. Sign in with codex login in a terminal to change accounts. Close the session first if you opened it in a terminal.`,
   };
   const reset = resetLine(limit, now);
   const sentence = limitSentence(limit.label);

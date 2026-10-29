@@ -21,4 +21,29 @@ describe("account usage beside billing (AC-BILL-07)", () => {
     expect(body.match(/role="meter"/g)).toHaveLength(3);
     if (!identified) expect(words).toContain("Account identity unavailable");
   });
+  it.each(["claude_code", "codex"] as const)("dates %s retained usage independently of a newer auth reading", agentId => {
+    const account = { agentId, email: "fixture@example.test", plan: "pro", startedAt: at, updatedAt: "2026-10-26T18:04:59Z", limitsObservedAt: at, limitsStale: true, limits };
+    const { body } = render(AccountPanel, { props: { account, paused: false, now: Date.parse("2026-10-26T18:05:00Z") } });
+    const words = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(words).toContain("usage updated 5 min ago"); expect(words).not.toContain("usage updated just now");
+    expect(words).toContain(`Stale usage reading · last successful usage update ${new Date(at).toLocaleString()}`);
+    expect(body).toContain('aria-valuenow="42"');
+  });
+  it("does not invent an observation time for undated Codex usage", () => {
+    const account = { agentId: "codex" as const, startedAt: at, updatedAt: at, limits: [] };
+    const { body } = render(AccountPanel, { props: { account, paused: false, now: Date.parse(at) } });
+    expect(body).toContain("usage observation time unavailable"); expect(body).not.toContain("usage updated just now");
+  });
+
+  it.each([true, false])("retains the usage date after a newer auth reading also becomes stale, limitsStale=%s", limitsStale => {
+    const authAt = "2026-10-26T18:04:59Z";
+    const account = { agentId: "codex" as const, startedAt: at, updatedAt: authAt, lastSuccessfulAt: authAt, stale: true, error: "Codex metadata failed", limitsObservedAt: at, limitsStale, limits };
+    const { body } = render(AccountPanel, { props: { account, paused: false, now: Date.parse("2026-10-26T18:05:00Z") } });
+    const words = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(words).toContain("Codex metadata failed"); expect(body).toContain('aria-valuenow="42"');
+    expect(words).toContain(`Stale reading · last successful update ${new Date(authAt).toLocaleString()}`);
+    expect(words).toContain(`Stale usage reading · last successful usage update ${new Date(at).toLocaleString()}`);
+    expect(words).not.toContain(`last successful usage update ${new Date(authAt).toLocaleString()}`);
+  });
+
 });

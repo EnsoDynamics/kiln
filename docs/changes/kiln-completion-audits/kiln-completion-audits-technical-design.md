@@ -119,7 +119,11 @@ A `continue_test` result requires committed updated test-audit records, nonempty
 
 ## Current Work and Invalidation
 
-A snapshot stores canonical repository identities, assigned branches, HEADs, tree/blob digests, required-document manifest, normalized plan, criterion keys and provider-evidence references. Resolve governing PRD, assumptions, design, phase documents and referenced replacement requirements; missing/unreadable references stop. Record hashes of installed audit skill sources for provenance, without making a later skill installation alone invalidate completed history.
+A snapshot stores canonical repository identities, assigned branches, HEADs, tree/blob digests, required-document manifest, normalized plan, criterion keys and provider-evidence references. Resolve governing PRD, assumptions, design, phase documents and referenced replacement requirements; missing/unreadable references stop. An inline Markdown link with the exact title `kiln:reference`, such as `[handoff](../../../source-material/handoff/index.md "kiln:reference")`, declares background/provenance only. Do not require or traverse that edge. Unmarked local Markdown links remain required recursively, regardless of directory; explicit `Superseded by:` and `Replaces:` pointers and the governing document seeds always remain required even if another link marks the same target as reference-only. Use the marker only for material that does not define requirements or required evidence. It does not exempt any existing file from repository fingerprints or permit missing report evidence. Requirements remain protected from test-only classification, and development assessments remain bound to all governing documents. Required-link failures include the originating document chain. Existing accepted snapshots and their immutable evidence are preserved; currentness still checks the full repository content.
+
+Record hashes of installed audit skill sources for provenance, without making a later skill installation alone invalidate completed history.
+
+During admission and currentness checks, verify every evidence catalog entry and verify each distinct retained-source content hash once per operation. Many entries can refer to the same immutable transcript. Do not cache verification across operations: missing or corrupt catalog entries and retained sources still refuse the check.
 
 Use content equality for currentness, with commit IDs retained for inspectability. A record-only or synchronization commit with unchanged relevant content does not force another audit. Current checks still require clean assigned worktrees and verified pushed heads. Repo additions, deleted/missing sources, requirements changes or unknown changed paths invalidate delivery and test conclusions. New plan leaves take scheduling priority; changes to phase scope/dependencies count as requirements changes.
 
@@ -150,6 +154,8 @@ A checkpoint's origin owner is immutable. Retained obligation assignments map `(
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-run reconciliation before resuming scheduling; completed-run continuation remains separate).
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 
 Persist activity intent, session association, submitted report attempts and accepted decision before their corresponding next action. On restart acquire the existing instance lock; settle or stop any owned live provider process before checking artifacts. Check completion first, then resume only the still-unfinished activity. For Codex retain dispatch/turn reconciliation and refuse ambiguous dispatch or cleanup; a private server exit is not proof of turn completion. For Claude retain session ID, run records, transcript and resume semantics. A valid report may be accepted after interruption even if the final process result was never saved, once current checks and workspace evidence pass.
@@ -163,6 +169,8 @@ Migrate existing implementation/finalization rows in recorded session order, wit
 ## Progress and Detail Contract
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
+
+Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 

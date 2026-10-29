@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { parseUsage, type AccountView, type UsageLimit } from "../account/claude-account.js";
 import type { LimitRefusal } from "../state/records.js";
 import type { SavedEvent } from "./run-verdict.js";
-import { blockingRow, judgeReading, labelForType, limitRow, limitSentence, sameAccount, usageLimitRefusal } from "./usage-limit.js";
+import { automaticResumeSchedule, blockingRow, judgeReading, labelForType, limitRow, limitSentence, sameAccount, usageLimitRefusal } from "./usage-limit.js";
 
 const RESET = 1792699200; // 2026-10-22T20:00:00Z
 const rateLimit = (at: string, status: string, extra: Record<string, unknown> = {}): SavedEvent => ({
@@ -111,6 +111,34 @@ const refused = (extra: Partial<LimitRefusal> = {}): LimitRefusal => ({
   ...extra,
 });
 const OPUS = "claude-opus-5-5";
+
+describe("the shared automatic resume schedule", () => {
+  it("adds a minute to five-hour and weekly refusals", () => {
+    for (const rateLimitType of ["five_hour", "seven_day"]) expect(automaticResumeSchedule(refused({ rateLimitType }), undefined, OPUS).at).toBe("2026-10-22T20:01:00.000Z");
+  });
+  it("uses the latest exhausted applicable reset even before the stopping reset passes", () => {
+    const weekly = row("weekly_all", 100, { label: "Weekly", resetsAt: "2026-10-25T20:00:00Z" });
+    expect(automaticResumeSchedule(refused(), reading([row("session", 100), weekly]), OPUS)).toEqual({ label: "Weekly", at: "2026-10-25T20:01:00.000Z" });
+    expect(automaticResumeSchedule(refused(), reading([row("session", 100), scoped("Fable", 100, "model", weekly.resetsAt)]), OPUS).at).toBe("2026-10-22T20:01:00.000Z");
+    expect(automaticResumeSchedule(refused(), reading([weekly], { startedAt: "2026-10-22T18:00:00Z" }), OPUS).at).toBe("2026-10-22T20:01:00.000Z");
+    expect(automaticResumeSchedule(refused(), reading([weekly], { limitsError: "Unavailable" }), OPUS).at).toBe("2026-10-22T20:01:00.000Z");
+  });
+  it("has no timed promise for an unknown refusal or applicable blocker reset", () => {
+    const unknown = refused();
+    delete unknown.resetsAt;
+    expect(automaticResumeSchedule(unknown, undefined, OPUS).at).toBeUndefined();
+    expect(automaticResumeSchedule(unknown, reading([row("weekly_all", 100, { resetsAt: "2026-10-25T20:00:00Z" })]), OPUS).at).toBeUndefined();
+    expect(automaticResumeSchedule(refused(), reading([row("weekly_all", 100, { label: "Weekly" })]), OPUS)).toEqual({ label: "Weekly" });
+  });
+  it("drops a released original limit and follows the new account's actual blocker", () => {
+    const old = refused({ rateLimitType: "seven_day", label: "Weekly", resetsAt: "2026-11-02T20:00:00Z" });
+    const current = [row("weekly_all", 10), row("session", 100, { label: "5-hour window", resetsAt: "2026-10-22T21:00:00Z" })];
+    expect(automaticResumeSchedule(old, reading(current, { email: "new@example.test" }), OPUS)).toEqual({ label: "5-hour window", at: "2026-10-22T21:01:00.000Z" });
+    // The same limit can be released on the original account too.
+    expect(automaticResumeSchedule(old, reading(current), OPUS).at).toBe("2026-10-22T21:01:00.000Z");
+    expect(automaticResumeSchedule(old, reading([row("session", 100, { label: "5-hour window" })], { email: "new@example.test" }), OPUS)).toEqual({ label: "5-hour window" });
+  });
+});
 
 describe("has usage left (AC-AUTO-02)", () => {
   it("reads a recorded /usage: the 5-hour row below 100% is usage left, at 100% isn't", () => {

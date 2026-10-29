@@ -17,9 +17,9 @@ export interface ExecutionActivity {
 }
 export const auditKey = (activity: Pick<AuditActivity, "activityId">) => `audit-${activity.activityId}`;
 export const auditLabel = (kind: AuditKind) => kind === "delivery_audit" ? "Delivery audit" : "Test audit";
-export function acceptedAudit(stateDirectory: string, activity: AuditActivity): { result: AuditResult; report: AuditReport } | undefined {
+export function acceptedAudit(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): { result: AuditResult; report: AuditReport } | undefined {
   if (!activity.acceptedResult) return undefined;
-  const result = new AuditStore(stateDirectory).read<AuditResult>(activity.acceptedResult);
+  const result = store.read<AuditResult>(activity.acceptedResult);
   if (result.activityId !== activity.activityId || result.disposition !== "recorded") throw new AuditRefusal("missing_evidence", `Invalid accepted audit result for ${activity.reportPath}.`);
   return { result, report: JSON.parse(result.reportBytes) as AuditReport };
 }

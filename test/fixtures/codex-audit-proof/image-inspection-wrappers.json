@@ -1,0 +1,45 @@
+{
+  "description": "Recorded screenshot-inspection wrappers from Doug-reported failure; only image directory sanitized to /PROOF/browser-artifacts. Original raw-line hashes exclude newline. Origin session metadata reports cli_version 0.162.1; reopened history read using 0.165.0.",
+  "calls": [
+    {
+      "sourceThread": "01a18633-9dc7-72f3-b012-3b2b74bd512e",
+      "recordSha256": "cbdd5137e179fba481e1d1647bd8e3e6f8776e221ffd28083bd834bb9538f3d0",
+      "raw": {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "call_7a242ef888a94c9b944ffb20b988553f",
+        "input": "image((await tools.view_image({path:\"/PROOF/browser-artifacts/tooltip-before-active.png\"})));\n"
+      }
+    },
+    {
+      "sourceThread": "01a18633-9dc7-72f3-b012-3b2b74bd512e",
+      "recordSha256": "958fac062a4508cfeeebdff61160f164679ca7631a71b8da579920d968860a5e",
+      "raw": {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "call_fa3d9563944748df9d832626571bf2a4",
+        "input": "image((await tools.view_image({path:\"/PROOF/browser-artifacts/populated-phone-24h-chart.png\"})));\n"
+      }
+    },
+    {
+      "sourceThread": "01a1863f-2bc8-7e52-8984-44c05a12b51a",
+      "recordSha256": "df1f7ff61820dd8ea2cf9eaee7b0996c62dc3053b46a898332c95dd8662b6d05",
+      "raw": {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "call_d4e53e0de67b45f9bd9cdef4f5ed259a",
+        "input": "const r = await tools.view_image({path:\"/PROOF/browser-artifacts/tooltip-before-active.png\"}); image(r.image_url);\n"
+      }
+    },
+    {
+      "sourceThread": "01a1863f-2bc8-7e52-8984-44c05a12b51a",
+      "recordSha256": "6df32803e6651ce808d0fd41bd104afdb63e712c427e9285ac289bbb60f23853",
+      "raw": {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "call_446479ae055c4261a94c4651775a8f41",
+        "input": "const r = await tools.view_image({path:\"/PROOF/browser-artifacts/real-dev-desktop-30d.png\"}); image(r.image_url);\n"
+      }
+    }
+  ]
+}

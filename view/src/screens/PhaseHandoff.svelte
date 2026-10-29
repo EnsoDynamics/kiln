@@ -10,6 +10,7 @@
   import { clockTime, earlier } from "../lib/time.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
+  import LiveMessages from "../components/LiveMessages.svelte";
   import PausePanel from "../components/PausePanel.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
@@ -29,7 +30,7 @@
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
-  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover);
+  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover || !!snapshot.liveControl?.reviewRequired?.length);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -84,8 +85,8 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
-  <h1>{snapshot.liveControl?.takeover ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
-  <p>Resolve it here or in your terminal. Then choose who finishes the phase.</p>
+  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
+  <p>Resolve it here or in your terminal. Then choose who finishes {activity}.</p>
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
       <span class="eyebrow">Last message from {agent}</span>
@@ -99,7 +100,6 @@
     {#if stop.sessionId}<a href={outputLink} onclick={event => routedClick(event, router, outputLink)}>Full session output{#if stop.outputLineCount !== undefined} · {stop.outputLineCount} lines{/if}</a>{/if}
   </section>
   <CodexSessionFacts facts={stop} />
-  <BillingPanel {snapshot} {connected} />
   {#if stop.limit && limit}
     <section class="card">
       <p>{limit.reported} {limit.reset ?? ""}</p>
@@ -113,11 +113,12 @@
   {#if savedUnsent.length}
     <section class="card" aria-label="Preserved unsent replies">
       <h2>Replies that were not sent</h2>
-      <p>These replies were preserved because the phase was already complete. Advancing will leave them unsent.</p>
+      <p>These replies were preserved because {activity} was already complete. Advancing will leave them unsent.</p>
       {#each savedUnsent as reply (reply.id)}<pre>{reply.text}</pre>{/each}
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
   {/if}
+  {#if (pendingTakeover || page.choice) && stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} />{/if}
   {#if snapshot.liveControl?.takeover}<PausePanel {snapshot} {connected} />{/if}
   {#if pendingTakeover}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
   {:else if page.choice}
@@ -166,6 +167,8 @@
     </div>
     <section class="card return">
       <h2>Back from your terminal?</h2>
+      {#if stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review />{/if}
+      {#if snapshot.liveControl?.reviewRequired?.length}<p>Review each uncertain message in the conversation before Resume or Verify. Acknowledgement alone keeps the execution held.</p>{/if}
       <p>Exit the {agent} session first. Choose based on how much work you finished.</p>
       <div class="peer-choices">
         <section>
@@ -173,14 +176,14 @@
           {#if stop.resumeOffered}
             <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in {activity}. You don’t need to repeat your answer.</p>
             <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume {activity} in Kiln</button>
-            <p class="hint">The phase can still be open, with uncommitted or unpushed work. Kiln finishes this phase before following the rest of the plan.</p>
-          {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish the phase, then verify it.</p>{/if}
+            <p class="hint">{activity} can still be unfinished, with uncommitted or unpushed work. Kiln finishes {activity} before following the rest of the plan.</p>
+          {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {activity}, then verify it.</p>{/if}
         </section>
         <section class="finished">
           <h3>I finished the entire activity myself.</h3>
           <p>Check that {activity} is complete, then move to the next step in the plan.</p>
           <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
-          <ul class="checks" aria-label="Phase completion requirements" aria-busy={!!stop.checking}>
+          <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
             {#each stop.checks as check (check.name)}
               <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? "Passed" : "Not yet"}</span></div>{#each check.facts as fact, index (index)}<p>{fact}</p>{/each}</li>
             {/each}
@@ -198,6 +201,7 @@
     </section>
   {/if}
   {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
+  <BillingPanel {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
 

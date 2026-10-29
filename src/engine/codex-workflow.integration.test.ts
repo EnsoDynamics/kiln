@@ -3,6 +3,7 @@ import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // The deterministic peer covers failures beside the separate real Codex workflow proof.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { git } from "../test-support/git-repositories.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
@@ -10,7 +11,7 @@ import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine } from "./engine.js";
 import { buildSnapshot, codexResumeCommand } from "./snapshot.js";
-import { readPrdRecord, readSessionRecord } from "../state/records.js";
+import { readPrdRecord, readSessionRecord, writePrdRecord, writeSessionRecord } from "../state/records.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { EngineOptions } from "./engine.js";
@@ -39,6 +40,74 @@ async function setup(value: Record<string, unknown> = {}, engineOptions: Partial
   expect(h.engine.selectionError).toBeUndefined();
 }
 const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
+
+it("shows a refused first launch at Needs you without scanning nonexistent history", async () => {
+  await setup({ badReviewer: true });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const session = h.engine.latestSession("1")!;
+  expect(session.runs[0]?.codex?.dispatch).toBeUndefined();
+  expect(buildSnapshot(h.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { kind: "selection", resumeOffered: false, checks: [{ facts: [expect.stringContaining("protected launch profile")] }] } });
+  expect(f.calls().some(call => ["turn/start", "thread/read", "thread/turns/list"].includes(call.method ?? ""))).toBe(false);
+  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  chrome = await launchChrome();
+  const page = await chrome.open(server.address);
+  await page.waitFor(`document.body.textContent.includes('no work was dispatched')`);
+  const text = await page.evaluate<string>(`document.body.textContent`);
+  expect(text).toContain("Needs you");
+  expect(text).not.toContain("NOW IMPLEMENTING");
+  expect(page.problems).toEqual([]); await page.close();
+  // Existing Check again retries a selection stop with a new tracked session.
+  set({});
+  expect(await h.engine.checkAgain()).toMatchObject({ ok: true }); await h.engine.settled();
+  const retried = h.engine.latestSession("1")!;
+  expect(retried.sessionId).not.toBe(session.sessionId);
+  expect(h.engine.record.phases["1"]!.sessionIds).toEqual([session.sessionId, retried.sessionId]);
+  expect(retried.runs[0]?.codex?.terminal?.status).toBe("completed");
+  expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+  expect(h.engine.latestStayed("1").passed).toBe(true);
+  expect(buildSnapshot(h.engine).needsYou?.checks.some(check => check.name === "Codex process cleanup and dispatch")).toBe(false);
+});
+
+it.each(["not_dispatched", "dispatched", "cleanup_unknown"])("reconciles an older rejected launch receipt safely after restart: %s", async mode => {
+  await setup({ badReviewer: true });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const session = h.engine.latestSession("1")!;
+  const run = session.runs[0]!;
+  if (mode === "dispatched") run.codex!.dispatch = { at: run.startedAt, previousTurnIds: [] };
+  if (mode === "cleanup_unknown") run.codex!.cleanup = "unknown";
+  writeSessionRecord(h.stateDirectory, session);
+  // Reproduce the older version's saved implementing state and uncertain receipt.
+  delete h.engine.record.phases["1"]!.stop;
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  const receipt = structuredClone(h.engine.commands.all().at(-1)!);
+  receipt.state = "indeterminate"; receipt.stage = "dispatching"; receipt.outcome = null;
+  receipt.effects.session = "unknown";
+  const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  writeFileSync(join(h.stateDirectory, "controls", hash(receipt.execution_id), `${hash(receipt.command_id)}.json`), JSON.stringify({ checksum: hash(receipt), receipt }));
+  const calls = f.calls().length;
+  h.reopenFromDisk();
+  expect(h.engine.commands.blocked).toBe(mode !== "not_dispatched");
+  if (mode === "not_dispatched") {
+    expect(h.engine.commands.all().at(-1)).toMatchObject({ state: "failed", outcome: "dispatch_not_started", effects: { session: "not_started" } });
+    expect((await h.engine.decide()).kind).toBe("needs_you");
+    expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
+    expect(await h.engine.readWorkspaceEvidence("1")).toMatchObject({ passed: true });
+  }
+  expect(f.calls()).toHaveLength(calls);
+});
+
+it("still audits earlier dispatched work when the latest attempt never dispatched", async () => {
+  await setup({ badReviewer: true });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const session = h.engine.latestSession("1")!;
+  const earlier = structuredClone(session.runs[0]!);
+  earlier.codex!.dispatch = { at: earlier.startedAt, previousTurnIds: [] };
+  delete earlier.control;
+  session.runs.unshift(earlier);
+  writeSessionRecord(h.stateDirectory, session);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
+  expect(f.calls().some(call => call.method === "thread/read")).toBe(true);
+});
 
 it("starts with only Codex, streams/saves native output, fixes the agent, and resumes the original pair after restart", async () => {
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimitsByLimitId: { codex: { credits: { balance: "50", hasCredits: true, unlimited: false } } } };

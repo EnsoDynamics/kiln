@@ -5,26 +5,30 @@ import { join } from "node:path";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
+import { consumedUuids } from "./target.js";
 import type { LiveTarget } from "./target.js";
 
 export interface GateState {
-  version: 1; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
+  version: 1 | 2; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
+  inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
   operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown }>;
   tasks: Record<string, { toolId?: string; settled: boolean }>;
   tracked: { pid: number; startTime: string }[];
+  /** Observed descendant PIDs awaiting identity or conclusive disappearance. */
+  processObservations?: number[];
 }
 export function gateDirectory(directory: string, attemptId: string): string {
   return join(directory, "live-attempts", createHash("sha256").update(attemptId).digest("hex"));
 }
 export function readGate(directory: string): GateState {
   const state = JSON.parse(readFileSync(join(directory, "gate.json"), "utf8")) as GateState;
-  if (state.version !== 1 || !state.target || !state.operations || !state.tasks || !Array.isArray(state.tracked)) throw new Error("Attempt gate is unreadable or incompatible.");
+  if (![1, 2].includes(state.version) || !state.target || !state.operations || !state.tasks || !Array.isArray(state.tracked) || state.processObservations !== undefined && (!Array.isArray(state.processObservations) || !state.processObservations.every(pid => Number.isSafeInteger(pid) && pid > 0))) throw new Error("Attempt gate is unreadable or incompatible.");
   return state;
 }
 export function createGate(directory: string, target: LiveTarget): void {
   ensurePrivateDirectory(directory);
-  writeDurableMetadata(join(directory, "gate.json"), { version: 1, target, observedAt: new Date().toISOString(), operations: {}, tasks: {}, tracked: [] } satisfies GateState);
+  writeDurableMetadata(join(directory, "gate.json"), { version: 2, target, observedAt: new Date().toISOString(), operations: {}, tasks: {}, tracked: [] } satisfies GateState);
 }
 function syncDirectory(directory: string): void {
   const fd = openSync(directory, "r"); try { fsyncSync(fd); } finally { closeSync(fd); }
@@ -87,10 +91,12 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
 export function unsettled(state: GateState): string[] {
   return [...Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id, o]) => `${o.name} ${id}`), ...Object.entries(state.tasks).filter(([, t]) => !t.settled).map(([id]) => `task ${id}`)];
 }
-/** Provider evidence complements hooks: result echo alone never proves process release. */
-export async function observeGate(directory: string, event: Record<string, unknown>): Promise<void> {
+/** Provider evidence complements hooks: result echo alone never proves process release.
+ * Replay supplies the original time; undated evidence repairs accounting without inventing activity. */
+export async function observeGate(directory: string, event: Record<string, unknown>, observedAt: string | undefined): Promise<void> {
   await withGate(directory, state => {
-    state.observedAt = new Date().toISOString();
+    if (observedAt && Date.parse(observedAt) > Date.parse(state.observedAt)) state.observedAt = observedAt;
+    if (event.type === "result" && event.session_id === state.target.providerSessionId) for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
     if (event.type === "system" && typeof event.task_id === "string" && typeof event.run_id === "string") {
       const key = `${event.task_id}:${event.run_id}`;
       if (event.subtype === "task_started") state.tasks[key] ??= { ...(typeof event.tool_use_id === "string" ? { toolId: event.tool_use_id } : {}), settled: false };

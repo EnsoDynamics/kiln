@@ -110,14 +110,19 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
     if (structure.problems.length) throw new Error(structure.problems.join(" "));
     for (const name of pending) {
       const content = documents[name] ?? readDocument(name);
-      for (const token of markdown.parse(content, {}).flatMap(t => t.children ?? [])) {
+      for (const block of markdown.parse(content, {})) for (const token of block.children ?? []) {
         if (token.type !== "link_open") continue;
+        const replacementPointer = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(block.content);
+        if (token.attrGet("title") === "kiln:reference" && !replacementPointer) continue;
         const href = token.attrGet("href")?.toString().split(/[?#]/)[0];
         if (!href || /^[a-z]+:/i.test(href) || !href.endsWith(".md")) continue;
         const decoded = decodeURIComponent(href);
         if (isAbsolute(decoded) || decoded.includes("\\")) throw new Error(`Document path escapes repository: ${href}`);
         const linked = posix.normalize(posix.join(posix.dirname(name), decoded));
         if (!Object.hasOwn(documents, linked)) pending.add(linked);
+      }
+      for (const pointer of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) {
+        if (!Object.hasOwn(documents, pointer[1]!)) pending.add(pointer[1]!);
       }
     }
     return { names, documents, phases };

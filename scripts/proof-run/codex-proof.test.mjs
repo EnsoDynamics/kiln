@@ -9,6 +9,37 @@ import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import { decodeWrapper, decodeRawCall } from './codex-wrapper-decoder.mjs';
 
+test('recorded image inspection is read-only, literal and opaque', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/codex-audit-proof/image-inspection-wrappers.json', import.meta.url), 'utf8'));
+  assert.equal(fixture.calls.length, 4);
+  const paths = ["tooltip-before-active.png", "populated-phone-24h-chart.png", "tooltip-before-active.png", "real-dev-desktop-30d.png"];
+  for (const [index, { raw }] of fixture.calls.entries()) {
+    const result = decodeRawCall(raw);
+    assert.equal(result.coverage, 'complete', result.reason);
+    assert.deepEqual(JSON.parse(JSON.stringify(result.operations)), [{ name: 'view_image', input: { path: `/PROOF/browser-artifacts/${paths[index]}` } }]);
+  }
+  for (const detail of [undefined, 'high', 'original']) {
+    const input = { path: '/PROOF/image.png', ...(detail ? { detail } : {}) };
+    assert.deepEqual(decodeRawCall({type:'function_call', namespace:'functions', name:'view_image', call_id:'direct', arguments:JSON.stringify(input)}), {callId:'direct', operations:[{name:'view_image', input}], coverage:'complete'});
+  }
+  for (const input of [null, [], {}, {path:''}, {path:'relative.png'}, {path:'/PROOF/image.png', detail:'low'}, {path:'/PROOF/image.png', command:'git push'}]) {
+    assert.equal(decodeWrapper('bad', `image(await tools.view_image(${JSON.stringify(input)}));`).coverage, 'inconclusive');
+    assert.equal(decodeRawCall({type:'function_call', name:'view_image', arguments:JSON.stringify(input)}).coverage, 'inconclusive');
+  }
+  for (const program of [
+    'const r=await tools.view_image({path:"/PROOF/image.png"}); await tools.exec_command({cmd:r.image_url});',
+    'const r=await tools.view_image({path:"/PROOF/image.png"}); await tools.view_image({path:r.image_url});',
+    'const r=await tools.view_image({path:"/PROOF/image.png"}); await tools.apply_patch(r);',
+    'image(await tools.view_image({path:"/PROOF/image.png"}), await tools.unknown_writer({path:"/outside"}));',
+    'await tools["view_image"]({path:"/PROOF/image.png"});',
+  ]) assert.equal(decodeWrapper('bad', program).coverage, 'inconclusive', program);
+  assert.equal(decodeRawCall({type:'function_call',namespace:'collaboration',name:'view_image',arguments:'{"path":"/PROOF/image.png"}'}).coverage,'inconclusive');
+  assert.equal(decodeRawCall({type:'custom_tool_call',name:'view_image',input:'{"path":"/PROOF/image.png"}'}).coverage,'inconclusive');
+  const nested = decodeWrapper('nested', 'image(await tools.view_image({path:"/PROOF/image.png"}), await tools.exec_command({cmd:"git push",workdir:"/outside"}));');
+  assert.equal(nested.coverage,'complete',nested.reason);
+  assert.deepEqual(nested.operations.map(op=>op.name),['view_image','exec_command']);
+});
+
 test('qualified presentation callback preserves every decoded invocation without admitting dynamic callbacks', () => {
   const source = 'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"git status"})]); results.forEach(text);';
   assert.deepEqual(JSON.parse(JSON.stringify(decodeWrapper('presentation', source))), { callId: 'presentation', operations: [{ name: 'exec_command', input: { cmd: 'pwd' } }, { name: 'exec_command', input: { cmd: 'git status' } }], coverage: 'complete' });

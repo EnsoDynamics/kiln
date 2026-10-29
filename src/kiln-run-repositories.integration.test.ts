@@ -98,12 +98,12 @@ function createWorkspaceFeature(sessions: ScenarioSession[], lines: Record<strin
   return feature;
 }
 
-function startKiln(f: Feature) {
+function startKiln(f: Feature, resumeImmediately = false) {
   let stdout = "";
   const signals = new EventEmitter();
   let resolveAddress!: (address: string) => void;
   const address = new Promise<string>((resolve) => (resolveAddress = resolve));
-  const done = runKilnCommand(["run", `docs/prds/${FOLDER}/`], {
+  const done = runKilnCommand(["run", `docs/prds/${FOLDER}/`, ...(resumeImmediately ? ["--resume"] : [])], {
     cwd: f.product,
     env: f.env,
     stdout: { write: (text: string) => (stdout += text) },
@@ -474,7 +474,7 @@ describe("kiln run on a PRD across repositories", () => {
     record.repositories = [entry("product", "prd", f.product), entry("returns-api", "named", f.code["returns-api"]!.checkout), entry("storefront", "named", f.code.storefront!.checkout)];
     writeFileSync(recordPath, JSON.stringify(record));
 
-    const again = startKiln(f);
+    const again = startKiln(f, true);
     await again.address;
     await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 1, 30_000);
     expect(recordOf(f).repositories.map((one) => [one.name, one.setupCompletedAt !== undefined])).toEqual([
@@ -670,7 +670,7 @@ describe("kiln run on a PRD across repositories", () => {
     first.signals.emit("SIGINT");
     await first.done;
 
-    const again = startKiln(f);
+    const again = startKiln(f, true);
     await again.address;
     await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 2, 30_000);
     const workspace = join(f.sandbox.root, ".worktrees", FOLDER);
@@ -787,7 +787,7 @@ describe("kiln run on a PRD across repositories", () => {
     await first.done;
 
     git(f.sandbox, f.code.storefront!.checkout, "branch", "-D", BRANCH);
-    const again = startKiln(f);
+    const again = startKiln(f, true);
     await again.address;
     await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length === 2, 30_000);
     // AC-ADD-03: the line is printed while kiln run decides, ahead of the ● line, which doesn't mention it.

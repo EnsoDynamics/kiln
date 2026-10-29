@@ -23,8 +23,8 @@ describe("the header", () => {
     expect(headerState(completeSnapshot(), true, now)).toEqual({ kind: "complete", label: "PR ready for review", facts: ["5 of 5 phases done", "5h 38m", "Finished 2:55 PM"] });
   });
 
-  it("reads Interrupted in phase <n> once the view has lost Kiln, and names the pull request rather than a number (AC-PR-05)", () => {
-    expect(headerState(runningSnapshot(), false, now).label).toBe("Interrupted in phase 2b");
+  it("reads Last known: phase <n> once the view has lost Kiln, and names the pull request rather than a number (AC-PR-05)", () => {
+    expect(headerState(runningSnapshot(), false, now).label).toBe("Last known: phase 2b");
     const pr = runningSnapshot();
     pr.current = { ...pr.current!, phaseId: "pr" };
     pr.feature.currentPhaseId = "pr";
@@ -54,12 +54,12 @@ describe("a plan row", () => {
     expect(rowFacts({ id: "pr", title: "Final pull request", file: "pull request session", state: "done", doneAt: "2026-10-17T18:55:00Z", finishedByPerson: false }, "done", RUNNING_NOW)).toBeUndefined();
   });
 
-  it("times an Implementing phase from its session's start, and shows it as Interrupted once disconnected", () => {
+  it("times an Implementing phase from its session's start, and marks its state last known once disconnected", () => {
     const row = runningSnapshot().phases[3]!;
     expect(rowState(row, true)).toBe("implementing");
     expect(rowState(row, false)).toBe("interrupted");
     expect(rowFacts(row, "implementing", RUNNING_NOW)).toBe("49m");
-    expect(rowPill(row, "interrupted", undefined)).toBe("Interrupted");
+    expect(rowPill(row, "interrupted", undefined)).toBe("Last known: Implementing");
     expect(rowPill(runningSnapshot().phases[1]!, "split", undefined)).toBe("Split into 2a, 2b");
   });
 

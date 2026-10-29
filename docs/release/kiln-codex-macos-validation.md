@@ -10,6 +10,8 @@ Codex uses the same Kiln package and `kiln run <PRD directory>` command as Claud
 - An available model catalogue with the selected model/effort. First Codex selection uses the latest reported GPT Sol at High; catalogue presence does not guarantee account entitlement. Refusal remains visible without substituting another model.
 - The workspace-write/on-request/automatic-review profile must be allowed by local and managed settings. Kiln checks the effective profile and does not bypass policy or grant a source checkout merely to write linked Git metadata. Human questions stop at Needs you.
 
+Workspace-evidence reading is separately qualified for **codex-cli 0.162.1 and 0.165.0**. An installed 0.165.0 reader can verify retained 0.162.1 conversations, including recorded screenshot inspection and the qualified retained-context compaction form. Unknown reader versions still fail closed. This does not qualify 0.165.0 for new or resumed model work: the launch prerequisite above remains 0.162.1. See [evidence compatibility proof](../prds/kiln-codex-support/kiln-codex-evidence-compatibility-results.md).
+
 Only the selected agent needs to be installed and ready. Existing saved Claude work remains Claude work and does not require Codex.
 
 ## Validation scope and recovery limits
@@ -19,6 +21,12 @@ Required native validation for this delivery is **macOS only** on Doug's availab
 Ctrl+C stops the conversation and the tracked commands Kiln can identify. Independently detached programs may survive; check background servers or jobs before resuming. A known cleanup failure remains visible and prevents automatic continuation. Saved output is separate from authoritative workspace evidence: missing or undecodable evidence cannot be confirmed into a passing check.
 
 Actual quota exhaustion/recovery is deferred to Doug's first live occurrence under his recorded 2026-10-23 decision. Verified pinned contracts, real metadata and automated recovery tests establish initial implementation evidence only. Actual refusal, changed-account inference recovery and native repeated-refusal suppression remain unproved; do not burn allowance to manufacture those cases.
+
+## Launch-profile regression proof
+
+Doug's first Codex run on 2026-10-29 exposed a false launch refusal: codex-cli 0.162.1 omits the implicitly writable launch directory from its additional `writableRoots`. Compare both profiles with the launch directory included, while still rejecting missing additional roots, unexpected roots and changed approval settings. A refused first launch with confirmed cleanup settles as not dispatched, including on restart, and reaches a retryable readiness stop at Needs you. Check again starts a new tracked session after readiness passes. Retain all failed records; sessions whose every attempt is durably ended, undispatched and cleaned up need no nonexistent work history. Any dispatched, ambiguous or cleanup-unknown attempt retains its evidence and safety obligations.
+
+After building, run `node scripts/proof-run/codex-launch-profile-proof.mjs` with existing ChatGPT authentication. This uses the real session adapter and model, writes only disposable local repositories and retains its records under the printed proof directory. On 2026-10-29 it passed a launch writing and reading two repository files, then resumed the same conversation with an added external root and wrote and read three files. Both turns recorded GPT-6.1-Sol/High execution, completed successfully and stopped tracked processes. This is adapter execution evidence; the assembled workflow proof below covers the controller and GitHub delivery.
 
 ## Reproducing the remaining assembled proof
 

@@ -4,16 +4,19 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { launchChrome } from "./test-support/headless-chrome.js";
+import { recoveryRequest } from "./test-support/phase-recovery-request.js";
+import { buildSnapshot } from "./engine/snapshot.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { endProcessTree } from "./platform/helper-process.js";
 import { isProcessLive } from "./platform/process-start-time.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "./test-support/engine-harness.js";
 import { git } from "./test-support/git-repositories.js";
-import { readPrdRecord } from "./state/records.js";
+import { readPrdRecord, writePrdRecord } from "./state/records.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 let harness: Harness | undefined;
@@ -35,7 +38,7 @@ const withoutKeepAwakeError = (stdout: string) =>
     .join("\n");
 
 function kilnRun(h: Harness) {
-  const result = spawnSync(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), encoding: "utf8", timeout: 50_000 });
+  const result = spawnSync(process.execPath, [cli, "run", "docs/prds/customer-returns", "--resume"], { cwd: h.repository, env: kilnEnv(h), encoding: "utf8", timeout: 50_000 });
   return { exitCode: result.status, stdout: withoutKeepAwakeError(result.stdout), stderr: result.stderr };
 }
 
@@ -43,13 +46,13 @@ function kilnRun(h: Harness) {
  * `kiln run` in this process until its output shows `until`, then Ctrl+C, as a person stops a
  * Kiln that would otherwise stay in the foreground. The stop's own line is the output's last.
  */
-async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whileRunning?: (rawStdout: () => string) => Promise<void>) {
+async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whileRunning?: (rawStdout: () => string) => Promise<void>, resumeImmediately = true) {
   let stdout = "";
   let stderr = "";
   const signals = new EventEmitter();
   /** Each browser open: the address, and how many sessions had been launched by then. */
   const opened: { address: string; claudeCalls: number }[] = [];
-  const done = runKilnCommand(["run", "docs/prds/customer-returns"], {
+  const done = runKilnCommand(["run", "docs/prds/customer-returns", ...(resumeImmediately ? ["--resume"] : [])], {
     cwd: h.repository,
     env: kilnEnv(h),
     stdout: { write: (text: string) => (stdout += text) },
@@ -166,7 +169,7 @@ describe("kiln run on a feature underway", () => {
     const release = join(h.sandbox.root, "release");
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ result: "unused" }] }, { actions: [{ waitForFile: release }, { result: "Stopping." }] }] }));
 
-    const holder = spawn(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), stdio: "ignore" });
+    const holder = spawn(process.execPath, [cli, "run", "docs/prds/customer-returns", "--resume"], { cwd: h.repository, env: kilnEnv(h), stdio: "ignore" });
     const exited = new Promise((resolve) => holder.once("exit", resolve));
     let holderAddress: string | undefined;
     const deadline = Date.now() + 30_000;
@@ -280,7 +283,7 @@ describe("kiln run on a feature waiting for usage (usage-limit recovery AC-AUTO-
     const result = await kilnRunUntil(h, (stdout) => /Return intake +done/.test(stdout));
     const lines = result.stdout.trimEnd().split("\n");
     expect(lines[0]).toMatch(/^Customer returns {2}· {2}\d of 4 phases done {2}· {2}phase 1 is waiting for usage$/);
-    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is waiting for usage \\(5-hour window, resets \\d{1,2}:\\d\\d [AP]M\\)\\.${opened}$`));
+    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is waiting for usage \\(5-hour window, resets (?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) )?\\d{1,2}:\\d\\d [AP]M\\)\\.${opened}$`));
     expect(lines[2]).toMatch(new RegExp(`^${time}  1   Return intake      resumed$`));
     expect(lines[3]).toMatch(new RegExp(`^${time}  1   Return intake      done · pushed [0-9a-f]{7}$`));
     const runs = h.engine.latestSession("1")!.runs;
@@ -337,7 +340,7 @@ describe("Ctrl+C and a closed terminal", () => {
     // session, which Kiln spawned in its own group.
     const working = (h: Harness) => join(h.sandbox.root, "working");
     const h = await underwayAtPhase2b(working);
-    const kiln = spawn(process.execPath, [cli, "run", "docs/prds/customer-returns"], { cwd: h.repository, env: kilnEnv(h), stdio: ["ignore", "pipe", "pipe"] });
+    const kiln = spawn(process.execPath, [cli, "run", "docs/prds/customer-returns", "--resume"], { cwd: h.repository, env: kilnEnv(h), stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     kiln.stdout!.setEncoding("utf8").on("data", (text: string) => (stdout += text));
     const exited = new Promise<number | null>((resolve) => kiln.once("exit", (code) => resolve(code)));
@@ -370,7 +373,7 @@ describe("Ctrl+C and a closed terminal", () => {
     const signals = new EventEmitter();
     let stdout = "";
     let finished: number | undefined;
-    const done = runKilnCommand(["run", "docs/prds/customer-returns"], {
+    const done = runKilnCommand(["run", "docs/prds/customer-returns", "--resume"], {
       cwd: h.repository,
       env: kilnEnv(h),
       stdout: { write: (text: string) => (stdout += text) },
@@ -405,4 +408,172 @@ describe("Ctrl+C and a closed terminal", () => {
     expect(result.stdout).not.toContain("Interrupted");
     expect(h.reopenFromDisk().latestSession("2b")!.runs[0]!.interruptedBy).toBe("sighup");
   });
+});
+
+
+describe("restart review before model work", () => {
+  it("shows completed and planned phases, then resumes from the real browser button", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Done." }] }, { actions: [{ result: "Need a decision." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
+    const chrome = await launchChrome();
+    try {
+      await kilnRunUntil(h, stdout => stdout.includes("Ready to resume"), async stdout => {
+        expect(h.claudeCalls()).toHaveLength(1);
+        const address = /Opened (\S+)/.exec(stdout())![1]!;
+        const page = await chrome.open(address, { width: 1200, height: 1000 });
+        try {
+          await page.waitFor("document.body.innerText.includes('READY TO RESUME')");
+          const words = await page.evaluate<string>("document.body.innerText");
+          expect(words).toContain("2 of 4 phases done");
+          expect(words).toContain("Store credit"); expect(words).toContain("Returns dashboard");
+          expect(words).toContain("Next: phase 2b");
+          await page.waitFor("[...document.querySelectorAll('button')].some(e => e.textContent.includes('Resume Kiln') && !e.disabled)");
+          expect(h.claudeCalls()).toHaveLength(1);
+          writeFileSync("/tmp/kiln-restart-overview-desktop.png", await page.screenshot());
+          const narrow = await chrome.open(address, { width: 390, height: 844 });
+          try {
+            await narrow.waitFor("document.body.innerText.includes('Resume Kiln')");
+            writeFileSync("/tmp/kiln-restart-overview-narrow.png", await narrow.screenshot());
+            expect(await narrow.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+          } finally { await narrow.close(); }
+          await page.evaluate("[...document.querySelectorAll('button')].find(e => e.textContent.includes('Resume Kiln')).click()");
+          await waitFor(() => h.claudeCalls().length === 2);
+          await page.waitFor("document.body.innerText.includes('needs your input')");
+          expect(page.problems).toEqual([]);
+        } finally { await page.close(); }
+      }, false);
+    } finally { await chrome.close(); }
+    expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+  });
+
+  it("holds an interrupted conversation and exposes status-bound bot Continue", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const marker = join(h.sandbox.root, "interrupted-work");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: marker }, { work: "npm test" }] }, { actions: [{ result: "Stopped again." }] }] }));
+    await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
+    await h.engine.stop("sigint"); h.engine.close(); rmSync(marker);
+    const saved = readPrdRecord(h.stateDirectory)!;
+    saved.settings.agentChoices.claude_code = { model: "unavailable-next-model", effort: "high" };
+    writePrdRecord(h.stateDirectory, saved);
+    await kilnRunUntil(h, stdout => stdout.includes("Ready to resume"), async stdout => {
+      expect(h.claudeCalls()).toHaveLength(1);
+      const address = /Opened (\S+)/.exec(stdout())![1]!;
+      let statusOutput = "";
+      const status = spawn(process.execPath, [cli, "status", join(h.repository, "docs/prds/customer-returns"), "--json"], { cwd: h.repository, env: kilnEnv(h), stdio: ["ignore", "pipe", "pipe"] });
+      status.stdout!.on("data", (b: Buffer) => statusOutput += b.toString());
+      expect(await new Promise(resolve => status.once("exit", resolve)), statusOutput).toBe(0);
+      const answer = JSON.parse(statusOutput);
+      const control = answer.controls.find((c: { name: string }) => c.name === "continue");
+      expect(control.available).toBe(true);
+      expect(answer.state).toBe("paused");
+      // Use the documented CLI command so browser and bot take the same engine path.
+      const child = spawn(process.execPath, [cli, "continue", join(h.repository, "docs/prds/customer-returns"), "--only-if-status-matches", answer.status_token, "--command-id", "restart-review-continue", "--json"], { cwd: h.repository, env: kilnEnv(h), stdio: ["ignore", "pipe", "pipe"] });
+      let output = ""; child.stdout!.on("data", (b: Buffer) => output += b.toString());
+      const code = await new Promise(resolve => child.once("exit", resolve));
+      expect(code, output).toBe(0);
+      await waitFor(() => h.claudeCalls().length === 2);
+      expect(h.claudeCalls()[1]!.args).toContain("--resume");
+      const original = h.engine.latestSession("1")!;
+      expect(h.claudeCalls()[1]!.args).toContain(original.initModel ?? original.model);
+      expect(h.claudeCalls()[1]!.args).not.toContain("unavailable-next-model");
+      expect((await fetch(address)).status).toBe(200);
+    }, false);
+  });
+
+  it("does not restart automatic usage recovery until explicitly continued", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now()/1000)+3600 } }, { exit: 1 }] }, { actions: [{ result: "Ready again." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); h.engine.close();
+    const again = h.reopenFromDisk();
+    try {
+      expect(await again.decide({ review: true })).toMatchObject({ kind: "waiting" });
+      await again.continue();
+      expect(buildSnapshot(again)).toMatchObject({ feature: { state: "paused" }, restartReview: { activityKey: "1", action: "wait" } });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      expect(h.claudeCalls()).toHaveLength(1);
+      expect(await again.start()).toEqual({ ok: true }); await again.settled();
+      await waitFor(() => h.claudeCalls().length === 2);
+    } finally { again.close(); }
+  });
+
+  it("rejects --resume for unstarted work without saving a started execution", async () => {
+    harness = await createHarness({ sessions: [] }); const h = harness;
+    const signals = new EventEmitter(); let stderr = "";
+    const code = await runKilnCommand(["run", "docs/prds/customer-returns", "--resume"], { cwd: h.repository, env: kilnEnv(h), signals, stdout: { write: () => {} }, stderr: { write: s => stderr += s } });
+    expect(code).toBe(2); expect(stderr).toContain("requires an already-started execution");
+    expect(readPrdRecord(h.stateDirectory)?.startedAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(0);
+  });
+});
+
+
+it("keeps Needs you resumable when automatic usage recovery is switched off during restart review", async () => {
+  harness = await createHarness({ sessions: [{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now()/1000)+3600 } }, { exit: 1 }] }, { actions: [{ result: "Still needs input." }] }] });
+  const h = harness;
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); h.engine.close();
+  const again = h.reopenFromDisk();
+  try {
+    await again.decide({ review: true });
+    expect(again.restartReview?.action).toBe("wait");
+    expect(await again.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(buildSnapshot(again).feature.state).toBe("needs_you");
+    expect(again.restartReview).toBeUndefined();
+    expect(again.controlView().controls.find(c => c.name === "resume")?.available).toBe(true);
+    expect(await again.resume(recoveryRequest(again))).toMatchObject({ ok: true }); await again.settled();
+    expect(h.claudeCalls()).toHaveLength(2);
+  } finally { again.close(); }
+});
+
+
+/** Finish only the selected disposable fixture phases as a person would in a terminal. */
+function finishFixturePhases(h: Harness, ids: string[]) {
+  const files = ids.map(id => join(h.engine.record.prdDirectory, h.engine.record.plan!.find(row => row.id === id)!.file));
+  for (const file of files) {
+    const path = join(h.engine.worktreePath, file);
+    writeFileSync(path, readFileSync(path, "utf8").replace("\n", "\n\n**Closed:** 2026-10-29\n"));
+  }
+  git(h.sandbox, h.engine.worktreePath, "add", "--", ...files);
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "feat: finish fixture phases in terminal");
+  git(h.sandbox, h.engine.worktreePath, "push", "-q", "-u", "origin", "feature/customer-returns");
+}
+
+it.each([false, true])("holds the next final/audit activity before launch (audits enabled: %s)", async auditCycles => {
+  harness = await createHarness({ auditCycles, sessions: [{ actions: [{ result: "Need input." }] }, { actions: [{ result: "Need input for final activity." }] }] });
+  const h = harness;
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); h.engine.close();
+  finishFixturePhases(h, ["1", "2b", "3"]);
+  const again = h.reopenFromDisk();
+  try {
+    const decision = await again.decide({ review: true });
+    expect(decision.kind).toBe(auditCycles ? "start_audit" : "start_pull_request");
+    expect(again.restartReview).toMatchObject({ action: "start", activityKey: auditCycles ? expect.stringMatching(/^audit-/) : "pr" });
+    await again.continue();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(buildSnapshot(again).feature.state).toBe("paused");
+    await again.agents.refresh();
+    expect(await again.start()).toEqual({ ok: true }); await again.settled();
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(again.restartReview).toBeUndefined();
+  } finally { again.close(); }
+});
+
+it("rechecks terminal completion while reviewing instead of resuming the old conversation", async () => {
+  harness = await createHarness({ sessions: [] }); const h = harness;
+  const marker = join(h.sandbox.root, "interrupted-work");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: marker }, { work: "npm test" }] }, { actions: [{ result: "Need input in the next phase." }] }] }));
+  await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
+  await h.engine.stop("sigint"); h.engine.close();
+  const again = h.reopenFromDisk();
+  try {
+    expect(await again.decide({ review: true })).toMatchObject({ kind: "resume", phaseKey: "1" });
+    await again.continue(); expect(h.claudeCalls()).toHaveLength(1);
+    finishFixturePhases(h, ["1"]);
+    expect(await again.start()).toEqual({ ok: true }); await again.settled();
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
+    expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+    expect(again.record.phases["1"]?.doneAt).toBeDefined();
+  } finally { again.close(); }
 });

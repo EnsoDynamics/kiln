@@ -52,6 +52,64 @@ describe("Codex metadata over real process pipes", () => {
     expect(optionalRouting.account.limits).toEqual([]); // Empty windows do not negate explicit account-wide permission.
     expect(f.calls().every(call => !/^(thread|turn)\//.test(call.method))).toBe(true);
   });
+  it.each([
+    ["email", { account: { type: "chatgpt", email: "other@example.invalid", planType: "pro" } }],
+    ["plan", { account: { type: "chatgpt", email: "same@example.invalid", planType: "business" } }],
+    ["missing identity", { account: { type: "chatgpt", planType: "pro" } }],
+  ])("does not attach usage or positive permission after a changed %s without routing IDs", async (_name, after) => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
+    const before = { account: { type: "chatgpt", email: "same@example.invalid", planType: "pro" } };
+    f.set({ accounts: [before, after] });
+    const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(result.account.email).toBe("email" in after.account ? after.account.email : undefined);
+    expect(result.account.plan).toBe(after.account.planType);
+    expect(result.account.limits).toEqual([]); expect(result.account.limitsObservedAt).toBeUndefined();
+    expect(result.account.limitsError).toBeTruthy(); expect(result.account.accountId).toBeUndefined();
+    expect(result.account.credits).toBeUndefined(); expect(result.account.codexUsage?.state).toBe("unknown");
+    expect(result.blockers).toEqual([]); // Optional usage does not become a new launch gate.
+  });
+  it("requires corroborated identity and preserves independent dates before unrelated metadata finishes", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
+    const anonymous = { account: { type: "chatgpt", planType: "pro" } };
+    for (const account of [anonymous, { ...anonymous, workspaceRouting: { chatgptAccountId: "other" } }]) {
+      f.set({ accounts: [account] });
+      const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+      expect(result.account.limits).toEqual([]); expect(result.account.codexUsage?.state).toBe("unknown");
+      expect(result.account.limitsObservedAt).toBeUndefined(); expect(result.account.accountId).toBeUndefined();
+    }
+    // Both matching routing reads can establish identity even without an email.
+    f.set({ accounts: [{ ...anonymous, workspaceRouting: { chatgptAccountId: "fixture-account" } }], modelDelayMs: 100 });
+    const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(result.account.limits).toHaveLength(3); expect(result.account.codexUsage?.state).toBe("allowed");
+    expect(result.account.accountId).toBe("fixture-account");
+    expect(Date.parse(result.account.limitsObservedAt!)).toBeLessThanOrEqual(Date.parse(result.account.updatedAt));
+    expect(result.account.codexUsageObservedAt).toBe(result.account.updatedAt);
+    expect(Date.now() - Date.parse(result.account.updatedAt)).toBeGreaterThanOrEqual(100);
+  });
+  it.each([{ initializeError: true }, { accountError: true }, { afterAccountError: true }, { version: "99.0.0" }])("exposes failed metadata as unavailable: %j", async fixture => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set(fixture);
+    const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(result.account.error).toBeTruthy(); expect(result.account.limitsError).toBeTruthy();
+    expect(result.account.limitsObservedAt).toBeUndefined(); expect(result.account.codexUsage).toBeUndefined();
+    expect(result.blockers.length).toBeGreaterThan(0);
+  });
+  it("compares retained usage identity across routing and usage-ID fields, including repeated failed reads", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
+    const auth = { account: { type: "chatgpt", email: "same@example.invalid", planType: "pro" } };
+    info = new AgentInfo({ agentId: "codex", executable: { claude: "unused", codex: f.executable }, cwd: sandbox.root, claudeCwd: sandbox.root, env: f.env });
+    for (const failures of [0, 2]) {
+      f.set({ accounts: [auth] }); await info.refresh();
+      const original = structuredClone(info.state.account!);
+      expect(original.limitsAccountId).toBe("fixture-account");
+      for (let i = 0; i < failures; i++) {
+        f.set({ accounts: [auth], usageError: true }); await info.refresh();
+        expect(info.state.account).toMatchObject({ limits: original.limits, limitsObservedAt: original.limitsObservedAt, limitsAccountId: "fixture-account", limitsStale: true });
+      }
+      f.set({ accounts: [{ ...auth, workspaceRouting: { chatgptAccountId: "other-workspace" } }], usageError: true }); await info.refresh();
+      expect(info.state.account).toMatchObject({ email: auth.account.email, routingAccountId: "other-workspace", limits: [], codexUsage: { state: "unknown" } });
+      expect(info.state.account!.limitsObservedAt).toBeUndefined(); expect(info.state.account!.limitsAccountId).toBeUndefined();
+    }
+  });
   it("attributes workspace credits through real account/usage/account pipes and clears them on failed refreshes", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
     const usage = { accountId: "fixture-account", ordinaryUsageAllowed: false, rateLimitsByLimitId: { codex: { credits: { balance: "50", hasCredits: true, unlimited: false }, primary: { usedPercent: 31, windowDurationMins: 1440 } }, other: { credits: { balance: "10", hasCredits: false, unlimited: true } } } };
@@ -62,7 +120,7 @@ describe("Codex metadata over real process pipes", () => {
     expect(info.state.account?.codexUsage?.state).toBe("blocked");
     expect(info.state.account?.limits[0]).toMatchObject({ percent: 31, durationMinutes: 1440 });
     f.set({ usage: { ...usage, rateLimitsByLimitId: { codex: { credits: { balance: "75", hasCredits: true, unlimited: false } } } } }); await info.refresh();
-    expect(info.state.account?.stale).toBe(true);
+    expect(info.state.account?.limitsStale).toBe(true);
     expect(codexBillingSummary(info.state.account)).toMatchObject({ email: "fixture@example.test", credits: [{ balance: "75" }] });
     f.set({ usage }); await info.refresh(); // Begin the refresh-failure case with a successful gauge read.
     f.set({ usageError: true }); await info.refresh();
@@ -90,6 +148,8 @@ describe("Codex metadata over real process pipes", () => {
     }
     const absent = await readCodexMetadata({ executable: undefined, cwd: sandbox.root, cwds: [sandbox.root], env: f.env });
     expect(absent.blockers[0]).toContain("not on PATH");
+    expect(absent.account.error).toContain("not on PATH"); expect(absent.account.limitsError).toBeTruthy();
+    expect(absent.account.limitsObservedAt).toBeUndefined();
     expect(f.calls().every(c => !c.method.startsWith("turn/") && !c.method.startsWith("thread/"))).toBe(true);
   });
 });

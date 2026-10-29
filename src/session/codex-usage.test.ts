@@ -7,7 +7,8 @@ import type { SessionRecord, SessionRun } from "../state/records.js";
 import { codexUsageRefusal, codexUsageRelease, consumeCodexUsage } from "./codex-usage.js";
 
 const at = "2026-10-23T19:00:00Z";
-const account = { account: { type: "chatgpt" } };
+// Phase 7 requires a known bracketed identity; a usage ID alone is insufficient.
+const account = { account: { type: "chatgpt", email: "known@example.invalid", planType: "pro" } };
 const error = { message: "Exhausted. Reset tomorrow.", codexErrorInfo: "usageLimitExceeded" };
 const run = () => ({ startedAt: at, endedAt: at, cause: "launch", codex: { account: { accountId: "A" }, intentAt: at, terminal: { status: "failed", error }, humanRequests: [], modelActivityAt: [] } }) as unknown as SessionRun;
 const session = () => ({ model: "original-model", effort: "high", conversation: { threadId: "same-conversation" }, codex: { usageRecovery: { generation: 0 } } }) as unknown as SessionRecord;

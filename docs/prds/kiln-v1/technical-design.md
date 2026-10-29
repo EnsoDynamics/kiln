@@ -91,7 +91,7 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (a refused session's failed check records a wait; the reconcile at `kiln run` waits again)
 
-Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Pseudocode:
+Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Reconciliation is passive by default: an in-memory restart review holds all new dispatch and usage-wait watchers. Eligible continuation is shown through the Paused overview with a Resume button, completed/total/planned phases and the next activity. The snapshot adds optional `restartReview: { activityKey, action: start | resume | wait }`. Needs you, Complete and an intentional pause keep their existing screens. Resume uses the existing Start API and bot `continue` command, rechecks current state, then releases the review and drives normal continuation. The review has no saved schema field; every controller restart reviews again. `--resume` skips only this review for an already-started record, never an intentional pause or another restriction. No record or an unstarted record with that flag fails before setup. The following reconciliation choices describe what becomes eligible after this review, or immediately with `--resume`. Pseudocode:
 
 ```
 resolve path → repository (main checkout, found as Command line gives), PRD directory, feature name
@@ -180,6 +180,8 @@ Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (task-specific audit skill launch and recovery), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order (additive audit session kinds and `audit-<activityId>` storage, implemented in Phase 1; automatic dispatch remains Phase 2).
@@ -253,6 +255,8 @@ The Needs you resume command is `cd <worktree>` then `claude --resume <session I
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (observed delivery activity; existing six steps and Follow-up retained). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Workspace Evidence, Output and Progress → Live and saved output (Codex-native output, child visibility and observed progress; Claude behavior retained).
@@ -313,6 +317,8 @@ A signal Kiln sends itself is an interruption and the session is resumed ([Stopp
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
 
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
+
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex tracked-process cleanup and visible native limitation; Claude behavior retained).
 
 Kiln handles SIGINT (Ctrl+C), SIGHUP (the terminal closed) and SIGTERM the same way (AC-KEEP-02). On Windows, Node raises SIGINT for Ctrl+C and SIGHUP for a closed console window, which Windows follows with ending Kiln about 5 seconds later; the interrupt below finishes well within that:
@@ -332,6 +338,8 @@ Kiln never touches the worktree on the way out (AC-KEEP-03). If Kiln itself is k
 ### Interruptions, sleep and resume
 
 Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md) — deliberate Claude takeover and safe recovered release; application shutdown and ordinary completed-attempt recovery retain their existing policy.
+
+Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
 
@@ -503,6 +511,8 @@ All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local 
 
 **Connection (AC-VIEW-04, AC-VIEW-07).** The view shows "updated <n>s ago" from the last event. On a stream error, or no heartbeat for 15 seconds, it shows Disconnected and keeps the last snapshot on screen, with a phase that was Implementing shown as Interrupted (AC-WATCH-01, AC-WATCH-02). `EventSource` keeps retrying; when `kiln run` is back on the same address, the first `snapshot` restores the live view.
 
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (last-known disconnected presentation and reconnect guidance; transport loss does not establish process exit or enable terminal recovery).
+
 While disconnected, every screen renders from that last snapshot by the rules the Disconnected mockup applies to Running:
 
 - **Header and layout.** Each screen keeps its header and layout, except that Implementing phase <n> becomes Interrupted in phase <n>. Not started (Documents found), Paused and PR ready for review stay as they are. Needs you switches to the Disconnected progress layout (UI-006): the Needs you header with the stopped phase and time, no current-phase panel, the plan with that phase's row in Needs you, and the settings.
@@ -512,6 +522,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the view no longer derives interruption from transport loss).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Local Interfaces (Claude billing safeguards and additive private billing state only).
 
@@ -700,8 +712,10 @@ Git and the phase documents stay the record of what is done; Kiln's record remem
 
 - **Package:** `@ensodynamics/kiln`, providing the `kiln` command; installed with `npm install -g @ensodynamics/kiln` (AC-INSTALL-01). The unscoped name `kiln` is taken on npm. Doug confirmed the `ensodynamics` npm organization on 2026-10-25; publication remains subject to his separate explicit approval.
 - **Contents:** the compiled CLI, engine and server; the built view with its fonts; the prompt templates.
-- **Platforms:** natively validated on macOS; Linux and Windows are best effort under AC-INSTALL-03. CI requires full macOS verification/installed-package tests and Linux/Windows build-and-pack checks; Windows specifics are in [Windows](#windows).
-- **Release:** a GitHub Actions workflow in `EnsoDynamics/kiln` (`release.yml`) publishes to npm with provenance on a version tag on `main`, after full macOS verification and installed-package tests plus required Linux/Windows builds and packs; nothing is published from a laptop. npm records provenance only from a public repository (REL-001). A trusted publisher (npm's OIDC publishing) can be set up only on a package that already exists, so the first publish authenticates with a granular token in the `NPM_TOKEN` secret and later ones through the trusted publisher; the workflow needs no change between them. Steps: [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
+- **Platforms:** natively validated on macOS; Linux and Windows are best effort under AC-INSTALL-03. Main/release candidates require full macOS verification/installed-package tests and Linux/Windows build-and-pack checks. Development CI runs Ubuntu audit, lint, type, unit/contract, build and package checks; full macOS verification also runs locally. Windows specifics are in [Windows](#windows).
+- **Release:** `release.yml` runs for pushes to `main`, or an explicit retry on `main`. A dependency-free Ubuntu preflight validates committed package/lock versions, advancement from the prior main commit, unused version/tag, and registry responses before calling the full candidate checks. Publishing is held unless the repository variable `NPM_PUBLISH_ENABLED` is exactly `true`. When enabled, preflight also requires public source for provenance and validates the configured authentication mode. The initial mode uses a granular token in `NPM_TOKEN`; `NPM_AUTH_MODE=trusted` selects npm OIDC after the package exists and its trusted publisher is configured. An unavailable registry or invalid token is a failure, not evidence that a version is free. The full matrix runs once; creating the release tag does not start another run. Steps: [Kiln npm release steps](../../release/kiln-npm-release-steps.md).
+- **Versions and local enforcement:** the tracked `package.json` and both lockfile root versions agree. The local pre-push hook reads the exact Git objects being pushed, checks package metadata for branch pushes, and applies the release checks to `main` and version tags. It never changes commits. `npm run release:prepare` refreshes main/tags and reads npm, retaining a manually advanced version or increasing the patch once when the current version equals the release baseline. The first unpublished `1.0.0` is retained. Explicit minor/major choices remain deliberate. Hook installation refuses to overwrite an unrelated hook configuration; GitHub runs the authoritative checks even when a local hook is absent.
+- **Artifacts:** Ubuntu produces a package archive plus SHA-256 checksum. Release-candidate CI retains it for seven days; macOS installs and tests that same archive. The publish job downloads it and verifies the checksum, then publishes it without rebuilding. After npm succeeds, GitHub receives the matching version tag and Release with generated notes, archive and checksum. The npm package remains one cross-platform JavaScript package; there are no platform installers. A failed post-publication GitHub Release step is repaired using the already-published version and retained archive, not by republishing it.
 
 ## Windows
 
@@ -738,9 +752,9 @@ A later version may let another client take every action the browser view offers
 
 ## Testing Approach
 
-**CI scope and cancellation.** Pushes to `develop` and `main`, and pull requests, run the existing macOS verification/installed-package checks and Linux/Windows build-and-pack checks when any file outside `docs/` and the root `.gitignore` changes. Documentation-only changes run CI only for the three document-count fixtures (`docs/prds/kiln-v1/kiln-v1-prd.md`, `technical-design.md` and `assumptions.md` in that directory) and browser references in `docs/design/mockups/` or the `mockups/` directories of `kiln-multi-repo-delivery`, `kiln-usage-limit-recovery` and `kiln-billing-safeguards` under `docs/changes/`. Other planning documents, draft mockups and root-ignore-only edits skip CI. npm's explicit `package.json` files list controls the package independently of the root `.gitignore`; nested ignore files remain covered. The packaged root `README.md`, runtime prompts, test fixtures and workflow files remain covered. When tests acquire another documentation dependency, add its path to both CI event filters. A newer branch push or update to the same pull request cancels its superseded CI run; branches, pull requests and workflows have separate concurrency groups. Tagged releases always invoke the complete verification workflow regardless of changed paths, and their verification is not cancelled by branch or pull-request updates.
+**CI scope and cancellation.** Development pushes and pull requests use Ubuntu full verification, including integration tests, followed by installed-package checks against the built archive. They do not start macOS or Windows jobs. Pull requests targeting `main` use full release-candidate verification after the inexpensive version preflight; Ubuntu builds the archive and macOS runs full verification and installed-package checks, with Windows build/pack checks. Pushes to `main` use the release workflow, which always runs regardless of changed paths. CI excludes documentation-only changes apart from the existing document-count fixtures and browser references. The packaged README, runtime prompts, fixtures and workflow files remain covered. New branch/PR updates cancel superseded CI; release runs are serialized and never cancel an in-progress publication.
 
-**CI job limits.** The verification matrix allows 45 minutes on macOS and 10 minutes on Linux/Windows. The Linux npm publishing job also has a 10-minute limit. Reusable release verification inherits the same matrix limits. These bound stalled jobs; individual test/hook deadlines and required checks remain unchanged.
+**CI job limits.** Ubuntu development/full verification and macOS full verification allow 45 minutes, Windows build/pack allows 10 minutes, release preflight allows five minutes, and publishing allows 10 minutes. Individual test/hook deadlines remain unchanged.
 
 Helper cancellation and timeout results resolve only after the real child process closes. Helpers receive the cancellation signal, followed after one second by a process-group kill if necessary. Test harness teardown calls `Engine.stop()` for every created engine and drains those helpers/sessions before deleting its temporary repositories. In-process CLI test helpers stop in `finally` when callbacks fail. A cancelled audit check is abandoned under the existing stopping verdict. Process-heavy integration files run with at most four workers; the existing test deadlines remain unchanged.
 
@@ -762,8 +776,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 - **Server security:** requests with a foreign Host, a foreign Origin or no token are refused.
 - **Pause (AC-VIEW-03):** against the stand-in `claude`: Keep going before the phase is Done lets the next phase start; Keep going once the pause is active returns 409; a pause requested before a Needs you holds after Check again passes.
 - **The view (AC-LOOK, AC-WATCH):** each mockup screen rendered in a real browser from a fixture `Snapshot` carrying that mockup's sample data, and compared with the mockup rendered alongside it, plus the Disconnected and reconnect behavior against a server that stops and returns, and a final message containing raw HTML shown as text (AC-STOP-02).
-- **Linux and Windows:** CI requires successful builds and package archives, without running native runtime or installed-package tests. Full verification and installed-package execution run on macOS. Linux/Windows Claude/Codex, console, interrupt, sleep and keep-awake behavior remains unconfirmed (AC-INSTALL-03, Doug's 2026-10-25 clarification).
-- **The package (AC-INSTALL-01):** `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed `kiln` on a real temporary repository: it prints its usage and serves the view, its scripts, styles and bundled fonts. CI runs these installed-package checks on macOS (`npm run test:package`); Linux/Windows CI builds and packs the package without running it (AC-INSTALL-03, 2026-10-25 clarification).
+- **Linux and Windows:** Ubuntu development CI runs full automated verification and installed-package tests; Windows CI builds and packs the package for main candidates. Full macOS verification remains a release gate. These automated fixtures do not establish real native Linux/Windows Claude/Codex, console, interrupt, sleep or keep-awake behavior; those manual proofs remain best effort (AC-INSTALL-03, Doug's 2026-10-25 clarification).
+- **The package (AC-INSTALL-01):** `npm pack`, then `npm install -g` of that tarball into a temporary prefix, then the installed `kiln` on a real temporary repository: it prints its usage and serves the view, its scripts, styles and bundled fonts. CI runs these installed-package checks against the exact built archive on Ubuntu development runs and macOS main candidates (`npm run test:package`); Windows builds and packs without installed execution.
 - **The release:** AC-PROOF-01 and AC-PROOF-02, a real three-to-five-phase feature with a real pull request: the proof feature Word tally (`scripts/proof-run/`), run on macOS; native Windows/Linux proof is best effort and is not a release gate ([Kiln proof run steps](../../design/kiln-proof-run-steps.md)). Before that, `scripts/exploration/proof-rehearsal-real-feature.mjs` runs the same feature on macOS with the real Claude Code and GitHub stood in for.
 
 ### Conservative integration-test performance investigation
@@ -797,7 +811,7 @@ Establish a baseline before editing and compare repeated before/after runs on eq
 | AC-CLI-01, 02; AC-VIEW-01 to 08 | What `kiln run` does; Command line; The Local Server; HTTP API; Snapshot |
 | AC-MULTI-01 to 04 | Ports and one Kiln per PRD; Kiln's State on Disk; Worktree and Branch Setup |
 | AC-KEEP-01 to 07 | Workload Type and Starting Point; Stopping a session; Interruptions, sleep and resume; Keep-awake |
-| AC-INSTALL-01 to 03 | Dependencies; Package and Distribution; Windows |
+| AC-INSTALL-01 to 05 | Dependencies; Package and Distribution; Windows; Testing Approach |
 | AC-LOOK-01 to 05 | The view is built from the mockups' HTML, which is its specification; fonts are bundled; Command line (the repository name) |
 | AC-PROOF-01, 02 | Testing Approach; the phase-session prompt's worktree and branch lines |
 

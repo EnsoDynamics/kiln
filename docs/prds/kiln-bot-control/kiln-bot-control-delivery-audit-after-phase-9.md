@@ -1,0 +1,101 @@
+# Kiln bot control — whole-PRD delivery audit after Phase 9
+
+**Date:** 2026-10-28 (UTC)
+**Baseline:** `4853d2b957e68e3fe13de90aec564263b0016edc`, published Phase 9 implementation `29851a2` and publication/launch record `4853d2b`.
+**Scope:** [Kiln control from a phone-driven bot](kiln-bot-control-prd.md), whole PRD, all nine closed implementation leaves and all 18 active criteria, including cross-cutting obligations.
+**Outcome:** **14 Implemented; 4 Partly implemented.** [Completion Phase 10](phase-10-complete-kiln-inspection-boundaries.md) carries two confirmed missing-part families. Whole-PRD test audit waits for completion and a fresh clean delivery audit.
+
+Two full assessment rounds covered every active criterion with fresh readers, regrouped between rounds. Readers took requirements from disk before tracing code. The main agent reviewed every Implemented record for required variants, confirmed both missing mechanisms against source and the built public CLI, and checked their siblings. Round 1 confirmed two missing-part families; Round 2 confirmed no additional family and independently traced the shared inventory/full-status reachability. Assessment ended on that no-new-gap round. These are delivery findings, not test-adequacy grades. No application or test file changed.
+
+Retired AC-ACCOUNT-02–04 remain excluded. No active criterion is fully superseded. AC-ACT-01/02/03 retain their recorded partial supersessions to the independently owned live-control track. Original ownership, every Closed line and the earlier audits' historical meaning remain intact.
+
+## Criterion assessment
+
+| Criterion | Status | Reachable behavior and remaining part |
+|---|---|---|
+| AC-SEE-01 | Partly implemented | `runInspectionCommand → inventory → enumerateWork/readWork/controller` implements current-user, any-cwd, cross-repository discovery, authenticated identity, all live states, stopped unfinished work, separate counts and explicit empty/incomplete results. A stopped row's synchronous saved-output sample can block the whole inventory on a FIFO. |
+| AC-SEE-02 | Implemented | `statusProjection → inspectionSnapshot/buildSnapshot`, validated session attribution and `latestActivity` expose plan/leaf counts, nested phase/audit/delivery identity, model, start/latest activity, pause, usage wait and completion/PR facts without a quiet-time health claim. The shared full-status resource failure is recorded under AC-SEE-08/CLI-01. |
+| AC-SEE-03 | Implemented | Collection/row times, actual/original/next-attempt identity, independent provider usage/recovery and billing/credit observations retain dates and explicit unknown/stale states. Nested waiting/Needs-you usage has its own allowance date for both providers; retained reads have disabled controls/null token and honest last-known labels. |
+| AC-SEE-04 | Implemented | Browser-derived `needsYouView/statusProjection` and validated retained fallback preserve full stop reason, exact message or explicit absence, checks/dates, Codex human requests, stopped session/activity and recovery facts. No stop-size truncation is imposed. |
+| AC-SEE-05 | Implemented | `handoffProjection/chooseSession/instructionsFor` confine current/historical/no-session selection to this execution, establish usable bounded Claude history or Codex metadata identity, recheck active ownership, preserve provider commands/cwd/profile/model/prompts and fresh alternatives, and start no turn. |
+| AC-SEE-06 | Partly implemented | `chooseOutputSession/outputPage` preserve active/latest/explicit selection, complete-record snapshots, validated reused/cursor descriptors, frozen prefix/generation/identity, scalar fragments, chronological pages and exact final byte limits. Nonregular output can block its synchronous open rather than returning an unavailable result. |
+| AC-SEE-07 | Implemented | Every scoped command uses `targetWork/resolvePrdPath`: caller cwd, exact canonical directory/PRD filename or Git-authenticated execution-bound aliases, with explicit ambiguity/missing targets. Capability, cursor and receipt identity prevent retargeting; display labels never select work. |
+| AC-SEE-08 | Partly implemented | `readHistory` exposes all owned phase conversations/attempts, actual provider IDs, explicit malformed/duplicate/missing/legacy errors, never-started empty phases and honest completeness. Session/audit reads and final spools are guarded, but full-status output sampling still has the nonregular-file blocking gap. |
+| AC-ACT-01 | Implemented | `commandHelp/parseCommand` and packaged contracts expose all 27 commands/groups/leaves, input/value sources, helper payloads, request-first examples, fields/errors/exits and both reply forms; bare invocation points to help. `controlView/statusProjection` supplies current availability/reasons. Required-ID enforcement belongs to CLI-01's actual result contract below. |
+| AC-ACT-02 | Implemented | `CommandJournal → applyControl/recoverPhase` keeps reply/no-message resume separate from Verify, same-conversation history, already-complete unsent receipts, explicit acknowledgement, fresh checks and dedicated recovery. Usable Claude history is rechecked after awaited preparation before dispatch; existing plan/pause/authority rules remain. |
+| AC-ACT-03 | Implemented | Browser/CLI journal admission reaches the same deferred pause, pending-only cancellation, Continue, dedicated recheck, resulting runtime settings and exact outside-evidence confirmation paths, without implicit advancement/resumption. |
+| AC-ACT-04 | Implemented | Execution/epoch/material revision tokens, canonical input digests, replay-before-eligibility, durable refusals and shared browser/automatic admission prevent stale retargeting and duplicate effects across restart/execution replacement. Ordinary output does not invalidate the token. |
+| AC-ACT-05 | Implemented | Fsynced intent, correlated operations/attempts/completions, provider-history delivery evidence and conservative reconciliation preserve acceptance versus effects/outcome and lifetime receipts. Unknown effects inhibit speculative redispatch; workspace/authentication/billing/delivery guards remain. |
+| AC-ACCOUNT-01 | Implemented | `accountFacts` takes selected actual-attempt provenance from its own saved observations, separates original/next identity, suppresses incomplete-history attribution, and retains provider windows/resets, account corroboration, independently dated recovery/credit facts and browser billing rules. Display refresh joins reads; prelaunch freshness remains independent. |
+| AC-CLI-01 | Partly implemented | Shared versioned Result/final serializers provide equivalent text/JSON, zoned times, explicit unknowns and exits, noninteractive reads, durable receipts and complete help while legacy helpers retain execution behavior. The output hang prevents a bounded result; missing command-status ID can silently select the valid literal `undefined`. |
+| AC-CLI-02 | Implemented | Bounded fatal-UTF-8 file/stdin input, strict timely HTTP EOF, exact spaced targets, strict action fields, JSON/stdin/RPC literal message transport and explicit public projections preserve input and exclude provider credentials/login inputs. No implicit mutation target or shell interpolation is added. |
+| AC-CLI-03 | Implemented | `checkedPath`, loopback binding, Host/token/Origin middleware, no redirects/CORS and packaged operator-authority/untrusted-output guidance preserve current-user local protections. |
+| AC-CLI-04 | Implemented | [Release validation](kiln-bot-control-validation.md) records actual Grok Bot 0.75.8/default configuration, both providers, concurrent PRDs/unrelated cwd, exact stop/reply/continuation, terminal-history resume, unsent completed reply, Verify and replay/stale protection. Its fixture/configuration limits remain explicit; no new demonstration ran. |
+
+## Confirmed missing parts
+
+### 1. Nonregular saved output blocks before read deadlines
+
+`src/control/logs.ts::outputPage` (`138–142`) calls `checkedPath` then blocking `openSync(path, "r")`. `checkedPath` checks owner, permissions and symlinks, but accepts a FIFO; neither that open nor the subsequent `fstatSync` first requires a regular file. The sibling `recentSavedOutput` (`212–216`) has the same omission. The deadline checks inside record/hash reads cannot interrupt an open that never returns.
+
+The public retained paths are:
+
+- `kiln logs → runInspectionCommand → readHistory/chooseOutputSession → outputPage`.
+- Targeted basic/full `status → statusProjection → latestActivity → recentSavedOutput`.
+- Untargeted `status → inventory`, stopped unfinished row (`client.ts:69–71`) → the same status/activity path.
+
+The live authenticated logs route calls `outputPage`; live `inspectionSnapshot → inspectionReader` also samples the same helper for browser-derived current/stop facts before final status assembly. Cursor reads converge on the same output-file open. This shared source gap therefore affects both inspection entry points and their serializers; no separate live-hang reproduction is claimed.
+
+Disposable private state with a valid owned session and owner-only FIFO `output.jsonl`, with no writer, reproduced both built helpers blocking beyond six seconds. Actual built CLI commands from unrelated `/private/tmp` reproduced `logs --json`, targeted basic `status --json`, targeted `status --detail full --json` and untargeted inventory `status --json` blocking until killed at seven seconds. Each emitted zero stdout/stderr bytes and returned no structured unavailable/incomplete result. Every child was killed by its parent timeout, and scratch files were removed. These were isolated non-production filesystem/process probes, not provider turns, a controller stress test or text-format proof.
+
+Sibling inspection JSON/audit reads already reject nonregular records through `privateBytes`; bounded Claude history separately requires regular files, and literal message-file input uses nonblocking open plus a regular-file check. The output readers are the missing boundary, not a need for new policy or broader filesystem hardening. Preserve existing regular-file paging, exact fragments/limits, owner checks, frozen metadata and durable-write semantics.
+
+### 2. Missing receipt selector becomes the literal ID `undefined`
+
+The technical design's Command grammar requires `command-status <PRD-path> --command-id <id>`. Packaged help (`prompts/kiln-command-contracts.json:1888`) explicitly says “Requires --command-id from the original instruction,” and documents missing arguments as `invalid_input`.
+
+`src/control/help.ts::parseCommand` enforces positional arguments, exactly-one groups and mutation safety flags, but the command-status contract has no enforcing required-ID rule. `src/control/client.ts:120–125` uses `String(flags["command-id"])` for both the live route and retained lookup. An omitted flag therefore becomes the valid command ID `"undefined"`.
+
+A disposable real private journal was populated through `CommandJournal.submit` with one durably refused stale instruction whose deliberately valid ID was `undefined`; no engine/provider effect was admitted. The actual built CLI `command-status <canonical-path> --json`, without an ID flag, returned exit 0, `ok:true`, `command_id:"undefined"` and that saved receipt. This is a wrong-selector/result-contract gap, not a mutation or security finding. Require the original selector before lookup; a caller who explicitly supplies the valid literal ID `undefined` must still retrieve it. Other mutation IDs are separately required before dispatch. The shared parser's `required` metadata is descriptive rather than enforced, so implement against the actual command contract rather than assuming a group declaration alone is sufficient.
+
+## Reverse requirements conflict check
+
+Independent review reads all 11 requirement-root titles/summaries and relevant full criteria/designs, including existing partial supersessions and source introduction history. No later-built criterion permits indefinite inspection reads or replaces the original required receipt selector. Live-control extends control/hand-back behavior; billing, completion audits and provider history retain their separate contracts. Neither finding needs a pointer pair, new business assumption or another track's repair. These are malformed-resource and missing-input bugs rather than coherent product alternatives. Blocking output opens originated in `59494c5`, with later status sampling in `c8b5cf9`; the required receipt-ID grammar was present in `4c368e1`, before the omission coercion introduced by `c25bf89`. No later history records either as an intentional policy.
+
+## Validation and historical limits
+
+`npm run build` passed from this fresh worktree. All **56 root/group/leaf text/JSON help invocations** passed from unrelated `/private/tmp` with empty PATH; bare invocation returned exit 2 and the help pointer. The shared public parser accepted **35 nonlegacy examples**; the two legacy run/add-repository examples retain their own execution parsers. These source/build/help checks do not claim installed-tarball proof. The disposable failure probes above confirm the delivery gaps and applied no model, account, production or run-control effect.
+
+Unit/integration/provider/package/full suites were not rerun for this documentation-only audit. No test was changed or graded and no deliberate source mutation/red check ran. Phase 9's [Final verification](phase-9-complete-kiln-inspection-input.md#final-verification) remains **non-green**: its complete verify passed security/lint/type checks, 639 unit cases and 17 provider-contract checks; integration completed 954 passed, 10 failed and two existing skips across 82 files. Its exact baseline reproductions, unestablished timing/cleanup causes, fixture correction, focused reruns and eight passing package cases retain their original limited meaning. Phase 8/7/6 Final verification and Phase 5 Known baseline failures likewise remain historical non-green gates. The [provider/Grok release evidence](kiln-bot-control-validation.md) remains separately scoped.
+
+Assessment source remained at `4853d2b`; this audit changed no runtime/test/resource files. A temporary shared-dependency symlink supported the worktree build and was removed before commit. Only this PRD's five audit/planning documents change. Commit checks cover links, unchanged requirement bodies/Closed lines, staged ownership, secrets and whitespace.
+
+## Completion sizing and handoff
+
+One [completion Phase 10](phase-10-complete-kiln-inspection-boundaries.md) groups the two existing command-boundary corrections: reject nonregular saved output before blocking and require the receipt selector before lookup. They share the inspection/CLI error contract, add no service/state machine/command/authority, and fit one implementation session. Splitting them would repeat the same build/review/audit tail without a useful independent seam. Phase 1 retains all four affected criteria; earlier Closed lines and supersessions are unchanged.
+
+Build Phase 10 after authorization, then repeat whole-PRD delivery audit in a fresh chat. Whole-PRD test audit follows only current clean delivery. No criterion is Waiting on a human action or Changed outside the requirements; there is no unresolved business question. The publication/launch hold below is a delivery authorization boundary, not an unbuilt criterion.
+
+## Publication boundary
+
+Doug's exact authorization in source chat `01a18269-0027-7d63-85c9-15a05dedf7a4` was “Okay, well, go ahead and commit and push, and then launch another chat for the next step.” He reiterated: “Please continue. We want to commit and push and then launch another chat for the next step.” Phase 9's [publication and delivery-audit launch authorization](phase-9-complete-kiln-inspection-input.md#phase-9-publication-and-delivery-audit-launch-authorization) records that instruction and its scope. Phase 9 implementation `29851a2` and handoff `4853d2b` are published; this audit launched from that baseline in chat `01a182ef-0c8e-7cf1-aed8-75c2defb17e7`.
+
+That authorization covers Phase 9 publication and this audit launch. The starting prompt explicitly holds future audit/implementation publication and production release. Scoped audit documents commit locally under the delivery-audit default. Publishing this audit, launching Phase 10, future implementation/audit publication and production release require explicit authorization. Other tracks remain independently owned.
+
+## Phase 10 continuation
+
+The prepared machine-specific continuation accompanies this audit's commit. It invokes `implement-from-requirements` on [Phase 10](phase-10-complete-kiln-inspection-boundaries.md), pointing at this report for findings/probe limits and at the phase for scope/proof boundaries. It is valid only after Doug authorizes audit publication, the audit is published and the shared checkout fast-forwards, and Phase 10 implementation is explicitly authorized. The next chat creates a fresh worktree from published `origin/develop`; it does not reuse this audit worktree. No successor chat is launched by this audit.
+
+## Pre-commit upstream compatibility
+
+The final fetch found published `35e000e`, three commits after assessment baseline `4853d2b`: live-control test evidence `83ab9ef`, publication metadata `3562d45` and delivery reassessment `35e000e`. This audit worktree fast-forwarded to that published reference before its scoped document commit. Incoming changes are tests, provider-proof resources/scripts, the package proof-script entry, README and independently owned live-control documents; application runtime, bot requirement bodies and existing partial-supersession pointers are byte-identical to the assessment baseline. The build/help/failure probes above therefore still describe the unchanged runtime; no new full suite or provider proof ran for this compatibility check.
+
+The incoming [live-control reassessment](../../changes/kiln-live-session-control/kiln-live-session-control-publication-delivery-audit.md) plans its own [Phase 10](../../changes/kiln-live-session-control/phase-10-usable-takeover-history.md) for release/explicit-hand-back usable-history checks. Those obligations remain with the existing live-control partial supersessions of AC-ACT-01/02/03; this audit's bot Phase 10 covers the two separate findings above. This compatibility review does not adopt the other track's audit/test verdict, reopen its work here or alter either track's ownership. The bot audit remains a non-clean whole-PRD delivery assessment; its test audit still waits.
+
+## Audit publication and Phase 10 launch authorization
+
+On 2026-10-28, Doug instructed in this audit chat, `01a182ef-0c8e-7cf1-aed8-75c2defb17e7`: “Okay, go ahead and commit and push, and then launch another chat to continue to resolve these issues in the next phase.” This authorizes publication of audit `9afa5fe` and its scoped authorization/handoff record, then launching a fresh chat implementing bot-control Phase 10, “Complete bounded output and receipt selection.” It supersedes this audit's publication and Phase 10 launch holds above.
+
+The successor starts from published `origin/develop` after the shared checkout fast-forwards, in its own fresh worktree. Scoped implementation commits follow the implement skill default; publication of future implementation/later-audit commits and production release remain held. Other tracks remain independently owned. The audit baseline, findings and historical verification limits are unchanged; this publication adds documents only.
+
+After authorized Phase 10 completion/publication, repeat whole-PRD delivery audit in a fresh chat, then whole-PRD test audit only when delivery is clean. This instruction authorizes the Phase 10 implementation launch, not a standing grant to publish successors or release production.

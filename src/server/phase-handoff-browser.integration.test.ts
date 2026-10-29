@@ -17,6 +17,8 @@ function fixture(agent: "Claude Code" | "Codex") {
   stop.freshSessionCommand = `cd '/saved worktree' && ${agent === "Codex" ? "codex" : "claude"}`;
   stop.finalMessage = "Should I keep <optional> exactly as written?\n\nNo changes yet.";
   stop.resumeCommand = agent === "Codex" ? "cd '/saved worktree' && codex resume 'saved-thread'" : "cd '/saved worktree' && claude --resume 'saved-session'";
+  snapshot.settings.agentId = stop.agentId;
+  snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
   return snapshot;
 }
 
@@ -29,6 +31,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
   const page = await chrome.open(server.address, { width: 1200, height: 1000 });
   try {
     await words(page, "Reply here and let Kiln finish");
+    expect(await page.evaluate("!!(document.querySelector('.return').compareDocumentPosition(document.querySelector('.billing')) & Node.DOCUMENT_POSITION_FOLLOWING)")).toBe(true);
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-desktop.png`, await page.screenshot());
     expect(await page.evaluate("document.querySelector('.message .final').textContent")).toContain("Should I keep <optional> exactly as written?");
     const labels = await page.evaluate<string[]>("[...document.querySelectorAll('main h2, main h3')].map(e => e.textContent)");
@@ -108,6 +111,7 @@ it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens 
   const page = await chrome.open(server.address, { width: 390, height: 844 });
   try {
     await words(page, "Back from your terminal?");
+    expect(await page.evaluate("!!(document.querySelector('.return').compareDocumentPosition(document.querySelector('.billing')) & Node.DOCUMENT_POSITION_FOLLOWING)")).toBe(true);
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     const positions = await page.evaluate<number[]>("[...document.querySelector('.peer-choices').children].map(e => e.getBoundingClientRect().top)");
     expect(positions[1]!).toBeGreaterThan(positions[0]!);

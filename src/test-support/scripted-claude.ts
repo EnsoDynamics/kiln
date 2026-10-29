@@ -57,7 +57,8 @@ export class ScriptedClaude implements ClaudeInfoSource {
     const done = new Promise<void>((resolve) => {
       serve = (reading) => {
         this.reading = undefined;
-        this.account = { limits: [], ...reading, startedAt, updatedAt: this.now().toISOString() };
+        const updatedAt = this.now().toISOString();
+        this.account = { limits: [], ...reading, startedAt, updatedAt, ...(!reading.error && !reading.limitsError && !reading.limitsUnavailable ? { limitsObservedAt: reading.limitsObservedAt ?? updatedAt } : {}) };
         for (const listener of this.listeners) listener();
         resolve();
       };

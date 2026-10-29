@@ -9,7 +9,7 @@ export interface PhaseRecoveryTarget {
 }
 
 export type PhaseRecoveryOutcome = "resume_requested" | "already_complete" | "advanced" | "still_stopped";
-export type PhaseRecoveryCode = "invalid_request" | "stale_target" | "busy" | "recovery_unavailable" | "check_unavailable" | "state_write_failed";
+export type PhaseRecoveryCode = "invalid_request" | "stale_target" | "busy" | "recovery_unavailable" | "message_review_required" | "check_unavailable" | "state_write_failed";
 export interface PhaseRecoveryView {
   target: PhaseRecoveryTarget;
   /** Identifies the last actual turn; a refused launch can change the stop without a new turn. */
