@@ -222,3 +222,28 @@ The complete `verify`-equivalent stage sequence and separate installed-package s
 | `npm run test:package` | Eight pass | 27.94 |
 
 All 95 integration files were collected once. Both previously failing CI cases pass in this complete UTC run. All three repaired test files remained byte-identical throughout the gate, and runtime source remains unchanged from `b145978`. No new skip, retry, relaxed deadline or fabricated account state was added. Reports are retained in `/private/tmp/kiln-full-suite-repair/metadata-time-fix`. The two earlier CI failures retain their historical meaning; this local result does not replace the next actual CI result.
+
+
+## Browser test control-readiness repair
+
+[CI run 40792979673](https://github.com/EnsoDynamics/kiln/actions/runs/40792979673) on published fixture repair `b1d91e3` passed Linux/Windows build and pack, 641 macOS unit and 17 provider-contract checks. Integration reported 1,004 passes, one failure and 51 existing platform skips across 95 collected files; package checks were not reached. The prior reset-clock, migration and controller-port cases passed. The sole failure timed out waiting for phase advancement after the real browser's complete-reply precheck.
+
+The browser driver's raw `.click()` returned silently when its target was disabled. A precheck's HTTP response can render the complete-choice panel before the independently throttled event stream clears its `checking` flag, so finding the choice text alone does not establish that Advance is enabled. CI retained page text, not button attributes; this timing mechanism is supported by the source ordering and the real-browser reproduction rather than a captured disabled attribute from CI.
+
+The driver now waits for the first matching button/link to exist and be enabled, rechecks within the single browser click task, then clicks once. It does not retry the action, bypass a product guard or extend a timeout. Product UI, controller source and every existing workflow assertion remain unchanged.
+
+A new real-Chrome regression starts an actually disabled fixture button. A DevTools round trip establishes that the click promise stays pending and no event is sent; enabling that synthetic fixture permits exactly one event. The old unchanged driver fails the pending assertion (`true` instead of `false`), while the repaired driver passes. The regression and the exact real-controller advancement workflow both pass in the focused run. Independent deliverable review and test-hardening assessment found no material gap.
+
+The complete `verify`-equivalent stage sequence and separate installed-package suite then ran with `TZ=UTC` and passed:
+
+| Gate | Result | Command seconds |
+|---|---|---:|
+| `npm run audit` | Zero blocking high/critical findings | 1.80 |
+| `npm run lint` | Pass | 6.54 |
+| `npm run typecheck` | Pass, no Svelte errors or warnings | 13.86 |
+| `npm test` | 641 pass | 3.98 |
+| `npm run test:codex-proof` | 17 pass | 6.72 |
+| `npm run test:integration` | 1,055 pass, zero failures, two existing platform skips | 1713.57 |
+| `npm run test:package` | Eight pass | 28.20 |
+
+All 95 integration files were collected once, and all 71 cases in the real-browser file passed, including the new driver regression and the exact previously failing advancement workflow. The repaired test file remained byte-identical throughout the gate. Runtime source remains unchanged from `b1d91e3`; no product guard, timeout or existing workflow assertion was relaxed. Reports are retained in `/private/tmp/kiln-full-suite-repair/browser-action-fix`. Earlier failed CI runs retain their historical meaning; this local result does not establish a passing subsequent CI run.

@@ -141,8 +141,40 @@ async function waitUntil(condition: () => boolean, ms = 10_000): Promise<void> {
   }
 }
 
-/** Clicks the first button or link whose text is exactly `label`. */
-const click = (page: BrowserPage, label: string) => page.evaluate(`[...document.querySelectorAll("button, a")].find((e) => e.textContent.trim() === ${JSON.stringify(label)}).click()`);
+/** Clicks the first button or link whose text is exactly `label`, once it is enabled. */
+async function click(page: BrowserPage, label: string): Promise<void> {
+  const target = `[...document.querySelectorAll("button, a")].find((e) => e.textContent.trim() === ${JSON.stringify(label)})`;
+  await page.waitFor(`(() => { const element = ${target}; return element && !element.matches(":disabled"); })()`);
+  // Recheck in the click's browser task; never retry an action or bypass its guard.
+  await page.evaluate(`(() => { const element = ${target}; if (!element || element.matches(":disabled")) throw new Error("Control is not enabled."); element.click(); })()`);
+}
+
+describe("browser control actions", () => {
+  it("waits for an enabled control before issuing exactly one click", async () => {
+    const html = `<button disabled data-clicks="0" onclick="this.dataset.clicks = String(Number(this.dataset.clicks) + 1)">Continue</button>`;
+    const page = await chrome.open(`data:text/html,${encodeURIComponent(html)}`);
+    let action: Promise<void> | undefined;
+    let completed = false;
+    try {
+      await page.waitFor(`document.querySelector("button")?.disabled === true`);
+      action = click(page, "Continue").then(() => { completed = true; });
+      // A DevTools round trip is a barrier after the driver's initial browser work.
+      // A raw .click() on a disabled button completes silently without an event.
+      await page.evaluate(`document.querySelector("button").disabled`);
+      expect(completed).toBe(false);
+      expect(await page.evaluate(`document.querySelector("button").dataset.clicks`)).toBe("0");
+      await page.evaluate(`document.querySelector("button").disabled = false`);
+      await action;
+      expect(completed).toBe(true);
+      expect(await page.evaluate(`document.querySelector("button").dataset.clicks`)).toBe("1");
+      expect(page.problems).toEqual([]);
+    } finally {
+      await page.evaluate(`document.querySelector("button").disabled = false`).catch(() => undefined);
+      await action?.catch(() => undefined);
+      await page.close();
+    }
+  });
+});
 
 /** Replaces the clipboard with a recorder, so a test can read what each Copy button copied. */
 const recordClipboard = (page: BrowserPage) => page.evaluate(`window.__copied = []; Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text) => { window.__copied.push(text); } } }); true`);
