@@ -61,6 +61,24 @@ then use `resume` or `verify-and-advance` with `--message-reviewed <receipt-id>`
 each reviewed uncertain message. Review never resends or confirms provider receipt;
 only successful explicit hand-back releases the hold. See each command's `--help`.
 
+## Audit document references
+
+Audit snapshots require the PRD, design, assumptions, phases and their local Markdown
+links recursively. Links can reach other requirements directories and roadmap contracts.
+Missing required targets stop the audit and report the document chain.
+
+For provenance or historical background that does not define requirements or required
+evidence, give the inline link the exact title `kiln:reference`:
+
+```markdown
+[Original handoff](../../../source-material/handoff/index.md "kiln:reference")
+```
+
+Kiln does not traverse that link or require its target. Governing documents and explicit
+`Superseded by:` / `Replaces:` pointers remain mandatory, even when a reference-only link
+also points to them. Existing files still participate in repository fingerprints, and
+reports must still supply all required evidence. No directory is automatically excluded.
+
 ## Claude billing
 
 Before Start or Resume, Kiln shows billing for the next Claude run. A confirmed subscription says **Claude subscription**, with the account email directly below it. Billing follows your Claude account settings. If Claude reports that paid overflow is enabled for that same account, Kiln shows a factual notice and links to [Claude usage settings](https://claude.ai/settings/usage); it does not ask for another approval or change your spending limits. Missing overflow details do not mean paid usage is disabled.
