@@ -58,7 +58,16 @@ describe("a schema 1 record read by this Kiln", () => {
     harness = await createHarness({ sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Partway." }, { exit: 0 }] }] });
     await harness.engine.start({ refinementConfirmed: true });
     await harness.engine.settled();
+    // Launch readiness is auth-only, while the phase's independent usage read can
+    // finish afterward. Establish the stale-usage precondition through real reads,
+    // rather than relying on which startup/dispatch read happens to finish last.
+    await harness.engine.refreshBilling();
+    await harness.engine.agents.refresh();
+    const usageAt = harness.engine.agents.state.account!.limitsObservedAt;
+    expect(usageAt).toEqual(expect.any(String));
+    await harness.engine.agents.refreshClaudeForLaunch(harness.engine.worktreePath, harness.env, AbortSignal.timeout(10_000));
     const before = buildSnapshot(harness.engine);
+    expect(before.account?.limitsObservedAt).toBe(usageAt);
     expect(before.needsYou).toBeDefined();
     const engine = reopenAsSchemaOne(harness);
     // Settle auth-only startup before the independent fresh usage read. Phase 6

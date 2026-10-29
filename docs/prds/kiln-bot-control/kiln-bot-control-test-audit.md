@@ -197,3 +197,28 @@ The complete `verify`-equivalent stage sequence and installed-package suite then
 | `npm run test:package` | Eight pass | 59.88 |
 
 All 95 integration files were collected exactly once. The new concurrent-controller regression passed in the complete run, as did the exact CI-failing closed-at-start workflow. All nine port-repair source files remained byte-identical throughout the gate. The longer local duration affected unchanged suites as well; no assertion, test deadline or production request budget was relaxed. Reports are retained under `/private/tmp/kiln-full-suite-repair/port-fix`. The earlier failed CI run remains historical; this local gate does not by itself establish a passing subsequent GitHub run.
+
+
+## CI reset-clock and account-fixture repair
+
+[CI run 40785941543](https://github.com/EnsoDynamics/kiln/actions/runs/40785941543) on published port repair `b145978` passed Linux/Windows build and pack, 641 macOS unit checks and 17 provider-contract checks. Integration reported 1,003 passes, two failures and 51 existing platform skips across 95 collected files; the package step was not reached. The concurrent-controller regression and previously failing closed-at-start workflow passed. This failed run remains historical evidence.
+
+The usage-wait terminal fixture added one hour to the real clock but expected a reset without a weekday. At 23:31 UTC the documented formatter correctly emitted `Thu 12:31 AM`; the test's same-day assumption was wrong. Its fully anchored recovery-line grammar now permits only the seven optional weekday names. An exact terminal-format expectation separately proves a civil 23:31-to-next-day-00:31 reset, with the correct weekday and 12-hour output. No formatter or product clock changed.
+
+The migration fixture assumed that usage was stale before taking its baseline snapshot. Phase dispatch intentionally starts an independent usage refresh while required auth-only readiness runs; either legal reading can finish last. The fixture now completes real billing/full-account refreshes, requires a dated usage observation, then performs the real auth-only readiness read to establish stale usage with the same observation date. Every original stale-to-fresh, account-content, independent-date and whole-snapshot migration assertion remains. It does not assign account state or add a mock.
+
+Both exact CI-failing integration cases passed in UTC before midnight, including the next-day reset, and all 17 terminal unit cases passed. Independent deliverable review and test-hardening assessment found no material gap. Runtime source, deadlines, heap budgets and production port/authority policies remain unchanged from the published port repair.
+
+The complete `verify`-equivalent stage sequence and separate installed-package suite then ran with `TZ=UTC`, matching CI, and passed:
+
+| Gate | Result | Command seconds |
+|---|---|---:|
+| `npm run audit` | Zero blocking high/critical findings | 1.42 |
+| `npm run lint` | Pass | 8.78 |
+| `npm run typecheck` | Pass, no Svelte errors or warnings | 18.55 |
+| `npm test` | 641 pass | 4.43 |
+| `npm run test:codex-proof` | 17 pass | 6.26 |
+| `npm run test:integration` | 1,054 pass, zero failures, two existing platform skips | 1742.23 |
+| `npm run test:package` | Eight pass | 27.94 |
+
+All 95 integration files were collected once. Both previously failing CI cases pass in this complete UTC run. All three repaired test files remained byte-identical throughout the gate, and runtime source remains unchanged from `b145978`. No new skip, retry, relaxed deadline or fabricated account state was added. Reports are retained in `/private/tmp/kiln-full-suite-repair/metadata-time-fix`. The two earlier CI failures retain their historical meaning; this local result does not replace the next actual CI result.

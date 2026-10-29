@@ -279,7 +279,7 @@ describe("kiln run on a feature waiting for usage (usage-limit recovery AC-AUTO-
     const result = await kilnRunUntil(h, (stdout) => /Return intake +done/.test(stdout));
     const lines = result.stdout.trimEnd().split("\n");
     expect(lines[0]).toMatch(/^Customer returns {2}· {2}\d of 4 phases done {2}· {2}phase 1 is waiting for usage$/);
-    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is waiting for usage \\(5-hour window, resets \\d{1,2}:\\d\\d [AP]M\\)\\.${opened}$`));
+    expect(lines[1]).toMatch(new RegExp(`^● Phase 1 is waiting for usage \\(5-hour window, resets (?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) )?\\d{1,2}:\\d\\d [AP]M\\)\\.${opened}$`));
     expect(lines[2]).toMatch(new RegExp(`^${time}  1   Return intake      resumed$`));
     expect(lines[3]).toMatch(new RegExp(`^${time}  1   Return intake      done · pushed [0-9a-f]{7}$`));
     const runs = h.engine.latestSession("1")!.runs;

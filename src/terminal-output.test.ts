@@ -100,6 +100,10 @@ describe("the wait's terminal line (usage-limit recovery AC-LIMIT-05)", () => {
     expect(formatPhaseLine(at, "2b", "Store credit", { kind: "waiting", label: "Weekly", resetsAt: new Date(2026, 9, 26, 0, 0).toISOString() }, columns, plain)).toBe(
       "11:31  2b  Store credit       waiting · Weekly resets Mon 12:00 AM",
     );
+    // An hour-ahead reset crosses midnight in the runner's local timezone too.
+    expect(formatPhaseLine(new Date(2026, 9, 22, 23, 31), "2b", "Store credit", { kind: "waiting", label: "5-hour window", resetsAt: new Date(2026, 9, 23, 0, 31).toISOString() }, columns, plain)).toBe(
+      "11:31  2b  Store credit       waiting · 5-hour window resets Fri 12:31 AM",
+    );
     expect(formatPhaseLine(at, "PR", "Final pull request", { kind: "waiting", label: "A usage limit" }, columns, plain)).toBe("11:31  PR  Final pull request  waiting · A usage limit");
   });
 
