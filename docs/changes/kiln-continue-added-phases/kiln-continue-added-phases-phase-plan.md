@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order. Original implementation leaves 1, 2a, 2b1, 2b2, 3a and 3b are implemented and closed. The whole-PRD delivery audit found one incomplete criterion and added Phase 4 below. Build that completion leaf, then run a fresh whole-PRD delivery audit followed by test audit and any completion work they require.
+Build and verify each phase in this order. Original implementation leaves 1, 2a, 2b1, 2b2, 3a and 3b are implemented and closed. The whole-PRD delivery audit found one incomplete criterion and added Phase 4 below; that completion leaf is now closed. Run a fresh whole-PRD delivery audit followed by test audit and any completion work they require.
 
 | Phase | What it does | Depends on |
 |---|---|---|
@@ -46,4 +46,4 @@ After all implementation leaves close, run whole-PRD delivery audit, then whole-
 
 ## Whole-PRD delivery audit
 
-The [2026-10-30 delivery audit](kiln-continue-added-phases-delivery-audit.md) checked every active criterion at `dbdd8d1` in two independent rounds. It found AC-CONTINUE-03 partly implemented: harmless linked phase-file renames can be falsely classified as changed completed scope for valid relative or encoded link spellings. Phase 4 completes that criterion; its original owner, Phase 2a, stays closed. The second round confirmed no additional gap. After Phase 4's delivery, repeat the whole-PRD delivery audit in a fresh chat before whole-PRD test audit. No test-quality conclusion has been made yet.
+The [2026-10-30 delivery audit](kiln-continue-added-phases-delivery-audit.md) checked every active criterion at `dbdd8d1` in two independent rounds. It found AC-CONTINUE-03 partly implemented: harmless linked phase-file renames can be falsely classified as changed completed scope for valid relative or encoded link spellings. Phase 4 completes that criterion; its original owner, Phase 2a, stays closed. The second round confirmed no additional gap. Phase 4 is now closed, with proof in [Rename-safe plan validation](kiln-rename-safe-plan-validation.md). After its delivery, repeat the whole-PRD delivery audit in a fresh chat before whole-PRD test audit. No whole-PRD test-quality conclusion has been made yet.

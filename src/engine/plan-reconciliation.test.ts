@@ -15,4 +15,19 @@ describe("versioned structural scope comparison", () => {
     expect(normalizedScope("Return [x] literally")).not.toBe(normalizedScope("Return [ ] literally"));
     expect(normalizedScope("[Phase](phase-1-old.md)", new Map([["phase-1-old.md", "1"]]))).toBe(normalizedScope("[Phase](phase-1-new.md)", new Map([["phase-1-new.md", "1"]])));
   });
+  it.each(["phase-2-old.md", "./phase-2-old.md", "../comet/phase-2-old.md", "x/../phase-2-old.md", "%70hase-2-old.md", "phase%2D2-old.md"])("resolves %s relative to the containing phase before mapping its identity", href => {
+    const document = "docs/comet/phase-1-catalog.md";
+    const old = new Map([["docs/comet/phase-2-old.md", "2"]]);
+    const renamed = new Map([["docs/comet/phase-2-new.md", "2"]]);
+    const scope = (target: string, links = old) => normalizedScope(`[Dependency](${target}?mode=read#summary)`, links, document);
+    expect(scope(href)).toBe(scope("phase-2-new.md", renamed));
+    expect(scope(href)).not.toBe(scope("phase-2-new.md", new Map([["docs/comet/phase-2-new.md", "3"]])));
+    expect(scope(href)).not.toBe(normalizedScope(`[Dependency](${href}?mode=write#summary)`, old, document));
+    expect(scope(href)).not.toBe(normalizedScope(`[Dependency](${href}?mode=read#other)`, old, document));
+  });
+  it("does not alias remote, unsafe, unrelated or encoded fragment targets to local phases", () => {
+    const links = new Map([["docs/comet/phase-2.md", "2"]]);
+    const scope = (target: string) => normalizedScope(`[Guide](${target})`, links, "docs/comet/phase-1.md");
+    for (const href of ["https://example.com/docs/comet/phase-2.md", "/docs/comet/phase-2.md", "../../../../docs/comet/phase-2.md", "../other/phase-2.md", "phase-2.md%23summary", "phase-2.md%3Fmode=read", "phase-2.md%00", "..%5Ccomet%5Cphase-2.md"]) expect(scope(href)).not.toBe(scope("phase-2.md"));
+  });
 });

@@ -65,7 +65,6 @@ import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path"
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
-import { readPhaseDocument } from "../plan/phase-document.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -125,7 +124,8 @@ import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
-import { phaseScopeDigest, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
+import { PLAN_NORMALIZER_VERSION, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -4805,7 +4805,7 @@ export class Engine {
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
-      const previous = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
+      const previous = this.record.planReconciliation?.baselineId ? comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
       const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
         ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
@@ -4835,9 +4835,8 @@ export class Engine {
             if (!previous) {
               const historicalFile = this.record.plan?.find(p => p.id === phase.id)?.file;
               if (!revision || !historicalFile) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-              const original = await runGit(git, this.worktreePath, ["show", `${revision}:${this.paths.prdDirectoryFromRoot}/${historicalFile}`]);
-              const links = new Map<string, string>((this.record.plan ?? []).flatMap(p => [[p.file, p.id], [`./${p.file}`, p.id]]));
-              if (original.exitCode !== 0 || !readPhaseDocument(historicalFile, original.stdout).closed || phaseScopeDigest(original.stdout, historicalFile, links) !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+              const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision);
+              if (!original.plan.phases.find(p => p.id === phase.id)?.closed || original.scopes[phase.id] !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
             }
             completions[phase.id] = { kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
           }
@@ -4883,7 +4882,7 @@ export class Engine {
       for (const source of [active, ...sources]) if (observePlan(source.path, this.paths.prdDirectoryFromRoot).digest !== source.digest) throw new Error(`source_changed: ${source.path} changed during plan reconciliation. Retry the handback.`);
       added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
       // Publish sidecar before its record pointer; never roll back an uncertain durable write.
-      baseline = { formatVersion: 1, normalizerVersion: 1, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
+      baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
       if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
     } catch (error) {
       const problem = (error as Error).message;
