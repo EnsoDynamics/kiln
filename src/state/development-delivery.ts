@@ -26,7 +26,7 @@ export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCan
 export interface DevelopmentAuthorization {
   revision: number; enabled: boolean;
   activationRecovery?: ActivationRecovery;
-  grants: { target: MergeTarget; confirmedAt: string; source: "start" | "needs_you" }[];
+  grants: { target: MergeTarget; confirmedAt: string; source: "start" | "needs_you" | "continuation" }[];
 }
 export interface CommandEvidence {
   source: string; callId: string; command: string; cwd: string; calledAt: string;
@@ -113,7 +113,7 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
   require(object(state) && Number.isSafeInteger(state.revision) && state.revision >= 0 && Array.isArray(state.assessments) && Array.isArray(state.checkpoints) && Array.isArray(state.splits) && Array.isArray(state.repositoryResults), "delivery ledger");
   if (!authority || !state) return; // The guards above always throw; narrows optional types.
   for (const grant of authority.grants) {
-    require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you"].includes(grant.source), "target grant"); normalizeMergeTarget(grant.target);
+    require(object(grant) && timestamp(grant.confirmedAt) && ["start", "needs_you", "continuation"].includes(grant.source), "target grant"); normalizeMergeTarget(grant.target);
   }
   require(!authority.enabled || text(record.executionId) && authority.grants.length > 0, "enabled execution identity/grants");
   const validOwner = (value: unknown) => object(value) && (value.kind === "phase" && text(value.phaseId) && value.activityId === undefined || value.kind === "audit" && text(value.activityId) && value.phaseId === undefined && record.completionAudits?.activities.some(one => one.activityId === value.activityId));

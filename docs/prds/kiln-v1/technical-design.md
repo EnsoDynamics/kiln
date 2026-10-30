@@ -641,6 +641,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 
 ## Kiln's State on Disk
 
+Superseded in part by: [Kiln Continue Added Phases — preparation verification](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#verification-of-the-prepared-work), Phase 3b (private schema 18 adds pending continuation authority, prepared checkpoints and engine-owned check attempts).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (retained active-plan baselines and private schema 12).

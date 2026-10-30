@@ -1,0 +1,3 @@
+Kiln independently verified the prepared checkpoint {{checkpoint}}. Continue Phase {{phaseId}} in this same conversation and assigned workspace, using implement-from-requirements for the remaining implementation, reviews, test hardening, normal completion checks and delivery. Do not launch another chat. Existing billing, repository and exact-target permissions still apply.
+
+{{phasePrompt}}

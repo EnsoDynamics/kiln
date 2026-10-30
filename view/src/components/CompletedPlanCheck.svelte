@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { CompletedPlanCheck } from "../../../src/engine/completed-plan-discovery.js";
-  import { continueFeature, type PageConfig } from "../lib/api.js";
+  import { authorizeContinuation, continueFeature, type PageConfig } from "../lib/api.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   let { check, config, connected, acceptance }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"] } = $props();
   let pending = $state(false);
@@ -22,6 +22,12 @@
       if (!response.ok && !answer.check) error = answer.reason ?? "Could not check the current plan. Try again.";
     } catch (failure) { error = (failure as Error).message; }
     finally { pending = false; }
+  }
+  async function grant(target: import("../../../src/state/development-delivery.js").MergeTarget) {
+    if (!config || !connected || !result?.proposal || continuing) return;
+    continuing = true; error = undefined;
+    try { const answer = await authorizeContinuation(config, result.proposal.completedExecutionId, result.proposal.id, result.proposal.authorization?.revision ?? 0, target); if (!answer.ok) error = answer.reason; }
+    finally { continuing = false; }
   }
   async function accept(retry = false) {
     if (!config || !connected || continuing) return;
@@ -65,9 +71,15 @@
         <p>{preparation.authorization === "phase_preparation" ? "Continue authorizes this preparation." : "Requires the existing early-merge target authorization for the fresh run."} Verify before implementation: {preparation.checks.map(check => check.command).join("; ")}.</p>
       {/each}
       {#each result.proposal.prerequisites.filter(row => row.status === "preparation_available") as prerequisite}<p>Phase {prerequisite.phaseId}: awaiting planned preparation; not yet integrated.</p>{/each}
+      {#if result.proposal.authorization?.superseded}<p>Earlier target approval was superseded because the plan or its prerequisites changed.</p>{/if}
+      {#each result.proposal.authorization?.targets ?? [] as row}
+        <p>Early merges to {row.target.repository} / {row.target.baseBranch} may run its existing CI/CD before the PRD finishes.</p>
+        {#if row.granted}<p>Authorized for this run: {row.target.repository} / {row.target.baseBranch}</p>
+        {:else}<label><input type="checkbox" checked={false} disabled={!connected || !config || continuing || pending || earlier || !result.proposal.grantEligible} onchange={event => { event.currentTarget.checked = false; void grant(row.target); }} /> Authorize early merges to {row.target.repository} / {row.target.baseBranch}</label>{/if}
+      {/each}
       {#if result.added.length}
         <div class="actions">
-          <button class="button" type="button" disabled={!connected || !config || continuing || pending || earlier || result.proposal.readiness !== "ready" || result.proposal.prerequisites.some(row => row.status !== "integrated_verified") || acceptance?.state === "preparing"} onclick={() => accept()}>Continue with {result.added.length} {result.added.length === 1 ? "phase" : "phases"}</button>
+          <button class="button" type="button" disabled={!connected || !config || continuing || pending || earlier || result.proposal.readiness !== "ready" || acceptance?.state === "preparing"} onclick={() => accept()}>Continue with {result.added.length} {result.added.length === 1 ? "phase" : "phases"}</button>
           <button class="button" type="button" disabled={!connected || continuing || pending || acceptance?.state === "preparing"} onclick={() => { dismissed = result.proposal!.id; }}>Not now</button>
         </div>
         {#if result.proposal.prerequisites.some(row => row.status === "preparation_available")}<p>Prerequisite preparation has not been performed and independently verified. Dependent implementation cannot start.</p>{/if}

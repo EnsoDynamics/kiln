@@ -159,7 +159,7 @@ describe("the installed package", () => {
     };
     const root = JSON.parse(help([]));
     expect(root.commands.map((c: {path: string[]}) => c.path.join(" "))).toEqual(expect.arrayContaining(["message", "take-over", "reply", "resume", "verify-and-advance", "command-status", "settings"]));
-    for (const c of root.commands.filter((c: {path: string[]}) => !['run', 'add-repository', 'audit', 'delivery'].includes(c.path[0]!))) {
+    for (const c of root.commands.filter((c: {path: string[]}) => !['run', 'add-repository', 'audit', 'delivery', 'preparation'].includes(c.path[0]!))) {
       for (const code of c.errors) expect(c.error_meanings[code], `${c.path.join(' ')} ${code}`).toMatch(/^Exit [234]:/);
     }
     const status = JSON.parse(help(["status"])).command;
@@ -190,7 +190,7 @@ describe("the installed package", () => {
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
     const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string }[];
-    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence"];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "outside-confirmation", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit"];
     expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
     const root = help([]);
     for (const c of inventory) {
@@ -198,7 +198,7 @@ describe("the installed package", () => {
       expect(help(c.path)).toContain(c.purpose);
       expect(JSON.parse(help(c.path, true)).command.path).toEqual(c.path);
     }
-    for (const group of ["audit", "delivery"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
+    for (const group of ["audit", "delivery", "preparation"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
     for (const [name, usage, errors] of [
       ["run", "kiln run <PRD-path> [--resume]", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
       ["add-repository", "kiln add-repository <folder-name>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
@@ -210,6 +210,12 @@ describe("the installed package", () => {
       expect(c.flags.json.source).toContain("Help only"); expect(c.examples[0].preparation).toBeTruthy();
       expect(text).not.toContain("Existing helper-specific errors"); expect(text).not.toContain("[options]");
     }
+    const preparation = JSON.parse(help(["preparation", "submit"], true)).command;
+    expect(Object.keys(preparation.input_contract.fields)).toEqual(["executionId", "phaseId", "bindingId", "references"]);
+    for (const code of preparation.errors) expect(preparation.error_meanings[code].length).toBeGreaterThan(30);
+    const sample = preparation.examples[0]; expect(sample.preparation).toContain("status");
+    expect(sample.files[sample.argv.at(-1)].references).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "git_revision" }), expect.objectContaining({ kind: "command" })]));
+    expect(packedFiles).toEqual(expect.arrayContaining(["prompts/preparation-session.txt", "prompts/preparation-implementation.txt", "prompts/preparation-check-runner.mjs", "prompts/preparation-environment.mjs", "dist/engine/preparation-permissions-worker.js"]));
     const run = JSON.parse(help(["run"], true)).command;
     expect(run.arguments[0].source).toContain("docs/changes"); expect(run.limits.join(" ")).toContain("foreground");
     const add = JSON.parse(help(["add-repository"], true)).command;

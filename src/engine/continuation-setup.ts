@@ -7,11 +7,13 @@ import type { Receipt } from "../control/commands.js";
 import { gitRead } from "./completed-plan-sources.js";
 import { listWorktrees, type GitContext } from "./git-reads.js";
 import type { ContinuationProposal } from "./continuation-readiness.js";
+import { readPendingAuthority, pendingForProposal } from "./continuation-authority.js";
 import { retainExecution, type ContinuationAcceptance } from "./continuation-state.js";
 import { addEntryWorktree, checkWorkspaceFolder, checkWorkspaceFolderPlacement, checkWorktreePath, comparable, expandHome, realPathOfNearestAncestor } from "./worktree-setup.js";
 
 export function newAcceptance(record: PrdRecord, directory: string, proposal: ContinuationProposal, candidateId: string, receipt: Receipt, at: string): ContinuationAcceptance {
-  const uuid = randomUUID();
+  const pending = pendingForProposal(readPendingAuthority(directory, record), proposal);
+  const uuid = pending?.executionId ?? randomUUID();
   const folder = record.prdDirectory.split("/").at(-1)!;
   const workspaceFolder = realPathOfNearestAncestor(join(dirname(expandHome(record.settings.workspaceFolder)), `${folder}-continue-${uuid}`));
   const featureBranch = `feature/${folder}-continue-${uuid}`;
@@ -19,7 +21,7 @@ export function newAcceptance(record: PrdRecord, directory: string, proposal: Co
   const repositories = proposal.repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" as const : "named" as const, mainCheckoutPath: repo.path, github: repo.identity, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision, worktreePath: join(workspaceFolder, repo.name) }));
   settings.bases = Object.fromEntries(repositories.filter(repo => repo.kind !== "prd").map(repo => [repo.name, repo.baseBranch]));
   settings.baseBranch = repositories.find(repo => repo.kind === "prd")!.baseBranch;
-  return { formatVersion: 1, id: receipt.id, operationId: receipt.id, commandId: receipt.command_id, proposalId: proposal.id, completedExecutionId: record.executionId!, newExecutionId: uuid, acceptedAt: at, candidateId, archiveId: retainExecution(directory, record), proposal, settings, repositories, canonicalWorkspace: realPathOfNearestAncestor(workspaceFolder), state: "preparing" };
+  return { formatVersion: 1, id: receipt.id, operationId: receipt.id, commandId: receipt.command_id, proposalId: proposal.id, completedExecutionId: record.executionId!, newExecutionId: uuid, ...(pending ? { pendingAuthorityId: pending.id, authorization: structuredClone(pending.authorization) } : {}), acceptedAt: at, candidateId, archiveId: retainExecution(directory, record), proposal, settings, repositories, canonicalWorkspace: realPathOfNearestAncestor(workspaceFolder), state: "preparing" };
 }
 export async function validatePreparedWorkspace(git: GitContext, acceptance: ContinuationAcceptance, name: string): Promise<boolean> {
   const entry = acceptance.repositories.find(repo => repo.name === name)!;

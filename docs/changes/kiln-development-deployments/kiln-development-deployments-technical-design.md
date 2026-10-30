@@ -35,6 +35,8 @@ Loading preferences never enables delivery or selects targets automatically. Bef
 
 ### Execution grants
 
+Superseded in part by: [Kiln Continue Added Phases — pending target grants](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#target-grants-before-acceptance), Phase 3b (reserve fresh-execution authority before Continue, adopt its exact grants at activation, and retain replay/supersession through private schema 18; active grants remain separate from resume).
+
 At Start, save an `executionId` and a copy of the effective target grants in the same atomic PRD-record write as the start intent, before setup or session dispatch. A retry after partial setup retains the execution and its grants; any permitted change to an uncreated repository's base invalidates that target and requires reconfirmation before proceeding. Once a session has started, the grant set changes only through the explicit Needs you grant action.
 
 Needs you exposes **Allow early merges** with the same repository cards and disclosure. **Authorize early merges** grants the displayed branch directly; no extra checkbox or environment entry is present. Branches already covered by a branch grant show **Authorized for this run**. A retained environment-limited grant is labeled with its existing scope and may be explicitly broadened using the same branch action. The person submits the exact target and current authorization revision; atomically persist `enabled: true`, the selected branch target and an incremented authorization revision before acknowledging the grant. An identical repeated grant is idempotent, including after restart. The button records authorization but does not silently resume; existing Resume/Check again controls decide continuation. This changes no remembered preference (AUTH-002). A normal settings write, Resume note or repository addition cannot create a grant. Prompts tell agents to request this control when uncovered work is necessary.
@@ -44,6 +46,8 @@ First-grant activation retains `developmentAuthorization.activationRecovery: { s
 The local API is the existing trusted machine-user boundary, not a new claim that a browser click can be cryptographically distinguished from the user's local agent. Agents receive instructions never to grant themselves permission; the deployment command has no grant operation. Keep provider protections, client-request refusals and branch protections unchanged.
 
 ### Record contract
+
+Superseded in part by: [Kiln Continue Added Phases — pending target grants](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#target-grants-before-acceptance), Phase 3b (reserve fresh-execution authority before Continue, adopt its exact grants at activation, and retain replay/supersession through private schema 18; active grants remain separate from resume).
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
@@ -94,6 +98,8 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (effective authority and remaining task in every continuation).
 
 ### Small local command/API surface
+
+Superseded in part by: [Kiln Continue Added Phases — pending target grants](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#target-grants-before-acceptance), Phase 3b (reserve fresh-execution authority before Continue, adopt its exact grants at activation, and retain replay/supersession through private schema 18; active grants remain separate from resume).
 
 Add `kiln delivery` as a client of the running execution's engine, using the same workspace-to-instance discovery as `kiln add-repository`. It records and reads facts; the agent still runs `gh`, deployment and test commands. All mutating requests carry `executionId` and expected ledger revision. Reject a stale revision or wrong execution with 409. No generic remote command runner is added.
 

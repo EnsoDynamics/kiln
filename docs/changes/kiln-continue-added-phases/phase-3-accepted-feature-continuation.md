@@ -1,5 +1,7 @@
 # Phase 3: Continue a completed feature safely — split into 3a–3b
 
+**Closed:** 2026-10-30
+
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — relevant sections: Readiness and Planned Preparation; Continuation Acceptance and Recovery; Interfaces; Data Models and Migration; Integration Points; Validation and Criteria Coverage.
 

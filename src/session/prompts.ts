@@ -253,3 +253,6 @@ function authorizedPhase(prompt: string, authority?: string): string {
 export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string }): string {
   return fill(template("audit-session.txt"), { ...values, round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ?? "No development merge or deployment is authorized.", previous: values.previous ?? "No prior audit result." });
 }
+
+export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }
+export function preparationImplementationPrompt(values: { phaseId: string; checkpoint: string; phasePrompt: string }): string { return fill(template("preparation-implementation.txt"), values); }

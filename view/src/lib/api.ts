@@ -117,3 +117,13 @@ export async function continueFeature(config: PageConfig, executionId: string, k
   if (answer.ok || !answer.uncertain) commands.delete(identity);
   return answer;
 }
+
+const continuationGrants = new WeakMap<PageConfig, Map<string, { commandId: string; statusToken: string }>>();
+export async function authorizeContinuation(config: PageConfig, executionId: string, proposalId: string, authorizationRevision: number, target: import("../../../src/state/development-delivery.js").MergeTarget): Promise<CommandAnswer> {
+  if (!config.controlToken) return { ok: false, reason: "Wait for a current status before authorizing." };
+  let commands = continuationGrants.get(config); if (!commands) { commands = new Map(); continuationGrants.set(config, commands); }
+  const key = JSON.stringify([executionId, proposalId, target]);
+  const identity = commands.get(key) ?? { commandId: crypto.randomUUID(), statusToken: config.controlToken }; commands.set(key, identity);
+  const answer = await send(config, "POST", "/api/development-authorization", { executionId, proposalId, authorizationRevision, target, ...identity });
+  if (answer.ok || !answer.uncertain) commands.delete(key); return answer;
+}

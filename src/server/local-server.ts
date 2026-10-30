@@ -161,6 +161,23 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       return c.json(result);
     } catch (error) { return auditError(c, error); }
   });
+  app.get("/api/preparation", async c => {
+    const status = await engine.preparationReadStatus(c.req.query("executionId"), c.req.query("phaseId"));
+    return status ? c.json(status) : refuse(c, 404, "No assigned preparation has that execution/phase identity.");
+  });
+  app.post("/api/preparation/result", async c => {
+    const body = await jsonBody(c); if (!body) return refuse(c, 400, "Submit a JSON preparation result.");
+    try { const result = await engine.submitPreparation(body); return c.json(result, result.status); }
+    catch (error) { return c.json({ ok: false, reason: (error as Error).message }, 503); }
+  });
+  app.get("/api/preparation/output/:id", c => {
+    const executionId = c.req.query("executionId");
+    const record = executionId ? engine.historicalExecution(executionId)?.record : engine.record;
+    const attempt = record?.preparation?.attempts.find(row => row.id === c.req.param("id"));
+    if (!attempt) return refuse(c, 404, "No current preparation check has that identity.");
+    try { return c.text(readFileSync(attempt.output, "utf8")); }
+    catch { return c.json({ ok: false, reason: "The retained check output is unavailable." }, 503); }
+  });
   app.get("/api/delivery", async c => c.json(await engine.deliveryReadStatus()));
   for (const action of ["assessment", "prepare", "evidence"] as const) app.post(`/api/delivery/${action}`, async c => {
     const body = await jsonBody(c); if (!body) return refuse(c, 400, "The body must be a JSON object.");
@@ -170,6 +187,10 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/development-authorization", async c => {
     const body = await jsonBody(c); if (!body) return refuse(c, 400, "The body must be a JSON object.");
+    if (body.proposalId !== undefined) {
+      try { const result = await engine.authorizeContinuationTarget(body); return c.json(result, result.status); }
+      catch (error) { return c.json({ ok: false, reason: (error as Error).message }, 503); }
+    }
     const result = engine.authorizeDevelopmentTarget(body);
     return result.ok ? c.json({ authorization: engine.deliveryStatus().authorization }) : commandRefused(c, result);
   });

@@ -35,6 +35,8 @@ Help has two levels: `kiln --help` inventories every command, and `kiln <command
 
 ### Scope and concurrency
 
+Superseded in part by: [Kiln Continue Added Phases — preparation continuation](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#target-grants-before-acceptance), Phase 3b (browser-only pending target grants and engine-owned preparation/checkpoint stages share the durable owner under private schema 18; the public bot mutation allowlist is unchanged).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
@@ -62,6 +64,8 @@ For an existing PRD path, resolve it as `kiln run` does, using its main checkout
 A read can inspect retained work after the document/worktree disappears: normalize the input against caller cwd, resolve the nearest existing ancestor's real path, and match only an exact stored canonical directory, its exact `<folder>-prd.md` filename, or an alias previously authenticated for that execution. Store alias provenance and execution binding. Do not synthesize aliases from arbitrary directory names. If the old checkout itself moved, its former path still retrieves the saved record, labelled `document_unavailable`; the new location is not automatically adopted. Multiple matches are `ambiguous_target`, and an unmatched moved path is `target_not_found`. Mutation requires a reachable controller with matching identity; it cannot silently resurrect work or relocate it.
 
 ### Version compatibility
+
+Superseded in part by: [Kiln Continue Added Phases — preparation continuation](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#target-grants-before-acceptance), Phase 3b (browser-only pending target grants and engine-owned preparation/checkpoint stages share the durable owner under private schema 18; the public bot mutation allowlist is unchanged).
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 

@@ -1,3 +1,4 @@
+import { runPreparation } from "./preparation-command.js";
 import { writeDurableMetadata } from "./control/durable-file.js";
 import { readWork, retainedAliases } from "./control/private-state.js";
 import { runInspectionCommand } from "./control/client.js";
@@ -128,6 +129,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return 0;
   }
   if (command === undefined) return usageError(context);
+  if (command === "preparation") return runPreparation(rest, context);
   if (command === "delivery") return runDelivery(rest, context);
   if (command === "audit") return runAudit(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
