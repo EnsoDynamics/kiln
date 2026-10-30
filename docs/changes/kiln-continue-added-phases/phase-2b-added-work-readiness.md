@@ -1,4 +1,4 @@
-# Phase 2b: Show added work and preparation readiness
+# Phase 2b: Show added work and preparation readiness — split into 2b1–2b2
 
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md)
@@ -16,11 +16,11 @@ Continue/Not now, grants, acceptance, fresh workspace activation and preparation
 ## Phase dependencies
 2a (coherent current-source checks, legacy baseline recovery and comparison).
 
-## Phase-specific notes
-Own Readiness and Planned Preparation observation/extraction/authority contracts, external-completion evidence, immutable proposal bindings and the synthetic Comet Library fixtures. Complete the discovery/classification and original-authority proof rows. Add only supersession pointers made true here; reuse the current command owner and schema. Phase 3 consumes these evaluated bindings.
+## Split into
 
-## Phase 2a handoff
+| Phase | What it does | Depends on |
+|---|---|---|
+| [2b1: Account for externally completed work](phase-2b1-external-completion-accounting.md) | Show all observed leaves separately as unfinished, externally completed or unresolved, with independently checked completion and integration evidence. | 2a (immutable current-source observations and historical comparison). |
+| [2b2: Evaluate preparation readiness and show the offer](phase-2b2-preparation-readiness-offer.md) | Evaluate documented preparation and original permissions, then show the bound proposal, first eligible phase and readiness above earlier delivery. | 2a (coherent source observations); 2b1 (complete classification and external-completion evidence). |
 
-Schema 14 and `completedPlanCheck` provide source observations, legacy baseline recovery, historical-scope blocking and explicitly earlier results. Reuse the immutable candidate sidecar referenced by the observation; it is not an executable proposal and its added-leaf list is not the completed classification/readiness contract. The accepted historical baseline remains unchanged. The technical design's “Implemented completed-check observation (Phase 2a)” owns the code boundary.
-
-Extend the current panel and header with the full offer presentation, external-completion accounting, first eligible phase, prerequisite and authority evidence, and immutable proposal identity. Preserve the existing source failure/retry/history behavior. The current CLI deliberately reports unresolved counts for blocked observations. Continue/Not now and acceptance remain Phase 3. Full Comet Library phases 1–15 and actual original-authority proofs belong here; the smaller catalog/lending fixture covers only Phase 2a's source checks.
+Split 2026-10-29 at implementation sizing: external-completion accounting is independently useful before the distinct original-message authority and preparation-readiness capability.

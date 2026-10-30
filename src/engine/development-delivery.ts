@@ -11,6 +11,7 @@ import { emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authoriz
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
+import type { PhasePlan } from "../plan/phase-plan.js";
 
 export class DeliveryRefusal extends Error { constructor(message: string, readonly status: 400 | 409 | 422 = 409) { super(message); } }
 class ObservedOperationFailure extends DeliveryRefusal { constructor(message: string, readonly rawPath: string) { super(message); } }
@@ -217,19 +218,23 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
   if (splits.length) validateSplits(context);
 }
 export function validateSplits(context: DeliveryContext): void {
-  const leaves = currentLeaves(context); const state = ledger(context.record);
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem);
+  validateDeliverySplits(ledger(context.record), plan.plan, id => documentsDigest(context, id));
+}
+/** Same split checks for live files and immutable continuation observations. */
+export function validateDeliverySplits(state: DevelopmentLedger, plan: PhasePlan, digest: (phaseId: string) => string): void {
+  const leaves = plan.phases.filter(phase => !phase.splitInto);
   for (const checkpoint of state.checkpoints) {
     const origin = deliveryOwner(checkpoint);
     const roots = [...new Set([...(origin.kind === "phase" ? [origin.phaseId] : []), ...(state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.owner.kind === "phase").map(one => (one.owner as { kind: "phase"; phaseId: string }).phaseId)])];
     for (const root of roots) {
-      const phase = plan.plan.phases.find(one => one.id === root); need(phase, `Checkpoint ${checkpoint.id} lost its originating or assigned phase ${root}.`);
+      const phase = plan.phases.find(one => one.id === root); need(phase, `Checkpoint ${checkpoint.id} lost its originating or assigned phase ${root}.`);
       if (!phase.splitInto) continue;
-      for (const parent of plan.plan.phases.filter(one => one.splitInto && (one.id === root || isAncestorOf(root, one.id)))) {
+      for (const parent of plan.phases.filter(one => one.splitInto && (one.id === root || isAncestorOf(root, one.id)))) {
         const split = state.splits.find(one => one.phaseId === parent.id);
         const inherited = parent.id === root ? assignedObligations(state, checkpoint, { kind: "phase", phaseId: root }).map(requirementId => ({ requirementId, criteria: origin.kind === "phase" && origin.phaseId === root ? checkpoint.criteria : (state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId && one.owner.kind === "phase" && one.owner.phaseId === root).flatMap(one => one.criteria) })) : state.splits.flatMap(ancestor => isAncestorOf(ancestor.phaseId, parent.id) ? ancestor.assignments.filter(one => one.checkpointId === checkpoint.id && one.leafIds.some(id => isAncestorOf(parent.id, id))) : []);
         if (!inherited.length) continue;
-        need(split && split.documentsDigest === documentsDigest(context, parent.id), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
+        need(split && split.documentsDigest === digest(parent.id), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
         const obligations = new Map<string, Set<string>>();
         for (const obligation of inherited) { const criteria = obligations.get(obligation.requirementId) ?? new Set<string>(); for (const criterion of obligation.criteria) criteria.add(criterion); obligations.set(obligation.requirementId, criteria); }
         for (const [requirementId, inheritedCriteria] of obligations) {
@@ -499,6 +504,12 @@ export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwne
     const assessment = state.assessments.find(one => sameOwner(one, { owner }));
     const binding = ownerDocuments(context, owner);
     need(assessment && assessment.documentsDigest === binding.documentsDigest && assessment.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
+    requireOwnerDeliveryEvidence(state, owner);
+    check.passed = true; check.facts = [assessment.required ? "Required merge, deployment and verification evidence confirmed" : assessment.reason];
+  } catch (error) { check.facts = [(error as Error).message]; } return check;
+}
+/** Evaluate direct, split and recovery obligations without mutating historical facts. */
+export function requireOwnerDeliveryEvidence(state: DevelopmentLedger, owner: DeliveryOwner): void {
     for (const checkpoint of state.checkpoints) {
       const ids = assignedObligations(state, checkpoint, owner).filter(id => id === "requiredMerge" || checkpoint.requirements.find(one => one.id === id)?.purpose !== "current_artifact");
       if (!ids.length) continue;
@@ -506,8 +517,6 @@ export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwne
       for (const id of ids) need(id === "requiredMerge" ? !!checkpoint.merge && !checkpoint.mergeUnresolvedReason && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed") : !checkpoint.unresolvedRequirements?.[id] && !checkpoint.unresolvedRequirements?.["*"] && checkpoint.evidence.some(fact => fact.requirementId === id && fact.status === "success"), `${checkpoint.id} / ${id}: ${checkpoint.unresolvedReason ?? "required delivery evidence remains unresolved"}`);
       for (const dependency of checkpoint.dependsOn) need(checkpointSatisfied(state, state.checkpoints.find(one => one.id === dependency)!), `${checkpoint.id}: prerequisite ${dependency} is unresolved.`);
     }
-    check.passed = true; check.facts = [assessment.required ? "Required merge, deployment and verification evidence confirmed" : assessment.reason];
-  } catch (error) { check.facts = [(error as Error).message]; } return check;
 }
 export async function prepareOperation(context: DeliveryContext, body: Record<string, unknown>): Promise<{ operationId: string; disposition: "proceed" | "already_observed" | "unresolved"; facts: string[] }> {
   const state = ledger(context.record); const checkpoint = state.checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown delivery checkpoint.", 422); granted(context, checkpoint);

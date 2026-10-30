@@ -7,6 +7,8 @@
   let error = $state<string>();
   const earlier = $derived(check?.status === "failed" || check?.status === "checking");
   const result = $derived(earlier ? check?.earlierResult : check?.result);
+  const external = $derived(result?.leaves?.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified") ?? []);
+  const carried = $derived(result?.leaves?.filter(row => row.classification === "carried_completed").length ?? 0);
   const time = (value: string) => new Date(value).toLocaleString();
   async function refresh() {
     if (!config || !connected || pending) return;
@@ -31,6 +33,22 @@
     {#if result.added.length}
       <p>{earlier ? "Earlier result: " : ""}{result.added.length} new unfinished {result.added.length === 1 ? "phase" : "phases"}.</p>
       <ul>{#each result.added as phase}<li>Phase {phase.id} · {phase.title}</li>{/each}</ul>
+    {/if}
+    {#if result.leaves}
+      <p>{earlier ? "Earlier accounting: " : "Plan accounting: "}{carried} earlier completed · {result.added.length} new unfinished · {external.length} externally closed.</p>
+      {#if external.length}
+        <h3>Work completed outside this run</h3>
+        <ul>{#each external as phase}<li>
+          <strong>Phase {phase.id} · {phase.title}</strong>
+          <p>{phase.classification === "externally_verified" ? "Completion and integration verified" : "Completion evidence unresolved"}.</p>
+          {#each phase.repositories as repository}<p class="source">{repository.repository}: {repository.revision} · {repository.integration === "integrated_verified" ? "Verified in" : "Not verified in"} {repository.baseBranch} at {repository.baseRevision}</p>{/each}
+          <p class="source">{phase.completedAt ? `Original completion: ${time(phase.completedAt)}` : "Original completion time not recorded."}{#if phase.verifiedAt} Verified: <time datetime={phase.verifiedAt}>{time(phase.verifiedAt)}</time>{/if}</p>
+        </li>{/each}</ul>
+      {/if}
+      {#if result.leaves.some(row => row.classification === "unresolved_earlier_work")}
+        <h3>Earlier work needs reconciliation</h3>
+        <ul>{#each result.leaves.filter(row => row.classification === "unresolved_earlier_work") as phase}<li>Phase {phase.id} · {phase.title}</li>{/each}</ul>
+      {/if}
     {/if}
     {#each result.problems as problem}<p class="problem">{problem}</p>{/each}
     <p class="source">{earlier ? "Earlier source" : "Source"}: {result.source.path}{#if result.source.revision} · Revision {result.source.revision}{/if}</p>

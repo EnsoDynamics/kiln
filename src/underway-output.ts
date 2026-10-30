@@ -84,11 +84,19 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
         const check = engine.record.completedPlanCheck;
         if (check.status === "failed") text = `Could not check for new phases: ${check.errors.join(" ")}`;
         else if (check.status === "checking") text = "Checking for new phases. The current phase count is unknown.";
-        else if (check.status === "blocked") text = `Plan needs reconciliation. The current phase count is unresolved. ${check.result?.problems.join(" ") ?? ""}`;
+        else if (check.status === "blocked") {
+          const result = check.result;
+          const coherent = result?.leaves && !result.earlierWorkChanges.length && !result.problems.some(problem => problem.includes("source_conflict"));
+          text = coherent ? `${result.added.length} new unfinished ${result.added.length === 1 ? "phase" : "phases"} found. Completion or readiness evidence is unresolved. ${result.problems.join(" ")}` : `Plan needs reconciliation. The current phase count is unresolved. ${result?.problems.join(" ") ?? ""}`;
+        }
         else if (check.status === "unchanged") text = "No new phases found. Earlier delivery remains complete.";
         else {
           const count = check.result!.added.length;
           text = `${count} new unfinished ${count === 1 ? "phase" : "phases"} found. Review the current plan on the feature page.`;
+        }
+        if (check.result?.leaves) {
+          const external = check.result.leaves.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified");
+          if (external.length) text += ` External work: ${external.map(row => `Phase ${row.id} · ${row.title} (${row.classification === "externally_verified" ? "completion and integration verified" : "completion evidence unresolved"})`).join("; ")}.`;
         }
         break;
       }

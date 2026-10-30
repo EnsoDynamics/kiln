@@ -1983,7 +1983,7 @@ export class Engine {
     const attemptedAt = this.now().toISOString();
     this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
-    const reading = discoverCompletedPlan({ record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt }).then(check => {
+    const reading = discoverCompletedPlan({ record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey) }).then(check => {
       if (this.stopping || this.closed) return check;
       this.record.completedPlanCheck = check;
       // The accepted historical pointer is immutable. Recovery may establish it once.
@@ -4209,6 +4209,35 @@ export class Engine {
     }
     this.save();
     return this.stayedInWorkspace(phaseKey);
+  }
+
+  /** A completed-plan observation must not rewrite original provider scans or receipts. */
+  private async readRetainedCompletionProvenance(phaseKey: string): Promise<{ passed: boolean; facts: string[] }> {
+    const facts = this.record.phases[phaseKey];
+    const outcomes: { passed: boolean; facts: string[] }[] = [];
+    const worktrees = this.setUpRepositories.map(entry => expandHome(entry.worktreePath));
+    for (const id of facts?.sessionIds ?? []) {
+      const session = this.sessionRecord(phaseKey, id);
+      if (!session) { outcomes.push({ passed: false, facts: [`Restore missing Kiln session ${id} and its provider history.`] }); continue; }
+      if (session.agentId === "codex") {
+        if (codexSessionNotDispatched(session)) continue;
+        const conversation = session.conversation;
+        const audit = conversation?.threadId && conversation.codexHome && this.options.tools.codex
+          ? await auditCodexConversation({ threadId: conversation.threadId, codexHome: conversation.codexHome, worktrees,
+            cwd: this.stateDirectory, executable: this.options.tools.codex, env: this.options.env,
+            signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]),
+            ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}) })
+          : this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
+        const outcome = codexStayedOutcome(id, audit, (facts?.codexConfirmations ?? []).flatMap(one => one.fingerprints[id] ? [one.fingerprints[id]!] : []));
+        outcomes.push(outcome.check);
+      } else {
+        const endedAt = session.runs.at(-1)?.endedAt;
+        const outcome = stayedInWorkspace({ sessions: [{ sessionId: id, reportedInit: session.initModel !== undefined, ...(endedAt ? { endedAt } : {}) }], worktrees,
+          configFolder: claudeConfigFolder(this.options.env), confirmations: facts?.outsideConfirmations ?? [], ...(facts?.stop ? { stopAt: facts.stop.at } : {}) });
+        outcomes.push(outcome.check);
+      }
+    }
+    return { passed: outcomes.length > 0 && outcomes.every(one => one.passed), facts: outcomes.length ? outcomes.filter(one => !one.passed).flatMap(one => one.facts) : ["No dispatched provider evidence is available for the retained completion."] };
   }
 
   private missingCodexAudit(reason: string): CodexAudit {
