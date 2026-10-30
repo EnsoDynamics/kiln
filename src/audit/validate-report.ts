@@ -45,7 +45,8 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
     if (success) for (const repository of current.repositories) for (const [path, actual] of Object.entries(repository.files)) {
       if (repository.repository === record.repository.name && ((record.completionAudits?.activities ?? []).some(a => a.reportPath === path) || path === `${record.prdDirectory}/test-audit.md`)) continue;
       const original = checked.repositories.find(r => r.repository === repository.repository)?.files[path];
-      requireAudit(original && (actual.changedAtMs === original.changedAtMs || Date.parse(observed.startedAt) >= actual.changedAtMs), `Material content ${repository.repository}/${path} changed during or after verification ${id}; verify it again.`, "stale_snapshot");
+      requireAudit(original, `Material content ${repository.repository}/${path} is not in the checked snapshot; take a new snapshot, then rerun the passing runs the report cites.`, "stale_snapshot");
+      requireAudit(actual.changedAtMs === original.changedAtMs || Date.parse(observed.startedAt) >= actual.changedAtMs, `Material content ${repository.repository}/${path} changed at ${new Date(actual.changedAtMs).toISOString()}, after passing verification ${id} started at ${observed.startedAt}. A byte-identical restore, checkout or stash still counts as a change. Finish every red check and code or test change, then rerun the passing runs mapped to test parts and each red check's restored passing run.`, "stale_snapshot");
     }
     if (success) requireAudit(observed.outcome === "success" && (observed.exitCode === undefined || observed.exitCode === 0), `Required verification ${id} failed.`, "missing_evidence");
     return found;

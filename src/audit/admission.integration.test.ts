@@ -1,8 +1,8 @@
 // Real Git, filesystem, HTTP and CLI; fabricated transcripts exercise refusal cases beside
 // the actual-provider proof in scripts/proof-run/completion-audit-proof.mjs.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, statSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createBareOrigin, createRepository, createSandbox, commitFiles, git, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
@@ -115,6 +115,35 @@ describe("audit evidence admission", () => {
       f.store.putBytes("Shared retained transcript\n".repeat(40_000));
       writeFileSync(f.store.path(metadata), "corrupt catalog entry");
       await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
+    } finally { spy.mockRestore(); }
+  });
+
+  it("retains each transcript once per refresh however many calls it holds", async () => {
+    const f = await fixture();
+    for (let index = 0; index < 40; index++) f.call(`run-${index}`, "Bash", { command: `node value.test.mjs # ${index}` }, "ok");
+    f.call("edit-0", "Edit", { file_path: join(f.root, "value.mjs") }, "Edited");
+    const transcript = readFileSync(f.transcript, "utf8");
+    let retained = 0;
+    const original = AuditStore.prototype.putBytes;
+    const spy = vi.spyOn(AuditStore.prototype, "putBytes").mockImplementation(function(this: AuditStore, bytes: string) {
+      if (bytes === transcript) retained++;
+      return original.call(this, bytes);
+    });
+    try {
+      const evidence = await refreshAuditEvidence(f.context);
+      const commands = evidence.filter(e => e.kind === "command" && e.locator.startsWith("run-"));
+      expect(commands).toHaveLength(40);
+      expect(retained).toBe(1);
+      expect(new Set(commands.map(e => e.retainedSource))).toEqual(new Set([hashBytes(transcript)]));
+      expect(commands.every(e => e.sourceDigest === hashBytes(transcript))).toBe(true);
+      expect(evidence.find(e => e.locator === "edit-0")).toMatchObject({ kind: "mutation", retainedSource: hashBytes(transcript), sourceDigest: hashBytes(transcript) });
+      // Each delegated assessment keeps its own subagent transcript, never the main one.
+      const subagents = join(dirname(f.transcript), f.session.sessionId, "subagents");
+      for (const locator of ["assessor", "reviewer"]) {
+        const own = hashBytes(readFileSync(join(subagents, `agent-${locator}.jsonl`), "utf8"));
+        expect(own).not.toBe(hashBytes(transcript));
+        expect(evidence.find(e => e.kind === "assessment" && e.locator === locator)).toMatchObject({ retainedSource: own, sourceDigest: own });
+      }
     } finally { spy.mockRestore(); }
   });
 
@@ -353,7 +382,20 @@ describe("typed test-audit evidence", () => {
     }
     f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath }); expect(result.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
     if (mode === "unrelated final command") expect(result.refusal?.reason).toContain("Final suite must rerun each baseline command");
-    if (mode === "mutation after passing run") expect(result.refusal?.code).toBe("stale_snapshot");
+    if (mode === "mutation after passing run") {
+      expect(result.refusal?.code).toBe("stale_snapshot");
+      const run = f.report.criteria[0]!.parts[0]!.tests[0]!.runEvidenceIds[0]!;
+      const startedAt = auditEvidence(f.context).find(e => e.evidenceId === run)!.command!.startedAt;
+      const changedAt = new Date(Math.floor(statSync(join(f.root, "value.mjs")).ctimeMs)).toISOString();
+      expect(result.refusal?.reason).toBe(`Material content proof/value.mjs changed at ${changedAt}, after passing verification ${run} started at ${startedAt}. A byte-identical restore, checkout or stash still counts as a change. Finish every red check and code or test change, then rerun the passing runs mapped to test parts and each red check's restored passing run.`);
+    }
+  });
+  it("refuses a passing run when a file appeared after the checked snapshot", async () => {
+    const f = await testAuditFixture();
+    writeFileSync(join(f.root, "extra.mjs"), "export const extra = 1;\n");
+    const evidence = await refreshAuditEvidence(f.context);
+    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
+    expect(() => validateReport(f.report, { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence })).toThrow(expect.objectContaining({ code: "stale_snapshot", message: "Material content proof/extra.mjs is not in the checked snapshot; take a new snapshot, then rerun the passing runs the report cites." }));
   });
 });
 
