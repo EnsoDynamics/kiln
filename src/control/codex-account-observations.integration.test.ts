@@ -59,7 +59,7 @@ function savedBytes() {
   }));
 }
 
-it.each([{ missingExecutable: true }, { initializeError: true }, { accountError: true }, { afterAccountError: true }, { version: "99.0.0" }])("reports unavailable first-read Codex facts through refresh/full status and retained reads: %j", async initial => {
+it.each([{ missingExecutable: true }, { initializeError: true }, { accountError: true }, { afterAccountError: true }, { version: "0.162.0" }])("reports unavailable first-read Codex facts through refresh/full status and retained reads: %j", async initial => {
   await setup(initial);
   const refresh = await cli(["account", "--refresh"]);
   expect(refresh.code).toBe(4); expect(refresh.body.ok).toBe(false);

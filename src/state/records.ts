@@ -315,7 +315,8 @@ export interface CodexAccountProvenance {
 }
 
 export interface CodexExecutionProfile {
-  version: "0.162.1";
+  /** Actual installed Codex version at this attempt; historical profiles stay unchanged. */
+  version: string;
   cwd: string;
   writableRoots: string[];
   repositories: { path: string; branch: string }[];

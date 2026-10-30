@@ -4,7 +4,7 @@ import type { AgentAccount } from "./metadata.js";
 import { runHelper } from "../platform/helper-process.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 
-export const CODEX_VERSION = "0.162.1";
+import { CODEX_VERSION_REQUIREMENT, supportedCodexVersion } from "./codex-version.js";
 export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
 export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
@@ -102,10 +102,10 @@ export async function readCodexMetadata(options: { executable: string | undefine
   const deadline = Date.now() + 30_000;
   const unavailable = (reason: string): AgentAccount => ({ agentId: "codex", startedAt, updatedAt: new Date().toISOString(), limits: [], error: reason, limitsError: "Codex usage is unavailable because account metadata could not be read." });
   const result: CodexMetadata = { account: unavailable("Codex account metadata has not been read."), blockers: [], skills: [] };
-  if (!options.executable) { result.account = unavailable("Codex is not on PATH. Install codex-cli 0.162.1 and sign in with codex login."); result.blockers.push(result.account.error!); return result; }
+  if (!options.executable) { result.account = unavailable(`Codex is not on PATH. Install ${CODEX_VERSION_REQUIREMENT} and sign in with codex login.`); result.blockers.push(result.account.error!); return result; }
   const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: 30_000 });
   result.version = version.stdout.trim();
-  if (version.exitCode !== 0 || result.version !== `codex-cli ${CODEX_VERSION}`) { result.account = unavailable(`Codex ${result.version || "version unavailable"} is incompatible. This candidate requires codex-cli ${CODEX_VERSION}.`); result.blockers.push(result.account.error!); return result; }
+  if (version.exitCode !== 0 || !supportedCodexVersion(result.version)) { result.account = unavailable(`Codex ${result.version || "version unavailable"} is incompatible. Kiln requires ${CODEX_VERSION_REQUIREMENT}.`); result.blockers.push(result.account.error!); return result; }
   const rpc = new CodexMetadataRpc(options.executable, options.cwd, options.env, options.signal, Math.max(1, deadline - Date.now()));
   try {
     await rpc.initialize();

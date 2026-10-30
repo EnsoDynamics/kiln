@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandbox, type Sandbox } from "../test-support/git-repositories.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
+import { prepareCodexLaunch } from "../session/codex-launch-profile.js";
 import { readCodexMetadata } from "./codex-metadata.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 import { codexBillingSummary } from "../billing/codex.js";
@@ -10,6 +11,20 @@ let sandbox: Sandbox;
 let info: AgentInfo | undefined;
 afterEach(() => { info?.close(); info = undefined; vi.useRealTimers(); return sandbox?.cleanup(); });
 describe("Codex metadata over real process pipes", () => {
+  it.each(["0.162.1", "0.165.0", "0.165.1", "1.0.0", "99.0.0"])("accepts stable %s and records the actual launch version", async version => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set({ version });
+    const prepared = await prepareCodexLaunch({ ...f, cwd: sandbox.root, writableRoots: [sandbox.root], repositories: [{ path: sandbox.root, branch: "develop" }], choice: { model: "gpt-6.1-sol", effort: "high" } });
+    expect(prepared.profile.version).toBe(version);
+    expect(prepared.choice.model).toBe("gpt-6.1-sol");
+    expect(f.calls().some(c => c.method === "configRequirements/read")).toBe(true);
+    expect(f.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
+  });
+  it("still blocks newer releases when required metadata capabilities fail", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set({ version: "0.165.1", configError: true });
+    const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(result.blockers.join(" ")).toContain("Could not inspect Codex provider and hooks");
+    expect(f.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
+  });
   it("refreshes the selected Codex account every five minutes and stops the scheduler on close", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
     // Accelerate only scheduling: process pipes, deadlines and response parsing remain real.
@@ -86,7 +101,7 @@ describe("Codex metadata over real process pipes", () => {
     expect(result.account.codexUsageObservedAt).toBe(result.account.updatedAt);
     expect(Date.now() - Date.parse(result.account.updatedAt)).toBeGreaterThanOrEqual(100);
   });
-  it.each([{ initializeError: true }, { accountError: true }, { afterAccountError: true }, { version: "99.0.0" }])("exposes failed metadata as unavailable: %j", async fixture => {
+  it.each([{ initializeError: true }, { accountError: true }, { afterAccountError: true }, { version: "0.162.0" }])("exposes failed metadata as unavailable: %j", async fixture => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set(fixture);
     const result = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
     expect(result.account.error).toBeTruthy(); expect(result.account.limitsError).toBeTruthy();
@@ -142,7 +157,7 @@ describe("Codex metadata over real process pipes", () => {
   });
   it("reports real adapter version, authentication, disabled-skill and policy failures without starting a turn", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
-    for (const [fixture, message] of [[{ version: "99.0.0" }, "incompatible"], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ configError: true }, "Could not inspect Codex provider and hooks"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
+    for (const [fixture, message] of [[{ version: "0.162.0" }, "incompatible"], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ configError: true }, "Could not inspect Codex provider and hooks"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
       f.set(fixture); const r = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
       expect(r.blockers.join(" ")).toContain(message);
     }
