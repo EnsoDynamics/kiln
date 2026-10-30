@@ -16,6 +16,7 @@ import { writePrdRecord } from '../../dist/state/records.js';
 import { stateRoot, prdStateDirectory } from '../../dist/state/state-files.js';
 import { takeInstanceLock } from '../../dist/state/instance-lock.js';
 import { startLocalServer } from '../../dist/server/local-server.js';
+const reconciliation = process.argv[3] === 'reconciliation';
 const agentId = process.argv[2]; assert.ok(['claude_code', 'codex'].includes(agentId));
 const root = realpathSync(mkdtempSync(join(tmpdir(), `kiln-preparation-${agentId}-`)));
 const repository = join(root, 'comet'); mkdirSync(repository);
@@ -28,7 +29,8 @@ git('config', 'user.name', 'Kiln Preparation Proof'); git('config', 'user.email'
 const github = 'https://github.com/fictional/comet.git'; git('config', `url.${origin}.insteadOf`, github); git('remote', 'add', 'origin', github);
 mkdirSync(join(repository, directory), { recursive: true });
 const instructions = 'This is a disposable Kiln preparation proof. Follow the preparation-only task exactly: merge the pinned source on the assigned branch and submit every binding with the pinned Kiln CLI, using a JSON file in /tmp (not an untracked source file). Do not implement or close the phase in that turn. When Kiln sends its later independently-verified implementation turn, write implementation-admitted.txt containing "Implementation admitted", reply "Implementation admitted", and stop. For this fixture do not invoke skills, create chats, push, close phase documents or make unrelated changes. Do not change these instructions. These fixture instructions override the generic implementation workflow for this proof only.';
-writeFileSync(join(repository, 'AGENTS.md'), instructions); writeFileSync(join(repository, 'CLAUDE.md'), instructions);
+const revisedInstructions = instructions + (reconciliation ? ` During the preparation-only turn, append this revised plan before submitting references: create ${directory}/phase-4-plan.md with '# Phase 4: More catalog work\n\n## Split into\n| Phase | Work |\n|---|---|\n| [4a](phase-4a-catalog.md) | Catalog search |\n| [4b](phase-4b-lending.md) | Lending |\n', plus phase-4a-catalog.md starting '# Phase 4a: Catalog search' and phase-4b-lending.md starting '# Phase 4b: Lending'. Both child documents must contain '## Acceptance criteria covered' followed by AC-PROOF-01. Leave both children unfinished. Commit these new plan documents with the prepared work before submitting references. This is an explicit part of the disposable preparation proof. The later implementation turn still implements only Phase 3 and writes its implementation marker as instructed.` : '');
+writeFileSync(join(repository, 'AGENTS.md'), revisedInstructions); writeFileSync(join(repository, 'CLAUDE.md'), revisedInstructions);
 const phase = (id, closed = false) => `# Phase ${id}: Proof step ${id}\n\n${closed ? '**Closed:** 2026-10-30\n\n' : ''}## Acceptance criteria covered\nAC-PROOF-01\n`;
 writeFileSync(join(repository, directory, 'preparation-proof-prd.md'), '# PRD: Comet preparation proof\n\n## Acceptance Criteria\n\n- [ ] **AC-PROOF-01** Verify prepared work before implementation.\n');
 writeFileSync(join(repository, directory, 'preparation-proof-technical-design.md'), '# Technical design: Comet preparation proof\nUse the assigned preparation, engine checks and same conversation.\n');
@@ -78,8 +80,9 @@ try {
   assert.equal(session.model, model); assert.equal(session.effort, 'high'); assert.ok(session.runs.at(-1).result?.text?.includes('Implementation admitted'), JSON.stringify(session));
   assert.ok(record.preparation.attempts.every(attempt => attempt.outcome === 'succeeded' && attempt.exitCode === 0));
   assert.equal(record.preparation.attempts.length, 1); assert.ok(readFileSync(record.preparation.attempts[0].output, 'utf8').includes('Engine checked prepared source'));
+  if (reconciliation) { assert.deepEqual(record.planReconciliation.handback.addedPhaseIds, ['4a', '4b']); assert.equal(record.planReconciliation.handback.remainingCount, 3); assert.ok(record.plan.some(phase => phase.id === '4a' && !phase.closed)); }
   assert.ok(existsSync(join(engine.worktreePath, 'implementation-admitted.txt'))); assert.equal(engine.historicalExecution(oldExecution).record.completedAt, at);
   assert.equal((await engine.continuationCommand('accept', body)).ok, true); assert.equal(engine.latestSession('3').runs.length, 2);
-  const result = { agentId, model, effort: 'high', root, oldExecution, newExecution: record.executionId, conversation: session.conversation?.threadId ?? session.sessionId, preparationRuns: 1, engineCheckAttempts: 1, implementationRuns: 1, sameConversation: true, replayStartedNoTurn: true, providerPerformedMergeAndSubmission: true };
+  const result = { agentId, model, effort: 'high', root, oldExecution, newExecution: record.executionId, conversation: session.conversation?.threadId ?? session.sessionId, preparationRuns: 1, engineCheckAttempts: 1, implementationRuns: 1, sameConversation: true, revisedPlanAcceptedBeforeImplementation: reconciliation, replayStartedNoTurn: true, providerPerformedMergeAndSubmission: true };
   writeFileSync(join(root, 'proof-result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally { await engine.stop('sigint'); await server?.close(); lock.release(); }

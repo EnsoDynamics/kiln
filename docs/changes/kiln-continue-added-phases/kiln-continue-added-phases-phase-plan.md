@@ -4,7 +4,7 @@
 
 ## Implementation order
 
-Build and verify each phase in this order. Original implementation leaves 1, 2a, 2b1, 2b2, 3a and 3b are implemented and closed. The first whole-PRD delivery audit added Phase 4, which is closed. The fresh assessment including Phase 4 found nine gaps affecting eight criteria and added Phases 5 and 6 below. Implement those leaves in order, then run a fresh whole-PRD delivery audit followed by test audit and any completion work they require.
+Build and verify each phase in this order. Original implementation leaves 1, 2a, 2b1, 2b2, 3a and 3b are implemented and closed. The first whole-PRD delivery audit added Phase 4, which is closed. The fresh assessment including Phase 4 found nine gaps affecting eight criteria and added Phases 5 and 6 below. Phase 5 is now closed; Phase 6 is the remaining implementation leaf. After it closes, run a fresh whole-PRD delivery audit followed by test audit and any completion work they require.
 
 | Phase | What it does | Depends on |
 |---|---|---|

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createCometContinuation, COMET_DIRECTORY, COMET_PRD, cometPhase } from "../test-support/comet-continuation-fixture.js";
 import { git, createBareOrigin, createRepository } from "../test-support/git-repositories.js";
 import type { Harness } from "../test-support/engine-harness.js";
@@ -201,3 +201,48 @@ it("requires retained Claude history without changing its original receipt or se
   expect(h.engine.sessionRecord("8", session.sessionId)).toEqual(session);
   expect(h.claudeCalls()).toEqual([]);
 });
+
+
+it("shares one enclosing discovery deadline across multiple real retained Codex scans and preserves earlier HTTP evidence", async () => {
+  const f = await createCometContinuation(); h = f.h; f.integrate();
+  const history = historyFixture();
+  const { auditCodexConversation: actualScan } = await import("../session/codex-evidence.js");
+  const scanner = await import("../session/codex-evidence.js");
+  const deadline = new AbortController();
+  let server: Awaited<ReturnType<typeof startLocalServer>> | undefined;
+  try {
+    Object.assign(h.tools, { codex: history.options.executable });
+    h.env.KILN_CODEX_HISTORY_FIXTURE = history.options.env.KILN_CODEX_HISTORY_FIXTURE;
+    h.engine.record.repositories[0]!.worktreePath = history.root;
+    const at = "2026-10-23T15:00:00Z";
+    const ids = ["scan-one", "scan-two", "scan-three"];
+    for (const sessionId of ids) writeSessionRecord(h.stateDirectory, { schemaVersion: SCHEMA_VERSION, sessionId, phaseId: "8", kind: "phase", agentId: "codex", createdAt: at,
+      model: "gpt-6.1-sol", modelDisplayName: "GPT", workingDirectory: history.root, conversation: { threadId: "parent", codexHome: history.codexHome },
+      runs: [{ startedAt: at, endedAt: at, cause: "launch", exitCode: 0 }], sleeps: [], steps: [] });
+    h.engine.record.phases["8"] = { doneAt: at, sessionIds: ids, finishedByPerson: false, outsideConfirmations: [], repositories: { "comet-library": { startCommit: f.externalRevision, pushedSha: f.externalRevision } } };
+    const earlier = await h.engine.checkCompletedPlan(); expect(earlier.status).toBe("available");
+    const facts = structuredClone(h.engine.record.phases["8"]);
+    const timeout = AbortSignal.timeout.bind(AbortSignal); let enclosing = false; let scans = 0;
+    // Drive the enclosing deadline deterministically rather than sleeping two minutes.
+    // Real Codex history helpers and their own individual bounds remain in use.
+    const timer = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      if (ms === 120_000 && !enclosing) { enclosing = true; return deadline.signal; }
+      return timeout(ms);
+    });
+    const scan = vi.spyOn(scanner, "auditCodexConversation").mockImplementation(async options => {
+      scans++;
+      if (scans === 2) { history.state.hang = "thread/read"; history.save(); setTimeout(() => deadline.abort(new Error("Discovery deadline exceeded. Check for new phases again.")), 300); }
+      return actualScan(options);
+    });
+    try {
+      server = await startLocalServer({ engine: h.engine, port: 41988, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+      const origin = new URL(server.address).origin;
+      const response = await fetch(`${origin}/api/continuation/check`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ check: { status: "failed", earlierResult: earlier.result, lastSuccessfulAt: earlier.lastSuccessfulAt, errors: [expect.stringContaining("Discovery deadline exceeded")] } });
+      expect(scans).toBe(2); expect(h.engine.checking).toBe(false);
+      expect(h.engine.record.completedPlanCheck?.result).toBeUndefined();
+      expect(h.engine.record.phases["8"]).toEqual(facts); expect(h.claudeCalls()).toEqual([]);
+    } finally { timer.mockRestore(); scan.mockRestore(); }
+  } finally { deadline.abort(); await server?.close(); await history.sandbox.cleanup(); }
+}, 60_000);

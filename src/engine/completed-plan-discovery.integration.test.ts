@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { observePlan, retainBaseline } from "./plan-reconciliation.js";
+import { observePlan, retainBaseline, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
 import * as gitReads from "./git-reads.js";
+import type { CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { recordedPlan } from "./plan-reading.js";
 import { buildSnapshot } from "./snapshot.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
@@ -141,6 +142,8 @@ it("recovers nested split completion using the original parent's receipt", async
   const revision = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
   h.engine.record.plan = recordedPlan(observePlan(h.repository, directory).plan);
   h.engine.record.phases.pr!.repositories["acme-shop"]!.pushedSha = revision;
+  // The original parent session closed its first descendant at this revision.
+  h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha = revision;
   add(); publish();
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
   expect(h.claudeCalls()).toEqual([]);
@@ -195,6 +198,16 @@ it("checks page mount, reload and button through the real browser while preservi
         expect(page.problems.filter(problem => !problem.includes('503'))).toEqual([]);
         writeFileSync(`/tmp/kiln-completed-discovery-failed-${width}.png`, await page.screenshot());
         git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
+        const design = join(h.repository, directory, "comet-technical-design.md"); const bytes = readFileSync(design, "utf8");
+        writeFileSync(design, "x".repeat(PLAN_LIMIT));
+        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Check for new phases')).click()");
+        await page.waitFor("document.body.innerText.includes('8388608 document bytes') && [...document.querySelectorAll('button')].some(b => b.textContent.includes('Check for new phases') && !b.disabled)");
+        expect(await page.evaluate("document.body.innerText")).toContain("Earlier result: 1 new unfinished phase.");
+        expect(await page.evaluate("document.querySelector('[aria-label=\"Current plan check\"] time')?.dateTime")).toBe(lastSuccess);
+        expect(await page.evaluate("[...document.querySelectorAll('button')].filter(b => b.textContent.includes('Continue with')).every(b => b.disabled)")).toBe(true);
+        expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+        writeFileSync(`/tmp/kiln-completed-capacity-${width}.png`, await page.screenshot());
+        writeFileSync(design, bytes);
       } finally { await page.close(); }
     }
     expect(h.claudeCalls()).toEqual([]);
@@ -217,4 +230,89 @@ it("kiln run checks completed work before printing a conclusion and starts no se
     expect(stderr).toBe(""); expect(stdout).toContain("1 new unfinished phase found");
     expect(stdout).not.toContain("No new phases found"); expect(h.claudeCalls()).toEqual([]);
   } finally { signals.emit("SIGINT"); await result; }
+});
+
+
+async function checkHttp() {
+  server ??= await startLocalServer({ engine: h.engine, port: 41987, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
+  return fetch(`${new URL(server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
+}
+it.each(["saved", "git", "baseline", "baseline publication", "accounting", "proposal", "phases"])("returns typed capacity through HTTP for %s without faulting mutation ownership or losing earlier evidence", async boundary => {
+  await fixture(); add(); publish(); const success = await h.engine.checkCompletedPlan();
+  let restore = () => {};
+  if (boundary === "saved" || boundary === "git") {
+    const file = join(h.repository, directory, "comet-technical-design.md");
+    const small = readFileSync(file, "utf8");
+    writeFileSync(file, "x".repeat(PLAN_LIMIT));
+    if (boundary === "git") { publish(); writeFileSync(file, small); }
+  } else if (boundary === "baseline") {
+    writeFileSync(join(h.stateDirectory, "plans", `${h.engine.record.planReconciliation!.baselineId}.json`), " ".repeat(PLAN_LIMIT + 1));
+  } else if (boundary === "baseline publication") {
+    // Candidate fits; the retained baseline includes active plus both source observations.
+    writeFileSync(join(h.repository, directory, "comet-technical-design.md"), "<!--" + "x".repeat(3 * 1024 * 1024) + "-->\n"); publish();
+  } else if (boundary === "phases") {
+    for (let id = 10; id < PHASE_LIMIT + 10; id++) writeFileSync(join(h.repository, directory, `phase-${id}-extra.md`), `# Phase ${id}: Extra\n\n## Acceptance criteria covered\nAC-COMET-01\n`);
+  } else {
+    // Narrow capacity fault: actual writer limits are exercised separately; this proves
+    // the HTTP/publication owner does not misclassify a refusal as an uncertain write.
+    if (boundary === "accounting") {
+      const module = await import("./completed-plan-accounting.js");
+      const spy = vi.spyOn(module, "retainCompletionAccounting").mockImplementation(() => { throw new PlanCapacityError(PLAN_LIMIT, "completion evidence bytes"); }); restore = () => spy.mockRestore();
+    } else {
+      const module = await import("./continuation-readiness.js");
+      const spy = vi.spyOn(module, "retainContinuationProposal").mockImplementation(() => { throw new PlanCapacityError(PLAN_LIMIT, "proposal bytes"); }); restore = () => spy.mockRestore();
+    }
+  }
+  try {
+    const response = await checkHttp(); expect(response.status).toBe(413);
+    const body = await response.json() as { check: CompletedPlanCheck; reason: string }; expect(body).toMatchObject({ ok: false, code: "plan_too_large", limit: boundary === "phases" ? PHASE_LIMIT : PLAN_LIMIT, check: { status: "failed", earlierResult: success.result, lastSuccessfulAt: success.lastSuccessfulAt } });
+    expect(body.reason).toContain("check again"); expect(body.check.result).toBeUndefined();
+    expect(h.engine.commands.fault).toBeUndefined(); expect(h.engine.record.completedAt).toBe("2026-10-01T12:00:00Z"); expect(h.claudeCalls()).toEqual([]);
+    expect(h.reopenFromDisk().record.completedPlanCheck).toEqual(body.check);
+  } finally { restore(); }
+}, 120_000);
+
+it("reads decoded Markdown extensions from saved/Git sources, refusing missing and unsafe targets", async () => {
+  await fixture(); add(); publish(); const earlier = await h.engine.checkCompletedPlan();
+  const design = join(h.repository, directory, "comet-technical-design.md");
+  writeFileSync(design, "# Design\n[Required](shared-requirements%2Emd)\n");
+  let response = await checkHttp(); expect(response.status).toBe(503);
+  expect((await response.json() as { check: CompletedPlanCheck }).check).toMatchObject({ status: "failed", earlierResult: earlier.result, lastSuccessfulAt: earlier.lastSuccessfulAt });
+  writeFileSync(join(h.repository, directory, "shared-requirements.md"), "# Required shared catalog rules\n"); publish();
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { proposal: { readiness: "ready" } } });
+  // A remote-only required reference must fail even when the saved source stays readable.
+  writeFileSync(design, "# Design\n[Required](missing%2Emd)\n"); publish();
+  writeFileSync(design, "# Design\n[Required](shared-requirements%2Emd)\n");
+  response = await checkHttp(); expect(response.status).toBe(503);
+  expect((await response.json() as { check: CompletedPlanCheck }).check.sources.find(s => s.kind === "delivery_base")?.error).toContain("missing.md");
+  for (const href of ["../../../../outside%2Emd", "%2Foutside%2Emd", "..%5Coutside%2Emd"]) {
+    writeFileSync(design, `# Design\n[Required](${href})\n`);
+    expect((await h.engine.checkCompletedPlan()).sources[0]!.error).toContain("escapes");
+  }
+  const target = join(h.repository, directory, "linked.md"); symlinkSync(join(h.repository, directory, "shared-requirements.md"), target);
+  writeFileSync(design, "# Design\n[Required](linked%2Emd)\n");
+  expect((await h.engine.checkCompletedPlan()).sources[0]!.error).toContain("symlink");
+  publish();
+  expect((await h.engine.checkCompletedPlan()).sources[1]!.error).toContain("unsafe document");
+  expect(h.claudeCalls()).toEqual([]);
+});
+
+it("keeps a failed newly named repository origin read unknown through HTTP with earlier offer/history retained", async () => {
+  await fixture(); add(); publish(); const earlier = await h.engine.checkCompletedPlan();
+  const { createRepository, createGithubOrigin } = await import("../test-support/git-repositories.js");
+  const origin = createGithubOrigin(h.sandbox, "fictional", "lending-api");
+  const repo = createRepository(h.sandbox, "lending-api", origin.url); git(h.sandbox, repo, "push", "-qu", "origin", "develop");
+  writeFileSync(join(h.repository, directory, "phase-9-lending.md"), newPhase.replace("## Acceptance criteria covered", "**Repositories:** lending-api\n\n## Acceptance criteria covered")); publish();
+  const run = gitReads.runGit;
+  const spy = vi.spyOn(gitReads, "runGit").mockImplementation(async (...args) => {
+    if (args[1] === repo && args[2].join(" ") === "ls-remote --symref origin HEAD refs/heads/*") return { exitCode: 1, stdout: "", stderr: "Required delivery-base read unavailable." };
+    return run(...args);
+  });
+  try {
+    const response = await checkHttp(); expect(response.status).toBe(503);
+    const body = await response.json() as { check: CompletedPlanCheck; reason: string }; expect(body.check).toMatchObject({ status: "failed", earlierResult: earlier.result, lastSuccessfulAt: earlier.lastSuccessfulAt });
+    expect(body.check.errors.join(" ")).toContain("lending-api's delivery bases");
+    expect(body.check.errors.join(" ")).toContain("check for new phases again");
+    expect(body.check.result).toBeUndefined(); expect(h.claudeCalls()).toEqual([]);
+  } finally { spy.mockRestore(); }
 });

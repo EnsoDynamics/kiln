@@ -5,7 +5,7 @@ import type { PrdRecord } from "../state/records.js";
 import { judgedPhase, recordedPlan } from "./plan-reading.js";
 import type { GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 
@@ -31,6 +31,7 @@ export interface CompletedPlanCheck {
   lastSuccessfulAt?: string;
   sources: DiscoverySource[];
   errors: string[];
+  failure?: { code: "plan_too_large"; limit: number; resource: string };
   result?: CompletedPlanResult;
   earlierResult?: CompletedPlanResult;
 }
@@ -39,7 +40,7 @@ export class DiscoveryWriteFailure extends Error {}
 function retainDiscoveryBaseline(directory: string, value: Omit<PlanBaseline, "id">): PlanBaseline {
   try { return retainBaseline(directory, value); }
   catch (error) {
-    if ((error as Error).message.includes("plan_too_large")) throw error;
+    if (error instanceof PlanCapacityError) throw error;
     throw new DiscoveryWriteFailure(`Plan evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error });
   }
 }
@@ -49,20 +50,26 @@ const semantic = (source: PlanSource) => hash({ phases: source.plan.phases.map(p
 /** Today's source is never used as yesterday's baseline. */
 async function completedBaseline(context: DiscoveryContext): Promise<PlanBaseline> {
   const { record, directory, shared, git } = context;
-  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId);
+  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, record.prdDirectory, revision) });
   const revision = record.phases.pr?.repositories[record.repository.name]?.pushedSha
     ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit;
   if (!revision || !record.plan?.length) throw new Error("baseline_unavailable: No retained accepted plan or recorded completion revision. Restore the original completion record and its Git revision, then check again; today's checkout cannot prove the earlier scope.");
   let source: PlanSource;
   try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
-  catch (error) { throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
+  catch (error) { if (error instanceof PlanCapacityError) throw error; throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
   if (JSON.stringify(recordedPlan(source.plan)) !== JSON.stringify(record.plan)) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
   for (const phase of leavesOf(source.plan)) {
     if (!phase.closed) throw new Error(`baseline_unavailable: Phase ${phase.id} was not closed at recorded completion ${revision}. Restore its completion evidence.`);
     const owner = Object.entries(record.phases).find(([id, facts]) => facts.doneAt && judgedPhase(source.plan.phases, id)?.id === phase.id);
     if (!owner) throw new Error(`baseline_unavailable: Phase ${phase.id} has no recorded completion receipt. Restore its earlier receipt before checking again.`);
-    completions[phase.id] = { kind: owner[1].sessionIds.length ? "kiln" : "external", doneAt: owner[1].doneAt!, revision, repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+    completions[phase.id] = { kind: owner[1].sessionIds.length ? "kiln" : "external", scopeRepositories: phaseRepositories(source, phase.id), doneAt: owner[1].doneAt!, revision, repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+  }
+  for (const [id, completion] of Object.entries(completions)) {
+    const workRevision = completion.repositories?.[record.repository.name]?.revision ?? completion.revision!;
+    const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision);
+    if (!historical.plan.phases.some(phase => phase.id === id && phase.closed && !phase.splitInto) || historical.scopes[id] !== source.scopes[id]) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
+    completion.scopeRepositories = phaseRepositories(historical, id);
   }
   return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
 }
@@ -72,6 +79,12 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   const previous = record.completedPlanCheck;
   const earlierResult = previous?.result ?? previous?.earlierResult;
   const check: CompletedPlanCheck = { status: "failed", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(earlierResult ? { earlierResult } : {}) };
+  const failed = (error: unknown) => {
+    if (error instanceof DiscoveryWriteFailure) throw error;
+    if (error instanceof PlanBaselineWriteFailure) throw new DiscoveryWriteFailure(error.message, { cause: error });
+    check.errors.push((error as Error).message);
+    if (error instanceof PlanCapacityError) check.failure = { code: error.code, limit: error.limit, resource: error.resource };
+  };
   const repo = record.repositories.find(r => r.kind === "prd");
   const branch = repo?.baseBranch ?? record.settings.baseBranch;
   let local: PlanSource | undefined; let remote: PlanSource | undefined; let revision: string | undefined; let baseline: PlanBaseline | undefined;
@@ -79,16 +92,16 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   const remoteFact: DiscoverySource = { kind: "delivery_base", path: `${shared} / origin/${branch}` };
   check.sources.push(localFact, remoteFact);
   try { local = observePlan(shared, record.prdDirectory); localFact.digest = local.digest; localFact.revision = (await gitRead(git, shared, ["rev-parse", "HEAD"])).trim(); }
-  catch (error) { localFact.error = (error as Error).message; check.errors.push(localFact.error); }
+  catch (error) { localFact.error = (error as Error).message; failed(error); }
   try { revision = await remoteBase(git, shared, branch); remoteFact.revision = revision; remote = await observeGitPlan(git, shared, record.prdDirectory, revision); remoteFact.digest = remote.digest; }
-  catch (error) { remoteFact.error = (error as Error).message; check.errors.push(remoteFact.error); }
+  catch (error) { remoteFact.error = (error as Error).message; failed(error); }
   try { baseline = await completedBaseline(context); }
-  catch (error) { if (error instanceof DiscoveryWriteFailure) throw error; check.errors.push((error as Error).message); }
+  catch (error) { failed(error); }
   if (check.errors.length || !local || !remote || !baseline || !revision) return check;
   try {
     const old = baseline.active;
     const localChanged = semantic(local) !== semantic(old); const remoteChanged = semantic(remote) !== semantic(old);
-    const conflicts = [...new Set([...completedScopeProblems(old, local), ...completedScopeProblems(old, remote)])];
+    const conflicts = [...new Set([...completedScopeProblems(old, local, baseline.completions), ...completedScopeProblems(old, remote, baseline.completions)])];
     const problems = [...conflicts];
     if (localChanged && remoteChanged && semantic(local) !== semantic(remote)) problems.push("source_conflict: Shared checkout and delivery base contain different revised scope. Reconcile the governing documents, commit/integrate the agreed plan, then check again.");
     const selected = !localChanged || semantic(local) === semantic(remote) ? remote : local;
@@ -104,12 +117,12 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: selected, sources: [local, remote], completions: baseline.completions });
     let retained;
     try { retained = retainCompletionAccounting(directory, accounting); retainContinuationProposal(directory, proposal); }
-    catch (error) { throw new DiscoveryWriteFailure(`Completion evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error }); }
+    catch (error) { if (error instanceof PlanCapacityError) throw error; throw new DiscoveryWriteFailure(`Completion evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error }); }
     const added = accounting.leaves.filter(p => p.classification === "new_unfinished").map(({ id, title, file }) => ({ id, title, file }));
     check.result = { baselineId: baseline.id, candidateId: candidate.id, source, added, earlierWorkChanges: conflicts, unintegratedDocuments, problems: [...new Set(problems)], accountingId: retained.id, leaves: retained.leaves, proposal };
     check.status = problems.length ? "blocked" : added.length ? "available" : "unchanged";
     check.lastSuccessfulAt = attemptedAt;
     delete check.earlierResult;
     return check;
-  } catch (error) { if (error instanceof DiscoveryWriteFailure) throw error; check.errors.push((error as Error).message); return check; }
+  } catch (error) { failed(error); return check; }
 }

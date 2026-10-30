@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizedScope } from "./plan-reconciliation.js";
+import { normalizedScope, PLAN_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
 
 describe("versioned structural scope comparison", () => {
   it("ignores emphasis, wrapping, checkbox status and historical closure metadata", () => {
@@ -30,4 +30,24 @@ describe("versioned structural scope comparison", () => {
     const scope = (target: string) => normalizedScope(`[Guide](${target})`, links, "docs/comet/phase-1.md");
     for (const href of ["https://example.com/docs/comet/phase-2.md", "/docs/comet/phase-2.md", "../../../../docs/comet/phase-2.md", "../other/phase-2.md", "phase-2.md%23summary", "phase-2.md%3Fmode=read", "phase-2.md%00", "..%5Ccomet%5Cphase-2.md"]) expect(scope(href)).not.toBe(scope("phase-2.md"));
   });
+});
+
+
+it("reports actual immutable accounting/proposal writer and reader capacity before any publication", async () => {
+  const { mkdtempSync, readdirSync, writeFileSync, mkdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const { retainCompletionAccounting, readCompletionAccounting } = await import("./completed-plan-accounting.js");
+  const { retainContinuationProposal, readContinuationProposal } = await import("./continuation-readiness.js");
+  const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
+  try {
+    const text = "x".repeat(PLAN_LIMIT);
+    const accounting = { formatVersion: 1 as const, baselineId: "base", candidateDigest: "candidate", leaves: [{ id: "1", title: "Comet", file: "phase-1.md", classification: "externally_unverified" as const, problems: [text], repositories: [] }], references: [] };
+    expect(() => retainCompletionAccounting(root, accounting)).toThrow(PlanCapacityError);
+    const proposal = { formatVersion: 1 as const, id: "a".repeat(64), completedExecutionId: "old", baselineId: "base", candidateDigest: "candidate", added: [], readiness: "blocked" as const, problems: [text], prerequisites: [], repositories: [], preparation: [], settingsDigest: "settings" };
+    expect(() => retainContinuationProposal(root, proposal)).toThrow(PlanCapacityError);
+    expect(readdirSync(root)).toEqual([]);
+    for (const folder of ["completion-accounting", "continuation-proposals"]) { mkdirSync(join(root, folder)); writeFileSync(join(root, folder, `${proposal.id}.json`), text + "x"); }
+    expect(() => readCompletionAccounting(root, proposal.id)).toThrow(PlanCapacityError);
+    expect(() => readContinuationProposal(root, proposal.id)).toThrow(PlanCapacityError);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

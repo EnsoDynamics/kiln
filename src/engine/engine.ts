@@ -125,7 +125,7 @@ import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOu
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -2090,7 +2090,7 @@ export class Engine {
   private writeContinuationMetadata<T>(write: () => T): T {
     if (this.commands?.fault) throw new Error(this.commands.fault);
     try { return write(); }
-    catch (error) { this.commands.fault = "Continuation metadata could not be durably saved. Restart to reconcile before changing work."; throw error; }
+    catch (error) { if (error instanceof PlanCapacityError) throw error; this.commands.fault = "Continuation metadata could not be durably saved. Restart to reconcile before changing work."; throw error; }
   }
 
   private async acceptContinuation(inputs: Record<string, unknown>, receipt: Receipt): Promise<Extract<CommandResult, { ok: true }> | (Omit<Extract<CommandResult, { ok: false }>, "code"> & { code?: string })> {
@@ -2150,12 +2150,12 @@ export class Engine {
       const candidate = readBaseline(this.stateDirectory, acceptance.candidateId);
       const accounting = this.record.completedPlanCheck?.result?.leaves ?? [];
       const completions = { ...candidate.completions };
-      for (const row of accounting.filter(row => row.classification === "externally_verified")) completions[row.id] = { kind: "external", ...(row.completedAt ? { doneAt: row.completedAt } : {}), revision: row.repositories.find(repo => repo.repository === this.record.repository.name)!.revision, repositories: Object.fromEntries(row.repositories.map(repo => [repo.repository, { identity: repo.identity, revision: repo.revision! }])) };
+      for (const row of accounting.filter(row => row.classification === "externally_verified")) completions[row.id] = { kind: "external", scopeRepositories: phaseRepositories(source, row.id), ...(row.completedAt ? { doneAt: row.completedAt } : {}), revision: row.repositories.find(repo => repo.repository === this.record.repository.name)!.revision, repositories: Object.fromEntries(row.repositories.map(repo => [repo.repository, { identity: repo.identity, revision: repo.revision! }])) };
       // Preserve verified introduction across squash/rebase deliveries without inventing
       // a phase/provider receipt. The immutable baseline binds source and accepted base.
       for (const [id, completion] of Object.entries(completions)) {
         if (!acceptance.proposal.prerequisites.some(row => row.phaseId === id && row.status === "integrated_verified")) continue;
-        const names = [...new Set([this.record.repository.name, ...candidate.active.plan.phases.filter(phase => phase.id === id || isAncestorOf(phase.id, id)).flatMap(phase => phase.repositories)])];
+        const names = [...new Set([this.record.repository.name, ...(completion.scopeRepositories ?? phaseRepositories(candidate.active, id))])];
         completion.repositories = { ...completion.repositories };
         for (const name of names) {
           const repo = acceptance.proposal.repositories.find(repo => repo.name === name);
@@ -2226,7 +2226,8 @@ export class Engine {
     const attemptedAt = this.now().toISOString();
     this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
-    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey) }).then(check => {
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
       if (pendingAuthority?.state === "pending" && pendingAuthority.completedExecutionId === this.record.executionId && check.result?.proposal?.scopeDigest && pendingAuthority.scopeDigest !== check.result.proposal.scopeDigest) {
@@ -2793,6 +2794,8 @@ export class Engine {
   private async recheckPreparationAdmission(key: string, session: SessionRecord): Promise<void> {
     const state = this.record.preparation;
     if (!state || state.phaseId !== key || state.stage !== "implementation" || session.runs.length !== state.implementationRun) return;
+    const read = await this.readPlan();
+    if (!read.ok) throw new Error(read.problem);
     if (!state.verifiedCheckpoint || (await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint.id) throw new Error("Prepared source/configuration moved after verification; dependent implementation remains held.");
     if (this.record.pause.requestedAt || this.record.pause.activeSince) throw new Error("The pause control holds dependent implementation.");
   }
@@ -2803,6 +2806,8 @@ export class Engine {
     try {
       const run = session.runs.at(-1)!;
       if (!run?.endedAt || run.interruptedAt || run.spawnError) throw new Error("The preparation provider has not settled. Resume it before verification.");
+      const read = await this.readPlan();
+      if (!read.ok) throw new Error(read.problem);
       const stayed = await this.readWorkspaceEvidence(key);
       if (!stayed.passed || this.codexSafetyProblems(key).length) throw new Error([...stayed.check.facts, ...this.codexSafetyProblems(key)].join(" "));
       if (state.bindings.some(binding => !state.submissions.some(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.run === session.runs.length - 1))) throw new Error("Submit the pinned source references for every preparation binding, then return from the preparation turn.");
@@ -2818,12 +2823,19 @@ export class Engine {
         receipt.repositories ??= {};
         receipt.repositories[binding.repository] = { identity: binding.repositoryIdentity, revision: binding.sourceRevision };
       }
+      for (const id of [...new Set(state.bindings.flatMap(binding => binding.prerequisites))]) if (!body.completions[id]!.scopeRepositories) {
+        const binding = state.bindings.find(binding => binding.repository === this.paths.repositoryName && binding.prerequisites.includes(id));
+        if (!binding) throw new Error(`Restore the PRD source binding for prerequisite ${id} before recording completed scope.`);
+        const source = await observeGitPlan(this.git, this.worktreePath, this.paths.prdDirectoryFromRoot, binding.sourceRevision);
+        body.completions[id]!.scopeRepositories = phaseRepositories(source, id);
+      }
       const retained = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, body));
       this.record.planReconciliation!.baselineId = retained.id;
       state.stage = "implementation"; state.implementationRun = session.runs.length; delete state.reason;
       this.writeContinuationMetadata(() => this.save());
       const cwd = this.workingDirectoryOf(session);
-      const prompt = preparationImplementationPrompt({ phaseId: key, checkpoint: state.verifiedCheckpoint!.id, phasePrompt: phaseSessionPrompt(this.phasePromptValues(this.fileOf(key) ?? "", cwd)) });
+      const implementationId = this.judgedId(key);
+      const prompt = preparationImplementationPrompt({ phaseId: implementationId, checkpoint: state.verifiedCheckpoint!.id, phasePrompt: phaseSessionPrompt(this.phasePromptValues(this.fileOf(implementationId) ?? "", cwd)) });
       const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
       this.checking = false;
       await this.runProcess(key, session, args, prompt, "resume", cwd, undefined, () => {
@@ -4633,11 +4645,12 @@ export class Engine {
   }
 
   /** A completed-plan observation must not rewrite original provider scans or receipts. */
-  private async readRetainedCompletionProvenance(phaseKey: string): Promise<{ passed: boolean; facts: string[] }> {
+  private async readRetainedCompletionProvenance(phaseKey: string, signal: AbortSignal): Promise<{ passed: boolean; facts: string[] }> {
     const facts = this.record.phases[phaseKey];
     const outcomes: { passed: boolean; facts: string[] }[] = [];
     const worktrees = this.setUpRepositories.map(entry => expandHome(entry.worktreePath));
     for (const id of facts?.sessionIds ?? []) {
+      signal.throwIfAborted();
       const session = this.sessionRecord(phaseKey, id);
       if (!session) { outcomes.push({ passed: false, facts: [`Restore missing Kiln session ${id} and its provider history.`] }); continue; }
       if (session.agentId === "codex") {
@@ -4646,7 +4659,7 @@ export class Engine {
         const audit = conversation?.threadId && conversation.codexHome && this.options.tools.codex
           ? await auditCodexConversation({ threadId: conversation.threadId, codexHome: conversation.codexHome, worktrees,
             cwd: this.stateDirectory, executable: this.options.tools.codex, env: this.options.env,
-            signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]),
+            signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
             ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}) })
           : this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
         const outcome = codexStayedOutcome(id, audit, (facts?.codexConfirmations ?? []).flatMap(one => one.fingerprints[id] ? [one.fingerprints[id]!] : []));
@@ -4658,6 +4671,7 @@ export class Engine {
         outcomes.push(outcome.check);
       }
     }
+    signal.throwIfAborted();
     return { passed: outcomes.length > 0 && outcomes.every(one => one.passed), facts: outcomes.length ? outcomes.filter(one => !one.passed).flatMap(one => one.facts) : ["No dispatched provider evidence is available for the retained completion."] };
   }
 
@@ -4805,7 +4819,7 @@ export class Engine {
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
-      const previous = this.record.planReconciliation?.baselineId ? comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
+      const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision) }) : undefined;
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
       const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
         ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
@@ -4819,7 +4833,7 @@ export class Engine {
       }
       if (previous) {
         const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))]);
-        const problems = completedScopeProblems({ ...previous.active, plan: { ...previous.active.plan, phases: previous.active.plan.phases.map(p => ({ ...p, closed: p.closed && completed.has(p.id) })) } }, active);
+        const problems = completedScopeProblems({ ...previous.active, plan: { ...previous.active.plan, phases: previous.active.plan.phases.map(p => ({ ...p, closed: p.closed && completed.has(p.id) })) } }, active, previous.completions);
         if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
       }
       for (const source of sources) {
@@ -4832,13 +4846,14 @@ export class Engine {
         if (owner) {
           if (owner[1].doneAt) {
             const revision = owner[1].repositories[this.paths.repositoryName]?.pushedSha;
-            if (!previous) {
-              const historicalFile = this.record.plan?.find(p => p.id === phase.id)?.file;
-              if (!revision || !historicalFile) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
+            let scopeRepositories = completions[phase.id]?.scopeRepositories;
+            if (!scopeRepositories) {
+              if (!revision) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
               const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision);
-              if (!original.plan.phases.find(p => p.id === phase.id)?.closed || original.scopes[phase.id] !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+              if (!original.plan.phases.find(p => p.id === phase.id)?.closed || !completedPhaseScopeUnchanged(original, active, phase.id)) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+              scopeRepositories = phaseRepositories(original, phase.id);
             }
-            completions[phase.id] = { kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+            completions[phase.id] = { scopeRepositories, kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
           }
           continue;
         }
@@ -4863,7 +4878,7 @@ export class Engine {
           const prd = entries.find(entry => entry.kind === "prd");
           const blob = prd?.baseCommit ? await runGit(git, this.worktreePath, ["show", `${prd.baseCommit}:${file}`]) : undefined;
           if (entries.length && proofs.every(Boolean) && blob?.exitCode === 0 && blob.stdout === active.documents[file]) {
-            completions[phase.id] = { kind: "external", revision: prd!.baseCommit!, repositories: Object.fromEntries(entries.map(entry => [entry.name, { identity: entry.github, revision: entry.baseCommit! }])) }; continue;
+            completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: prd!.baseCommit!, repositories: Object.fromEntries(entries.map(entry => [entry.name, { identity: entry.github, revision: entry.baseCommit! }])) }; continue;
           }
         }
         const outcome = await runDoneCheck({ git, prdWorktreePath: this.worktreePath, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
@@ -4875,7 +4890,7 @@ export class Engine {
           const delivery = phaseDeliveryCheck(this.deliveryContext(phase.id), phase.id);
           if (!delivery.passed) throw new Error(`Externally closed Phase ${phase.id}: ${delivery.facts.join(" ")}`);
         }
-        completions[phase.id] = { kind: "external", revision: outcome.pushedShas![this.paths.repositoryName]!, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: outcome.pushedShas![entry.name]! }])) };
+        completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: outcome.pushedShas![this.paths.repositoryName]!, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: outcome.pushedShas![entry.name]! }])) };
       }
       signal.throwIfAborted();
       // Remote/provenance checks can take time. Recheck all candidate membership and bytes.
@@ -4885,12 +4900,13 @@ export class Engine {
       baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
       if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
     } catch (error) {
+      if (error instanceof PlanBaselineWriteFailure) { this.commands.fault = error.message; throw error; }
       const problem = (error as Error).message;
       this.record.planReconciliation = { ...this.record.planReconciliation, check: { status: "failed", attemptedAt, problem } };
       this.save();
       return { ok: false, problem, unavailable: true };
     }
-    const retained = retainBaseline(this.stateDirectory, baseline);
+    const retained = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, baseline));
     const earlier = this.record.planReconciliation;
     this.record.planReconciliation = { baselineId: retained.id, check: { status: "accepted", attemptedAt },
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };

@@ -2,10 +2,11 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { observePlan, retainBaseline, readBaseline, comparisonBaseline } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, completedScopeProblems, observePlan, retainBaseline, readBaseline, comparisonBaseline } from "./plan-reconciliation.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
 import { recordedPlan } from "./plan-reading.js";
 import { writePrdRecord } from "../state/records.js";
 
@@ -61,7 +62,7 @@ it.each(["formatVersion", "normalizerVersion"])("refuses correctly hashed unknow
   const file = join(h.stateDirectory, "plans", `${id}.json`);
   const bytes = JSON.stringify({ ...unknown, id });
   writeFileSync(file, bytes);
-  expect(() => comparisonBaseline(h.stateDirectory, id)).toThrow("requires a newer Kiln");
+  await expect(comparisonBaseline(h.stateDirectory, id)).rejects.toThrow("requires a newer Kiln");
   h.engine.record.planReconciliation!.baselineId = id;
   const check = await h.engine.checkCompletedPlan();
   expect(check).toMatchObject({ status: "failed", errors: [expect.stringContaining("requires a newer Kiln")] });
@@ -83,11 +84,11 @@ it.each([true, false])("keeps continuation ready after a linked rename with reta
   const check = await h.engine.checkCompletedPlan();
   expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { added: [{ id: "9" }], earlierWorkChanges: [], proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
   expect(check.result?.leaves?.filter(p => p.classification === "carried_completed").map(p => p.id)).toEqual(["1", "2"]);
-  expect(readBaseline(h.stateDirectory, check.result!.baselineId).normalizerVersion).toBe(2);
+  expect(readBaseline(h.stateDirectory, check.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
   if (baselineFile) {
     expect(readFileSync(baselineFile, "utf8")).toBe(originalBytes);
     expect(check.result!.baselineId).not.toBe(baselineId);
-    const migrated = comparisonBaseline(h.stateDirectory, baselineId!);
+    const migrated = await comparisonBaseline(h.stateDirectory, baselineId!, { repositoryName: "acme-shop", read: revision => observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, directory, revision) });
     expect(migrated.id).toBe(check.result!.baselineId);
     expect(migrated.sources[0]!.scopes).toEqual(migrated.active.scopes);
     expect(readBaseline(h.stateDirectory, baselineId!).normalizerVersion).toBe(1);
@@ -152,6 +153,117 @@ it.each([true, false])("accepts a linked rename on active restart with retained 
   expect(again.record.planReconciliation?.check, JSON.stringify(again.record.planReconciliation)).toMatchObject({ status: "accepted" });
   expect(again.record.plan?.find(p => p.id === "2")?.file).toBe("phase-2-new.md");
   expect(again.record.phases["1"]?.doneAt).toBe(doneAt);
-  expect(readBaseline(h.stateDirectory, again.record.planReconciliation!.baselineId!).normalizerVersion).toBe(2);
+  expect(readBaseline(h.stateDirectory, again.record.planReconciliation!.baselineId!).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
   expect(h.claudeCalls()).toHaveLength(2);
 });
+
+
+it.each([1, 2] as const)("compares governing links across saved/Git filenames after immutable v%s migration", async version => {
+  await completed(true);
+  const original = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+  const { id: _id, ...body } = original; void _id;
+  h.engine.record.planReconciliation!.baselineId = retainBaseline(h.stateDirectory, { ...body, normalizerVersion: version }).id;
+  // Both sources add the same work; only saved filenames and containing-document links differ.
+  write("comet-prd.md", prd + "\nRead [Catalog](../comet/%70hase-2-old.md#summary).\n");
+  write("comet-technical-design.md", "# Design\nLibrary catalog.\nRead [Catalog](x/../phase-2-old.md).\n");
+  write("comet-phase-plan.md", "# Plan\n[Catalog](./phase-2-old.md)\n");
+  write("phase-9-lending.md", phase("9", false) + "\n## Phase dependencies\n1, 2.\n"); publish();
+  renameCatalog();
+  for (const file of ["comet-prd.md", "comet-technical-design.md", "comet-phase-plan.md"]) write(file, readFileSync(join(h.repository, directory, file), "utf8").replaceAll("2-old.md", "2-new.md"));
+  const check = await h.engine.checkCompletedPlan();
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { source: { kind: "delivery_base" }, earlierWorkChanges: [], proposal: { readiness: "ready", added: [{ id: "9" }] } } });
+  expect(readBaseline(h.stateDirectory, check.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
+  expect(readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!).normalizerVersion).toBe(version);
+  write("comet-technical-design.md", "# Design\nSubstantively different behavior.\nRead [Catalog](phase-2-new.md).\n");
+  expect((await h.engine.checkCompletedPlan()).result?.problems.join(" ")).toContain("source_conflict");
+  expect(h.claudeCalls()).toEqual([]);
+});
+
+it("blocks inherited completed repository removal/replacement while allowing parent additions for remaining children", async () => {
+  await completed(true);
+  const parent = (repositories: string, remaining = true) => `# Phase 8: Lending\n\n**Repositories:** ${repositories}\n\n## Split into\n| Phase | Work |\n|---|---|\n| [8a](phase-8a-lending.md) | Lending |\n${remaining ? "| [8b](phase-8b-search.md) | Search |\n" : ""}`;
+  write("phase-8-parent.md", parent("comet-api", false));
+  write("phase-8a-lending.md", phase("8a")); publish();
+  const baseline = retainBaseline(h.stateDirectory, { formatVersion: 1, normalizerVersion: 2, prdDirectory: directory, active: observePlan(h.repository, directory), sources: [], completions: { "8a": { kind: "external", revision: git(h.sandbox, h.repository, "rev-parse", "HEAD").trim() } } });
+  h.engine.record.planReconciliation!.baselineId = baseline.id;
+  const { completedScopeProblems } = await import("./plan-reconciliation.js");
+  write("phase-8b-search.md", phase("8b", false));
+  for (const repositories of ["comet-web", "acme-shop"]) {
+    write("phase-8-parent.md", parent(repositories)); publish();
+    const check = await h.engine.checkCompletedPlan();
+    expect(check).toMatchObject({ status: "blocked", result: { earlierWorkChanges: [expect.stringContaining("Phase 8a")] } });
+    expect(check.result?.leaves?.find(row => row.id === "8a")?.classification).toBe("unresolved_earlier_work");
+    expect(check.result?.leaves?.filter(row => row.classification === "new_unfinished").map(row => row.id)).toEqual(["8b"]);
+  }
+  write("phase-8-parent.md", parent("comet-api, comet-web")); publish();
+  expect(completedScopeProblems(baseline.active, observePlan(h.repository, directory))).toEqual([]);
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.result?.earlierWorkChanges).toEqual([]);
+  expect(check.result?.leaves?.find(row => row.id === "8a")?.classification).toBe("carried_completed");
+  expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline.id);
+  expect(h.claudeCalls()).toEqual([]);
+});
+
+
+it("faults the owner after a lost migration publication acknowledgement, preserving original bytes/pointer", async () => {
+  await completed(true);
+  const id = h.engine.record.planReconciliation!.baselineId!;
+  const file = join(h.stateDirectory, "plans", `${id}.json`); const bytes = readFileSync(file, "utf8");
+  const durable = await import("../control/durable-file.js"); const write = durable.writeDurableMetadata;
+  let published = false;
+  const spy = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
+    write(path, value);
+    if (path.includes("/plans/") && path !== file) { published = true; throw new Error("Lost migration publication acknowledgement after rename"); }
+  });
+  try { await expect(h.engine.checkCompletedPlan()).rejects.toThrow("publication"); }
+  finally { spy.mockRestore(); }
+  expect(published).toBe(true); expect(h.engine.commands.fault).toBeTruthy();
+  expect(h.engine.record.planReconciliation!.baselineId).toBe(id); expect(readFileSync(file, "utf8")).toBe(bytes);
+  expect(h.engine.record.completedAt).toBe("2026-10-01T12:00:00Z"); expect(h.claudeCalls()).toEqual([]);
+  const again = h.reopenFromDisk(); await again.prepare();
+  expect(again.record.completedPlanCheck?.status).toBe("unchanged"); expect(again.commands.fault).toBeUndefined();
+});
+
+it.each([false, true])("retains original completed repository scope through parent edits and continuation, legacy after addition=%s", async legacyAfterAddition => {
+  await completed(true);
+  const { createGithubOrigin, createRepository } = await import("../test-support/git-repositories.js");
+  const revisions: Record<string, { identity: string; revision: string }> = {};
+  for (const name of ["comet-api", "comet-web"]) {
+    const origin = createGithubOrigin(h.sandbox, "fictional", name); const path = createRepository(h.sandbox, name, origin.url);
+    git(h.sandbox, path, "push", "-qu", "origin", "develop");
+    revisions[name] = { identity: `fictional/${name}`, revision: git(h.sandbox, path, "rev-parse", "HEAD").trim() };
+    h.engine.record.repositories.push({ name, kind: "named", github: `fictional/${name}`, mainCheckoutPath: path, baseBranch: "develop", worktreePath: path });
+  }
+  h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+  const original = await comparisonBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!, { repositoryName: "acme-shop", read: revision => observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, directory, revision) });
+  const parent = (extra = false) => `# Phase 8: Lending\n\n**Repositories:** comet-api${extra ? ", comet-web" : ""}\n\n## Split into\n| Phase | Work |\n|---|---|\n| [8a](phase-8a-lending.md) | Lending |\n${extra ? "| [8b](phase-8b-search.md) | Search |\n" : ""}`;
+  write("phase-8-parent.md", parent()); write("phase-8a-lending.md", phase("8a")); const earlier = publish();
+  let accepted = retainBaseline(h.stateDirectory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: directory, active: observePlan(h.repository, directory), sources: [], completions: { ...original.completions, "8a": { kind: "external", scopeRepositories: ["comet-api"], revision: earlier, repositories: { "acme-shop": { identity: "acme/acme-shop", revision: earlier }, "comet-api": revisions["comet-api"]! } } } });
+  expect(accepted.completions["8a"]!.scopeRepositories).toEqual(["comet-api"]);
+  write("phase-8-parent.md", parent(true)); write("phase-8b-search.md", phase("8b", false)); publish();
+  expect(completedScopeProblems(accepted.active, observePlan(h.repository, directory), accepted.completions)).toEqual([]);
+  const { id: _previousId, ...previousBody } = accepted; void _previousId;
+  accepted = retainBaseline(h.stateDirectory, { ...previousBody, active: observePlan(h.repository, directory) });
+  if (legacyAfterAddition) {
+    const { id: _currentId, ...legacyBody } = accepted; void _currentId;
+    const legacy = retainBaseline(h.stateDirectory, { ...legacyBody, normalizerVersion: 2, completions: Object.fromEntries(Object.entries(accepted.completions).map(([id, receipt]) => { const { scopeRepositories: _scope, ...old } = receipt; void _scope; return [id, old]; })) });
+    const bytes = readFileSync(join(h.stateDirectory, "plans", `${legacy.id}.json`), "utf8");
+    accepted = await comparisonBaseline(h.stateDirectory, legacy.id, { repositoryName: "acme-shop", read: revision => observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, directory, revision) });
+    expect(readFileSync(join(h.stateDirectory, "plans", `${legacy.id}.json`), "utf8")).toBe(bytes);
+  }
+  expect(accepted.completions["8a"]!.scopeRepositories).toEqual(["comet-api"]);
+  write("phase-8-parent.md", parent(true).replace(", comet-web", "")); publish();
+  expect(completedScopeProblems(accepted.active, observePlan(h.repository, directory), accepted.completions)).toEqual([]);
+  write("phase-8-parent.md", parent(true)); write("phase-8b-search.md", phase("8b")); const later = publish();
+  const { id: _id, ...body } = accepted; void _id;
+  accepted = retainBaseline(h.stateDirectory, { ...body, active: observePlan(h.repository, directory), completions: { ...accepted.completions, "8b": { kind: "external", scopeRepositories: ["comet-api", "comet-web"], revision: later, repositories: { ...revisions, "acme-shop": { identity: "acme/acme-shop", revision: later } } } } });
+  h.engine.record.planReconciliation!.baselineId = accepted.id;
+  write("phase-9-lending.md", phase("9", false) + "\n## Phase dependencies\n8.\n"); publish();
+  const check = await h.engine.checkCompletedPlan();
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { earlierWorkChanges: [], proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
+  expect(check.result?.leaves?.filter(row => row.classification === "carried_completed").map(row => row.id)).toEqual(["1", "2", "8a", "8b"]);
+  expect(await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, executionId: h.engine.record.executionId!, commandId: "accept-historical-repositories", statusToken: h.engine.controlView().token })).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.completedAt).toBeUndefined();
+  expect(readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!).completions["8a"]!.scopeRepositories).toEqual(["comet-api"]);
+}, 120_000);

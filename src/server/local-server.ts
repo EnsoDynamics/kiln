@@ -427,7 +427,11 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     let body: unknown;
     try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected an empty JSON object."); }
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return refuse(c, 400, "Expected an empty JSON object.");
-    try { const check = await engine.checkCompletedPlan(); return c.json({ check }, check.status === "failed" ? 503 : 200); }
+    try {
+      const check = await engine.checkCompletedPlan();
+      if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check }, 413);
+      return c.json({ check }, check.status === "failed" ? 503 : 200);
+    }
     catch (error) { return auditError(c, error); }
   });
 

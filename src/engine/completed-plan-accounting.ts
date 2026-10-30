@@ -13,7 +13,7 @@ import { requireOwnerDeliveryEvidence, validateDeliverySplits } from "./developm
 import { gitRead, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
 import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { judgedPhase } from "./plan-reading.js";
-import { PLAN_LIMIT, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { PLAN_LIMIT, PlanCapacityError, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { expandHome } from "./worktree-setup.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 
@@ -83,7 +83,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       row.problems.push(`Phase ${phase.id}: splitting earlier completed work is not a new addition.`); continue;
     }
     if (old) {
-      row.classification = old.closed && phase.closed && !old.splitInto && baseline.active.scopes[old.id] === candidate.scopes[phase.id] ? "carried_completed" : "unresolved_earlier_work";
+      row.classification = old.closed && phase.closed && !old.splitInto && completedPhaseScopeUnchanged(baseline.active, candidate, phase.id, baseline.completions[phase.id]?.scopeRepositories) ? "carried_completed" : "unresolved_earlier_work";
       if (row.classification === "unresolved_earlier_work") row.problems.push(`Phase ${phase.id}: Earlier work cannot be carried forward with this scope and closure.`);
       const completion = baseline.completions[phase.id];
       if (completion?.doneAt) row.completedAt = completion.doneAt;
@@ -184,7 +184,7 @@ function checkDevelopment(record: PrdRecord, candidate: PlanSource, phase: Plann
 
 export function retainCompletionAccounting(directory: string, body: Omit<CompletionAccounting, "id">): CompletionAccounting {
   const value: CompletionAccounting = { ...body, id: hash(body) };
-  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} completion evidence bytes.`);
+  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "completion evidence bytes");
   const path = join(directory, "completion-accounting", `${value.id}.json`);
   if (!existsSync(path)) writeDurableMetadata(path, value);
   return value;
@@ -192,7 +192,7 @@ export function retainCompletionAccounting(directory: string, body: Omit<Complet
 export function readCompletionAccounting(directory: string, id: string): CompletionAccounting {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid completion accounting identity.");
   const path = join(directory, "completion-accounting", `${id}.json`);
-  if (statSync(path).size > PLAN_LIMIT) throw new Error("Completion accounting exceeds the supported size.");
+  if (statSync(path).size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "completion evidence bytes");
   const value = JSON.parse(readFileSync(path, "utf8")) as CompletionAccounting; const { id: stored, ...body } = value;
   if (value.formatVersion !== 1 || stored !== id || hash(body) !== id) throw new Error("Completion accounting is damaged or requires a newer Kiln.");
   return value;

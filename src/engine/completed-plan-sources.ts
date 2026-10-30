@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import { posix } from "node:path";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { gitError, runGit, type GitContext } from "./git-reads.js";
-import { PHASE_LIMIT, PLAN_LIMIT, planSourceFromDocuments, type PlanSource } from "./plan-reconciliation.js";
+import { PHASE_LIMIT, PLAN_LIMIT, PlanCapacityError, planSourceFromDocuments, type PlanSource } from "./plan-reconciliation.js";
 const markdown = new MarkdownIt();
 export async function gitRead(git: GitContext, path: string, args: string[]): Promise<string> {
   const result = await runGit(git, path, args);
@@ -27,7 +27,8 @@ export async function observeGitPlan(git: GitContext, path: string, directory: s
   }
   const names = [...files.keys()].filter(file => posix.dirname(file) === directory).sort();
   const phases = names.filter(file => isPhaseFileName(posix.basename(file)));
-  if (!phases.length || phases.length > PHASE_LIMIT) throw new Error(phases.length ? `plan_too_large: maximum ${PHASE_LIMIT} phase records.` : `No phase documents at ${revision}:${directory}.`);
+  if (!phases.length) throw new Error(`No phase documents at ${revision}:${directory}.`);
+  if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
   const prds = names.filter(file => file.endsWith("-prd.md"));
   if (prds.length !== 1) throw new Error(`Expected one governing PRD at ${revision}:${directory}.`);
   const pending = new Set([...phases, ...prds, ...names.filter(file => /technical-design|assumptions|phase-plan/.test(posix.basename(file)) && file.endsWith(".md"))]);
@@ -42,14 +43,15 @@ export async function observeGitPlan(git: GitContext, path: string, directory: s
     const info = files.get(file);
     if (!info || !["100644", "100755"].includes(info.mode)) throw new Error(`Missing or unsafe document at ${revision}:${file}. Restore the required document and check again.`);
     size += info.size;
-    if (size > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} document bytes.`);
+    if (size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "document bytes");
     const content = documents[file] = await gitRead(git, path, ["show", `${revision}:${file}`]);
     for (const block of markdown.parse(content, {})) for (const token of block.children ?? []) {
       if (token.type !== "link_open") continue;
       if (token.attrGet("title") === "kiln:reference" && !/(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(block.content)) continue;
       const href = token.attrGet("href")?.toString().split(/[?#]/)[0];
-      if (!href || /^[a-z]+:/i.test(href) || !href.endsWith(".md")) continue;
+      if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
       const decoded = decodeURIComponent(href);
+      if (!decoded.endsWith(".md")) continue;
       if (posix.isAbsolute(decoded) || decoded.includes("\\")) throw new Error(`Document path escapes repository: ${href}`);
       add(posix.normalize(posix.join(posix.dirname(file), decoded)));
     }

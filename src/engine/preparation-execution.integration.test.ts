@@ -355,3 +355,65 @@ nativeIt("reuses an allocated zero-run preparation session after a fresh billing
   expect(await h.engine.checkAgain()).toMatchObject({ ok: true }); await waitFor(() => !!h.engine.latestSession("9")?.runs[0]?.pid && h.claudeCalls().length === 1).catch(error => { throw new Error(JSON.stringify({ error: error.message, billing: h.engine.record.billing, phase: h.engine.record.phases["9"], commands: h.engine.commands.all() })); }); await f.submit();
   expect(h.engine.latestSession("9")!.sessionId).toBe(id); expect(h.engine.latestSession("9")!.runs).toHaveLength(2); expect(h.engine.record.preparation!.stage).toBe("implementation");
 }, 120_000);
+
+nativeIt.each([false, true])("reconciles append/split during preparation return before dependent implementation, split=%s", async split => {
+  const f = await fixture(); await f.accept();
+  const active = h.engine.worktreePath;
+  if (split) {
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9-catalog.md"), "# Phase 9: Split catalog\n\n## Split into\n| Phase | Work |\n|---|---|\n| [9a](phase-9a-catalog.md) | First implementation |\n| [9b](phase-9b-catalog.md) | Next implementation |\n");
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9a-catalog.md"), cometPhase("9a") + "\n## Phase dependencies\n8.\n");
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9b-catalog.md"), cometPhase("9b") + "\n## Phase dependencies\n9a.\n");
+  } else writeFileSync(join(active, COMET_DIRECTORY, "phase-16-catalog.md"), cometPhase(16));
+  git(h.sandbox, active, "add", COMET_DIRECTORY); git(h.sandbox, active, "commit", "-qm", "test: revise plan in preparation"); git(h.sandbox, active, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+  await f.submit();
+  expect(h.engine.record.planReconciliation?.handback).toMatchObject({ addedPhaseIds: split ? ["9a", "9b"] : ["16"], remainingCount: 7 });
+  expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded"]);
+  expect(h.engine.latestSession("9")!.runs).toHaveLength(2);
+  expect(h.claudeCalls()[1]!.prompt).toContain(split ? "phase-9a-catalog.md" : "phase-9-catalog.md");
+  expect(h.engine.record.phases["9"]?.doneAt).toBeDefined();
+  expect(h.engine.judgedId("9")).toBe(split ? "9a" : "9");
+}, 120_000);
+
+nativeIt("holds preparation return on a changed known source and accepts the reconciled plan after recovery", async () => {
+  const f = await fixture(); await f.accept();
+  f.write("phase-16-catalog.md", cometPhase(16));
+  await f.submit();
+  expect(h.engine.record.preparation?.reason).toContain("Plan discrepancy");
+  expect(h.engine.record.preparation?.reason).toContain("Reconcile those documents into the active workspace");
+  expect(h.engine.record.preparation?.attempts).toEqual([]); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+  const active = h.engine.worktreePath;
+  writeFileSync(join(active, COMET_DIRECTORY, "phase-16-catalog.md"), cometPhase(16));
+  git(h.sandbox, active, "add", COMET_DIRECTORY); git(h.sandbox, active, "commit", "-qm", "test: reconcile known source"); git(h.sandbox, active, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+  const releaseAgain = join(h.sandbox.root, "release-recovered-preparation");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: releaseAgain }, { result: "Reconciled preparation returned." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase needs work." }, { exit: 0 }] }] }));
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
+  await waitFor(() => h.engine.latestSession("9")!.runs.length === 2 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
+  const state = h.engine.record.preparation!;
+  for (const binding of state.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
+  writeFileSync(releaseAgain, "release"); await h.engine.settled();
+  expect(h.engine.record.preparation?.stage).toBe("implementation"); expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded"]);
+  expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
+  expect(h.engine.record.planReconciliation?.handback?.addedPhaseIds).toEqual(["16"]);
+}, 120_000);
+
+nativeIt("rechecks known sources after verification at the final preparation admission hook", async () => {
+  const f = await fixture(); await f.accept();
+  const native = await import("./preparation-verifier.js");
+  const verify = native.verifyPreparation;
+  const spy = vi.spyOn(native, "verifyPreparation").mockImplementation(async context => {
+    const checkpoint = await verify(context);
+    // Deterministic external editor scheduling; native verification itself is real.
+    f.write("phase-16-catalog.md", cometPhase(16));
+    return checkpoint;
+  });
+  try {
+    await f.submit();
+    expect(h.engine.record.preparation?.verifiedCheckpoint).toBeDefined();
+    expect(h.engine.record.planReconciliation?.check?.status).toBe("failed");
+    expect(h.engine.record.planReconciliation?.check?.problem).toContain("Plan discrepancy");
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+    expect(h.claudeCalls()).toHaveLength(1);
+  } finally { spy.mockRestore(); }
+}, 120_000);

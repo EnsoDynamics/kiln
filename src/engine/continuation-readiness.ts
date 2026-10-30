@@ -12,7 +12,7 @@ import type { PrdRecord } from "../state/records.js";
 import type { CompletionAccounting } from "./completed-plan-accounting.js";
 import { gitRead, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
 import { runGit, originBranches, type GitContext } from "./git-reads.js";
-import { PLAN_LIMIT, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { PLAN_LIMIT, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { extractPreparation, type PreparationInstruction } from "./preparation-documents.js";
 const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 import { readPendingAuthority, pendingForProposal } from "./continuation-authority.js";
@@ -50,7 +50,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       const found = await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
       if (!found.ok) { problems.push(found.problem); continue; }
       const origin = await originBranches(git, found.repository.mainCheckoutPath);
-      if (!origin.ok) { problems.push(`Could not read ${name}'s delivery bases: ${origin.error}`); continue; }
+      if (!origin.ok) throw new Error(`source_unavailable: Could not read ${name}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
       const baseBranch = record.settings.bases[name] ?? defaultBaseBranch(origin.value);
       if (!baseBranch) { problems.push(`Establish a configured delivery base for ${name}, then check again.`); continue; }
       repo = { ...found.repository, baseBranch };
@@ -76,7 +76,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const sourcePlan = await observeGitPlan(git, repository.path, record.prdDirectory, binding.sourceRevision);
     for (const prerequisite of instruction.prerequisites) {
       const original = sourcePlan.plan.phases.find(phase => phase.id === prerequisite);
-      if (!original?.closed || sourcePlan.scopes[prerequisite] !== candidate.scopes[prerequisite]) problems.push(`Phase ${instruction.phaseId}: source ${binding.sourceRevision} does not contain the unchanged Closed scope for prerequisite ${prerequisite}. Restore the matching source before preparation.`);
+      if (!original?.closed || !completedPhaseScopeUnchanged(sourcePlan, candidate, prerequisite)) problems.push(`Phase ${instruction.phaseId}: source ${binding.sourceRevision} does not contain the unchanged Closed scope for prerequisite ${prerequisite}. Restore the matching source before preparation.`);
     }
     }
     if (instruction.destination !== "assigned_feature") {
@@ -110,7 +110,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const integrationProblems: string[] = [];
     if (row.classification === "carried_completed" && added.length) {
       const receipt = baseline.completions[row.id];
-      const affected = [...new Set([record.repository.name, ...baseline.active.plan.phases.filter(phase => phase.id === row.id || isAncestorOf(phase.id, row.id)).flatMap(phase => phase.repositories)])];
+      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id))])];
       for (const name of affected) {
         const repo = repositories.find(repo => repo.name === name);
         const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
@@ -140,7 +140,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
     }
     const bindings = preparation.filter(binding => binding.prerequisites.includes(row.id));
-    const requiredNames = [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === row.id || isAncestorOf(phase.id, row.id)).flatMap(phase => phase.repositories)])];
+    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
     // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
     const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && dependencyIds(first.dependenciesText).includes(row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
     if (eligible && !extracted.problems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });
@@ -176,14 +176,14 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
 }
 
 export function retainContinuationProposal(directory: string, proposal: ContinuationProposal): void {
-  if (Buffer.byteLength(JSON.stringify(proposal, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} proposal bytes.`);
+  if (Buffer.byteLength(JSON.stringify(proposal, null, 2)) + 1 > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "proposal bytes");
   const path = join(directory, "continuation-proposals", `${proposal.id}.json`);
   if (!existsSync(path)) writeDurableMetadata(path, proposal);
 }
 export function readContinuationProposal(directory: string, id: string): ContinuationProposal {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid continuation proposal identity.");
   const path = join(directory, "continuation-proposals", `${id}.json`);
-  if (statSync(path).size > PLAN_LIMIT) throw new Error("Continuation proposal exceeds its read limit.");
+  if (statSync(path).size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "proposal bytes");
   const value = JSON.parse(readFileSync(path, "utf8")) as ContinuationProposal; const { id: stored, ...body } = value;
   if (value.formatVersion !== 1 || stored !== id || authorityDigest(body) !== id) throw new Error("Continuation proposal is damaged or requires a newer Kiln.");
   return value;

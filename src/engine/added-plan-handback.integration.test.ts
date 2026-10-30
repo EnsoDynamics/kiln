@@ -1,6 +1,6 @@
 import { rmSync, existsSync, writeFileSync, readFileSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
@@ -229,3 +229,39 @@ it.each([false, true])("refuses externally Closed work with an unchecked reposit
   expect(h.engine.record.phases["1"]).toEqual(stopped);
   expect(h.claudeCalls()).toHaveLength(1);
 });
+
+
+it("freezes the just-completed child's checked repository scope before a later parent addition", async () => {
+  const child = (id: string) => `# Phase ${id}: Catalog ${id}\n\n## Acceptance criteria covered\nAC-RET-01\n`;
+  const parent = "# Phase 1: Catalog\n\n**Repositories:** comet-api\n\n## Split into\n| Phase | Work |\n|---|---|\n| [1a](phase-1a-catalog.md) | First |\n| [1b](phase-1b-catalog.md) | Next |\n";
+  h = await createHarness({ sessions: [{ actions: landingSession().actions.map(action => action.write || action.commit || action.push ? { ...action, repository: "acme-shop" } : action) }, asking], files: {
+    "customer-returns-prd.md": "# PRD: Comet\n\n## Acceptance Criteria\n- [ ] **AC-RET-01** Catalog.\n", "technical-design.md": "# Design\nCatalog.\n",
+    "phase-1-catalog.md": parent, "phase-1a-catalog.md": child("1a"), "phase-1b-catalog.md": child("1b"),
+  } });
+  const { createGithubOrigin, createRepository } = await import("../test-support/git-repositories.js");
+  for (const name of ["comet-api", "comet-web"]) {
+    const origin = createGithubOrigin(h.sandbox, "fictional", name); const repository = createRepository(h.sandbox, name, origin.url);
+    git(h.sandbox, repository, "push", "-qu", "origin", "develop");
+  }
+  h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+  const durable = await import("../control/durable-file.js"); const write = durable.writeDurableMetadata; let changed = false;
+  const spy = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
+    write(path, value);
+    if (!changed && path.endsWith("/prd.json") && (value as { phases?: Record<string, { doneAt?: string }> }).phases?.["1a"]?.doneAt) {
+      changed = true;
+      // This edit lands after the successful completion's durable receipt, before
+      // the next readPlan. It must apply to 1b without changing 1a's earlier scope.
+      writeFileSync(join(h.engine.worktreePath, directory, "phase-1-catalog.md"), parent.replace("comet-api", "comet-api, comet-web"));
+      git(h.sandbox, h.engine.worktreePath, "add", `${directory}/phase-1-catalog.md`);
+      git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test: add repository after checked completion");
+      git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+    }
+  });
+  try { await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); }
+  finally { spy.mockRestore(); }
+  expect(changed, JSON.stringify(h.engine.record.phases)).toBe(true); expect(h.engine.record.phases["1a"]?.doneAt).toBeDefined();
+  const baseline = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+  expect(baseline.completions["1a"]!.scopeRepositories).toEqual(["comet-api"]);
+  expect(h.engine.record.repositories.find(repo => repo.name === "comet-web")?.setupCompletedAt).toBeDefined();
+  expect(h.engine.record.phases["1b"]?.stop).toBeDefined(); expect(h.claudeCalls()).toHaveLength(2);
+}, 120_000);

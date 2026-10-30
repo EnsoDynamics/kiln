@@ -7,14 +7,22 @@ import { requirementManifest } from "../audit/snapshots.js";
 import type { RequirementManifest } from "../audit/contracts.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { markdownLines } from "../plan/markdown-sections.js";
-import { isPhaseFileName } from "../plan/phase-ids.js";
+import { isAncestorOf, isPhaseFileName } from "../plan/phase-ids.js";
 import { readPhaseDocument } from "../plan/phase-document.js";
 import { dependencyIds, leavesOf, readPhasePlan, planStartProblems, type PhasePlan } from "../plan/phase-plan.js";
 import type { RecordedPlanPhase } from "../state/records.js";
 
 export const PLAN_LIMIT = 8 * 1024 * 1024;
 export const PHASE_LIMIT = 10_000;
-export const PLAN_NORMALIZER_VERSION = 2;
+export const PLAN_NORMALIZER_VERSION = 3;
+export class PlanBaselineWriteFailure extends Error {}
+/** A capacity refusal happens before publication; it is not a durability fault. */
+export class PlanCapacityError extends Error {
+  readonly code = "plan_too_large";
+  constructor(readonly limit: number, readonly resource: string) {
+    super(`plan_too_large: maximum ${limit} ${resource}. Use a compatible Kiln with sufficient capacity, then check again.`);
+  }
+}
 const markdown = new MarkdownIt();
 const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export interface PlanSource {
@@ -28,13 +36,13 @@ export interface PlanSource {
 }
 export interface PlanBaseline {
   formatVersion: 1;
-  normalizerVersion: 1 | 2;
+  normalizerVersion: 1 | 2 | 3;
   id: string;
   prdDirectory: string;
   active: PlanSource;
   sources: PlanSource[];
   /** References, not synthetic passing provider receipts. */
-  completions: Record<string, { kind: "kiln" | "external"; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string; integration?: { sourceRevision: string; baseRevision: string } }> }>;
+  completions: Record<string, { kind: "kiln" | "external"; scopeRepositories?: string[]; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string; integration?: { sourceRevision: string; baseRevision: string } }> }>;
 }
 export interface HandbackNotice { source: string; addedPhaseIds: string[]; remainingCount: number; acceptedAt: string }
 export interface PlanReconciliationState {
@@ -107,7 +115,7 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
     const names = readdirSync(resolve(root, prdDirectory)).sort();
     const phases = names.filter(isPhaseFileName);
     if (!phases.length) throw new Error(`No phase documents in ${path}/${prdDirectory}`);
-    if (phases.length > PHASE_LIMIT) throw new Error(`plan_too_large: maximum ${PHASE_LIMIT} phase records.`);
+    if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
     const prds = names.filter(n => n.endsWith("-prd.md"));
     if (prds.length !== 1) throw new Error(`Expected one governing PRD in ${path}/${prdDirectory}`);
     const documents: Record<string, string> = {}; let size = 0;
@@ -115,7 +123,7 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
     if (![...pending].some(n => n.includes("technical-design"))) throw new Error(`Missing technical design in ${path}/${prdDirectory}`);
     const readDocument = (name: string) => {
       const target = safeFile(root, name); size += lstatSync(target).size;
-      if (size > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} document bytes.`);
+      if (size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "document bytes");
       return documents[name] = readFileSync(target, "utf8");
     };
     for (const fileName of phases) readDocument(`${prdDirectory}/${fileName}`);
@@ -128,8 +136,9 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
         const replacementPointer = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(block.content);
         if (token.attrGet("title") === "kiln:reference" && !replacementPointer) continue;
         const href = token.attrGet("href")?.toString().split(/[?#]/)[0];
-        if (!href || /^[a-z]+:/i.test(href) || !href.endsWith(".md")) continue;
+        if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
         const decoded = decodeURIComponent(href);
+        if (!decoded.endsWith(".md")) continue;
         if (isAbsolute(decoded) || decoded.includes("\\")) throw new Error(`Document path escapes repository: ${href}`);
         const linked = posix.normalize(posix.join(posix.dirname(name), decoded));
         if (!Object.hasOwn(documents, linked)) pending.add(linked);
@@ -148,6 +157,7 @@ export function observePlan(path: string, prdDirectory: string): PlanSource {
 /** Shared parser for a coherent saved checkout or one immutable Git tree. */
 export function planSourceFromDocuments(path: string, prdDirectory: string, documents: Record<string, string>): PlanSource {
   const phases = Object.keys(documents).filter(file => posix.dirname(file) === prdDirectory && isPhaseFileName(posix.basename(file))).map(file => posix.basename(file));
+  if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
   const plan = readPhasePlan(phases.map(fileName => ({ fileName, markdown: documents[`${prdDirectory}/${fileName}`]! })));
   const problems = [...plan.problems, ...(plan.problems.length ? [] : planStartProblems(plan, prdDirectory))];
   if (problems.length) throw new Error(problems.join(" "));
@@ -158,16 +168,25 @@ export function planSourceFromDocuments(path: string, prdDirectory: string, docu
     return [phase.id, phaseScopeDigest(documents[file]!, phase.fileName, links, file)];
   }));
   // File names may change without changing phase identity; requirements are compared separately.
-  const requirements = digest(Object.entries(documents).filter(([file]) => !phasePaths.has(file)).map(([file, bytes]) => [file, normalizedScope(bytes)]));
+  const requirements = digest(Object.entries(documents).filter(([file]) => !phasePaths.has(file)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([file, bytes]) => [file, normalizedScope(bytes, links, file)]));
   const prdPath = Object.keys(documents).find(file => file.startsWith(`${prdDirectory}/`) && file.endsWith("-prd.md"))!;
   const manifest = requirementManifest(path, prdPath, digest(documents[prdPath]), documents[prdPath]!);
   return { path, digest: digest(documents), documents: documents, plan, scopes, requirements, manifest };
 }
 
-export function completedScopeProblems(previous: PlanSource, current: PlanSource): string[] {
+/** Parent additions cover remaining children; removals cannot erase a completed child's scope. */
+export function phaseRepositories(source: PlanSource, id: string): string[] {
+  return [...new Set(source.plan.phases.filter(phase => phase.id === id || isAncestorOf(phase.id, id)).flatMap(phase => phase.repositories))].sort();
+}
+export function completedPhaseScopeUnchanged(previous: PlanSource, current: PlanSource, id: string, scopeRepositories = phaseRepositories(previous, id)): boolean {
+  const currentRepositories = new Set(phaseRepositories(current, id));
+  return previous.scopes[id] === current.scopes[id] && scopeRepositories.every(name => currentRepositories.has(name));
+}
+
+export function completedScopeProblems(previous: PlanSource, current: PlanSource, completions: PlanBaseline["completions"] = {}): string[] {
   return leavesOf(previous.plan).filter(p => p.closed).flatMap(old => {
     const found = current.plan.phases.find(p => p.id === old.id);
-    return !found || !found.closed || found.splitInto || previous.scopes[old.id] !== current.scopes[old.id]
+    return !found || !found.closed || found.splitInto || !completedPhaseScopeUnchanged(previous, current, old.id, completions[old.id]?.scopeRepositories)
       ? [`Phase ${old.id}: previously completed scope was removed, reopened, split or materially changed.`] : [];
   });
 }
@@ -187,29 +206,45 @@ export function sourceDiscrepancies(active: PlanSource, source: PlanSource, prev
 }
 
 export function retainBaseline(directory: string, baseline: Omit<PlanBaseline, "id">): PlanBaseline {
+  if (baseline.normalizerVersion === PLAN_NORMALIZER_VERSION && Object.values(baseline.completions).some(receipt => !Array.isArray(receipt.scopeRepositories))) throw new Error("baseline_unavailable: Restore the immutable completed repository scope before retaining this plan.");
   const value: PlanBaseline = { ...baseline, id: digest(baseline) };
-  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
+  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "retained baseline bytes");
   const path = join(directory, "plans", `${value.id}.json`);
-  if (!existsSync(path)) writeDurableMetadata(path, value);
+  if (!existsSync(path)) {
+    try { writeDurableMetadata(path, value); }
+    catch (error) { throw new PlanBaselineWriteFailure(`Plan evidence publication needs restart: ${(error as Error).message}`, { cause: error }); }
+  }
   return value;
 }
 export function readBaseline(directory: string, id: string): PlanBaseline {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid retained plan identity.");
   const path = join(directory, "plans", `${id}.json`);
-  if (statSync(path).size > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
+  if (statSync(path).size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "retained baseline bytes");
   const value = JSON.parse(readFileSync(path, "utf8")) as PlanBaseline;
   const { id: stored, ...body } = value;
-  if (value.formatVersion !== 1 || ![1, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
+  if (value.formatVersion !== 1 || ![1, 2, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
   return value;
 }
 
 /** Recompute from immutable original bytes and publish a new comparison identity. */
-export function comparisonBaseline(directory: string, id: string): PlanBaseline {
+export async function comparisonBaseline(directory: string, id: string, history?: { repositoryName: string; read(revision: string): Promise<PlanSource> }): Promise<PlanBaseline> {
   const original = readBaseline(directory, id);
   if (original.normalizerVersion === PLAN_NORMALIZER_VERSION) return original;
   const { id: _id, ...body } = original; void _id;
   const reparse = (source: PlanSource) => planSourceFromDocuments(source.path, original.prdDirectory, source.documents);
-  return retainBaseline(directory, { ...body, normalizerVersion: PLAN_NORMALIZER_VERSION, active: reparse(original.active), sources: original.sources.map(reparse) });
+  const active = reparse(original.active);
+  const revisions = new Map<string, Promise<PlanSource>>();
+  const completions = { ...body.completions };
+  for (const [phaseId, receipt] of Object.entries(completions)) {
+    if (receipt.scopeRepositories) continue;
+    const revision = history && (receipt.repositories?.[history.repositoryName]?.revision ?? receipt.revision);
+    if (!history || !revision) throw new Error(`baseline_unavailable: Phase ${phaseId} needs its original completion revision to recover historical repository scope. Restore that receipt/revision, then check again.`);
+    if (!revisions.has(revision)) revisions.set(revision, history.read(revision));
+    const source = await revisions.get(revision)!;
+    if (!source.plan.phases.some(phase => phase.id === phaseId && phase.closed && !phase.splitInto) || source.scopes[phaseId] !== active.scopes[phaseId]) throw new Error(`baseline_unavailable: Phase ${phaseId} does not match its immutable completion scope at ${revision}. Reconcile the historical receipt and plan, then check again.`);
+    completions[phaseId] = { ...receipt, scopeRepositories: phaseRepositories(source, phaseId) };
+  }
+  return retainBaseline(directory, { ...body, completions, normalizerVersion: PLAN_NORMALIZER_VERSION, active, sources: original.sources.map(reparse) });
 }
 
 /** Used only for presentation/comparison, never to infer historical completion evidence. */

@@ -22,5 +22,9 @@ The [fresh whole-PRD delivery audit](kiln-continue-added-phases-delivery-audit.m
 
 Prove the whole affected criteria for ordinary Claude and Codex preparation, takeover/restart and same-conversation admission, including tracked surviving descendants, unavailable/ambiguous inventory and safe retry. Prove changed source/base/settings observations followed by incomplete discovery, restoration of old bytes, restart and replay cannot revive a superseded grant; unchanged-scope failures remain held without fabricated change. Follow the design's applicable actual-provider/Git/browser standards using fictional disposable resources. Required gates remain `npm run verify` and `npm run test:package`; freeze sources/build output during integration.
 
+## Inherited from Phase 5
+
+Read [bounded plan reconciliation validation](kiln-bounded-plan-reconciliation-validation.md) for the completed predecessor's code/proof and delivery state. Reuse its common discovery deadline, typed capacity failures and immutable normalizer-3 completion scopes recovered from original receipts; current active-plan reconciliation now gates preparation return and final admission. Preserve those boundaries while completing this leaf's process-release and irreversible-authority requirements.
+
 ## Successor
 After this leaf closes and authorized development-base delivery completes, launch a fresh whole-PRD delivery audit. Once delivery is clean, launch whole-PRD test audit and continue any required completion/re-audit chain. One implementation leaf per chat.
