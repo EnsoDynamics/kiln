@@ -624,7 +624,7 @@ OutputLine: { line, at, source: claude | tool | out | skill | reviewer | subagen
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Claude Inspection Contract (Claude billing safeguards and additive private billing state only).
 
-Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances and metadata refresh).
+Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances, metadata refresh and optional Claude five-hour readings).
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
 

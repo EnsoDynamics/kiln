@@ -5,6 +5,7 @@
   // on Running, or with `claude auth login` before the next phase on Paused.
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { ago, resetsIn } from "../lib/time.js";
+  import { fiveHourNotReported, FIVE_HOUR_NOT_REPORTED } from "../lib/claude-usage.js";
   import CodeText from "./CodeText.svelte";
 
   let { account, agent = account.agentId === "codex" ? "Codex" : "Claude Code", paused, notStarted = false, pullRequest = false, now }: { account: NonNullable<Snapshot["account"]>; agent?: string; paused: boolean; notStarted?: boolean; pullRequest?: boolean; now: number } = $props();
@@ -23,7 +24,7 @@
       <span class="sub">{account.plan ? `${account.plan} · ${updated}` : `Plan unavailable · ${updated}`}</span>
     {/if}
   </div>
-  {#if account.limits.length > 0 || account.limitsError}
+  {#if account.limits.length > 0 || account.limitsError || fiveHourNotReported(account)}
     <div class="limits">
       {#if account.limitsError}
         <span class="message">{account.limitsError}</span>
@@ -36,6 +37,7 @@
             {#if limit.nearLimit}<span class="message">{nearNote}</span>{/if}
           </div>
         {/each}
+      {#if fiveHourNotReported(account)}<span class="sub">{FIVE_HOUR_NOT_REPORTED}</span>{/if}
     </div>
   {/if}
   {#if account.stale}<p class="message">Stale reading · last successful update {new Date(account.lastSuccessfulAt ?? account.updatedAt).toLocaleString()}</p>{/if}

@@ -43,6 +43,37 @@ function limitStop(change: Partial<NonNullable<Snapshot["needsYou"]>>, limit: Pa
   return snapshot;
 }
 
+describe("Claude without a reported five-hour meter (AC-USAGE-03)", () => {
+  it.each([documentsFoundSnapshot, runningSnapshot, pausedSnapshot])("shows N/A alongside the real weekly percentage", (makeSnapshot) => {
+    const snapshot = makeSnapshot();
+    snapshot.account!.limits = snapshot.account!.limits.filter(row => row.kind !== "session");
+    snapshot.account!.limitsObservedAt = snapshot.account!.updatedAt;
+    const component = snapshot.documents ? DocumentsFound : snapshot.current ? Running : Paused;
+    const words = text(render(component, { props: { snapshot, now: USAGE_LIMIT_NOW, connected: true, lastSeenAt: USAGE_LIMIT_NOW } }).body);
+    expect(words).toContain("5-hour: N/A (not reported)");
+    expect(words).toMatch(/weekly|Weekly/);
+    expect(words).not.toContain("5-hour window 0%");
+  });
+
+  it.each([waitingSnapshot, needsYouUsageLimitSnapshot])("shows N/A in a current usage-limit account card", (makeSnapshot) => {
+    const snapshot = makeSnapshot();
+    const limit = snapshot.waiting?.limit ?? snapshot.needsYou!.limit!;
+    limit.allowances = [{ kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 100, nearLimit: true }];
+    limit.allowancesObservation = { observedAt: "2026-10-17T18:28:00Z", state: "current", reason: null };
+    const words = text(snapshot.waiting ? waitingPage(snapshot) : needsYouPage(snapshot));
+    expect(words).toContain("5-hour: N/A (not reported)");
+    expect(words).toContain("Weekly: 100% used");
+  });
+
+  it("keeps unknown, stale and Codex readings distinct from a missing Claude meter", () => {
+    for (const change of [{ limitsError: "Usage unavailable" }, { limitsObservedAt: undefined }, { stale: true }, { limitsStale: true }, { agentId: "codex" as const }]) {
+      const snapshot = runningSnapshot();
+      snapshot.account = { ...snapshot.account!, limits: [], ...change };
+      expect(text(render(Running, { props: { snapshot, now: USAGE_LIMIT_NOW, connected: true, lastSeenAt: USAGE_LIMIT_NOW } }).body)).not.toContain("5-hour: N/A");
+    }
+  });
+});
+
 describe("the waiting screen's limit and reset (AC-LIMIT-01, AC-LIMIT-04)", () => {
   it("says which limit it waits for, counts down to the reset, and names the account and its percent", () => {
     const page = waitingPage(waitingSnapshot());

@@ -109,6 +109,22 @@ function finishByHand(h: Harness): void {
 }
 
 describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
+  it("waits for a weekly reset and resumes the same session without a five-hour meter", async () => {
+    const s = await setup(reset => [refusedSession({ rateLimitType: "seven_day", resetsAt: reset }), landingSession("src/intake.txt")]);
+    await startToWait(s);
+    s.claude.deliver(signedIn([usageRow("weekly_all", 100, resetIso(s.reset))]));
+    expect(buildSnapshot(s.h.engine).waiting!.limit.automaticResume).toEqual({ label: "Weekly", at: new Date(s.reset * 1000 + 60_000).toISOString() });
+    expect(s.h.claudeCalls()).toHaveLength(1);
+    s.clock.advance(s.reset * 1000 + 61_000 - s.clock.now().getTime());
+    s.claude.queue(signedIn([usageRow("weekly_all", 0)]), signedIn([usageRow("weekly_all", 0)]));
+    void s.claude.refreshAccount();
+    await untilSettled(s.h.engine, () => s.h.engine.isPhaseDone("1"));
+    const runs = s.h.engine.latestSession("1")!.runs;
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.cause).toBe("limit_resume");
+    expect(s.h.engine.waitingPhaseKey()).toBeUndefined();
+  });
+
   it("keeps an undecided periodic reading inside the reset buffer from launching a retry", async () => {
     const s = await setup(reset => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
     await startToWait(s);

@@ -82,7 +82,16 @@ The account panel gives the same practical visibility for Codex as for Claude Co
   - Replaces in part: AC-WATCH-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (account and limit information supports either agent).
 - [ ] **AC-USAGE-02 — Readings stay current without model calls.** Kiln refreshes account and usage at least every five minutes while running, before starting or resuming a session, and at the additional recovery points in AC-RECOVER-03. Available live updates can refresh the view sooner. Reading account, model and usage metadata starts no model turn. Switching agents before Start cannot leave the other agent's readings displayed as current.
   - Replaces in part: AC-WATCH-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the selected agent supplies the readings).
-- [ ] **AC-USAGE-03 — Missing information stays visibly unknown.** Missing windows, percentages, reset times or account fields are not shown as zero, unlimited or healthy. A failed refresh is shown, and any retained reading is labeled with its last successful update time. A model-list or usage lookup never fabricates choices or allowance. A usage lookup failure alone does not prevent work that the agent otherwise permits.
+- [ ] **AC-USAGE-03 — Missing information stays visibly unknown.** Missing windows, percentages, reset times or account fields are not shown as zero, unlimited or healthy. A failed refresh is shown, and any retained reading is labeled with its last successful update time. A model-list or usage lookup never fabricates choices or allowance. A usage lookup failure alone does not prevent work that the agent otherwise permits. Claude usage follows the cases below; the plan name alone never determines which limits apply. Existing waiting and automatic resumption rules remain, including weekly limits when no five-hour reading exists.
+
+  | Claude usage report | Browser display and behavior |
+  |---|---|
+  | Numeric five-hour reading | Keep its percentage, reset and existing warning. |
+  | Successful report omits the five-hour window or gives it a null/absent percentage | Keep other reported limits; show “5-hour: N/A (not reported)” in current usage displays, without a meter, reset or warning for that window. N/A never means zero or unlimited. |
+  | Failed or wholly missing report | Show usage as unavailable; never claim N/A or available quota. |
+
+  - Replaces in part: AC-WATCH-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (optional Claude five-hour readings).
+
 - [ ] **AC-USAGE-04 — Warnings and sign-in guidance name the right agent.** The existing warning at 80% used applies to reported Codex windows. Guidance for signing in or changing accounts refers to Codex's own sign-in process in a terminal. Kiln has no separate credential entry or account-switching flow. Changing the terminal sign-in is reflected on the next refresh and before a later session begins; a session's recorded account is not rewritten by that refresh.
   - Replaces in part: AC-LIMIT-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Codex sign-in guidance uses Codex's own terminal login command).
 

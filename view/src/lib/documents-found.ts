@@ -2,6 +2,7 @@
 // the phase plan as drawn, and whether Start is available with the note under it (AC-START-05,
 // AC-START-06; assumptions UI-010 items 4 and 12, UI-011).
 
+import { fiveHourNotReported, FIVE_HOUR_NOT_REPORTED } from "./claude-usage.js";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 
@@ -125,6 +126,8 @@ export function accountLines(account: Snapshot["account"]): { line?: string; usa
   const line = account.agentId === "codex"
     ? `${account.email ?? "Account identity unavailable"} · ${account.plan ?? "Plan unavailable"}`
     : [account.email, account.plan].filter((part) => part !== undefined).join(" · ") || undefined;
-  const usage = account.limits.length === 0 ? undefined : `Used: ${account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}`).join(" · ")}`;
+  const parts = account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}`);
+  if (fiveHourNotReported(account)) parts.push(FIVE_HOUR_NOT_REPORTED);
+  const usage = parts.length === 0 ? undefined : `Used: ${parts.join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };
 }

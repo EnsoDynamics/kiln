@@ -61,6 +61,18 @@ describe("the usage limits (headless /usage)", () => {
     ]);
   });
 
+  it.each([[], [null], [{ kind: "session", percent: null }], [{ kind: "session" }]].map(rows => ({ rows })))("keeps weekly limits when the five-hour reading is absent: %j", ({ rows }) => {
+    const weekly = { kind: "weekly_all", percent: 100, resets_at: "2026-11-04T12:00:00Z" };
+    const reading = parseUsage(usageWith([...rows, weekly]), true);
+    expect(reading).toEqual({ limits: [{ kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 100, resetsAt: weekly.resets_at, nearLimit: true }] });
+  });
+
+  it("still rejects malformed or absent weekly percentages", () => {
+    for (const row of [{ kind: "weekly_all", percent: null }, { kind: "weekly_all" }, { kind: "session", percent: "0" }]) {
+      expect(parseUsage(usageWith([row]), true).limitsError).toContain("doesn't recognize");
+    }
+  });
+
   it("shows no limits and no message for an empty list", () => {
     expect(parseUsage(usageWith([]), true)).toEqual({ limits: [] });
   });

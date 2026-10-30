@@ -124,10 +124,12 @@ export function parseUsage(stdout: string, hasPlan: boolean): UsageReading {
 
   const rows: UsageLimit[] = [];
   for (const row of limits as Record<string, unknown>[]) {
+    if (row === null) continue;
     const kind = row?.kind;
     if (typeof kind !== "string") return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
     const labels = limitLabels(kind, row.scope);
     if (labels === undefined) continue;
+    if (kind === "session" && (row.percent === null || row.percent === undefined)) continue;
     if (typeof row.percent !== "number" || !Number.isFinite(row.percent)) return { limits: [], ...overflow, limitsError: UNRECOGNIZED };
     rows.push({
       kind,

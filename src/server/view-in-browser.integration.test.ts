@@ -1771,3 +1771,27 @@ describe("the look, beyond the progress screen (AC-LOOK-04)", () => {
     }
   });
 });
+
+
+describe("optional Claude five-hour meter in a real browser", () => {
+  it("keeps weekly usage visible and shows N/A without a five-hour meter", async () => {
+    const snapshot = runningSnapshot();
+    snapshot.account!.limits = snapshot.account!.limits.filter(row => row.kind !== "session");
+    snapshot.account!.limitsObservedAt = snapshot.account!.updatedAt;
+    const { server, page } = await openScreen(snapshot);
+    try {
+      await page.waitFor(`document.body.innerText.includes("5-hour: N/A (not reported)")`);
+      expect(await page.evaluate<string>(`document.querySelector("section.account").innerText`)).toContain("Weekly");
+      expect(await page.evaluate<number>(`document.querySelectorAll('[role="meter"][aria-label="5-hour window used"]').length`)).toBe(0);
+      expect(page.problems).toEqual([]);
+      const folder = process.env.KILN_SCREENSHOTS;
+      if (folder) {
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "claude-five-hour-not-reported.png"), await page.screenshot());
+      }
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  });
+});
