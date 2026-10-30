@@ -10,10 +10,11 @@ export async function gitRead(git: GitContext, path: string, args: string[]): Pr
   if (result.exitCode !== 0) throw new Error(`${path}: ${gitError(result)}`);
   return result.stdout;
 }
-export async function remoteBase(git: GitContext, path: string, branch: string, fetch = true): Promise<string> {
+export async function remoteBase(git: GitContext, path: string, branch: string, fetch = true, observe?: (revision: string) => void): Promise<string> {
   const rows = await gitRead(git, path, ["ls-remote", "origin", `refs/heads/${branch}`]);
   const revision = rows.trim().split(/\s+/)[0]!;
   if (!/^[a-f0-9]{40,64}$/.test(revision)) throw new Error(`Delivery base ${branch} is unavailable in origin for ${path}. Restore that branch and check again.`);
+  observe?.(revision);
   if (fetch) await gitRead(git, path, ["fetch", "--no-tags", "--no-write-fetch-head", "origin", revision]);
   return revision;
 }

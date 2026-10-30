@@ -1,9 +1,11 @@
 import { once } from "node:events";
 import { afterEach, expect, it, vi } from "vitest";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Engine } from "./engine.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import { COMET_DIRECTORY, cometPhase, createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { git } from "../test-support/git-repositories.js";
 import { landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
@@ -131,6 +133,188 @@ nativeIt("permanently supersedes a target grant when scope moves, even if the ea
   expect(await h.engine.authorizeContinuationTarget(grantBody)).toMatchObject({ ok: true, grant: { valid: false, executionId: old.authorization!.executionId } });
   expect(h.claudeCalls()).toHaveLength(0);
 });
+
+nativeIt.each(["candidate", "base", "fetch", "repository", "settings", "source", "provider_settings", "permissions_unavailable", "unavailable"])("retains irreversible grant decisions after incomplete %s discovery and restart", async change => {
+  const f = await fixture("exit 0", "branch `develop`");
+  const check = await h.engine.checkCompletedPlan(); const proposal = check.result!.proposal!;
+  const grantBody = { executionId: h.engine.record.executionId!, proposalId: proposal.id, authorizationRevision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" }, commandId: "partial-observation-grant", statusToken: h.engine.controlView().token };
+  expect(await h.engine.authorizeContinuationTarget(grantBody)).toMatchObject({ ok: true });
+  const approved = h.engine.record.completedPlanCheck!.result!.proposal!;
+  const file = join(h.repository, COMET_DIRECTORY, "phase-10-catalog.md"); const text = readFileSync(file, "utf8");
+  const settings = structuredClone(h.engine.record.settings);
+  const base = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  const permissionFile = join(h.env.CLAUDE_CONFIG_DIR!, "settings.json"); const oldPermissions = existsSync(permissionFile) ? readFileSync(permissionFile, "utf8") : undefined;
+  if (change === "candidate") writeFileSync(file, text.replace("capability 10", "capability ten"));
+  if (change === "settings") h.engine.record.settings.resumeAfterUsageLimit = !settings.resumeAfterUsageLimit;
+  if (change === "base" || change === "fetch") { git(h.sandbox, h.repository, "commit", "--allow-empty", "-qm", "test: move disposable base"); f.publish(); }
+  if (change === "source") git(h.sandbox, h.repository, "update-ref", "refs/heads/wt/catalog-accessibility", base, f.sha);
+  if (change === "provider_settings") writeFileSync(permissionFile, JSON.stringify({ env: { KILN_FICTIONAL_PERMISSION_INPUT: "changed" } }));
+  const permissions = await import("./preparation-permissions.js");
+  const originalOrigin = git(h.sandbox, h.repository, "config", "--get", "remote.origin.url").trim();
+  const accounting = await import("./completed-plan-accounting.js"); const account = accounting.accountCompletedLeaves;
+  const identityFailure = change === "repository" ? vi.spyOn(accounting, "accountCompletedLeaves").mockImplementation(input => { git(h.sandbox, h.repository, "config", "remote.origin.url", "unrecognized-disposable-origin"); return account(input); }) : undefined;
+  const gitReads = await import("./git-reads.js"); const readGit = gitReads.runGit;
+  const fetchFailure = change === "fetch" ? vi.spyOn(gitReads, "runGit").mockImplementation((context, path, args) => args[0] === "fetch" ? Promise.reject(new Error("Synthetic object fetch failure after positive base read")) : readGit(context, path, args)) : undefined;
+  const permissionFailure = change === "permissions_unavailable" ? vi.spyOn(permissions, "preparationPermissions").mockRejectedValue(new Error("Synthetic unavailable permission reader")) : undefined;
+  // Fail only after readiness has read real Git/settings facts. The failure
+  // supplies no changed input itself and cannot create a replacement proposal.
+  const readiness = await import("./continuation-readiness.js"); const original = readiness.evaluateContinuationReadiness;
+  const failure = vi.spyOn(readiness, "evaluateContinuationReadiness").mockImplementation(async input => { await original(input); throw new Error("Synthetic incomplete discovery after observations"); });
+  const failed = await h.engine.checkCompletedPlan(); failure.mockRestore(); permissionFailure?.mockRestore(); fetchFailure?.mockRestore(); identityFailure?.mockRestore();
+  expect(failed.status).toBe("failed"); expect(failed.result).toBeUndefined();
+  const { readPendingAuthority } = await import("./continuation-authority.js");
+  const unchanged = change === "unavailable" || change === "permissions_unavailable";
+  expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe(unchanged ? "pending" : "superseded");
+  writeFileSync(file, text); h.engine.record.settings = settings;
+  if (change === "repository") git(h.sandbox, h.repository, "config", "remote.origin.url", originalOrigin);
+  if (change === "base" || change === "fetch") git(h.sandbox, h.origin, "update-ref", "refs/heads/develop", base, git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
+  if (change === "source") git(h.sandbox, h.repository, "update-ref", "refs/heads/wt/catalog-accessibility", f.sha, base);
+  if (change === "provider_settings") { if (oldPermissions === undefined) unlinkSync(permissionFile); else writeFileSync(permissionFile, oldPermissions); }
+  // Persist restored settings through the normal check, then read only disk on restart.
+  await h.engine.checkCompletedPlan(); h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+  const restored = h.engine.record.completedPlanCheck!.result!.proposal!;
+  expect(restored.readiness).toBe(unchanged ? "ready" : "blocked");
+  expect(await h.engine.authorizeContinuationTarget(grantBody)).toMatchObject({ ok: true, grant: { valid: unchanged, executionId: approved.authorization!.executionId } });
+  expect(h.claudeCalls()).toHaveLength(0);
+});
+
+nativeIt.each(["alive", "inventory", "identity", "operation", "takeover"])("holds ordinary Claude preparation on %s process evidence through restart, then retries safely", async obstacle => {
+  const f = await fixture(); h.env.KILN_STANDIN_VERSION = "2.1.311";
+  mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0))"], { stdio: ["pipe", "ignore", "ignore"] });
+  const exit = once(child, "exit");
+  const identities = await import("../platform/process-start-time.js");
+  const inventory = await import("../platform/helper-process.js");
+  const { readGate, withGate } = await import("../live/gate.js");
+  try {
+    const startTime = await identities.processStartTime(child.pid!); expect(startTime).toBeTruthy();
+    await f.accept(); const session = h.engine.latestSession("9")!; const gate = session.runs[0]!.live!.gateDirectory;
+    await withGate(gate, state => {
+      if (obstacle === "identity") state.processObservations = [child.pid!];
+      else state.tracked.push({ pid: child.pid!, startTime: startTime! });
+      if (obstacle === "inventory") { state.obstacle = "Retry inventory"; state.processObservations = []; }
+    });
+    const ownership = await import("../live/ownership.js"); const requireExited = ownership.requireExited;
+    let insertedOperation = false;
+    const operationFault = obstacle === "operation" ? vi.spyOn(ownership, "requireExited").mockImplementation(async identity => {
+      await requireExited(identity);
+      if (!insertedOperation && identity.pid === session.runs[0]!.pid) { insertedOperation = true; await withGate(gate, state => { state.operations.pending = { name: "Bash", admittedAt: new Date().toISOString(), hookSettled: false, settled: false }; }); }
+    }) : undefined;
+    const readIdentity = identities.processStartTime;
+    const identityFault = obstacle === "identity" ? vi.spyOn(identities, "processStartTime").mockImplementation((pid, options) => pid === child.pid ? Promise.resolve(undefined) : readIdentity(pid, options)) : undefined;
+    const helper = inventory.runHelper;
+    const inventoryFault = obstacle === "inventory" ? vi.spyOn(inventory, "runHelper").mockImplementation((command, args, options) => command === "/bin/ps" && args.includes("pid=,ppid=") ? Promise.reject(new Error("Tracked inventory unavailable")) : helper(command, args, options)) : undefined;
+    if (obstacle === "takeover") { const target = h.engine.liveTarget()!; expect(h.engine.commands.submit({ command_id: "takeover-preparation", execution_id: target.executionId, status_token: JSON.stringify(target), action: "take-over", inputs: { target } })).toMatchObject({ ok: true }); await h.engine.commands.settled(); }
+    await f.submit();
+    if (obstacle === "takeover") { await h.engine.reconcileTakeover(); expect(h.engine.record.liveControl?.takeover.state).toBe("pending"); }
+    else expect(h.engine.record.preparation?.reason).toMatch(/process|inventory|unsettled/i);
+    if (obstacle === "operation") { expect(insertedOperation).toBe(true); expect(h.engine.record.preparation?.reason).toContain("unsettled"); }
+    expect(h.engine.record.preparation?.attempts).toHaveLength(0); expect(session.runs).toHaveLength(1);
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+    // Restart decision retries the returned preparation; it cannot run checks or a turn.
+    await h.engine.decide(); expect(h.engine.record.preparation?.attempts).toHaveLength(0); expect(h.claudeCalls()).toHaveLength(1);
+    identityFault?.mockRestore(); inventoryFault?.mockRestore(); operationFault?.mockRestore();
+    child.stdin.end(); await exit;
+    if (obstacle === "takeover") await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; });
+    if (obstacle === "operation") await withGate(gate, state => { state.operations.pending!.hookSettled = true; state.operations.pending!.settled = true; });
+    expect(readGate(gate).tracked.length + (readGate(gate).processObservations?.length ?? 0)).toBeGreaterThan(0);
+    const releaseAgain = join(h.sandbox.root, "release-process-recovery");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: releaseAgain }, { result: "Preparation recovered." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase needs work." }, { exit: 0 }] }] }));
+    // Explicit Resume retains the conversation and earlier attempt evidence.
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
+    await waitFor(() => h.engine.latestSession("9")!.runs.length === 2 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
+    for (const binding of h.engine.record.preparation!.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
+    writeFileSync(releaseAgain, "release"); await h.engine.settled();
+    expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded"]);
+    expect(h.engine.latestSession("9")!.sessionId).toBe(session.sessionId); expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
+  } finally { vi.restoreAllMocks(); child.stdin.end(); await exit; }
+}, 120_000);
+
+nativeIt("supersedes a legacy aggregate-only approval after known denied settings, preserving unknown-read retry", async () => {
+  const f = await fixture("exit 0", "branch `develop`");
+  const readiness = await import("./continuation-readiness.js"); const original = readiness.evaluateContinuationReadiness;
+  // Genuine prior-format sidecars: their content hash predates component evidence.
+  const oldFormat = vi.spyOn(readiness, "evaluateContinuationReadiness").mockImplementation(async input => {
+    const { id: _id, permissionInputs: _inputs, ...body } = await original(input); void _id; void _inputs;
+    return { ...body, id: createHash("sha256").update(JSON.stringify(body)).digest("hex") };
+  });
+  const check = await h.engine.checkCompletedPlan(); const proposal = check.result!.proposal!;
+  const grantBody = { executionId: h.engine.record.executionId!, proposalId: proposal.id, authorizationRevision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" }, commandId: "legacy-permission-grant", statusToken: h.engine.controlView().token };
+  expect(await h.engine.authorizeContinuationTarget(grantBody)).toMatchObject({ ok: true }); oldFormat.mockRestore();
+  const { readPendingAuthority, writePendingAuthority } = await import("./continuation-authority.js");
+  const pending = readPendingAuthority(h.stateDirectory, h.engine.record)!; delete pending.proposalId; writePendingAuthority(h.stateDirectory, pending);
+  const permissions = await import("./preparation-permissions.js");
+  const unknown = vi.spyOn(permissions, "preparationPermissions").mockRejectedValue(new Error("Synthetic unavailable permission reader"));
+  await h.engine.checkCompletedPlan(); unknown.mockRestore(); expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe("pending");
+  const settingsFile = join(h.env.CLAUDE_CONFIG_DIR!, "settings.json"); const previous = existsSync(settingsFile) ? readFileSync(settingsFile, "utf8") : undefined;
+  writeFileSync(settingsFile, JSON.stringify({ permissions: { ask: ["Bash"] } }));
+  const denied = await h.engine.checkCompletedPlan(); expect(denied.status).toBe("blocked"); expect(denied.result!.proposal!.grantEligible).toBe(false);
+  expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe("superseded");
+  if (previous === undefined) unlinkSync(settingsFile); else writeFileSync(settingsFile, previous);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+  expect(h.engine.record.completedPlanCheck!.result!.proposal!.readiness).toBe("blocked");
+  expect(await h.engine.authorizeContinuationTarget(grantBody)).toMatchObject({ ok: true, grant: { valid: false, executionId: pending.executionId } });
+  expect(h.claudeCalls()).toHaveLength(0);
+});
+
+nativeIt.each([false, true])("faults supersession publication and reconciles durable authority on restart (written=%s)", async afterWrite => {
+  const f = await fixture("exit 0", "branch `develop`"); const check = await h.engine.checkCompletedPlan();
+  const body = { executionId: h.engine.record.executionId!, proposalId: check.result!.proposal!.id, authorizationRevision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" }, commandId: "supersession-write-grant", statusToken: h.engine.controlView().token };
+  expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: true });
+  const { readPendingAuthority } = await import("./continuation-authority.js"); const pending = readPendingAuthority(h.stateDirectory, h.engine.record)!;
+  const path = join(h.repository, COMET_DIRECTORY, "phase-10-catalog.md"); const text = readFileSync(path, "utf8"); writeFileSync(path, text.replace("capability 10", "capability ten"));
+  const durable = await import("../control/durable-file.js"); const write = durable.writeDurableMetadata; let injected = false;
+  const fault = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
+    if (!injected && path.endsWith(`/continuation-authority/${pending.id}.json`) && (value as { state?: string }).state === "superseded") { injected = true; if (afterWrite) write(path, value); throw new Error("Lost supersession projection acknowledgement"); }
+    write(path, value);
+  });
+  await expect(h.engine.checkCompletedPlan()).rejects.toThrow("supersession"); expect(injected).toBe(true); expect(h.engine.commands.fault).toBeTruthy();
+  expect(await h.engine.authorizeContinuationTarget({ ...body, commandId: "faulted-supersession-replay" })).toMatchObject({ ok: false }); expect(h.claudeCalls()).toHaveLength(0);
+  fault.mockRestore();
+  // After publication, even restoring old inputs before restart cannot revive
+  // authority. Before publication there is no durable acknowledgement; restart
+  // reconciles the actual changed source before any further effect.
+  if (afterWrite) writeFileSync(path, text);
+  expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe(afterWrite ? "superseded" : "pending");
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+  writeFileSync(path, text); await h.engine.checkCompletedPlan();
+  expect(h.engine.record.completedPlanCheck!.result!.proposal!.readiness).toBe("blocked");
+  expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: true, grant: { valid: false, executionId: pending.executionId } });
+  expect(h.claudeCalls()).toHaveLength(0);
+});
+
+nativeIt("holds Codex preparation before native checks while background inventory is unknown, then resumes the same thread", async () => {
+  const f = await fixture(); const { codexWorkFixture } = await import("../test-support/codex-work-fixture.js"); const codex = codexWorkFixture();
+  const { posixShellPath } = await import("../test-support/git-repositories.js");
+  const configure = (extra: Record<string, unknown>) => codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...extra });
+  try {
+    h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
+    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
+    configure({ backgroundListError: true, command: `while ! test -f ${posixShellPath(f.release)}; do sleep 0.05; done` });
+    await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    const check = await h.engine.checkCompletedPlan(); expect(check.status, JSON.stringify(check)).toBe("available");
+    expect(await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, executionId: h.engine.record.executionId, commandId: "codex-cleanup-preparation", statusToken: h.engine.controlView().token })).toMatchObject({ ok: true });
+    await waitFor(() => !!h.engine.latestSession("9")?.runs.at(-1)?.codex?.dispatch);
+    git(h.sandbox, h.engine.worktreePath, "merge", "--no-edit", f.sha);
+    for (const binding of h.engine.record.preparation!.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
+    writeFileSync(f.release, "return"); await h.engine.settled();
+    const thread = h.engine.latestSession("9")!.conversation!.threadId;
+    expect(h.engine.record.preparation?.reason).toContain("cleanup unresolved"); expect(h.engine.record.preparation?.attempts).toEqual([]);
+    expect(codex.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
+    expect(h.engine.record.preparation?.attempts).toEqual([]); expect(codex.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+    configure({ hang: true });
+    await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
+    await waitFor(() => codex.calls().filter(call => call.method === "turn/start").length === 2);
+    expect(h.engine.latestSession("9")!.conversation!.threadId).toBe(thread); expect(h.engine.record.preparation?.stage).toBe("preparation"); expect(h.engine.record.preparation?.attempts).toEqual([]);
+    // The peer deliberately holds this recovery turn. Actual Codex proof owns
+    // successful native sandbox/environment and implementation admission.
+  } finally { await h.engine.stop("sigint"); await codex.sandbox.cleanup(); }
+}, 120_000);
 nativeIt("retains the verified checkpoint across pause/restart and admits implementation once", async () => {
   const f = await fixture(); await f.accept(); expect(h.engine.pause()).toMatchObject({ ok: true }); await f.submit();
   expect(h.engine.record.preparation!.stage).toBe("verification"); expect(h.engine.record.preparation!.verifiedCheckpoint).toBeDefined();
@@ -416,4 +600,21 @@ nativeIt("rechecks known sources after verification at the final preparation adm
     expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
     expect(h.claudeCalls()).toHaveLength(1);
   } finally { spy.mockRestore(); }
+}, 120_000);
+
+nativeIt("rechecks retained process owners after native verification before implementation dispatch", async () => {
+  const f = await fixture(); h.env.KILN_STANDIN_VERSION = "2.1.311";
+  mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0))"], { stdio: ["pipe", "ignore", "ignore"] }); const exit = once(child, "exit");
+  const { processStartTime } = await import("../platform/process-start-time.js");
+  const { withGate } = await import("../live/gate.js"); const native = await import("./preparation-verifier.js"); const verify = native.verifyPreparation;
+  try {
+    const startTime = await processStartTime(child.pid!); expect(startTime).toBeTruthy(); await f.accept();
+    const directory = h.engine.latestSession("9")!.runs[0]!.live!.gateDirectory;
+    vi.spyOn(native, "verifyPreparation").mockImplementation(async context => { const checked = await verify(context); await withGate(directory, gate => { gate.tracked.push({ pid: child.pid!, startTime: startTime! }); }); return checked; });
+    await f.submit();
+    expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded"]);
+    expect(h.engine.record.preparation?.reason).toContain("process still owns");
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
+  } finally { vi.restoreAllMocks(); child.stdin.end(); await exit; }
 }, 120_000);

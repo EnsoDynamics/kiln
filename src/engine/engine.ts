@@ -5,7 +5,7 @@ import { newPreparationState, preparationDigest, type PreparationReference } fro
 import { verifyPreparation, preparationCheckpoint, reconcilePreparationAttempt } from "./preparation-verifier.js";
 import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
-import { authorityForApproval, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority } from "./continuation-authority.js";
+import { authorityForApproval, changesContinuationScope, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority, type ContinuationInputObservation } from "./continuation-authority.js";
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, type ContinuationAcceptance } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
@@ -18,7 +18,7 @@ import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -2203,16 +2203,31 @@ export class Engine {
 
   private checkCompletedPlanOwned(): Promise<CompletedPlanCheck> {
     if (this.completedPlanReading) return this.completedPlanReading;
-    this.checking = true;
     const previous = this.record.completedPlanCheck;
+    const authority = readPendingAuthority(this.stateDirectory, this.record);
+    const priorProposal = previous?.result?.proposal ?? previous?.earlierResult?.proposal;
+    const approvalProposalId = authority?.state === "pending" && !authority.proposalId && authority.approvals[0]
+      ? lookupReceipt(this.stateDirectory, authority.approvals[0].commandId).instruction.inputs.proposal_id : undefined;
+    const originalProposalId = authority?.proposalId ?? (typeof approvalProposalId === "string" ? approvalProposalId : undefined);
+    const approved = authority?.state === "pending" && authority.completedExecutionId === this.record.executionId
+      ? originalProposalId ? readContinuationProposal(this.stateDirectory, originalProposalId) : priorProposal?.scopeDigest === authority.scopeDigest ? priorProposal : undefined
+      : undefined;
+    if (authority?.state === "pending" && authority.completedExecutionId === this.record.executionId && (!approved || approved.scopeDigest !== authority.scopeDigest)) return Promise.reject(new Error("Restore the original continuation offer and approval receipt before checking its authority."));
+    const observeInput = (observation: ContinuationInputObservation) => {
+      if (!authority || authority.state !== "pending" || !approved || !changesContinuationScope(approved, observation)) return;
+      authority.state = "superseded";
+      try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
+      catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
+    };
+    this.checking = true;
     const attemptedAt = this.now().toISOString();
     this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) }).then(check => {
+    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
-      if (pendingAuthority?.state === "pending" && pendingAuthority.completedExecutionId === this.record.executionId && check.result?.proposal?.scopeDigest && pendingAuthority.scopeDigest !== check.result.proposal.scopeDigest) {
+      if (pendingAuthority?.state === "pending" && pendingAuthority.completedExecutionId === this.record.executionId && check.result?.proposal?.grantEligible && check.result.proposal.scopeDigest && pendingAuthority.scopeDigest !== check.result.proposal.scopeDigest) {
         pendingAuthority.state = "superseded";
         this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, pendingAuthority));
       }
@@ -2773,11 +2788,54 @@ export class Engine {
     return { record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString() };
   }
 
+  /** Adapter shutdown has drained the scanner; every retained owner must also exit. */
+  private async requirePreparationRelease(key: string, session: SessionRecord): Promise<void> {
+    if (session.agentId === "codex") {
+      const problems = this.codexSafetyProblems(key);
+      if (problems.length) throw new Error(problems.join(" "));
+      return;
+    }
+    const preparationRuns = this.record.preparation?.implementationRun ?? session.runs.length;
+    for (const [index, run] of session.runs.slice(0, preparationRuns).entries()) {
+      if (!run.live) continue; // Older adapters retain no descendant ownership evidence.
+      const live = run.live;
+      if (live.gateDirectory !== gateDirectory(this.stateDirectory, live.attemptId) || live.attemptId !== run.control?.attemptId || resolve(live.configRoot) !== resolve(claudeConfigFolder(this.environment))) throw new OwnershipError("ownership_unknown", "Restore the preparation attempt's process gate and Claude profile before retrying verification.");
+      await requireExited(run);
+      const target = readGate(live.gateDirectory).target;
+      if (target.executionId !== this.record.executionId || target.activityKey !== key || target.sessionId !== session.sessionId || target.providerSessionId !== session.sessionId || target.attemptId !== live.attemptId) throw new OwnershipError("ownership_unknown", "Preparation process evidence belongs to another attempt.");
+      for (const saved of eventsOfRun(this.stateDirectory, session, index)) await observeGate(live.gateDirectory, saved.event, saved.at);
+      const transcript = findTranscripts(live.configRoot, session.sessionId).main;
+      if (transcript) {
+        const history = readTranscriptRecords<Record<string, unknown>>(transcript);
+        const read = readTranscript(transcript);
+        if (history.problem || read.problem) throw new OwnershipError("history_unavailable", "Restore readable preparation history before retrying verification.");
+        for (const row of history.records) if (row.type === "user") await observeGate(live.gateDirectory, { ...row, tool_use_result: row.toolUseResult ?? row.tool_use_result }, typeof row.timestamp === "string" ? row.timestamp : undefined);
+        await withGate(live.gateDirectory, state => {
+          for (const call of read.calls) {
+            const operation = call.id ? state.operations[call.id] : undefined;
+            if (operation?.hookSettled && operation.name !== "Agent" && operation.name !== "Task" && call.result) operation.settled = true;
+          }
+        });
+      }
+      let gate = readGate(live.gateDirectory);
+      if (gate.obstacle || gate.processObservations?.length) {
+        await captureOwnedProcesses(live.gateDirectory, run.pid!, run.processStartTime!);
+        gate = readGate(live.gateDirectory);
+      }
+      const pending = unsettled(gate);
+      if (pending.length) throw new OwnershipError("takeover_pending", `Preparation still has unsettled work: ${pending.join(", ")}. Retry after it settles.`);
+      for (const identity of gate.tracked) await requireExited({ pid: identity.pid, processStartTime: identity.startTime });
+      await requireNoTerminal(this.environment, session.sessionId);
+      if (JSON.stringify(readGate(live.gateDirectory)) !== JSON.stringify(gate)) throw new OwnershipError("takeover_pending", "Preparation process evidence changed during release checks; retry verification.");
+    }
+  }
+
   private async recheckPreparationAdmission(key: string, session: SessionRecord): Promise<void> {
     const state = this.record.preparation;
     if (!state || state.phaseId !== key || state.stage !== "implementation" || session.runs.length !== state.implementationRun) return;
     const read = await this.readPlan();
     if (!read.ok) throw new Error(read.problem);
+    await this.requirePreparationRelease(key, session);
     if (!state.verifiedCheckpoint || (await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint.id) throw new Error("Prepared source/configuration moved after verification; dependent implementation remains held.");
     if (this.record.pause.requestedAt || this.record.pause.activeSince) throw new Error("The pause control holds dependent implementation.");
   }
@@ -2788,6 +2846,7 @@ export class Engine {
     try {
       const run = session.runs.at(-1)!;
       if (!run?.endedAt || run.interruptedAt || run.spawnError) throw new Error("The preparation provider has not settled. Resume it before verification.");
+      await this.requirePreparationRelease(key, session);
       const read = await this.readPlan();
       if (!read.ok) throw new Error(read.problem);
       const stayed = await this.readWorkspaceEvidence(key);

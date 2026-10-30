@@ -10,6 +10,8 @@ import type { ContinuationProposal } from "./continuation-readiness.js";
 
 export interface PendingContinuationAuthority {
   formatVersion: 1; id: string; completedExecutionId: string; scopeDigest: string; executionId: string;
+  /** Original immutable offer; older records recover it from their retained check. */
+  proposalId?: string;
   authorization: DevelopmentAuthorization; approvals: { operationId: string; commandId: string; target: MergeTarget }[];
   state: "pending" | "superseded" | "adopted"; acceptanceId?: string;
 }
@@ -31,7 +33,26 @@ export function pendingForProposal(pending: PendingContinuationAuthority | undef
 }
 export function reserveAuthority(proposal: ContinuationProposal): PendingContinuationAuthority {
   if (!proposal.scopeDigest) throw new Error("Refresh the continuation before granting authority.");
-  return { formatVersion: 1, id: randomUUID(), completedExecutionId: proposal.completedExecutionId, scopeDigest: proposal.scopeDigest, executionId: randomUUID(), authorization: { enabled: true, revision: 0, grants: [] }, approvals: [], state: "pending" };
+  return { formatVersion: 1, id: randomUUID(), proposalId: proposal.id, completedExecutionId: proposal.completedExecutionId, scopeDigest: proposal.scopeDigest, executionId: randomUUID(), authorization: { enabled: true, revision: 0, grants: [] }, approvals: [], state: "pending" };
+}
+
+/** Only positive observations invalidate authority; unavailable reads supply none. */
+export type ContinuationInputObservation =
+  | { kind: "candidate" | "settings" | "permissions"; digest: string }
+  | { kind: "provider_settings"; repository: string; digest: string }
+  | { kind: "repository"; repository: string; identity: string | null }
+  | { kind: "base"; repository: string; branch: string; revision: string }
+  | { kind: "source"; repository: string; sourceRef: string; revision: string };
+export function changesContinuationScope(proposal: ContinuationProposal, observation: ContinuationInputObservation): boolean {
+  switch (observation.kind) {
+    case "candidate": return proposal.candidateDigest !== observation.digest;
+    case "settings": return proposal.settingsDigest !== observation.digest;
+    case "permissions": return proposal.permissionDigest !== observation.digest;
+    case "provider_settings": return proposal.permissionInputs?.some(input => input.repository === observation.repository && input.digest !== observation.digest) ?? false;
+    case "repository": return proposal.repositories.some(repo => repo.name === observation.repository && repo.identity.toLowerCase() !== observation.identity?.toLowerCase());
+    case "base": return proposal.repositories.some(repo => repo.name === observation.repository && (repo.baseBranch !== observation.branch || repo.baseRevision !== observation.revision));
+    case "source": return proposal.preparation.some(binding => binding.repository === observation.repository && binding.sourceRef === observation.sourceRef && binding.sourceRevision !== observation.revision);
+  }
 }
 export function authorityExists(directory: string, id: string): boolean { return existsSync(join(directory, "continuation-authority", `${id}.json`)); }
 

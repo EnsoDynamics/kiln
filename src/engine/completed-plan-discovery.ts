@@ -8,6 +8,7 @@ import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js
 import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
+import type { ContinuationInputObservation } from "./continuation-authority.js";
 
 export interface DiscoverySource { kind: "shared" | "delivery_base"; path: string; revision?: string; digest?: string; error?: string }
 export interface DiscoveredPhase { id: string; title: string; file: string }
@@ -35,7 +36,7 @@ export interface CompletedPlanCheck {
   result?: CompletedPlanResult;
   earlierResult?: CompletedPlanResult;
 }
-export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }> }
+export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }>; observeInput?: (observation: ContinuationInputObservation) => void }
 export class DiscoveryWriteFailure extends Error {}
 function retainDiscoveryBaseline(directory: string, value: Omit<PlanBaseline, "id">): PlanBaseline {
   try { return retainBaseline(directory, value); }
@@ -76,6 +77,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
 
 export async function discoverCompletedPlan(context: DiscoveryContext): Promise<CompletedPlanCheck> {
   const { record, shared, git, directory, attemptedAt } = context;
+  context.observeInput?.({ kind: "settings", digest: hash(record.settings) });
   const previous = record.completedPlanCheck;
   const earlierResult = previous?.result ?? previous?.earlierResult;
   const check: CompletedPlanCheck = { status: "failed", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(earlierResult ? { earlierResult } : {}) };
@@ -93,10 +95,12 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   check.sources.push(localFact, remoteFact);
   try { local = observePlan(shared, record.prdDirectory); localFact.digest = local.digest; localFact.revision = (await gitRead(git, shared, ["rev-parse", "HEAD"])).trim(); }
   catch (error) { localFact.error = (error as Error).message; failed(error); }
-  try { revision = await remoteBase(git, shared, branch); remoteFact.revision = revision; remote = await observeGitPlan(git, shared, record.prdDirectory, revision); remoteFact.digest = remote.digest; }
+  try { revision = await remoteBase(git, shared, branch, true, observed => { remoteFact.revision = observed; context.observeInput?.({ kind: "base", repository: record.repository.name, branch, revision: observed }); }); remote = await observeGitPlan(git, shared, record.prdDirectory, revision); remoteFact.digest = remote.digest; }
   catch (error) { remoteFact.error = (error as Error).message; failed(error); }
   try { baseline = await completedBaseline(context); }
   catch (error) { failed(error); }
+  // A changed local candidate is known even if another required source failed.
+  if (local && baseline && semantic(local) !== semantic(baseline.active)) context.observeInput?.({ kind: "candidate", digest: local.digest });
   if (check.errors.length || !local || !remote || !baseline || !revision) return check;
   try {
     const old = baseline.active;
@@ -105,14 +109,19 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const problems = [...conflicts];
     if (localChanged && remoteChanged && semantic(local) !== semantic(remote)) problems.push("source_conflict: Shared checkout and delivery base contain different revised scope. Reconcile the governing documents, commit/integrate the agreed plan, then check again.");
     const selected = !localChanged || semantic(local) === semantic(remote) ? remote : local;
+    context.observeInput?.({ kind: "candidate", digest: selected.digest });
     const source = selected === remote ? remoteFact : localFact;
     const unintegratedDocuments = [...new Set([...Object.keys(selected.documents), ...Object.keys(remote.documents)])].filter(file => selected.documents[file] !== remote.documents[file]);
     if (unintegratedDocuments.length) problems.push(`Revised documents are not together in origin/${branch}: ${unintegratedDocuments.join(", ")}. Commit/integrate the coherent document set, then check again.`);
-    const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}) });
-    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, codex: context.codex });
+    const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}), ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
+    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     problems.splice(0, problems.length, ...proposal.problems);
     // Recheck before publishing: slow Git reads must not bless a moving shared checkout/base.
-    if (observePlan(shared, record.prdDirectory).digest !== local.digest || await remoteBase(git, shared, branch, false) !== revision) throw new Error("source_changed: The shared documents or delivery base changed during this check. Check for new phases again.");
+    const currentLocal = observePlan(shared, record.prdDirectory);
+    if (semantic(currentLocal) !== semantic(old)) context.observeInput?.({ kind: "candidate", digest: currentLocal.digest });
+    const currentRevision = await remoteBase(git, shared, branch, false);
+    context.observeInput?.({ kind: "base", repository: record.repository.name, branch, revision: currentRevision });
+    if (currentLocal.digest !== local.digest || currentRevision !== revision) throw new Error("source_changed: The shared documents or delivery base changed during this check. Check for new phases again.");
     git.signal?.throwIfAborted();
     const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: selected, sources: [local, remote], completions: baseline.completions });
     let retained;

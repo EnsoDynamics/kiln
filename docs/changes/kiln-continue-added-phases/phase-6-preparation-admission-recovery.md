@@ -1,5 +1,7 @@
 # Phase 6: Complete preparation admission and grant recovery
 
+**Closed:** 2026-10-30
+
 **Added by delivery audit:** 2026-10-30, after every previously planned implementation leaf closed. It completes the missing preparation controls below.
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Readiness and Planned Preparation: Target grants before acceptance and Preparation execution; Continuation Acceptance and Recovery.
@@ -25,6 +27,10 @@ Prove the whole affected criteria for ordinary Claude and Codex preparation, tak
 ## Inherited from Phase 5
 
 Read [bounded plan reconciliation validation](kiln-bounded-plan-reconciliation-validation.md) for the completed predecessor's code/proof and delivery state. Reuse its common discovery deadline, typed capacity failures and immutable normalizer-3 completion scopes recovered from original receipts; current active-plan reconciliation now gates preparation return and final admission. Preserve those boundaries while completing this leaf's process-release and irreversible-authority requirements.
+
+## Implementation and validation
+
+Completed retained-process release checks before native verification and final implementation dispatch, plus irreversible pending-authority supersession from positively observed bound inputs during incomplete discovery. Original offers, approval receipts, unknown-read retry and same-conversation recovery remain intact. [Preparation admission and grant recovery validation](kiln-preparation-admission-recovery-validation.md) records real Git/process/native/browser cases, both actual providers, independent review and test hardening, and passing full verification/package gates with frozen source/build hashes.
 
 ## Successor
 After this leaf closes and authorized development-base delivery completes, launch a fresh whole-PRD delivery audit. Once delivery is clean, launch whole-PRD test audit and continue any required completion/re-audit chain. One implementation leaf per chat.

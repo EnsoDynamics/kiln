@@ -16,6 +16,7 @@ import { judgedPhase } from "./plan-reading.js";
 import { PLAN_LIMIT, PlanCapacityError, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { expandHome } from "./worktree-setup.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import type { ContinuationInputObservation } from "./continuation-authority.js";
 
 export type LeafClassification = "carried_completed" | "new_unfinished" | "externally_verified" | "externally_unverified" | "unresolved_earlier_work";
 export interface CompletionRepositoryEvidence {
@@ -68,7 +69,7 @@ async function ancestor(git: GitContext, path: string, from: string, to: string)
 }
 
 /** Completion is bound to the immutable scope, never to today's Closed line alone. */
-export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }> }): Promise<Omit<CompletionAccounting, "id">> {
+export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }>; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<Omit<CompletionAccounting, "id">> {
   const { record, baseline, candidate, git, shared, verifiedAt } = input;
   const extracted = externalCompletionReferences(candidate, record.prdDirectory);
   const prdName = record.repository.name;
@@ -127,9 +128,10 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       }
       const path = name === prdName ? shared : expandHome(repo.mainCheckoutPath);
       const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
+      input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
       if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { row.problems.push(`Phase ${phase.id}: ${name} origin no longer identifies ${repo.github}. Restore the recorded repository before checking again.`); continue; }
       let base = bases.get(name);
-      if (!base) { base = { path, branch: repo.baseBranch, revision: await remoteBase(git, path, repo.baseBranch) }; bases.set(name, base); }
+      if (!base) { base = { path, branch: repo.baseBranch, revision: await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision })) }; bases.set(name, base); }
       const revision = refs[0]!.revision;
       const exists = await runGit(git, path, ["cat-file", "-t", revision]);
       if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${name}, then check again.`); continue; }
@@ -161,7 +163,11 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
   }
   // Removed or split completed identities must remain represented in total accounting.
   for (const old of leavesOf(baseline.active.plan)) if (!leaves.some(row => row.id === old.id)) leaves.push({ id: old.id, title: old.title, file: posix.join(record.prdDirectory, old.fileName), classification: "unresolved_earlier_work", repositories: [], problems: [`Phase ${old.id}: earlier completed leaf is absent or split in the current plan.`] });
-  for (const base of bases.values()) if (await remoteBase(git, base.path, base.branch, false) !== base.revision) throw new Error(`source_changed: delivery base ${base.path} / ${base.branch} moved during external completion checks. Check again.`);
+  for (const [repository, base] of bases) {
+    const revision = await remoteBase(git, base.path, base.branch, false);
+    input.observeInput?.({ kind: "base", repository, branch: base.branch, revision });
+    if (revision !== base.revision) throw new Error(`source_changed: delivery base ${base.path} / ${base.branch} moved during external completion checks. Check again.`);
+  }
   return { formatVersion: 1, baselineId: baseline.id, candidateDigest: candidate.digest, leaves, references: extracted.references };
 }
 

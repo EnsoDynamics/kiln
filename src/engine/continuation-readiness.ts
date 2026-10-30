@@ -15,7 +15,7 @@ import { runGit, originBranches, type GitContext } from "./git-reads.js";
 import { PLAN_LIMIT, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { extractPreparation, type PreparationInstruction } from "./preparation-documents.js";
 const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-import { readPendingAuthority, pendingForProposal } from "./continuation-authority.js";
+import { readPendingAuthority, pendingForProposal, type ContinuationInputObservation } from "./continuation-authority.js";
 import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
@@ -29,12 +29,15 @@ export interface ContinuationProposal {
   repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
   permissionDigest?: string; scopeDigest?: string; grantEligible?: boolean;
+  /** Read evidence already covered by permissionDigest, retained for partial observations. */
+  permissionInputs?: { repository: string; digest: string }[];
   authorization?: { revision: number; executionId?: string; superseded: boolean; targets: { target: MergeTarget; granted: boolean }[] };
 }
 export interface ReadinessInput {
   codex?: string | undefined;
   record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; accounting: Omit<CompletionAccounting, "id">;
   git: GitContext; shared: string; directory: string; problems: string[];
+  observeInput?: (observation: ContinuationInputObservation) => void;
 }
 export async function evaluateContinuationReadiness(input: ReadinessInput): Promise<ContinuationProposal> {
   const { record, baseline, candidate, accounting, git, shared } = input;
@@ -57,8 +60,9 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     }
     const path = name === record.repository.name ? shared : expandHome(repo.mainCheckoutPath);
     const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
+    input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
     if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { problems.push(`Restore the recorded ${repo.github} origin for ${name}, then check again.`); continue; }
-    const baseRevision = await remoteBase(git, path, repo.baseBranch);
+    const baseRevision = await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision }));
     repositories.push({ name, identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
   }
   const extracted = first ? extractPreparation(candidate, record.prdDirectory, first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
@@ -68,6 +72,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const repository = repositories.find(one => one.name === instruction.repository);
     if (!repository) { problems.push(`Preparation repository ${instruction.repository} is unavailable.`); continue; }
     const resolved = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.sourceRef}^{commit}`]);
+    if (resolved.exitCode === 0) input.observeInput?.({ kind: "source", repository: repository.name, sourceRef: instruction.sourceRef, revision: resolved.stdout.trim() });
     const pinned = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.revision}^{commit}`]);
     if (resolved.exitCode !== 0 || pinned.exitCode !== 0 || resolved.stdout.trim() !== pinned.stdout.trim()) { problems.push(`Phase ${instruction.phaseId}: restore source ${instruction.sourceRef} at ${instruction.revision} in ${repository.name}; the branch and immutable revision must agree.`); continue; }
     const binding: PreparationBinding = { ...instruction, sourceRevision: pinned.stdout.trim(), repositoryIdentity: repository.identity, baseBranch: repository.baseBranch, baseRevision: repository.baseRevision, authorization: instruction.destination === "assigned_feature" ? "phase_preparation" : "delivery_target", valid: false };
@@ -150,17 +155,27 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const descendants = accounting.leaves.filter(row => row.id === id || isAncestorOf(id, row.id));
     if (!descendants.length || descendants.some(row => row.classification === "new_unfinished" || !prerequisites.some(value => value.phaseId === row.id && ["integrated_verified", "preparation_available"].includes(value.status)))) problems.push(`Phase ${first.id}: prerequisite ${id} is not ready. Reconcile its evidence/preparation before starting dependent implementation.`);
   }
-  for (const repo of repositories) if (await remoteBase(git, repo.path, repo.baseBranch, false) !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
+  for (const repo of repositories) {
+    const revision = await remoteBase(git, repo.path, repo.baseBranch, false);
+    input.observeInput?.({ kind: "base", repository: repo.name, branch: repo.baseBranch, revision });
+    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
+  }
   for (const binding of preparation) {
     const repo = repositories.find(one => one.name === binding.repository)!;
-    if ((await gitRead(git, repo.path, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim() !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
+    const revision = (await gitRead(git, repo.path, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim();
+    input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
+    if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
   }
   const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
+  const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
   if (preparation.length && preparation.every(binding => binding.valid)) {
     const proposed = { ...body, id: authorityDigest(body) };
     const permissionRecord: PrdRecord = { ...record, preparation: newPreparationState(proposed), repositories: repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" : "named", github: repo.identity, mainCheckoutPath: repo.path, worktreePath: repo.path, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision })) };
-    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true); }
+    let observedPermissionDigest: string | undefined;
+    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true, (repository, digest) => { permissionInputs.push({ repository, digest }); }, digest => { observedPermissionDigest = digest; }); }
     catch (error) { body.permissionDigest = authorityDigest((error as Error).message); problems.push((error as Error).message); body.problems.push((error as Error).message); }
+    for (const observation of permissionInputs) input.observeInput?.({ kind: "provider_settings", ...observation });
+    if (observedPermissionDigest) input.observeInput?.({ kind: "permissions", digest: observedPermissionDigest });
   }
   const scopeDigest = authorityDigest(body);
   const retained = readPendingAuthority(input.directory, record);
@@ -169,7 +184,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const target = { repository: `github.com/${binding.repositoryIdentity}`.toLowerCase(), baseBranch: binding.baseBranch };
     return [mergeTargetKey(target), target];
   })).values()].map(target => ({ target, granted: !!pending?.authorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target)) }));
-  const bound = { ...body, scopeDigest, grantEligible: !problems.length, authorization: { revision: pending?.authorization.revision ?? 0, ...(pending ? { executionId: pending.executionId } : {}), superseded: !!retained && !pending, targets } };
+  const bound = { ...body, ...(permissionInputs.length ? { permissionInputs } : {}), scopeDigest, grantEligible: !problems.length, authorization: { revision: pending?.authorization.revision ?? 0, ...(pending ? { executionId: pending.executionId } : {}), superseded: !!retained && !pending, targets } };
   for (const { target, granted } of targets) if (!granted) bound.problems.push(`${target.repository}/${target.baseBranch} needs an explicit early-merge target grant for the proposed fresh run. Earlier execution grants do not apply; existing CI/CD may run before the PRD finishes.`);
   bound.readiness = bound.problems.length ? "blocked" : "ready";
   return { ...bound, id: authorityDigest(bound) };
