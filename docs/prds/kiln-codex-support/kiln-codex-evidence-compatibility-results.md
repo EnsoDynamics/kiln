@@ -42,3 +42,15 @@ Independent deliverable review found no actionable issue. Test hardening added r
 ## Delivery authorization
 
 Doug authorized landing on `develop` and local installation in chat `01a187cd-9607-7141-8563-3631b137f4dd` on 2026-10-29: “All right, go ahead and push it and land it on develop and then install it so I can use it.” This does not authorize production deployment or changes to the affected dashboard controller.
+
+## Workspace uncertainty recovery — 2026-10-30
+
+Doug reported Consulting Prospect Intelligence Phase 2 blocked after normal closure/commit/push. All twelve errors were recorded visual-review subagent wrappers using `store`/`load` for notes beside literal screenshot reads. The decoder now inspects storage arguments and propagates loaded data as opaque, without executing provider JavaScript. Known operations before an unknown helper remain included in outside-change findings.
+
+A read-only replay through the built production reader against the original three-conversation tree (`01a18d50-27c0-7922-95bf-780f38bdd64a`) completed with 169 checked policy operations, zero findings and zero problems. No model turn or saved Kiln execution was changed. The original case now passes without an uncertainty acknowledgment.
+
+AC-WORK-04 and its technical design are amended for explicit human acceptance of interpretation uncertainty on readable, stable, stopped conversation trees. Acceptance has separate persisted fingerprints; unknown history remains inconclusive in the audit record. Missing/corrupt sources, active work and unstable/partial scans remain blockers. Tests cover recorded wrappers, nested unknown dispatch/data taint, separate known outside findings, restart/history/child/multiple-session invalidation, clear/reaccept, normal completion checks and paused advancement, CLI receipts and both browser recovery layouts at 390px.
+
+Deliverable review and test hardening ran independently; review fixes preserve active-work/source blockers, visible known findings, accepted-uncertainty wording after recheck, and findings from partial wrapper decoding.
+
+Validation: 687 unit tests, dependency audit, lint, type checks, build, 14 release checks and 18 Codex proof checks pass. The full integration run completed 1,227 cases (1,213 passed, 11 failed, 3 skipped) in 1,962 seconds. It had started before review fixes were frozen and retained older transformed modules; its four failed files also exposed an uninstalled pinned native Claude executable because dependencies initially skipped install scripts. After rebuilding that dependency, a fresh final run of all four failed files passed all 135 tests. The five-file focused recovery run also passed 141 tests before the added diagnostic-cap case; the final evidence-reader run passed all 55 cases. No assertions were weakened or failures skipped.

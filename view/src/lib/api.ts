@@ -61,7 +61,7 @@ export const resume = (config: PageConfig, note: string) => send(config, "POST",
 /** Resume now, during a wait; it takes no note (usage-limit recovery AC-LIMIT-02). */
 export const resumeNow = (config: PageConfig) => send(config, "POST", "/api/resume");
 /** Ticks or unticks Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03). */
-export const confirmOutside = (config: PageConfig, ticked: boolean) => send(config, ticked ? "POST" : "DELETE", "/api/outside-confirmation");
+export const confirmOutside = (config: PageConfig, ticked: boolean, uncertainty = false) => send(config, ticked ? "POST" : "DELETE", uncertainty ? "/api/workspace-uncertainty" : "/api/outside-confirmation");
 
 /** A page of a session's output: the lines before `before` (all, when absent), at most `limit` (AC-WATCH-05, AC-WATCH-10). */
 export async function outputPage(config: PageConfig, sessionId: string, before?: number, limit = 200, executionId?: string): Promise<{ lines: OutputLine[]; total: number }> {

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import WorkspaceUncertainty from "../components/WorkspaceUncertainty.svelte";
+  import WorkspaceEvidenceFacts from "../components/WorkspaceEvidenceFacts.svelte";
   import { tick } from "svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { sameRecoveryTarget } from "../../../src/engine/phase-recovery.js";
@@ -183,9 +185,10 @@
           <h3>I finished the entire activity myself.</h3>
           <p>Check that {activity} is complete, then move to the next step in the plan.</p>
           <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
+          <WorkspaceUncertainty {stop} {busy} />
           <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
             {#each stop.checks as check (check.name)}
-              <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? "Passed" : "Not yet"}</span></div>{#each check.facts as fact, index (index)}<p>{fact}</p>{/each}</li>
+              <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? (check.facts.some(fact => fact.startsWith("Workspace uncertainty accepted")) ? "Accepted uncertainty" : "Passed") : check.name === "Stayed in the workspace" && stop.outside?.missingTranscripts.length ? "Unable to verify" : "Not yet"}</span></div>{#if check.name === "Stayed in the workspace" && stop.outside?.missingTranscripts.length}{#each stop.outside.changes as fact, index (index)}<p>{fact}</p>{/each}<WorkspaceEvidenceFacts facts={stop.outside.missingTranscripts} uncertain />{:else}<WorkspaceEvidenceFacts facts={check.facts} />{/if}</li>
             {/each}
           </ul>
           {#if stop.outside?.changes.length}<p class="hint">Kiln changed nothing in those checkouts, since they may hold other work too.</p>{/if}
@@ -222,7 +225,7 @@
   .checks { list-style: none; padding: 0; margin: 0; }
   .checks li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .checks li > div { display: flex; justify-content: space-between; gap: 12px; }
-  .checks p { font-size: 12px; overflow-wrap: anywhere; }
+  .checks :global(p) { font-size: 12px; overflow-wrap: anywhere; }
   .passed { color: var(--green); } .warning { color: var(--amber); }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }

@@ -20,6 +20,8 @@ import type { TranscriptToolCall } from "./transcripts.js";
 interface SourceIdentity { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
 export interface CodexFrontier { ownedTurnIds?: string[]; threadId: string; path: string; source: SourceIdentity; sha256: string; turns: string; parentThreadId?: string }
 export interface CodexAudit {
+  /** Entire tree was readable and stable, with authoritative terminal activity. */
+  uncertaintyReviewable?: boolean;
   mutations?: { conversationId: string; callId: string; at: string; paths: string[] }[];
   commands?: CommandEvidence[];
   profile: "codex-0.162.1-static-v1" | "codex-static-v2"; coverage: "complete" | "inconclusive"; at: string;
@@ -70,7 +72,11 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   const report: CodexAudit = { profile: "codex-static-v2", coverage: "inconclusive", at: new Date().toISOString(), fingerprint: "", frontiers: [], findings: [], problems: [], operationsChecked: 0 };
   let owned: CodexHistoryRpc | undefined;
   let checkedRoots: string[] | undefined;
-  const problem = (text: string) => { if (report.problems.length < 200) report.problems.push(text); };
+  let unsettledOrChanged = false;
+  const problem = (text: string, blocksAcknowledgment = false) => {
+    if (blocksAcknowledgment || report.problems.length >= 200) unsettledOrChanged = true;
+    if (report.problems.length < 200) report.problems.push(text);
+  };
   const checkTime = () => { if (signal.aborted) throw new Error("Codex evidence deadline exceeded or scan stopped."); };
   try {
     const home = realpathSync(options.codexHome);
@@ -130,7 +136,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     const metadata = async (id: string): Promise<Metadata> => {
       const thread = (await call<{ thread: Metadata }>("thread/read", { threadId: id, includeTurns: false })).thread;
       if (thread?.id !== id) throw new Error(`Codex thread identity mismatch: ${id}.`);
-      if (!options.commandProjection && thread.status?.type === "active") problem(`${id}: active runtime thread.`);
+      if (!options.commandProjection && thread.status?.type === "active") problem(`${id}: active runtime thread.`, true);
       return thread;
     };
     const sourcePath = async (thread: Metadata): Promise<string> => {
@@ -148,13 +154,13 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         requireText(turn.id, "turn ID");
         if (turn.itemsView !== "full" || !Array.isArray(turn.items)) throw new Error(`${id}: incomplete normalized history.`);
         hash.update(JSON.stringify(turn)); count++;
-        if (!options.commandProjection && !TERMINAL.has(turn.status)) problem(`${id}: unsettled normalized turn ${turn.id}.`);
+        if (!options.commandProjection && !TERMINAL.has(turn.status)) problem(`${id}: unsettled normalized turn ${turn.id}.`, true);
         if (!save) continue;
         if (index.get(`turn:${id}`, turn.id)) throw new Error(`${id}: duplicate normalized turn.`);
         index.put(`turn:${id}`, turn.id, { id: turn.id, status: turn.status });
         for (const item of turn.items) {
           if (item.type === "commandExecution") {
-            if (!SETTLED_ITEM.has(item.status ?? "")) { if (options.commandProjection) continue; problem(`${id}: unfinished command ${item.id}.`); }
+            if (!SETTLED_ITEM.has(item.status ?? "")) { if (options.commandProjection) continue; problem(`${id}: unfinished command ${item.id}.`, true); }
             index.put(`expectedCommand:${id}`, item.id, { ...item, turnId: turn.id });
           } else if (item.type === "fileChange") {
             index.put(`expectedFileChange:${id}`, item.id, { ...item, turnId: turn.id });
@@ -244,7 +250,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         report.operationsChecked++;
         for (const finding of outsideChanges({ calls: [call] }, roots)) {
           if (report.findings.some(previous => previous.fact === finding.fact && previous.checkout === finding.checkout)) continue;
-          if (report.findings.length >= 200) { problem("Outside findings exceed the bounded report; evidence remains inconclusive."); break; }
+          if (report.findings.length >= 200) { problem("Outside findings exceed the bounded report; evidence remains inconclusive.", true); break; }
           report.findings.push(finding);
         }
       }
@@ -256,8 +262,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (options.commandProjection) frontier.ownedTurnIds!.push(turn.id);
         const aborted = index.get(`turn_aborted:${id}`, turn.id);
         const completed = index.get(`task_complete:${id}`, turn.id);
-        if (!options.commandProjection && (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted"))) problem(`${id}: missing raw terminal frontier for ${turn.id}.`);
-        if (aborted && (turn.status !== "interrupted" || completed)) problem(`${id}: conflicting raw interrupted frontier for ${turn.id}.`);
+        if (!options.commandProjection && (!index.get(`task_started:${id}`, turn.id) || !(completed || aborted && turn.status === "interrupted"))) problem(`${id}: missing raw terminal frontier for ${turn.id}.`, true);
+        if (aborted && (turn.status !== "interrupted" || completed)) problem(`${id}: conflicting raw interrupted frontier for ${turn.id}.`, true);
       }
       for await (const command of index.values<{ id: string; turnId: string; threadId: string; sha256: string }>(`foreignCommand:${id}`)) {
         const origin = owner(id, command.turnId);
@@ -288,7 +294,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         const context = index.get<Context>(`context:${id}`, turnId);
         if (!context?.cwd) throw new Error(`${id}: missing call context.`);
         const decoded = decodeRawCall(payload);
-        if (decoded.coverage !== "complete") { problem(`${id}/${payload.call_id}: ${decoded.reason}`); continue; }
+        if (decoded.coverage !== "complete") problem(`${id}/${payload.call_id}: ${decoded.reason}`);
         const at = requireText(record.timestamp, "call timestamp");
         for (const operation of decoded.operations as { name: string; input: unknown }[]) {
           if (operation.name === "exec_command") {
@@ -366,7 +372,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           else if (["spawn_agent", "send_message", "followup_task"].includes(operation.name)) {
             let found = false;
             for await (const delegation of index.values<{ callId: string; threadId: string; kind: string }>(`delegation:${id}:${turnId}`)) if (delegation.callId === payload.call_id && byId.has(delegation.threadId) && ["started", "interacted"].includes(delegation.kind)) found = true;
-            if (!found || decoded.operations.filter(op => ["spawn_agent", "send_message", "followup_task"].includes(op.name)).length !== 1) problem(`${id}: unresolved delegated work.`);
+            if (!found || decoded.operations.filter(op => ["spawn_agent", "send_message", "followup_task"].includes(op.name)).length !== 1) problem(`${id}: unresolved delegated work.`, true);
           }
         }
       }
@@ -378,13 +384,14 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       for await (const turn of index.values<{ id: string }>(`turn:${id}`)) for await (const native of index.values<NativeCommand>(`nativeCommand:${id}:${turn.id}`)) if (!index.get(`coveredCommand:${id}`, native.id)) problem(`${id}: uncovered raw native command.`);
       for await (const write of index.values<{ turnId: string; path: string }>(`expectedWrite:${id}`)) if (!index.get(`patch:${id}`, `${write.turnId}:${physical(write.path)}`)) problem(`${id}: native file change not covered by decoded input.`);
     }
-    if (digest(before) !== digest(await discovered())) problem("Conversation tree changed during scan.");
+    if (digest(before) !== digest(await discovered())) problem("Conversation tree changed during scan.", true);
     for (const frontier of report.frontiers) {
       const fresh = await metadata(frontier.threadId);
-      if (await turnDigest(frontier.threadId, false) !== frontier.turns) problem(`${frontier.threadId}: normalized frontier changed.`);
-      if (await sourcePath(fresh) !== frontier.path || digest(identity(frontier.path)) !== digest(frontier.source) || await hashSource(frontier.path) !== frontier.sha256) problem(`${frontier.threadId}: raw source changed after scan.`);
+      if (await turnDigest(frontier.threadId, false) !== frontier.turns) problem(`${frontier.threadId}: normalized frontier changed.`, true);
+      if (await sourcePath(fresh) !== frontier.path || digest(identity(frontier.path)) !== digest(frontier.source) || await hashSource(frontier.path) !== frontier.sha256) problem(`${frontier.threadId}: raw source changed after scan.`, true);
     }
     checkTime();
+    report.uncertaintyReviewable = !unsettledOrChanged;
     report.coverage = report.problems.length ? "inconclusive" : "complete";
   } catch (error) { problem((error as Error).message); }
   finally {
@@ -397,12 +404,20 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   return report;
 }
 
-/** Confirmation can cover identified changes only, at exactly the checked frontier. */
-export function codexStayedOutcome(sessionId: string, audit: CodexAudit, confirmedFingerprints: string[]): StayedOutcome {
-  const covered = audit.coverage === "complete" && confirmedFingerprints.includes(audit.fingerprint);
+/** An explicit uncertainty acknowledgment requires a readable, stable, terminal tree. */
+export function uncertaintyFingerprint(audit: CodexAudit): string | undefined {
+  // No source identity means there is no stable history to acknowledge.
+  if (!audit.uncertaintyReviewable || !audit.fingerprint || !audit.frontiers.length) return undefined;
+  return digest({ fingerprint: audit.fingerprint, coverage: audit.coverage, problems: audit.problems });
+}
+
+export function codexStayedOutcome(sessionId: string, audit: CodexAudit, confirmedFingerprints: string[], uncertaintyFingerprints: string[] = []): StayedOutcome {
+  const uncertainty = uncertaintyFingerprint(audit);
+  const accepted = audit.coverage === "inconclusive" && uncertainty !== undefined && uncertaintyFingerprints.includes(uncertainty);
+  const covered = confirmedFingerprints.includes(audit.fingerprint);
   const changes = covered ? [] : audit.findings;
-  const transcripts = audit.coverage === "complete" ? [] : [{ sessionId, missing: false, fact: `Codex evidence is incomplete: ${audit.problems.join(" ")}` }];
+  const transcripts = audit.coverage === "complete" || accepted ? [] : [{ sessionId, missing: false, fact: `Codex evidence is incomplete: ${audit.problems.join(" ")}` }];
   const passed = !changes.length && !transcripts.length;
-  const facts = passed ? [STAYED_PASSED_FACT] : [...changes.map(change => change.fact), ...(changes.length ? [OUTSIDE_NOTE] : []), ...transcripts.map(problem => problem.fact)];
+  const facts = passed ? [accepted ? "Workspace uncertainty accepted for this checked history; confinement was not verified." : STAYED_PASSED_FACT] : [...changes.map(change => change.fact), ...(changes.length ? [OUTSIDE_NOTE] : []), ...transcripts.map(problem => problem.fact)];
   return { passed, changes, transcripts, check: { name: STAYED_CHECK_NAME, passed, facts } };
 }

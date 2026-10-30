@@ -13,6 +13,8 @@ import { processStartTime } from '../platform/process-start-time.js';
 import { writeJsonAtomically } from '../state/state-files.js';
 import { buildSnapshot } from '../engine/snapshot.js';
 import type { Receipt } from './commands.js';
+import { historyFixture } from '../test-support/codex-history-fixture.js';
+import { writeSessionRecord } from '../state/records.js';
 import { claudeConfigFolder, findTranscripts } from '../session/transcripts.js';
 
 let h: Harness;
@@ -162,4 +164,28 @@ it('excludes provider credential canaries from account, inventory and operation 
     for(const credential of privateValues)expect(answer.stdout).not.toContain(credential);
   }
   expect(h.claudeCalls()).toHaveLength(0);
+});
+
+
+it('acknowledges uncertainty through the explicit built CLI flag and persists a receipt without advancing', async () => {
+  h = await createHarness({ sessions: [{ actions: [] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const f = historyFixture();
+  try {
+    f.addThread('parent', { target: join(h.engine.worktreePath, 'inside.txt') });
+    f.append('parent', f.record('response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'unknown-cli', input: 'unknownHelper();', internal_chat_message_metadata_passthrough: { turn_id: 'parent-turn-0' } }));
+    Object.assign(h.tools, { codex: f.options.executable }); h.env.KILN_CODEX_HISTORY_FIXTURE = f.options.env.KILN_CODEX_HISTORY_FIXTURE;
+    h.engine.record.settings.agentId = 'codex'; h.engine.record.settings.agentChoices.codex = { model: 'gpt-6.1-sol', effort: 'high' };
+    const facts = h.engine.record.phases['1']!; const session = h.engine.latestSession('1')!;
+    session.agentId = 'codex'; session.conversation = { threadId: 'parent', codexHome: f.codexHome }; writeSessionRecord(h.stateDirectory, session);
+    facts.stop!.checks = [(await h.engine.readWorkspaceEvidence('1')).check];
+    await serve();
+    const accepted = await mutate('outside-confirmation', 'accept-uncertain-history', ['--confirm-resolved', '--accept-uncertainty']);
+    expect(accepted.operation).toMatchObject({ state: 'completed', effects: { session: 'not_started', plan: 'not_advanced' } });
+    expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty).toEqual({ offered: true, ticked: true });
+    expect(facts.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
+    const replay = await cli([...accepted.args, '--json']); expect(replay.json().operation.id).toBe(accepted.operation.id);
+    await mutate('outside-confirmation', 'clear-uncertain-history', ['--clear-confirmation', '--accept-uncertainty']);
+    expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty?.ticked).toBe(false);
+  } finally { await f.sandbox.cleanup(); }
 });

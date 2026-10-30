@@ -1,4 +1,6 @@
 <script lang="ts">
+  import WorkspaceUncertainty from "../components/WorkspaceUncertainty.svelte";
+  import WorkspaceEvidenceFacts from "../components/WorkspaceEvidenceFacts.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
   // kiln-screen-needs-you-crashed.html): how the session ended, word for word (PRD AC-STOP-02),
@@ -254,13 +256,14 @@
             <li>
               <span class="mark" class:passed={check.passed}>{#if check.passed}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
               {#if check.name === STAYED && !check.passed && stop.outside}
-                <span class="check"><span class="check-head">{check.name}<span class="verdict">No</span></span>{#each stop.outside.changes as fact, index (index)}<span class="fact">{fact}</span>{/each}{#if stop.outside.changes.length > 0}<span class="note">Kiln changed nothing in that checkout, since it may hold other work too.</span>{/if}{#each stop.outside.missingTranscripts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+                <span class="check"><span class="check-head">{check.name}<span class="verdict">{stop.outside.missingTranscripts.length ? "Unable to verify" : "No"}</span></span>{#each stop.outside.changes as fact, index (index)}<span class="fact">{fact}</span>{/each}{#if stop.outside.changes.length > 0}<span class="note">Kiln changed nothing in that checkout, since it may hold other work too.</span>{/if}<WorkspaceEvidenceFacts facts={stop.outside.missingTranscripts} uncertain={stop.outside.missingTranscripts.length > 0} /></span>
               {:else}
-                <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+                <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? (check.facts.some(fact => fact.startsWith("Workspace uncertainty accepted")) ? "Accepted uncertainty" : "Yes") : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
               {/if}
             </li>
           {/each}
         </ul>
+        <WorkspaceUncertainty {stop} {busy} />
         {#if stop.outside?.confirmation.offered}
           <label for="outside-dealt-with" class="confirm">
             <input id="outside-dealt-with" type="checkbox" checked={stop.outside.confirmation.ticked} onchange={toggleConfirmation} />

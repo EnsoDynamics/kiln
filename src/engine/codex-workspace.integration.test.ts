@@ -1,12 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Codex-specific evidence drives the existing phase/PR verdict and persisted confirmation.
-import { appendFileSync, rmSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { readPrdRecord, writeSessionRecord } from "../state/records.js";
 import { buildSnapshot } from "./snapshot.js";
+import { git } from "../test-support/git-repositories.js";
 
 let harness: Harness | undefined;
 let history: ReturnType<typeof historyFixture> | undefined;
@@ -77,4 +79,77 @@ it("pull-request Check again reads new authoritative evidence before it can fini
   expect(h.engine.record.completedAt).toBeUndefined();
   expect(facts.stop!.checks.map(check => [check.name, check.passed])).toEqual([["Pull request open", true], ["Stayed in the workspace", false]]);
   expect(h.claudeCalls()).toHaveLength(4);
+});
+
+it("accepts only explicitly acknowledged uncertainty, persists it, and invalidates it on new history", async () => {
+  harness = await createHarness({ sessions: [{ actions: [] }] });
+  await harness.engine.start({ refinementConfirmed: true }); await harness.engine.settled();
+  history = historyFixture(); const f = history; const h = harness;
+  Object.assign(h.tools, { codex: f.options.executable });
+  h.env.KILN_CODEX_HISTORY_FIXTURE = f.options.env.KILN_CODEX_HISTORY_FIXTURE;
+  h.engine.record.settings.agentId = "codex";
+  h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+  const facts = h.engine.record.phases["1"]!; const id = facts.sessionIds[0]!;
+  const session = h.engine.sessionRecord("1", id)!; session.agentId = "codex";
+  session.conversation = { threadId: "parent", codexHome: f.codexHome }; writeSessionRecord(h.stateDirectory, session);
+  f.addThread("parent", { target: join(h.engine.worktreePath, "inside.txt") });
+  f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "unknown", input: "unrecognizedHelper();", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+  const first = await h.engine.readWorkspaceEvidence("1"); facts.stop!.checks = [first.check];
+  expect(first.passed).toBe(false);
+  expect(h.engine.setOutsideConfirmation(true).ok).toBe(false);
+  expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty).toEqual({ offered: true, ticked: false });
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).check).toMatchObject({ passed: true, facts: [expect.stringContaining("Workspace uncertainty accepted")] });
+  expect(facts.codexAudits![id]!.coverage).toBe("inconclusive");
+  h.reopenFromDisk();
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(true);
+  appendFileSync(f.state.threads.parent!.metadata.path, f.record("event_msg", { type: "agent_message", message: "Later manual work" }));
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
+  expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty?.ticked).toBe(false);
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(true);
+  expect(h.engine.setOutsideConfirmation(false, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  // A newly discovered child invalidates acceptance; known outside changes remain separate.
+  f.addThread("child", { parent: "parent", target: join(f.outside, "child-write.txt") });
+  f.state.threads.parent!.turns[0]!.items.push({ id: "child-activity", type: "subAgentActivity", agentThreadId: "child", kind: "started" }); f.save();
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).changes).toHaveLength(1);
+  expect(h.engine.setOutsideConfirmation(true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(true);
+  expect(h.engine.setOutsideConfirmation(false, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).changes).toEqual([]);
+  expect((await h.engine.readWorkspaceEvidence("1")).transcripts).toHaveLength(1);
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  expect(h.engine.setOutsideConfirmation(false).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).transcripts).toEqual([]);
+  expect((await h.engine.readWorkspaceEvidence("1")).changes).toHaveLength(1);
+  expect(h.engine.setOutsideConfirmation(true).ok).toBe(true);
+  // A separate implementation session contributes its own audit and acknowledgment.
+  f.addThread("second", { target: join(h.engine.worktreePath, "second-inside.txt") });
+  f.append("second", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "second-unknown", input: "unknownHelper();", internal_chat_message_metadata_passthrough: { turn_id: "second-turn-0" } }));
+  const second = structuredClone(session); second.sessionId = randomUUID(); second.conversation = { threadId: "second", codexHome: f.codexHome };
+  writeSessionRecord(h.stateDirectory, second); h.engine.record.phases["1"]!.sessionIds.push(second.sessionId);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
+  expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty?.ticked).toBe(false);
+  expect(h.engine.setOutsideConfirmation(true, true).ok).toBe(true);
+  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(true);
+  // Accepting uncertainty cannot close, commit or push unfinished work.
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+  expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.stop!.checks.find(check => check.name === "Phase doc closed")?.passed).toBe(false);
+  expect(h.engine.record.phases["1"]!.stop!.checks.find(check => check.name === "Stayed in the workspace")).toMatchObject({ passed: true, facts: [expect.stringContaining("Workspace uncertainty accepted")] });
+  const phasePath = join(h.engine.worktreePath, "docs/prds/customer-returns/phase-1-return-intake.md");
+  writeFileSync(phasePath, readFileSync(phasePath, "utf8").replace("\n", "\n\n**Closed:** 2026-10-30\n"));
+  git(h.sandbox, h.engine.worktreePath, "add", "docs/prds/customer-returns/phase-1-return-intake.md");
+  git(h.sandbox, h.engine.worktreePath, "commit", "-m", "Complete first phase");
+  git(h.sandbox, h.engine.worktreePath, "push", "origin", "HEAD");
+  // Retain a requested pause so advancing proves completion without dispatching a new model turn.
+  h.engine.record.pause.requestedAt = new Date().toISOString();
+  await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+  expect(h.engine.record.phases["1"]!.doneAt, JSON.stringify(h.engine.record.phases["1"]!.stop)).toBeDefined();
+  expect(h.engine.record.pause.activeSince).toBeDefined();
+  expect(h.claudeCalls()).toHaveLength(1);
 });
