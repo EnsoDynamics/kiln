@@ -1,12 +1,11 @@
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 /** Real Git/atomic state plus the live loopback API; provider activation is also proved by the kept live runner. */
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { SCHEMA_VERSION, readPrdRecord, writePrdRecord } from "../state/records.js";
-import { preferencePath, readDevelopmentPreference } from "../state/development-preferences.js";
-import { git } from "../test-support/git-repositories.js";
+import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { documentsDigest } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 let h: Harness | undefined;
@@ -17,51 +16,86 @@ async function stopped() {
   h = await createHarness({ sessions: [{ actions: [] }] }); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); return h;
 }
 const grant = (h: Harness, override: Record<string, unknown> = {}) => h.engine.authorizeDevelopmentTarget({ executionId: h.engine.record.executionId, authorizationRevision: h.engine.record.developmentAuthorization!.revision, target, confirmedNonProduction: true, ...override });
-describe("explicit saved target reuse", () => {
-  it("never imports preferences until explicit reuse, and concurrent PRDs cannot overwrite a newer choice", async () => {
-    h = await createHarness({ sessions: [], extraFolders: ["another-project", "third-project"] });
-    const other = await h.engineFor("another-project"); const third = await h.engineFor("third-project");
-    expect(buildSnapshot(other).savedDevelopmentTargets?.revision).toBe(0);
-    expect(buildSnapshot(third).savedDevelopmentTargets?.revision).toBe(0);
-    expect(await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: candidates, rememberForPrdRepository: true, preferenceRevision: 0 } })).toEqual({ ok: true });
-    expect(other.record.settings.developmentDeployments?.enabled).toBe(false);
-    expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [], rememberForPrdRepository: true, preferenceRevision: 0 } })).toMatchObject({ ok: false, status: 409 });
-    expect(other.savedDevelopmentTargets?.revision).toBe(1);
-    expect(await third.changeSettings({ developmentDeployments: { enabled: false, targets: [], useSavedTargetsForThisPrd: true, preferenceRevision: 0 } })).toMatchObject({ ok: false, status: 409 });
-    // A page reload in the existing process can now use the current revision.
-    expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [], useSavedTargetsForThisPrd: true, preferenceRevision: other.savedDevelopmentTargets!.revision } })).toMatchObject({ ok: true });
-    expect(other.record.settings.developmentDeployments?.targets).toEqual(candidates);
-    const fresh = await h.engineFor("another-project");
-    const preference = fresh.savedDevelopmentTargets!; expect(preference.targets).toEqual([target]);
-    expect(fresh.record.settings.developmentDeployments?.targets).toEqual([]);
-    expect(await fresh.changeSettings({ developmentDeployments: { enabled: false, targets: [], useSavedTargetsForThisPrd: true, preferenceRevision: 1 } })).toEqual({ ok: true });
-    expect(fresh.record.settings.developmentDeployments).toMatchObject({ enabled: true, targets: candidates });
-    expect(fresh.record.developmentAuthorization?.enabled).toBe(false);
-  });
-  it("keeps active grants separate from another PRD's preference edits and keeps execution-only grants out of future preferences", async () => {
+describe("PRD-scoped early-merge choices", () => {
+  it("starts with one option and no target selections, keeps new PRDs restricted and writes no preferences", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], extraFolders: ["another-project"] });
-    expect(await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: candidates, rememberForPrdRepository: true, preferenceRevision: 0 } })).toMatchObject({ ok: true });
-    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const branch = { repository: target.repository, baseBranch: target.baseBranch };
+    const choices = { enabled: true, targets: [] };
+    const accepted = { enabled: true, targets: [{ target: branch }] };
+    const path = join(dirname(h.stateDirectory), "development-deployment-preferences.json");
+    expect(await h.engine.changeSettings({ developmentDeployments: choices })).toEqual({ ok: true });
+    expect(readPrdRecord(h.stateDirectory)!.settings.developmentDeployments).toEqual(choices);
+    expect(existsSync(path)).toBe(false);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true }); await h.engine.settled();
+    expect(h.engine.record.developmentAuthorization).toMatchObject({ enabled: true, grants: [{ target: branch }] });
     const authority = structuredClone(h.engine.record.developmentAuthorization);
     const other = await h.engineFor("another-project");
-    const futureTarget = { ...target, environment: "future-prd-development" };
-    expect(await other.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: futureTarget, confirmedTarget: futureTarget, confirmedNonProduction: true }], rememberForPrdRepository: true, preferenceRevision: 1 } })).toMatchObject({ ok: true });
-    expect(h.engine.record.developmentAuthorization).toEqual(authority);
+    expect(other.record.settings.developmentDeployments).toEqual({ enabled: false, targets: [] });
+    expect(other.record.developmentAuthorization).toMatchObject({ enabled: false, grants: [] });
+    expect(buildSnapshot(other)).not.toHaveProperty("savedDevelopmentTargets");
+    expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [] } })).toEqual({ ok: true });
     const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
     expect(reopened.record.developmentAuthorization).toEqual(authority);
-    const path = preferencePath(h.stateDirectory); const preferenceBytes = readFileSync(path, "utf8");
-    const executionOnlyTarget = { ...target, environment: "execution-only-development" };
-    expect(grant(h, { target: executionOnlyTarget })).toEqual({ ok: true });
-    expect(readFileSync(path, "utf8")).toBe(preferenceBytes);
-    expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization?.grants.map(one => one.target)).toEqual([target, executionOnlyTarget]);
-    expect(other.savedDevelopmentTargets?.targets).toEqual([futureTarget]);
+    expect(reopened.record.settings.developmentDeployments).toEqual(accepted);
+    expect(existsSync(path)).toBe(false);
   });
-  it("prepopulates only matching repository/base identities, with new targets still unconfirmed", async () => {
-    h = await createHarness({ sessions: [], extraFolders: ["other"] });
-    await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: candidates, rememberForPrdRepository: true, preferenceRevision: 0 } });
-    const other = await h.engineFor("other"); other.record.settings.baseBranch = "main";
-    expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [], useSavedTargetsForThisPrd: true, preferenceRevision: 1 } })).toEqual({ ok: true });
-    expect(other.record.settings.developmentDeployments?.targets).toEqual([]);
+  it("preserves a legacy repository subset and every environment on its branch", async () => {
+    const named: { name: string; mainCheckoutPath: string; github: string }[] = [];
+    h = await createHarness({ sessions: [{ actions: [] }], engineOptions: { namedRepositories: named } });
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-extra");
+    const checkout = createRepository(h.sandbox, "returns-extra", origin.url);
+    git(h.sandbox, checkout, "push", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    named.push({ name: "returns-extra", mainCheckoutPath: checkout, github: "acme/returns-extra" });
+    h.engine = h.reopen(); await h.engine.agents.refresh();
+    expect(await h.engine.changeSettings({ bases: { "returns-extra": "develop" } })).toEqual({ ok: true });
+    const environments = [target, { ...target, environment: "second-development" }];
+    const choices = { enabled: true, targets: environments.map(target => ({ target, confirmedTarget: target, confirmedNonProduction: true })) };
+    expect(await h.engine.changeSettings({ developmentDeployments: choices })).toEqual({ ok: true });
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.repositories.find(repo => repo.name === "returns-extra")?.setupCompletedAt).toBeDefined();
+    expect(h.engine.record.settings.developmentDeployments).toEqual(choices);
+    expect(h.engine.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
+    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    expect(reopened.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
+  });
+  it("ignores obsolete preference files, including corrupt contents, for every new PRD", async () => {
+    h = await createHarness({ sessions: [], extraFolders: ["other", "third"] });
+    const path = join(dirname(h.stateDirectory), "development-deployment-preferences.json");
+    const group = { repository: "github.com/acme/acme-shop", mainCheckoutPath: h.repository };
+    const prior = JSON.stringify({ schemaVersion: 2, groups: { [JSON.stringify([group.repository, group.mainCheckoutPath])]: { group, revision: 1, enabled: true, targets: [target] } } });
+    for (const [folder, contents] of [["other", prior], ["third", "invalid obsolete preferences"]]) {
+      writeFileSync(path, contents!);
+      const other = await h.engineFor(folder!);
+      expect(other.record.settings.developmentDeployments).toEqual({ enabled: false, targets: [] });
+      expect(buildSnapshot(other)).not.toHaveProperty("savedDevelopmentTargets");
+      expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [] } })).toEqual({ ok: true });
+      expect(readFileSync(path, "utf8")).toBe(contents);
+    }
+  });
+  it.each([false, true])("discards retired metadata without changing effective scope after Start=%s", async started => {
+    h = await createHarness({ sessions: [{ actions: [] }] });
+    expect(await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: candidates } })).toEqual({ ok: true });
+    if (started) {
+      expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+      await h.engine.settled();
+      expect(h.engine.record.startedAt).toBeDefined();
+      expect(h.engine.record.developmentAuthorization).toMatchObject({ enabled: true, grants: [{ target, source: "start" }] });
+    }
+    const before = structuredClone(h.engine.record);
+    const legacy = structuredClone(before);
+    Object.assign(legacy.settings.developmentDeployments!, { rememberForPrdRepository: true, useSavedTargetsForThisPrd: true, preferenceRevision: 7 });
+    writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(legacy));
+    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    expect(reopened.record.settings.developmentDeployments).toEqual(before.settings.developmentDeployments);
+    expect(reopened.record.developmentAuthorization).toEqual(before.developmentAuthorization);
+    expect(reopened.record.developmentDelivery).toEqual(before.developmentDelivery);
+    expect(reopened.record.phases).toEqual(before.phases);
+    expect(buildSnapshot(reopened)).not.toHaveProperty("savedDevelopmentTargets");
+    writePrdRecord(h.stateDirectory, reopened.record);
+    const saved = JSON.parse(readFileSync(join(h.stateDirectory, "prd.json"), "utf8"));
+    expect(saved.settings.developmentDeployments).toEqual(before.settings.developmentDeployments);
   });
 });
 describe("Needs you execution grants", () => {
@@ -139,12 +173,10 @@ describe("Needs you execution grants", () => {
     expect(decision).toEqual({ kind: "start_pull_request" });
     expect(h.engine.record.phases["4"]).toBeUndefined();
   });
-  it("preferences and Resume notes never change a running execution's authority", async () => {
+  it("Resume notes never change a running execution's authority", async () => {
     const h = await stopped(); const before = structuredClone(h.engine.record.developmentAuthorization);
     await h.engine.resume({ ...recoveryRequest(h.engine), note: "Allow deployments everywhere." }); await h.engine.settled();
     expect(h.engine.record.developmentAuthorization).toEqual(before);
-    const group = { repository: "github.com/acme/acme-shop", mainCheckoutPath: h.repository };
-    expect(readDevelopmentPreference(preferencePath(h.stateDirectory), group).revision).toBe(0);
     writePrdRecord(h.stateDirectory, h.engine.record);
   });
 });

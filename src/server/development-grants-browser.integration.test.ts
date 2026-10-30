@@ -12,8 +12,8 @@ import { join } from "node:path";
 let h: Harness | undefined; let engine: Engine | undefined; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
 afterEach(async () => { await chrome?.close(); await server?.close(); engine?.close(); await h?.cleanup(); chrome = undefined; server = undefined; engine = undefined; h = undefined; });
 const clickLabel = (text: string) => `[...document.querySelectorAll('label')].find(e => e.textContent.trim() === ${JSON.stringify(text)}).querySelector('input').click()`;
-describe("remembered targets and grant browser controls", () => {
-  it("explicitly saves/reuses separate API/web targets without granting the documents-only product repository, requires selection after branch edits, then grants another branch without an environment", async () => {
+describe("current PRD targets and grant browser controls", () => {
+  it("uses one checkbox for all listed branches, tracks base edits, and separately approves a repository added after Start", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], files: { "customer-returns-prd.md": "# PRD: Customer returns\n\n## Acceptance Criteria\n- [ ] **AC-RET-01 — Deliver API/web.** Verify development.\n", "technical-design.md": "# Technical Design\n\nAPI/web are separate from the documents-only product repository.\n", "phase-1-deliver.md": "# Phase 1: Deliver\n\n**Repositories:** returns-api, returns-web\n\n## Acceptance criteria covered\nAC-RET-01\n" } });
     const named = ["returns-api", "returns-web"].map(name => { const origin = createGithubOrigin(h!.sandbox, "acme", name); const mainCheckoutPath = createRepository(h!.sandbox, name, origin.url); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop"); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop:preview"); return { name, mainCheckoutPath, github: `acme/${name}` }; });
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
@@ -27,60 +27,62 @@ describe("remembered targets and grant browser controls", () => {
     chrome = await launchChrome(); let page = await chrome.open(server.address);
     await page.waitFor(`document.body.innerText.includes('Allow early merges')`);
     expect(await page.evaluate(`document.querySelector('.delivery input[type=text]') === null && !document.querySelector('.delivery').innerText.includes('non-production')`)).toBe(true);
+    expect(await engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop" } }] } })).toMatchObject({ ok: true });
+    await page.waitFor(`document.body.innerText.includes('keeps its earlier branch permissions')`);
+    expect(await page.evaluate(`document.querySelectorAll('.merge-target').length`)).toBe(1);
     await page.evaluate(clickLabel("Allow early merges"));
-    await page.waitFor(`document.querySelectorAll('.merge-target input').length === 3`);
+    await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === false);
+    await page.waitFor(`document.querySelectorAll('.merge-target').length === 0`);
+    await page.evaluate(clickLabel("Allow early merges"));
+    await page.waitFor(`document.querySelectorAll('.merge-target h4').length === 3`);
+    expect(await page.evaluate(`document.querySelectorAll('.delivery input[type=checkbox]').length`)).toBe(1);
+    expect(await page.evaluate(`document.querySelectorAll('.merge-target input').length`)).toBe(0);
     for (const name of ["returns-api", "returns-web"]) {
       await page.evaluate(`(() => { const input=document.querySelector('#base-${name}'); input.value='develop'; input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-      await page.waitFor(`[...document.querySelectorAll('.merge-target label')].some(e => e.textContent.trim() === 'Allow merging into ${name} / develop')`);
+      await page.waitFor(`[...document.querySelectorAll('.merge-target h4')].some(e => e.textContent.trim() === 'May merge into ${name} / develop')`);
     }
-    const labels = await page.evaluate<string[]>(`[...document.querySelectorAll('.merge-target label')].map(e => e.textContent.trim())`);
-    expect(labels, JSON.stringify(labels)).toContain("Allow merging into returns-api / develop");
-    for (const name of ["returns-api", "returns-web"]) {
-      await page.evaluate(clickLabel(`Allow merging into ${name} / develop`));
-      await waitFor(() => engine!.record.settings.developmentDeployments!.targets.some(one => one.target.repository.endsWith(name)));
-      await page.waitFor(`[...document.querySelectorAll('.merge-target input')].every(e => !e.disabled)`);
-    }
-    expect(engine.record.settings.developmentDeployments!.targets).toEqual(["returns-api", "returns-web"].map(name => ({ target: { repository: `github.com/acme/${name}`, baseBranch: "develop" } })));
-    // A configured base edit cannot carry approval onto the new branch.
     await page.evaluate(`(() => { const input=document.querySelector('#base-returns-api'); input.value='preview'; input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-    await page.waitFor(`document.querySelector('#base-returns-api').value === 'preview' && [...document.querySelectorAll('label')].some(e => e.textContent.trim() === 'Allow merging into returns-api / preview')`);
-    expect(await page.evaluate(`[...document.querySelectorAll('label')].find(e => e.textContent.trim() === 'Allow merging into returns-api / preview').querySelector('input').checked`)).toBe(false);
-    expect((await engine.start({ refinementConfirmed: true })).ok).toBe(false);
-    expect(engine.record.startedAt).toBeUndefined();
-    await page.evaluate(clickLabel("Allow merging into returns-api / preview"));
-    await waitFor(() => engine!.record.settings.developmentDeployments!.targets.some(one => one.target.baseBranch === "preview"));
-    await page.waitFor(`[...document.querySelectorAll('.merge-target input')].every(e => !e.disabled)`);
-    await page.evaluate(clickLabel("Remember these early-merge choices for future PRDs"));
-    await waitFor(() => engine!.savedDevelopmentTargets?.revision === 1);
-    const targets = structuredClone(engine.savedDevelopmentTargets!.targets);
-    expect(targets).toEqual([{ repository: "github.com/acme/returns-web", baseBranch: "develop" }, { repository: "github.com/acme/returns-api", baseBranch: "preview" }]);
-    await engine.changeSettings({ developmentDeployments: { enabled: false, targets: [] } });
+    await page.waitFor(`[...document.querySelectorAll('.merge-target h4')].some(e => e.textContent.trim() === 'May merge into returns-api / preview')`);
+    expect(engine.record.settings.developmentDeployments).toEqual({ enabled: true, targets: [] });
+    await page.evaluate(clickLabel("Allow early merges"));
+    await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === false);
+    await page.waitFor(`document.querySelectorAll('.merge-target').length === 0`);
+    await page.evaluate(clickLabel("Allow early merges"));
+    await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === true);
     await page.close(); page = await chrome.open(server.address);
-    await page.waitFor(`document.body.innerText.includes('Use these saved early-merge choices for this PRD')`);
+    await page.waitFor(`document.body.innerText.includes('All repository branches listed below are covered')`);
     expect(engine.record.developmentAuthorization?.enabled).toBe(false);
-    const savedDisclosure = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
-    expect(savedDisclosure).toContain("Choices are saved locally for PRDs in github.com/acme/acme-shop");
-    expect(savedDisclosure).toContain(h.repository);
-    expect(savedDisclosure).toContain("Each future PRD asks whether to reuse them; nothing is authorized automatically");
-    expect(savedDisclosure).toContain("github.com/acme/returns-api · preview");
-    await page.evaluate(clickLabel("Use these saved early-merge choices for this PRD"));
-    await waitFor(() => engine!.record.settings.developmentDeployments?.targets.length === 2);
-    await page.waitFor(`[...document.querySelectorAll('.merge-target input')].filter(input => input.checked).length === 2`);
+    const disclosure = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
+    expect(disclosure).not.toMatch(/Remember these|Use these saved|Choices are saved locally/);
+    const targets = [{ repository: "github.com/acme/acme-shop", baseBranch: "develop" }, { repository: "github.com/acme/returns-api", baseBranch: "preview" }, { repository: "github.com/acme/returns-web", baseBranch: "develop" }];
+    for (const retired of ["rememberForPrdRepository", "useSavedTargetsForThisPrd", "preferenceRevision"]) {
+      const response = await fetch(new URL("/api/settings", server.address), { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": engine.record.token, Origin: new URL(server.address).origin }, body: JSON.stringify({ developmentDeployments: { enabled: true, targets: engine.record.settings.developmentDeployments!.targets, [retired]: retired === "preferenceRevision" ? 1 : true } }) });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("Unknown development-deployment setting");
+    }
     // Compare actual rendered controls with Keep awake, so the original native-size/colour mismatch fails.
     expect(await page.evaluate(`[...document.querySelectorAll('.delivery input[type=checkbox]')].every(input => ['width', 'height', 'marginTop', 'marginLeft', 'accentColor'].every(property => getComputedStyle(input)[property] === getComputedStyle(document.querySelector('#awake'))[property]))`)).toBe(true);
     await page.evaluate(`if (!document.querySelector('#refined').checked) document.querySelector('#refined').click()`);
     await page.waitFor(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start')?.disabled === false`);
     await page.evaluate(`[...document.querySelectorAll('button')].find(e => e.textContent.trim() === 'Start').click()`);
     await engine.settled();
-    await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"] button')`, 20_000);
+    await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"]').innerText.includes('Authorized for this run')`, 20_000);
     expect(engine.record.developmentAuthorization?.grants.map(one => one.target)).toEqual(targets);
-    expect(await page.evaluate(`document.querySelector('article[aria-label="Early merges for returns-api"]').innerText`)).toContain("Authorized for this run");
+    expect(engine.record.settings.developmentDeployments?.targets.map(one => one.target)).toEqual(targets);
+    expect(await page.evaluate(`document.querySelectorAll('.merge-target button').length`)).toBe(0);
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-late");
+    const checkout = createRepository(h.sandbox, "returns-late", origin.url);
+    git(h.sandbox, checkout, "push", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    expect(await engine.addRepository("returns-late")).toMatchObject({ ok: true, added: true });
+    expect(engine.record.developmentAuthorization?.grants.map(one => one.target)).toEqual(targets);
+    await page.waitFor(`document.querySelector('article[aria-label="Early merges for returns-late"] button')`);
     const calls = h.claudeCalls().length;
-    await page.evaluate(`document.querySelector('article[aria-label="Early merges for acme-shop"] button').click()`);
-    await waitFor(() => engine!.record.developmentAuthorization!.grants.length === 3);
-    expect(engine.record.developmentAuthorization?.grants.at(-1)?.target).toEqual({ repository: "github.com/acme/acme-shop", baseBranch: "develop" });
+    await page.evaluate(`document.querySelector('article[aria-label="Early merges for returns-late"] button').click()`);
+    await waitFor(() => engine!.record.developmentAuthorization!.grants.length === 4);
+    expect(engine.record.developmentAuthorization?.grants.at(-1)?.target).toEqual({ repository: "github.com/acme/returns-late", baseBranch: "develop" });
     expect(h.claudeCalls()).toHaveLength(calls); expect(engine.record.phases["1"]?.stop).toBeDefined();
-    await page.waitFor(`document.querySelector('article[aria-label="Early merges for acme-shop"]').innerText.includes('Authorized for this run')`);
+    await page.waitFor(`document.querySelector('article[aria-label="Early merges for returns-late"]').innerText.includes('Authorized for this run')`);
     expect(await page.evaluate(`document.querySelector('.delivery input[type=text]') === null && !document.querySelector('.delivery').innerText.includes('non-production')`)).toBe(true);
     const handoff = await page.evaluate<string>(`document.querySelector('.handoff details pre').textContent`);
     expect(handoff).toContain("replaces earlier blanket restrictions");

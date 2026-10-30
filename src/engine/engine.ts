@@ -31,7 +31,6 @@ import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
-import { preferenceGroup, preferencePath, readDevelopmentPreference, saveDevelopmentPreference, type DevelopmentPreference } from "../state/development-preferences.js";
 import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
@@ -964,10 +963,6 @@ export class Engine {
     requireHistory(this.environment, hold.target.providerSessionId);
   }
 
-  get savedDevelopmentTargets(): DevelopmentPreference | undefined {
-    if (this.record.startedAt) return undefined;
-    return readDevelopmentPreference(preferencePath(this.stateDirectory), preferenceGroup(this.record.repository.github, this.paths.mainCheckoutPath));
-  }
 
   readonly agents: AgentInfo;
   readonly billing: BillingAuthority;
@@ -1231,7 +1226,15 @@ export class Engine {
       record.repositories = [...list, ...leftOut];
       repositoryCount = list.length;
       const at = this.now().toISOString();
-      try { validateStartTargets(record, list); } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
+      try {
+        const choices = record.settings.developmentDeployments;
+        if (choices?.enabled && choices.targets.length === 0) {
+          // The current checkbox covers the displayed repository/base pairs.
+          // Nonempty older selections retain their complete narrower scope.
+          choices.targets = list.map(repository => ({ target: normalizeMergeTarget({ repository: `github.com/${repository.github}`, baseBranch: repository.baseBranch }) }));
+        }
+        validateStartTargets(record, list);
+      } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
       record.executionId ??= randomUUID();
       if (!record.startedAt) record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
       record.developmentDelivery ??= emptyDevelopmentLedger();
@@ -1507,27 +1510,6 @@ export class Engine {
     };
     const fixedBases = [...(change.baseBranch !== undefined ? [this.paths.repositoryName] : []), ...Object.keys(change.bases ?? {})].filter(fixedBase);
     if (fixedBases.length > 0) return refuse(`The base of ${fixedBases.join(" and ")} is fixed: Kiln already made its branch.`);
-    if (change.developmentDeployments) {
-      const candidate = structuredClone(change.developmentDeployments);
-      const preference = this.savedDevelopmentTargets!;
-      if (candidate.useSavedTargetsForThisPrd) {
-        if (readDevelopmentPreference(preferencePath(this.stateDirectory), preference.group).revision !== preference.revision || candidate.preferenceRevision !== preference.revision) return refuse("Saved targets changed; reload Documents found before reuse.");
-        // The displayed exact saved identities are accepted only by this explicit choice.
-        if (!this.record.settings.developmentDeployments?.useSavedTargetsForThisPrd) {
-          candidate.enabled = preference.enabled;
-          candidate.targets = preference.targets.filter(target => this.plannedRepositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && target.baseBranch === baseFor(repo, this.record.settings, this.workspaceFixed))).map(target => target.environment === undefined ? { target } : { target, confirmedTarget: target, confirmedNonProduction: true });
-        }
-      }
-      if (candidate.rememberForPrdRepository) {
-        if (candidate.preferenceRevision !== preference.revision) return refuse("Saved targets changed; reload Documents found before saving.");
-        try {
-          validateStartTargets({ ...this.record, settings: { ...this.record.settings, developmentDeployments: candidate } }, this.plannedRepositories.map(repo => ({ github: repo.github, baseBranch: baseFor(repo, this.record.settings, this.workspaceFixed) })));
-          const savedPreference = saveDevelopmentPreference(preferencePath(this.stateDirectory), { ...preference, enabled: candidate.enabled, targets: candidate.enabled ? candidate.targets.map(one => normalizeMergeTarget(one.target)) : [] }, candidate.preferenceRevision);
-          candidate.preferenceRevision = savedPreference.revision;
-        } catch (error) { return { ok: false, status: error instanceof DeliveryRefusal ? error.status : 409, reason: (error as Error).message }; }
-      }
-      change = { ...change, developmentDeployments: candidate };
-    }
     if (change.agentId !== undefined) {
       try { assertAgent(change.agentId); } catch { return { ok: false, status: 400, reason: "Unknown agent." }; }
     }

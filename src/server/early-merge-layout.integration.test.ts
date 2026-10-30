@@ -23,10 +23,11 @@ it.each([390, 1280])("shows branch cards without environment inputs at %s pixels
   if (!server) throw new Error("No local browser proof port available");
   chrome = await launchChrome();
   const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW });
-  await page.waitFor(`document.querySelector('.merge-target label')`);
+  await page.waitFor(`document.querySelector('.merge-target h4')`);
   const words = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
   expect(words).toContain("Allow early merges");
-  expect(words).toContain("Allow merging into pricing / develop");
+  expect(words).toContain("May merge into pricing / develop");
+  expect(await page.evaluate(`document.querySelectorAll('.delivery input[type=checkbox]').length`)).toBe(1);
   expect(await page.evaluate(`document.querySelector('.delivery input[type=text]') === null`)).toBe(true);
   expect(words).not.toContain("non-production");
   const capture = async (state: string) => {
@@ -36,7 +37,8 @@ it.each([390, 1280])("shows branch cards without environment inputs at %s pixels
     const folder = process.env.KILN_SCREENSHOTS;
     if (folder) { mkdirSync(folder, { recursive: true }); writeFileSync(join(folder, `early-merges-${state}-${width}.png`), await page.screenshot()); }
   };
-  expect(await page.evaluate(`document.querySelector('.merge-target:last-child input').disabled`)).toBe(true);
+  expect(await page.evaluate(`document.querySelectorAll('.merge-target input').length`)).toBe(0);
+  expect(words).toContain('Choose a base branch');
   await capture("setup");
   const stopped = needsYouMessageSnapshot();
   stopped.repositories = setup.repositories;
