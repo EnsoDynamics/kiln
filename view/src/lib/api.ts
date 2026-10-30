@@ -64,8 +64,8 @@ export const resumeNow = (config: PageConfig) => send(config, "POST", "/api/resu
 export const confirmOutside = (config: PageConfig, ticked: boolean) => send(config, ticked ? "POST" : "DELETE", "/api/outside-confirmation");
 
 /** A page of a session's output: the lines before `before` (all, when absent), at most `limit` (AC-WATCH-05, AC-WATCH-10). */
-export async function outputPage(config: PageConfig, sessionId: string, before?: number, limit = 200): Promise<{ lines: OutputLine[]; total: number }> {
-  const query = new URLSearchParams({ limit: String(limit), ...(before === undefined ? {} : { before: String(before) }) });
+export async function outputPage(config: PageConfig, sessionId: string, before?: number, limit = 200, executionId?: string): Promise<{ lines: OutputLine[]; total: number }> {
+  const query = new URLSearchParams({ ...(executionId ? { executionId } : {}), limit: String(limit), ...(before === undefined ? {} : { before: String(before) }) });
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/output?${query}`, { headers: { "X-Kiln-Token": config.token } });
   if (!response.ok) throw new Error(`Couldn't load the session's output: ${response.status} ${response.statusText}`);
   return (await response.json()) as { lines: OutputLine[]; total: number };
@@ -101,5 +101,19 @@ async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, act
     ...(action === "resume" ? note === undefined ? {} : { note } : { intent: action, ...(action === "advance" ? { withoutSendingReply: true } : {}) }),
   });
   if (!(!answer.ok && answer.uncertain)) handBackIds.delete(key);
+  return answer;
+}
+
+const continuationCommands = new WeakMap<PageConfig, Map<string, { commandId: string; statusToken: string }>>();
+/** A lost response retries the exact displayed proposal and original command identity. */
+export async function continueFeature(config: PageConfig, executionId: string, key: { proposalId: string } | { acceptanceId: string }): Promise<CommandAnswer> {
+  if (!config.controlToken) return { ok: false, reason: "Wait for a current status before continuing." };
+  let commands = continuationCommands.get(config);
+  if (!commands) { commands = new Map(); continuationCommands.set(config, commands); }
+  const identity = JSON.stringify([executionId, key]);
+  const command = commands.get(identity) ?? { commandId: crypto.randomUUID(), statusToken: config.controlToken };
+  commands.set(identity, command);
+  const answer = await send(config, "POST", "proposalId" in key ? "/api/continuation/accept" : "/api/continuation/retry", { ...key, executionId, ...command });
+  if (answer.ok || !answer.uncertain) commands.delete(identity);
   return answer;
 }

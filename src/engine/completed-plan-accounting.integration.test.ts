@@ -106,7 +106,8 @@ it("shows distinct external accounting above history in the actual browser at de
         expect(text).toContain("7 earlier completed · 7 new unfinished · 1 externally closed");
         expect(text.indexOf("Work completed outside this run")).toBeLessThan(text.indexOf("Earlier catalog delivery"));
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
-        expect(await page.evaluate("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with'))")).toBe(false);
+        expect(await page.evaluate("[...document.querySelectorAll('button')].filter(b => b.textContent.includes('Continue with')).map(b => b.disabled)")).toEqual([true]);
+        expect(h.claudeCalls()).toEqual([]);
         writeFileSync(`/tmp/kiln-comet-accounting-${width}.png`, await page.screenshot());
       } finally { await page.close(); }
     }

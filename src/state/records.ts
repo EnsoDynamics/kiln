@@ -1,3 +1,4 @@
+import { assertContinuationState } from "../engine/continuation-state.js";
 import { validLiveTarget } from "../live/target.js";
 import { assertBillingState, newBillingState, type BillingState } from "../billing/authority.js";
 import type { BillingSummary } from "../billing/inspection.js";
@@ -18,7 +19,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -237,6 +238,7 @@ export interface RepositoryEntry {
 }
 
 export interface PrdRecord {
+  continuation?: import("../engine/continuation-state.js").ContinuationState;
   completedPlanCheck?: import("../engine/completed-plan-discovery.js").CompletedPlanCheck;
   liveControl?: { version: 1; revision: number; takeover: import("../live/target.js").TakeoverHold };
   planReconciliation?: import("../engine/plan-reconciliation.js").PlanReconciliationState;
@@ -456,6 +458,7 @@ interface SchemaOnePhase {
  * into its map without changing conversation keys. Written as schema 4 at its next write.
  */
 export function migrateRecord(record: PrdRecord): PrdRecord {
+  assertContinuationState(record.continuation);
   if (record.liveControl && (record.liveControl.version !== 1 || !Number.isSafeInteger(record.liveControl.revision) || !validLiveTarget(record.liveControl.takeover?.target) || record.liveControl.takeover.target.executionId !== record.executionId || !record.liveControl.takeover.operationId || !record.liveControl.takeover.instructionId || !Number.isFinite(Date.parse(record.liveControl.takeover.requestedAt)) || !["pending", "released"].includes(record.liveControl.takeover.state))) throw new Error("Malformed takeover authority; no effects authorized.");
   if (record.controlEpoch !== undefined && typeof record.controlEpoch !== "string" || record.controlRevision !== undefined && (!Number.isSafeInteger(record.controlRevision) || record.controlRevision < 0) || record.controlFingerprint !== undefined && !/^[a-f0-9]{64}$/.test(record.controlFingerprint) || record.controlApplied !== undefined && (typeof record.controlApplied.operationId !== "string" || typeof record.controlApplied.outcome !== "string")) throw new Error("Malformed durable control metadata.");
   if (record.controlApplied?.settings && (typeof record.controlApplied.settings.keep_awake !== "boolean" || typeof record.controlApplied.settings.resume_after_usage_limit !== "boolean")) throw new Error("Malformed durable control settings.");
@@ -468,7 +471,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -546,6 +549,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
 }
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {
+  assertContinuationState(record.continuation);
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
   assertAgent(record.settings.agentId);

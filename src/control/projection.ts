@@ -5,7 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { recentSavedOutput } from "./logs.js";
-import { readWork } from "./private-state.js";
+import { readWork, retainedAliases } from "./private-state.js";
+import { writeDurableMetadata } from "./durable-file.js";
 import { sessionStorageKey } from "../state/records.js";
 import type { SessionRecord } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
@@ -104,6 +105,13 @@ export function cacheSnapshot(engine: Engine, snapshot: Snapshot): void {
   } finally { history.dispose(); }
 }
 /** Called only during controller startup, while kiln run owns its exclusive PRD lock. */
+export function bindExecutionAliases(engine: Engine): void {
+  const work = readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory);
+  const aliases = [...new Set([...retainedAliases(work).filter(path => !path.endsWith("-prd.md")), work.canonical, join(expandHome(engine.record.settings.worktreePath), engine.record.prdDirectory)])];
+  writeDurableMetadata(join(engine.stateDirectory, "inspection-aliases.json"), { version: 1, execution_id: engine.record.executionId, canonical: work.canonical, aliases: aliases.map(path => ({ path, provenance: "git_resolved_at_controller_start" })) });
+}
+
+/** Called under the controller's exclusive PRD lock at startup or execution rotation. */
 export function bindLegacySessions(engine: Engine): void {
   const bindings: Record<string, string> = {};
   for (const [phase, facts] of Object.entries(engine.record.phases)) for (const id of facts.sessionIds) {
@@ -112,7 +120,7 @@ export function bindLegacySessions(engine: Engine): void {
     if (session && (!session.executionId || session.executionId === engine.record.executionId) && session.createdAt >= (engine.record.startedAt ?? "") && session.sessionId === id) bindings[`${phase}/${id}`] = session.createdAt;
   }
   const path = join(engine.stateDirectory, "inspection-bindings.json");
-  if (Object.keys(bindings).length) writeJsonAtomically(path, { version: 1, execution_id: engine.record.executionId, sessions: bindings });
+  writeJsonAtomically(path, { version: 1, execution_id: engine.record.executionId, sessions: bindings });
 }
 function cached(work: SavedWork, deadline = Date.now() + 5000): InspectionCache | null {
   const path = join(work.directory, "inspection-view.json");

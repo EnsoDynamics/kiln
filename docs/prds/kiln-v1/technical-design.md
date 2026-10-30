@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Source Reconciliation → Completed feature discovery (completed-run current-plan checks only; fresh execution acceptance is separate).
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (coherent active/known-source document reads before advancement; unrelated startup checks remain skipped).
@@ -404,6 +406,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 ## Worktree and Branch Setup
 
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
+
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Settings before Start, §Setup at Start, §The workspace kept (defaults, field checks, setup and a failed Start, per repository)
 
 Done once, when Start is pressed on Documents found, and the only Git state Kiln ever changes (AC-GIT-01): the feature branch and its worktree. The base check's fetch adds objects but moves no ref. Kiln never resets, stashes, cleans, force-pushes or deletes (AC-GIT-02).
@@ -636,6 +640,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (retained active-plan baselines and private schema 12).
 

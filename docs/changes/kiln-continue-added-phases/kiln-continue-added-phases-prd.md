@@ -53,20 +53,23 @@ The completed page becomes the starting point for additional work. The person se
 Kiln must use the revised requirements and current code. An old merged branch or old audit result must not make new work appear finished.
 
 - [ ] **AC-CONTINUE-01 — Earlier completion stays intact.** Starting additional work preserves earlier phase results, session history, delivery links and completion times, while the overall feature becomes active again. It does not resume the old finished conversation or rerun completed phases. Added phases already completed elsewhere are accepted only through applicable existing completion checks; a Closed line alone is insufficient.
-- [ ] **AC-CONTINUE-02 — Continuation uses a ready plan and current delivery base.** A previously finished run restarts from the current configured delivery base with the revised PRD, design and phase documents committed together. Prerequisites in every affected repository follow the table below. A documented prerequisite integration is not an invalid plan merely because that earlier phase is not yet in the delivery base. Unrelated changes and other sessions’ work remain intact; no manual state-file deletion or recreation of the old branch/worktree is required. (CONTINUE-002.)
+- **AC-CONTINUE-02 — retired, split into AC-CONTINUE-06 and AC-CONTINUE-07.**
+- [ ] **AC-CONTINUE-06 — Continuation starts from the current delivery base.** A previously finished run restarts from the current configured delivery base with the revised PRD, design and phase documents committed together. When earlier prerequisites are integrated and verified in every affected repository, Kiln starts the next unfinished phase. Unrelated changes and other sessions’ work remain intact; no manual state-file deletion or recreation of the old branch/worktree is required. (CONTINUE-002.)
   - Replaces in part: AC-START-07 in [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md) (an accepted continuation of a finished run uses a fresh execution workspace and branch rather than reusing the old delivered ones; phases within each execution still share its branch and workspace).
   - Replaces in part: AC-SPACE-01 and AC-PRS-04 in [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md) (workspace, branch and current base bindings are established for the fresh continuation execution; existing setup protections and repository/merge/deployment permission boundaries remain).
+- [ ] **AC-CONTINUE-07 — Kiln prepares prerequisites before dependent implementation.** When the next phase explicitly includes preparation using an identified, available source and existing permissions authorize it, Kiln starts that phase with the preparation, verifies its outcome, then begins dependent implementation. A documented prerequisite integration is not an invalid plan merely because that earlier phase is not yet in the delivery base. The person does not have to perform that preparation first. Prerequisites in every affected repository follow the table below.
 
   | Prerequisite condition | Continuation behavior |
   |---|---|
-  | Earlier work integrated and verified | Start the next unfinished phase. |
+  | Earlier work integrated and verified | Start the next unfinished phase, under AC-CONTINUE-06. |
   | Next phase explicitly includes preparation using an identified, available source, and existing permissions authorize it | Start that phase with the preparation, verify its outcome, then begin dependent implementation. Do not require the person to perform that preparation first. |
   | Source, authority or safe workspace unavailable; preparation cannot complete | Explain the specific blocker and recovery action; do not begin dependent implementation or claim completion. |
 
 - [x] **AC-CONTINUE-03 — Ambiguous changes are not treated as additions.** If previously completed phase identities are removed, reused, reopened or materially changed so earlier completion cannot be safely carried forward, Kiln shows the affected phases and asks for the plan to be reconciled. Mere renaming, formatting or unchanged historical closure metadata does not trigger a rerun. The first release supports adding work to an intact completed plan; it does not decide which earlier implementation to undo.
-- [ ] **AC-CONTINUE-04 — Existing controls still govern the work.** Both Claude Code and Codex use the existing agent/model settings, billing restrictions, pause/resume behavior, workspace protections and repository/deployment permissions. Continue authorizes running the displayed additional plan; it does not grant broader merge, production or spending authority. New repositories pass the existing setup/authorization checks before work in them starts.
+- **AC-CONTINUE-04 — retired, split into AC-CONTINUE-08 and AC-CONTINUE-09.**
+- [ ] **AC-CONTINUE-08 — Existing controls still govern the work.** Both Claude Code and Codex use the existing agent/model settings, billing restrictions, pause/resume behavior, workspace protections and repository/deployment permissions. Continue authorizes running the displayed additional plan; it does not grant broader merge, production or spending authority. New repositories pass the existing setup/authorization checks before work in them starts.
 
-  When planned preparation requires an uncovered delivery-base target, the completed page offers the existing **Authorize early merges** action before Continue, showing the exact repository/branch and warning that its existing CI/CD may run before the PRD finishes. Authorization applies only to the proposed fresh run, changes no saved preference and starts no work; Continue remains a separate choice.
+- [ ] **AC-CONTINUE-09 — Early-merge permission is a separate choice.** When planned preparation requires an uncovered delivery-base target, the completed page offers the existing **Authorize early merges** action before Continue, showing the exact repository/branch and warning that its existing CI/CD may run before the PRD finishes. Authorization applies only to the proposed fresh run, changes no saved preference and starts no work; Continue remains a separate choice.
   - Replaces in part: AC-PERMIT-05 in [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md) (the existing target-grant action is also available before accepting a completed-feature continuation; its scope, disclosure and separate resume/continue behavior remain).
 - [ ] **AC-CONTINUE-05 — Additional work finishes through normal audits and delivery.** Once accepted, Kiln advances through eligible remaining phases and any completion phases its normal audits add, without requiring a new continuation click between them. Whole-PRD audit and final delivery evidence must cover the revised requirements and work. Earlier successful audits or merged PRs cannot satisfy completion for the new work. A new delivery is recorded alongside earlier deliveries when the current work meets the existing completion rules.
 
@@ -81,7 +84,7 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 | The phase 8 source cannot be accessed, or required preparation is not authorized | “7 new phases found”; explain the blocker, with continuation unavailable until resolved. |
 | Phase 8 subsequently integrated and verified complete; phases 9–15 unfinished | “7 new phases found”; eight completed, fifteen total; Continue with 7 phases, beginning at phase 9. |
 | Added phases saved locally but not committed in the delivery base | Show the additions as not ready and identify which documents must be committed/integrated. |
-| Earlier delivery has an open, unmerged PR | Apply AC-CONTINUE-02’s prerequisite rule, including authorized preparation when explicitly planned; do not silently extend the earlier PR. |
+| Earlier delivery has an open, unmerged PR | Apply AC-CONTINUE-06/07’s prerequisite rules, including authorized preparation when explicitly planned; do not silently extend the earlier PR. |
 | No new unfinished phase; only wording or assumption changes | No new phases; no implementation starts. |
 | Earlier completion cannot be reconciled, or a required source cannot be read | Explain the unresolved condition; do not offer an executable continuation. |
 
@@ -93,9 +96,9 @@ For a previously finished run, the same rules apply whether feedback adds one ph
 |---|---|
 | Return from manual session | An unfinished run accepts newly added work and automatically continues after the current phase passes; AC-HANDBACK-01/02/03/04. |
 | New phases | Comet Library’s ready-to-prepare scenario, with phase 9 integrating phase 8; AC-FIND-03, AC-OFFER-01/02. |
-| Missing prerequisite | Illustrative unavailable phase 8 source; AC-CONTINUE-02. |
-| Permission required | A planned delivery-base integration needs the existing target grant; authorizing updates readiness but work still waits for Continue; AC-CONTINUE-04. |
-| Continuing | Phase 9 active with the earlier delivery preserved; AC-CONTINUE-01/04/05. |
+| Missing prerequisite | Illustrative unavailable phase 8 source; AC-CONTINUE-07. |
+| Permission required | A planned delivery-base integration needs the existing target grant; authorizing updates readiness but work still waits for Continue; AC-CONTINUE-09. |
+| Continuing | Phase 9 active with the earlier delivery preserved; AC-CONTINUE-01/08/05. |
 | No new work | The completed view after an unchanged-plan check; AC-OFFER-02. |
 | Check failed | A failed source read with prior results labelled; AC-FIND-04. |
 

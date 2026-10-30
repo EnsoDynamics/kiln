@@ -9,12 +9,12 @@ import { dependencyIds, leavesOf } from "../plan/phase-plan.js";
 import type { PrdRecord } from "../state/records.js";
 import type { CompletionAccounting } from "./completed-plan-accounting.js";
 import { gitRead, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
-import { runGit, type GitContext } from "./git-reads.js";
+import { runGit, originBranches, type GitContext } from "./git-reads.js";
 import { PLAN_LIMIT, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { extractPreparation, type PreparationInstruction } from "./preparation-documents.js";
 const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 import { findRepository, repositoriesParent } from "./repositories.js";
-import { expandHome } from "./worktree-setup.js";
+import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
 export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean }
@@ -42,8 +42,10 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     if (!repo) {
       const found = await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
       if (!found.ok) { problems.push(found.problem); continue; }
-      const baseBranch = record.settings.bases[name];
-      if (!baseBranch) { problems.push(`Configure the delivery base for ${name} through repository setup, then check again.`); continue; }
+      const origin = await originBranches(git, found.repository.mainCheckoutPath);
+      if (!origin.ok) { problems.push(`Could not read ${name}'s delivery bases: ${origin.error}`); continue; }
+      const baseBranch = record.settings.bases[name] ?? defaultBaseBranch(origin.value);
+      if (!baseBranch) { problems.push(`Establish a configured delivery base for ${name}, then check again.`); continue; }
       repo = { ...found.repository, baseBranch };
     }
     const path = name === record.repository.name ? shared : expandHome(repo.mainCheckoutPath);
@@ -110,6 +112,12 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
         if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
         if (result.exitCode === 1) {
           let covered = false;
+          const retained = receipt?.repositories?.[name];
+          if (retained?.identity.toLowerCase() === repo.identity.toLowerCase() && retained.integration?.sourceRevision === revision && /^[a-f0-9]{40,64}$/.test(retained.integration.baseRevision)) {
+            const priorBase = await runGit(git, repo.path, ["merge-base", "--is-ancestor", retained.integration.baseRevision, repo.baseRevision]);
+            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${name}.`);
+            covered = priorBase.exitCode === 0;
+          }
           for (const checkpoint of record.developmentDelivery?.checkpoints ?? []) {
             const merge = checkpoint.merge;
             if (!merge || checkpoint.mergeUnresolvedReason || checkpoint.supersededBy || checkpoint.target.repository !== `github.com/${repo.identity}`.toLowerCase() || checkpoint.target.baseBranch !== repo.baseBranch || merge.sourceHead !== checkpoint.headSha || merge.mergedHead !== merge.sourceHead) continue;

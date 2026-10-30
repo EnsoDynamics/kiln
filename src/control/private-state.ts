@@ -122,6 +122,9 @@ export function retainedAliases(work: SavedWork): string[] {
   const path = join(work.directory, "inspection-aliases.json");
   if (!existsSync(path)) return [];
   const saved = privateJson<AliasRecord>(work.root, path);
-  if (saved.version !== 1 || saved.execution_id !== work.record.executionId || saved.canonical !== work.canonical || !Array.isArray(saved.aliases) || !saved.aliases.every(a => a.provenance === "git_resolved_at_controller_start" && typeof a.path === "string" && resolve(a.path) === a.path)) throw new ControlFailure("state_unavailable", "Saved PRD alias provenance is unavailable.");
+  // A crash may leave the preceding controller's path aliases after durable activation.
+  // They resolve this same PRD only; they confer no session or command authority.
+  const rotated = work.record.continuation?.acceptances.some(row => row.id === work.record.continuation!.currentAcceptanceId && row.state === "active" && row.completedExecutionId === saved.execution_id && row.newExecutionId === work.record.executionId);
+  if (saved.version !== 1 || saved.execution_id !== work.record.executionId && !rotated || saved.canonical !== work.canonical || !Array.isArray(saved.aliases) || !saved.aliases.every(a => a.provenance === "git_resolved_at_controller_start" && typeof a.path === "string" && resolve(a.path) === a.path)) throw new ControlFailure("state_unavailable", "Saved PRD alias provenance is unavailable.");
   return saved.aliases.flatMap(a => [a.path, join(a.path, `${basename(a.path)}-prd.md`)]);
 }

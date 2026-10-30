@@ -33,7 +33,7 @@ export interface PlanBaseline {
   active: PlanSource;
   sources: PlanSource[];
   /** References, not synthetic passing provider receipts. */
-  completions: Record<string, { kind: "kiln" | "external"; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string }> }>;
+  completions: Record<string, { kind: "kiln" | "external"; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string; integration?: { sourceRevision: string; baseRevision: string } }> }>;
 }
 export interface HandbackNotice { source: string; addedPhaseIds: string[]; remainingCount: number; acceptedAt: string }
 export interface PlanReconciliationState {

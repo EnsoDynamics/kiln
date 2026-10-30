@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { CompletedPlanCheck } from "../../../src/engine/completed-plan-discovery.js";
-  import type { PageConfig } from "../lib/api.js";
-  let { check, config, connected }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean } = $props();
+  import { continueFeature, type PageConfig } from "../lib/api.js";
+  import type { Snapshot } from "../../../src/engine/snapshot.js";
+  let { check, config, connected, acceptance }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"] } = $props();
   let pending = $state(false);
+  let continuing = $state(false);
+  let dismissed = $state<string>();
   let error = $state<string>();
   const earlier = $derived(check?.status === "failed" || check?.status === "checking");
   const result = $derived(earlier ? check?.earlierResult : check?.result);
@@ -20,6 +23,16 @@
     } catch (failure) { error = (failure as Error).message; }
     finally { pending = false; }
   }
+  async function accept(retry = false) {
+    if (!config || !connected || continuing) return;
+    const proposal = result?.proposal;
+    if (!retry && !proposal || retry && !acceptance) return;
+    continuing = true; error = undefined;
+    try {
+      const answer = await continueFeature(config, retry ? acceptance!.completedExecutionId : proposal!.completedExecutionId, retry ? { acceptanceId: acceptance!.id } : { proposalId: proposal!.id });
+      if (!answer.ok) error = answer.reason;
+    } finally { continuing = false; }
+  }
   // One mount/reload read. SSE reconnect and the clock never request another check.
   onMount(() => { void refresh(); });
 </script>
@@ -29,7 +42,17 @@
   {#if error}<p role="alert">{error}</p>{/if}
   {#if earlier}<p>Showing earlier results. The current phase count is unknown.</p>{/if}
   {#each check?.errors ?? [] as problem}<p class="problem">{problem}</p>{/each}
-  {#if result}
+  {#if acceptance && ["preparing", "blocked"].includes(acceptance.state)}
+    <h3>{acceptance.state === "preparing" ? "Preparing additional work" : "Preparation needs attention"}</h3>
+    {#if acceptance.reason}<p class="problem">{acceptance.reason}</p>{/if}
+    {#each acceptance.repositories as repository}<p>{repository.name}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
+    {#if acceptance.state === "blocked"}<button class="button" disabled={!connected || continuing || pending} onclick={() => accept(true)}>Retry preparation</button>{/if}
+    <p>The accepted plan is retained. Earlier delivery remains complete while preparation is reconciled.</p>
+  {/if}
+  {#if result && dismissed === result.proposal?.id}
+    <p>Additional work is available when you are ready.</p>
+    <button class="button" onclick={() => { dismissed = undefined; }}>Show continuation offer</button>
+  {:else if result}
     {#if result.added.length}
       <p>{earlier ? "Earlier result: " : ""}{result.added.length} new unfinished {result.added.length === 1 ? "phase" : "phases"}.</p>
       <ul>{#each result.added as phase}<li>Phase {phase.id} · {phase.title}</li>{/each}</ul>
@@ -42,6 +65,13 @@
         <p>{preparation.authorization === "phase_preparation" ? "Continue authorizes this preparation." : "Requires the existing early-merge target authorization for the fresh run."} Verify before implementation: {preparation.checks.map(check => check.command).join("; ")}.</p>
       {/each}
       {#each result.proposal.prerequisites.filter(row => row.status === "preparation_available") as prerequisite}<p>Phase {prerequisite.phaseId}: awaiting planned preparation; not yet integrated.</p>{/each}
+      {#if result.added.length}
+        <div class="actions">
+          <button class="button" type="button" disabled={!connected || !config || continuing || pending || earlier || result.proposal.readiness !== "ready" || result.proposal.prerequisites.some(row => row.status !== "integrated_verified") || acceptance?.state === "preparing"} onclick={() => accept()}>Continue with {result.added.length} {result.added.length === 1 ? "phase" : "phases"}</button>
+          <button class="button" type="button" disabled={!connected || continuing || pending || acceptance?.state === "preparing"} onclick={() => { dismissed = result.proposal!.id; }}>Not now</button>
+        </div>
+        {#if result.proposal.prerequisites.some(row => row.status === "preparation_available")}<p>Prerequisite preparation has not been performed and independently verified. Dependent implementation cannot start.</p>{/if}
+      {/if}
     {/if}
     {#if result.leaves}
       <p>{earlier ? "Earlier accounting: " : "Plan accounting: "}{carried} earlier completed · {result.added.length} new unfinished · {external.length} externally closed.</p>

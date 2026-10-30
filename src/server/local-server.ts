@@ -1,4 +1,7 @@
 import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
+import { readBaseline } from "../engine/plan-reconciliation.js";
+import { judgedPhase } from "../engine/plan-reading.js";
+import { executionDeliveries } from "../engine/continuation-state.js";
 import { randomUUID } from "node:crypto";
 import { type Action, type Receipt } from "../control/commands.js";
 import { sameRecoveryTarget, validRecoveryTarget } from "../engine/phase-recovery.js";
@@ -171,6 +174,38 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ authorization: engine.deliveryStatus().authorization }) : commandRefused(c, result);
   });
 
+  for (const action of ["accept", "retry"] as const) app.post(`/api/continuation/${action}`, async c => {
+    const body = await jsonBody(c); if (!body) return refuse(c, 400, "Use a JSON command object.");
+    try { const result = await engine.continuationCommand(action, body); return c.json(result, result.status); }
+    catch (error) { return c.json({ ok: false, code: error instanceof ControlFailure ? error.code : "state_unavailable", reason: (error as Error).message }, error instanceof ControlFailure && error.code === "invalid_input" || error instanceof ControlFailure && error.code === "command_id_conflict" ? 400 : 503); }
+  });
+  app.get("/api/continuation/acceptances/:id", c => {
+    const acceptance = engine.continuationAcceptance(c.req.param("id"));
+    return acceptance ? c.json({ acceptance }) : refuse(c, 404, "No retained acceptance has that identity.");
+  });
+  app.get("/api/executions", c => {
+    const rows = [...(engine.record.continuation?.executions ?? [])].reverse();
+    const cursor = c.req.query("cursor"); let start = 0;
+    if (cursor) {
+      const id = Buffer.from(cursor, "base64url").toString("utf8");
+      const index = rows.findIndex(row => row.executionId === id);
+      if (index < 0 || Buffer.from(id).toString("base64url") !== cursor) return refuse(c, 400, "Invalid execution cursor.");
+      start = index + 1;
+    }
+    const page = rows.slice(start, start + 100);
+    return c.json({ executions: page.map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }), nextCursor: start + 100 < rows.length ? Buffer.from(page.at(-1)!.executionId).toString("base64url") : null });
+  });
+  app.get("/api/executions/:id", c => {
+    const execution = engine.historicalExecution(c.req.param("id"));
+    if (!execution) return refuse(c, 404, "No execution has that identity.");
+    const record = execution.record;
+    const baseline = record.planReconciliation?.baselineId ? readBaseline(engine.stateDirectory, record.planReconciliation.baselineId) : undefined;
+    return c.json({ execution: { executionId: record.executionId, startedAt: record.startedAt, completedAt: record.completedAt, branch: record.settings.featureBranch, deliveries: executionDeliveries(record), pullRequests: record.pullRequests ?? [], phases: (record.plan ?? []).map(phase => {
+      const facts = Object.entries(record.phases).find(([key]) => judgedPhase(record.plan ?? [], key)?.id === phase.id)?.[1];
+      return { id: phase.id, title: phase.title, closed: phase.closed, doneAt: facts?.doneAt ?? baseline?.completions[phase.id]?.doneAt, sessions: facts?.sessionIds ?? [] };
+    }), sessions: Object.entries(record.phases).flatMap(([phaseKey, facts]) => facts.sessionIds.map(sessionId => ({ phaseKey, sessionId }))), activities: record.activities ?? [] } });
+  });
+
   app.get("/api/snapshot", (c) => c.json(snapshot()));
 
   app.get("/api/events", (c) =>
@@ -210,9 +245,13 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.get("/api/sessions/:sessionId/output", (c) => {
     const sessionId = c.req.param("sessionId");
-    const phaseKey = Object.entries(engine.record.phases).find(([, facts]) => facts.sessionIds.includes(sessionId))?.[0];
+    const executionId = c.req.query("executionId");
+    const execution = executionId ? engine.historicalExecution(executionId) : { record: engine.record };
+    if (!execution) return refuse(c, 404, "No execution has that identity.");
+    const phaseKey = Object.entries(execution.record.phases).find(([, facts]) => facts.sessionIds.includes(sessionId))?.[0];
     const session = phaseKey === undefined ? undefined : engine.sessionRecord(phaseKey, sessionId);
-    if (!session) return refuse(c, 404, "No session with that ID belongs to this PRD.");
+    const legacy = "legacyBindings" in execution ? execution.legacyBindings as import("../engine/continuation-state.js").CompletedExecution["legacyBindings"] : undefined;
+    if (!session || session.executionId && session.executionId !== execution.record.executionId || !session.executionId && executionId && executionId !== engine.record.executionId && (legacy?.version !== 1 || legacy.execution_id !== execution.record.executionId || legacy.sessions[`${phaseKey}/${sessionId}`] !== session.createdAt)) return refuse(c, 404, "No session with that ID belongs to this execution.");
     const lines = readOutputLines(engine.stateDirectory, session);
     const before = Number.parseInt(c.req.query("before") ?? "", 10);
     const limit = Math.min(Math.max(Number.parseInt(c.req.query("limit") ?? "", 10) || 200, 1), 1000);

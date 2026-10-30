@@ -50,7 +50,7 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
-  <CompletedPlanCheck check={snapshot.continuation?.check} {config} {connected} />
+  <CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} check={snapshot.continuation?.check} {config} {connected} />
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}

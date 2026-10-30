@@ -20,9 +20,13 @@ it("binds a stable integrated offer and changes identity when relevant base/sett
   expect((await h.engine.checkCompletedPlan()).result?.proposal?.id).toBe(proposal.id);
   writeFileSync(join(h.repository, "base-movement.txt"), "current base moved\n");
   git(h.sandbox, h.repository, "add", "base-movement.txt"); git(h.sandbox, h.repository, "commit", "-qm", "test: move delivery base"); f.publish();
-  expect((await h.engine.checkCompletedPlan()).result?.proposal?.id).not.toBe(proposal.id);
+  const beforeSettings = (await h.engine.checkCompletedPlan()).result!.proposal!;
+  expect(beforeSettings.id).not.toBe(proposal.id);
   h.engine.record.settings.keepAwake = !h.engine.record.settings.keepAwake;
-  expect((await h.engine.checkCompletedPlan()).result?.proposal?.id).not.toBe(proposal.id);
+  const stale = await h.engine.continuationCommand("accept", { proposalId: beforeSettings.id, commandId: "stale-settings", executionId: h.engine.record.executionId, statusToken: h.engine.controlView().token });
+  expect(stale).toMatchObject({ ok: false, status: 409, code: "proposal_changed" });
+  expect(h.engine.record.completedPlanCheck!.result!.proposal!.id).not.toBe(beforeSettings.id);
+  expect(h.engine.record.continuation).toBeUndefined();
   expect(h.claudeCalls()).toEqual([]);
 });
 it("keeps unavailable preparation blocked with exact recovery and no provider work", async () => {

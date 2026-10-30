@@ -9,7 +9,9 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 
 export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review"] as const;
 export type Action = typeof ACTIONS[number];
-export interface Instruction { command_id: string; execution_id: string; status_token: string; action: Action; inputs: Record<string, unknown> }
+const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry"] as const;
+export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
+export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
 export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
 export interface Receipt {
   message?: import("../live/target.js").LiveMessage;
@@ -27,8 +29,10 @@ export interface Receipt {
 export interface ControlView { token: string; target: string; controls: { name: Action; available: boolean; reason: string | null }[] }
 export interface ControlHost {
   execution(): string; view(): ControlView; runState(): string;
+  journalScope?(): { execution: string; commandIds: string[] } | undefined;
+  internalControl?(instruction: Instruction): { available: boolean; reason: string | null; alreadyApplied?: boolean };
   staleReason?(instruction: Instruction): string | undefined;
-  apply(action: Action, inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string }>;
+  apply(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string }>;
   reconcile(receipt: Receipt): Receipt | undefined;
   changed(): void;
 }
@@ -77,11 +81,31 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && (r.message === undefined || r.instruction.action === "message" && validLiveTarget(r.live_target) && r.message.text === r.instruction.inputs.text && typeof r.message.uuid === "string" && !!r.message.uuid && ["submitting", "submitted", "received", "not_sent", "uncertain"].includes(r.message.delivery) && [r.message.writeStartedAt, r.message.writeCompletedAt, r.message.writeSettledAt, r.message.receivedAt, r.message.resultAt, r.message.reviewedAt].every(v => v === undefined || Number.isFinite(Date.parse(v))))
     && [r.session_id, r.phase_key, r.attempt_id].every(v => v === undefined || typeof v === "string");
 }
-export function readReceipts(directory: string): Receipt[] {
+function validateInternalInstruction(raw: unknown): Instruction {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ControlFailure("invalid_input", "A command object is required.", 2);
+  const value = raw as Instruction;
+  const key = value.action === "continuation-accept" ? "proposal_id" : "acceptance_id";
+  if (!INTERNAL_ACTIONS.includes(value.action as typeof INTERNAL_ACTIONS[number]) || !value.inputs || Object.keys(value.inputs).join() !== key || typeof value.inputs[key] !== "string" || !(key === "proposal_id" ? /^[a-f0-9]{64}$/ : /^[\w.-]{1,128}$/).test(value.inputs[key] as string)) throw new ControlFailure("invalid_input", "Invalid internal continuation instruction.", 2);
+  validateInstruction({ ...value, action: "continue", inputs: {} });
+  return value;
+}
+function validateSavedInstruction(raw: Instruction): Instruction { return INTERNAL_ACTIONS.includes(raw.action as typeof INTERNAL_ACTIONS[number]) ? validateInternalInstruction(raw) : validateInstruction(raw); }
+function indexedReceipt(directory: string, id: string): Receipt | undefined {
+  if (!/^[\w.-]{1,128}$/.test(id)) throw new ControlFailure("invalid_input", "Invalid command ID.", 2);
+  const path = join(directory, "control-index", `${hash(id)}.json`);
+  if (!existsSync(path)) return undefined;
+  const link = privateJson<{ version: number; execution_id: string; command_id: string }>(dirname(dirname(directory)), path);
+  if (link.version !== 1 || link.command_id !== id || typeof link.execution_id !== "string" || !link.execution_id) throw new ControlFailure("state_unavailable", "Invalid command identity index.");
+  const saved = privateJson<{ checksum: string; receipt: Receipt }>(dirname(dirname(directory)), receiptPath(directory, link.execution_id, id));
+  const r = saved.receipt;
+  if (!validReceipt(r) || r.version !== 1 || r.command_id !== id || r.execution_id !== link.execution_id || r.instruction.command_id !== id || r.instruction.execution_id !== link.execution_id || !Number.isSafeInteger(r.sequence) || r.sequence < 1 || saved.checksum !== hash(r) || r.digest !== hash(validateSavedInstruction(structuredClone(r.instruction)))) throw new ControlFailure("state_unavailable", "Indexed command receipt is damaged.");
+  return r;
+}
+export function readReceipts(directory: string, executions?: string[]): Receipt[] {
   const base = join(directory, "controls"); if (!existsSync(base)) return [];
   checkedPath(dirname(dirname(directory)), base);
   const all: Receipt[] = []; const deadline = Date.now() + 5000;
-  for (const execution of readdirSync(base)) {
+  for (const execution of executions ? [...new Set(executions.map(hash))].filter(id => existsSync(join(base, id))) : readdirSync(base)) {
     if (!/^[a-f0-9]{64}$/.test(execution)) throw new ControlFailure("state_unavailable", "Malformed control journal directory.");
     checkedPath(dirname(dirname(directory)), join(base, execution));
     for (const file of readdirSync(join(base, execution))) {
@@ -89,7 +113,7 @@ export function readReceipts(directory: string): Receipt[] {
       if (Date.now() > deadline) throw new ControlFailure("state_unavailable", "Control journal scan deadline exceeded.");
       const saved = privateJson<{ checksum: string; receipt: Receipt }>(dirname(dirname(directory)), join(base, execution, file));
       const r = saved.receipt;
-      if (!validReceipt(r) || r.version !== 1 || saved.checksum !== hash(r) || !Number.isSafeInteger(r.sequence) || r.sequence < 1 || file !== `${hash(r.command_id)}.json` || execution !== hash(r.execution_id) || r.instruction.command_id !== r.command_id || r.instruction.execution_id !== r.execution_id || r.digest !== hash(validateInstruction(structuredClone(r.instruction)))) throw new ControlFailure("state_unavailable", "Control journal integrity or version is invalid; no effects authorized.");
+      if (!validReceipt(r) || r.version !== 1 || saved.checksum !== hash(r) || !Number.isSafeInteger(r.sequence) || r.sequence < 1 || file !== `${hash(r.command_id)}.json` || execution !== hash(r.execution_id) || r.instruction.command_id !== r.command_id || r.instruction.execution_id !== r.execution_id || r.digest !== hash(validateSavedInstruction(structuredClone(r.instruction)))) throw new ControlFailure("state_unavailable", "Control journal integrity or version is invalid; no effects authorized.");
       all.push(r);
     }
   }
@@ -104,7 +128,7 @@ export function receiptResult(canonical: string, r: Receipt, state: string, quer
 }
 export function lookupReceipt(directory: string, id: string): Receipt {
   if (!/^[\w.-]{1,128}$/.test(id)) throw new ControlFailure("invalid_input", "Invalid command ID.", 2);
-  const r = readReceipts(directory).find(r => r.command_id === id);
+  const r = indexedReceipt(directory, id) ?? readReceipts(directory).find(r => r.command_id === id);
   if (!r) throw new ControlFailure("command_not_found", "No saved instruction has this command ID.", 2);
   return r;
 }
@@ -113,13 +137,49 @@ export class CommandJournal {
   private applying: Receipt | undefined;
   private workers = new Set<Promise<void>>();
   private automaticDispatch: Receipt | undefined;
+  private indexed = false;
+  private sequence = 0;
   fault: string | undefined;
   constructor(readonly directory: string, readonly canonical: string, private host: ControlHost) {
-    this.receipts = readReceipts(directory);
+    const scope = host.journalScope?.();
+    this.indexed = !!scope;
+    if (scope && !existsSync(join(directory, "control-index"))) throw new ControlFailure("state_unavailable", "The execution command index is unavailable.");
+    this.receipts = readReceipts(directory, scope ? [scope.execution] : undefined);
+    if (scope) {
+      const cursor = privateJson<{ version: number; sequence: number }>(dirname(dirname(directory)), join(directory, "control-index", "sequence.json"));
+      if (cursor.version !== 1 || !Number.isSafeInteger(cursor.sequence) || cursor.sequence < 0) throw new ControlFailure("state_unavailable", "The command sequence cursor is damaged.");
+      this.sequence = cursor.sequence;
+    }
+    for (const id of scope?.commandIds ?? []) {
+      const r = indexedReceipt(directory, id);
+      if (!r) throw new ControlFailure("state_unavailable", "The originating continuation receipt is unavailable.");
+      if (!this.receipts.some(one => one.command_id === id)) this.receipts.push(r);
+    }
     for (const r of this.receipts.filter(pending)) this.reconcileOne(r);
   }
   all(): readonly Receipt[] { return this.receipts; }
-  has(id: string): boolean { return this.receipts.some(r => r.command_id === id); }
+  private find(id: string): Receipt | undefined {
+    const found = this.receipts.find(r => r.command_id === id);
+    if (found || !this.indexed) return found;
+    const r = indexedReceipt(this.directory, id);
+    if (r) this.receipts.push(r);
+    return r;
+  }
+  has(id: string): boolean { return !!this.find(id); }
+  /** Build direct identity lookups before the first execution rotates; not another journal. */
+  enableExecutionIndex(): void {
+    try { for (const r of this.receipts) this.index(r); this.sequence = Math.max(this.sequence, ...this.receipts.map(r => r.sequence)); this.saveSequence(); this.indexed = true; }
+    catch { this.fault = "The command identity index could not be saved. Restart before changing work."; throw new ControlFailure("state_unavailable", this.fault); }
+  }
+  rotateExecution(execution: string, operationId: string): void { this.receipts = this.receipts.filter(r => r.execution_id === execution || r.id === operationId); }
+  private index(r: Receipt): void { writeDurableMetadata(join(this.directory, "control-index", `${hash(r.command_id)}.json`), { version: 1, execution_id: r.execution_id, command_id: r.command_id }); }
+  private saveSequence(): void {
+    const directory = join(this.directory, "control-index");
+    if (existsSync(directory)) checkedPath(dirname(dirname(this.directory)), directory);
+    const path = join(directory, "sequence.json");
+    if (existsSync(path)) checkedPath(dirname(dirname(this.directory)), path);
+    writeDurableMetadata(path, { version: 1, sequence: this.sequence });
+  }
   get blocked(): boolean { return !!this.fault || this.receipts.some(r => pending(r) && r !== this.applying && !r.message); }
   get busy(): boolean { return !!this.applying || this.blocked; }
   get active(): Receipt | undefined { return this.applying; }
@@ -132,6 +192,7 @@ export class CommandJournal {
       checkedPath(dirname(dirname(this.directory)), parent);
       if (existsSync(path)) checkedPath(dirname(dirname(this.directory)), path);
       writeDurableMetadata(path, { checksum: hash(r), receipt: r });
+      if (this.indexed) this.index(r);
     }
     catch { this.fault = "A durable control write failed. Restart to reconcile before changing work."; throw new ControlFailure("state_unavailable", this.fault); }
   }
@@ -165,24 +226,42 @@ export class CommandJournal {
     receipt.stage = receipt.state === "indeterminate" ? "dispatching" : "settled";
     try { this.save(receipt); } finally { this.automaticDispatch = undefined; this.applying = undefined; }
   }
-  private nextSequence(): number { return this.receipts.reduce((max, r) => Math.max(max, r.sequence), 0) + 1; }
+  private nextSequence(): number {
+    this.sequence = this.receipts.reduce((max, r) => Math.max(max, r.sequence), this.sequence) + 1;
+    if (!Number.isSafeInteger(this.sequence)) throw new ControlFailure("state_unavailable", "The command sequence limit was reached.");
+    if (this.indexed) {
+      try { this.saveSequence(); }
+      catch { this.fault = "The command sequence could not be saved. Restart before changing work."; throw new ControlFailure("state_unavailable", this.fault); }
+    }
+    return this.sequence;
+  }
   lookup(id: string): Result {
-    const r = this.receipts.find(r => r.command_id === id);
+    const r = this.find(id);
     if (!r) throw new ControlFailure("command_not_found", "No saved instruction has this command ID.", 2);
     if (pending(r) && r !== this.applying && !r.message) this.reconcileOne(r);
     return receiptResult(this.canonical, r, this.host.runState(), true);
   }
   submit(raw: unknown, source: Receipt["source"] = "caller", matchStatusToken = false): Result {
-    const instruction = validateInstruction(raw); const digest = hash(instruction);
-    const old = this.receipts.find(r => r.command_id === instruction.command_id);
+    return this.submitValidated(validateInstruction(raw), source, matchStatusToken);
+  }
+  submitInternal(raw: unknown): Result { return this.submitValidated(validateInternalInstruction(raw), "caller", true); }
+  private submitValidated(instruction: Instruction, source: Receipt["source"], matchStatusToken: boolean): Result {
+    const digest = hash(instruction);
+    const old = this.find(instruction.command_id);
     if (old) {
       if (old.digest !== digest) throw new ControlFailure("command_id_conflict", "Command ID already belongs to different inputs. Do not reuse it for a new instruction.", 2);
       if (pending(old) && old !== this.applying && !old.message) this.reconcileOne(old);
       return receiptResult(this.canonical, old, this.host.runState());
     }
+    const internal = INTERNAL_ACTIONS.includes(instruction.action as typeof INTERNAL_ACTIONS[number]) ? this.host.internalControl?.(instruction) : undefined;
+    if (internal?.alreadyApplied) {
+      const at = new Date().toISOString(); const view = this.host.view();
+      const r: Receipt = { source, version: 1, sequence: this.nextSequence(), id: randomUUID(), command_id: instruction.command_id, execution_id: instruction.execution_id, digest, instruction, target: view.target, accepted_at: at, updated_at: at, state: "completed", stage: "settled", outcome: "continuation_replayed", reason: null, effects: { reply: "not_applicable", session: "not_started", plan: "not_advanced" }, reply_text: null, acknowledged_by: null };
+      this.save(r); this.receipts.push(r); return receiptResult(this.canonical, r, this.host.runState());
+    }
     for (const receipt of this.receipts.filter(r => pending(r) && r !== this.applying && !r.message)) this.reconcileOne(receipt);
     const view = this.host.view();
-    const control = view.controls.find(c => c.name === instruction.action)!;
+    const control = INTERNAL_ACTIONS.includes(instruction.action as typeof INTERNAL_ACTIONS[number]) ? this.host.internalControl?.(instruction) ?? { available: false, reason: "Internal control unavailable." } : view.controls.find(c => c.name === instruction.action)!;
     const unsent = this.unsent(view.target);
     const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."] : !control.available ? ["control_unavailable", control.reason!] : instruction.action === "verify-and-advance" && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
     if (refusal?.[0] === "stale_status_token") refusal[1] = this.host.staleReason?.(instruction) ?? refusal[1]!;

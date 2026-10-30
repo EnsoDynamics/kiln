@@ -121,6 +121,8 @@ A **multi-repository PRD** is one whose repositories number more than one, befor
 
 ## The Workspace
 
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted current-base continuation workspaces. Existing per-repository safety and delivery checks remain.
+
 ### Settings before Start (AC-SPACE-01, AC-REPO-03)
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (defaults and field checks, per repository)
@@ -145,6 +147,8 @@ After a Start that failed partway, a set-up repository's checks are as [Setup at
 The base check's `ls-remote --symref` and, when a tip isn't local, the objects-only fetch run once per repository, in parallel. Each repository's row shows its own "Couldn't reach origin" message.
 
 ### Setup at Start
+
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted current-base continuation workspaces. Existing per-repository safety and delivery checks remain.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (setup and a failed Start, per repository); `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (setup is done when every repository's is)
 

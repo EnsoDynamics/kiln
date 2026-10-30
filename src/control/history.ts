@@ -18,7 +18,7 @@ export function readHistory(work: SavedWork, activeId?: string, deadline = Date.
   const references = new Map(Object.entries(record.phases).map(([key, facts]) => [key, new Set(facts.sessionIds)]));
   const unread = (message: string) => errors.push(errorFact("state_unavailable", message));
   try {
-    for (const phase of privateEntries(root, directory, deadline)) {
+    for (const phase of record.continuation ? [] : privateEntries(root, directory, deadline)) {
       deadlineCheck(deadline);
       if (["output-snapshots", "audit", "audit-evidence", "delivery-evidence", "control", "controls", "live-attempts"].includes(phase) || !safeSelector(phase)) continue;
       const path = join(directory, phase);

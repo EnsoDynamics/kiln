@@ -1,3 +1,6 @@
+import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
+import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
+import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, type ContinuationAcceptance } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
@@ -9,7 +12,7 @@ import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, readReceipts, type Receipt, type Action, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -289,7 +292,7 @@ type ResumeRequest = { phaseKey: string; cause: "person_resume" | "limit_resume"
 
 export class Engine {
   readonly commands: CommandJournal;
-  private readonly controlEpoch = randomUUID();
+  private controlEpoch = randomUUID();
   private controlDispatch: Receipt | undefined;
   private controlKickPending = false;
   readonly record: PrdRecord;
@@ -419,6 +422,8 @@ export class Engine {
       },
     });
     this.commands = new CommandJournal(this.stateDirectory, resolve(this.record.repository.mainCheckoutPath, this.record.prdDirectory), {
+      journalScope: () => this.record.continuation ? { execution: this.record.executionId!, commandIds: this.record.continuation.acceptances.filter(row => row.id === this.record.continuation!.currentAcceptanceId).map(row => row.commandId) } : undefined,
+      internalControl: instruction => this.continuationControl(instruction),
       execution: () => this.record.executionId!, view: () => this.controlView(), runState: () => this.controlRunState(),
       staleReason: instruction => {
         const target = instruction.inputs.target;
@@ -496,7 +501,7 @@ export class Engine {
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
-      settings: !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
+      settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
       "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
     };
     const unavailable: Partial<Record<Action, string>> = {
@@ -509,12 +514,17 @@ export class Engine {
     };
     const controls = ACTIONS.map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
-    const fingerprint = { live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       outside: key && { checks: this.record.phases[key]?.stop?.checks, confirmations: this.record.phases[key]?.outsideConfirmations, codex: this.record.phases[key]?.codexConfirmations }, unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (["continuation-accept", "continuation-retry"].includes(receipt.instruction.action)) {
+      const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
+      const row = persisted?.continuation?.acceptances.find(row => receipt.instruction.action === "continuation-accept" ? row.commandId === receipt.command_id || row.completedExecutionId === receipt.execution_id && row.proposalId === receipt.instruction.inputs.proposal_id : row.id === receipt.instruction.inputs.acceptance_id && row.completedExecutionId === receipt.execution_id);
+      return { ...receipt, state: row ? "completed" : "failed", stage: "settled", outcome: row ? "continuation_accepted" : "not_applied", reason: row ? null : "No durable acceptance exists. Check the current plan before a fresh choice." };
+    }
     if (receipt.instruction.action === "message-review") {
       // Constructor reconciliation precedes Engine.commands assignment. Read the
       // same authoritative journal directly, never dispatch or replay a review.
@@ -569,7 +579,9 @@ export class Engine {
     return undefined;
   }
 
-  private async applyControl(action: Action, inputs: Record<string, unknown>, receipt: Receipt) {
+  private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
+    if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
+    if (action === "continuation-retry") return this.retryContinuation(inputs);
     let answer: CommandResult;
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
@@ -1447,6 +1459,7 @@ export class Engine {
    * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
    */
   async changeSettings(change: Partial<Settings>): Promise<CommandResult> {
+    if (this.settingUp) return refuse("Kiln is preparing the accepted workspace. Wait before changing settings.");
     if (this.checking && this.phaseRecoveryTarget()) return refuse("Kiln is checking or resuming this phase. Wait before changing settings.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
@@ -1968,6 +1981,159 @@ export class Engine {
     }
   }
 
+  private continuationReference(action: JournalAction, inputs: Record<string, unknown>, execution?: string) {
+    return this.record.continuation?.acceptances.find(row => (execution === undefined || row.completedExecutionId === execution) && (action === "continuation-accept" ? row.proposalId === inputs.proposal_id : row.id === inputs.acceptance_id));
+  }
+
+  private continuationControl(instruction: import("../control/commands.js").Instruction) {
+    const known = this.continuationReference(instruction.action, instruction.inputs, instruction.execution_id);
+    if (known && (instruction.action === "continuation-accept" || known.state === "active" || known.state === "superseded" || known.state === "preparing" && !!this.driving)) return { available: true, reason: null, alreadyApplied: true };
+    const available = this.currentlyComplete && !this.checking && !this.driving && !this.settingUp && !this.deliveryBusy && !this.stopping && !this.billing.busy && !this.billing.pending;
+    return { available, reason: available ? null : "Wait for the current operation and billing read to settle before continuing." };
+  }
+
+  continuationAcceptance(id?: string) {
+    const row = this.record.continuation?.acceptances.find(row => row.id === (id ?? this.record.continuation?.currentAcceptanceId));
+    if (!row) return undefined;
+    const acceptance = readAcceptance(this.stateDirectory, row.id);
+    return { ...row, repositories: acceptance.repositories.map(repo => ({ name: repo.name, worktreePath: repo.worktreePath, baseBranch: repo.baseBranch, baseRevision: repo.baseCommit, ready: !!repo.setupCompletedAt })), branch: acceptance.settings.featureBranch };
+  }
+
+  async continuationCommand(action: "accept" | "retry", body: Record<string, unknown>) {
+    const key = action === "accept" ? "proposalId" : "acceptanceId";
+    if (Object.keys(body).sort().join() !== [key, "commandId", "executionId", "statusToken"].sort().join() || typeof body[key] !== "string" || typeof body.commandId !== "string" || typeof body.executionId !== "string" || typeof body.statusToken !== "string") return { ok: false, status: 400 as const, code: "malformed_request", reason: "Use the displayed proposal/acceptance, execution, command ID and status token." };
+    const kind = action === "accept" ? "continuation-accept" : "continuation-retry";
+    const inputs = { [action === "accept" ? "proposal_id" : "acceptance_id"]: body[key] };
+    const replay = !!this.continuationReference(kind, inputs, body.executionId);
+    const answer = this.commands.submitInternal({ command_id: body.commandId, execution_id: body.executionId, status_token: body.statusToken, action: kind, inputs });
+    if (!answer.ok) return { ok: false, status: 409 as const, code: answer.errors[0]?.code ?? "wrong_state", reason: answer.errors[0]?.message ?? "The instruction was refused.", check: this.record.completedPlanCheck };
+    await this.commands.settled();
+    const settled = this.commands.lookup(body.commandId).operation as Receipt;
+    const row = this.continuationReference(kind, inputs, body.executionId);
+    if (settled.state !== "completed" || !row) return { ok: false, status: (settled.state === "indeterminate" || settled.outcome === "source_unavailable" ? 503 : ["prerequisite_blocked", "preparation_unverified"].includes(settled.outcome ?? "") ? 422 : 409) as 409 | 422 | 503, code: settled.outcome ?? "state_unavailable", reason: settled.reason ?? "The accepted instruction could not be settled; inspect the retained result before retrying.", check: this.record.completedPlanCheck };
+    return { ok: true, status: replay ? 200 as const : 202 as const, acceptance: this.continuationAcceptance(row.id) };
+  }
+
+  private saveContinuation(acceptance: ContinuationAcceptance): void {
+    this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
+    const state = this.record.continuation!;
+    const row = acceptanceSummary(acceptance);
+    const index = state.acceptances.findIndex(value => value.id === row.id);
+    if (index < 0) state.acceptances.push(row); else state.acceptances[index] = row;
+    this.writeContinuationMetadata(() => this.save());
+  }
+
+  private writeContinuationMetadata<T>(write: () => T): T {
+    try { return write(); }
+    catch (error) { this.commands.fault = "Continuation metadata could not be durably saved. Restart to reconcile before changing work."; throw error; }
+  }
+
+  private async acceptContinuation(inputs: Record<string, unknown>, receipt: Receipt): Promise<Extract<CommandResult, { ok: true }> | (Omit<Extract<CommandResult, { ok: false }>, "code"> & { code?: string })> {
+    const check = await this.checkCompletedPlanOwned();
+    const proposal = check.result?.proposal;
+    if (check.status === "failed") return { ok: false, status: 503, code: "source_unavailable", reason: check.errors.join(" ") || "Required plan sources are unavailable. Restore them and retry the check." };
+    if (!proposal || proposal.id !== inputs.proposal_id) return { ok: false, status: 409, code: "proposal_changed", reason: "The plan or delivery prerequisites changed. Review the refreshed offer and choose Continue again." };
+    if (check.status !== "available" || proposal.readiness !== "ready" || !proposal.added.length) return { ok: false, status: 422, code: "prerequisite_blocked", reason: proposal.problems.join(" ") || "No ready additional work is available." };
+    if (proposal.prerequisites.some(row => row.status !== "integrated_verified")) return { ok: false, status: 422, code: "preparation_unverified", reason: "Prerequisite preparation has not been performed and independently verified. Dependent implementation cannot start." };
+    const previous = this.record.continuation?.acceptances.find(row => row.completedExecutionId === this.record.executionId && row.state !== "superseded");
+    if (previous) {
+      if (previous.state !== "blocked") return refuse("An accepted continuation already owns preparation.");
+      const old = readAcceptance(this.stateDirectory, previous.id);
+      for (const repo of old.repositories) await validatePreparedWorkspace(this.git, old, repo.name);
+      old.state = "superseded"; this.saveContinuation(old);
+    }
+    bindLegacySessions(this);
+    const acceptance = this.writeContinuationMetadata(() => newAcceptance(this.record, this.stateDirectory, proposal, check.result!.candidateId, receipt, this.now().toISOString()));
+    this.commands.enableExecutionIndex();
+    this.record.continuation ??= { formatVersion: 1, journalIndexed: true, currentAcceptanceId: acceptance.id, acceptances: [], executions: [] };
+    this.record.continuation.currentAcceptanceId = acceptance.id;
+    this.saveContinuation(acceptance);
+    this.controlKickPending = true;
+    return { ok: true };
+  }
+
+  private async retryContinuation(inputs: Record<string, unknown>): Promise<Extract<CommandResult, { ok: true }> | (Omit<Extract<CommandResult, { ok: false }>, "code"> & { code?: string })> {
+    const row = this.record.continuation?.acceptances.find(row => row.id === inputs.acceptance_id && row.completedExecutionId === this.record.executionId && ["preparing", "blocked"].includes(row.state));
+    if (!row || row.id !== this.record.continuation?.currentAcceptanceId) return { ok: false, status: 409, code: "stale_acceptance", reason: "Select the current retained continuation preparation." };
+    const acceptance = readAcceptance(this.stateDirectory, row.id);
+    acceptance.state = "preparing"; delete acceptance.reason; this.saveContinuation(acceptance);
+    this.controlKickPending = true;
+    return { ok: true };
+  }
+
+  private pendingContinuation(): ContinuationAcceptance | undefined {
+    const state = this.record.continuation;
+    const row = state?.acceptances.find(row => row.id === state.currentAcceptanceId);
+    return row && row.completedExecutionId === this.record.executionId && row.state === "preparing" ? readAcceptance(this.stateDirectory, row.id) : undefined;
+  }
+
+  private async prepareContinuation(acceptance: ContinuationAcceptance): Promise<void> {
+    this.settingUp = true; this.changed();
+    acceptance.state = "preparing"; delete acceptance.activatedAt;
+    try {
+      const revalidate = async () => {
+        const check = await this.checkCompletedPlanOwned();
+        if (check.status !== "available" || check.result?.proposal?.id !== acceptance.proposalId) throw new Error("The accepted plan, source, settings or delivery base changed. Review the refreshed offer for a fresh choice; retained workspaces remain intact.");
+      };
+      await revalidate();
+      await prepareWorkspaces(this.git, acceptance, () => this.saveContinuation(acceptance), () => this.now().toISOString());
+      await revalidate();
+      for (const repo of acceptance.repositories) if (!await validatePreparedWorkspace(this.git, acceptance, repo.name)) throw new Error(`Prepared workspace disappeared: ${repo.worktreePath}. Retry its recorded setup.`);
+      const prd = acceptance.repositories.find(repo => repo.kind === "prd")!;
+      const source = observePlan(prd.worktreePath, this.record.prdDirectory);
+      if (source.digest !== acceptance.proposal.candidateDigest) throw new Error("The fresh workspace does not contain the accepted complete document set.");
+      const candidate = readBaseline(this.stateDirectory, acceptance.candidateId);
+      const accounting = this.record.completedPlanCheck?.result?.leaves ?? [];
+      const completions = { ...candidate.completions };
+      for (const row of accounting.filter(row => row.classification === "externally_verified")) completions[row.id] = { kind: "external", ...(row.completedAt ? { doneAt: row.completedAt } : {}), revision: row.repositories.find(repo => repo.repository === this.record.repository.name)!.revision, repositories: Object.fromEntries(row.repositories.map(repo => [repo.repository, { identity: repo.identity, revision: repo.revision! }])) };
+      // Preserve verified introduction across squash/rebase deliveries without inventing
+      // a phase/provider receipt. The immutable baseline binds source and accepted base.
+      for (const [id, completion] of Object.entries(completions)) {
+        if (!acceptance.proposal.prerequisites.some(row => row.phaseId === id && row.status === "integrated_verified")) continue;
+        const names = [...new Set([this.record.repository.name, ...candidate.active.plan.phases.filter(phase => phase.id === id || isAncestorOf(phase.id, id)).flatMap(phase => phase.repositories)])];
+        completion.repositories = { ...completion.repositories };
+        for (const name of names) {
+          const repo = acceptance.proposal.repositories.find(repo => repo.name === name);
+          const revision = completion.repositories[name]?.revision ?? (name === this.record.repository.name ? completion.revision : undefined);
+          if (!repo || !revision) throw new Error(`Verified completion ${id} lost its ${name} identity.`);
+          completion.repositories[name] = { identity: repo.identity, revision, integration: { sourceRevision: revision, baseRevision: repo.baseRevision } };
+        }
+      }
+      const { id: _candidateId, ...candidateBody } = candidate; void _candidateId;
+      const baseline = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, { ...candidateBody, active: source, completions }));
+      const old = this.record;
+      const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old) };
+      acceptance.state = "active"; acceptance.activatedAt = this.now().toISOString(); delete acceptance.reason;
+      this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
+      const continuation = structuredClone(old.continuation!);
+      continuation.acceptances = continuation.acceptances.map(row => row.id === acceptance.id ? acceptanceSummary(acceptance) : row);
+      if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
+      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: restrictedAuthorization(), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
+      this.billing.invalidate(false);
+      for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
+      Object.assign(old, active);
+      this.controlEpoch = randomUUID(); this.record.controlEpoch = this.controlEpoch;
+      this.plan = source.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.stayedOutcomes.clear(); this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
+      this.save();
+      this.commands.rotateExecution(acceptance.newExecutionId, acceptance.operationId);
+      bindExecutionAliases(this);
+      bindLegacySessions(this);
+      cacheSnapshot(this, inspectionSnapshot(this));
+    } catch (error) {
+      if (this.commands.fault || this.stopping || this.record.executionId === acceptance.newExecutionId) {
+        this.commands.fault ??= "Activation metadata is unresolved. Restart Kiln to rebuild inspection before dispatch.";
+        throw error;
+      }
+      acceptance.state = "blocked"; acceptance.reason = (error as Error).message; this.saveContinuation(acceptance);
+    } finally { this.settingUp = false; this.changed(); }
+  }
+
+  historicalExecution(id: string) {
+    if (id === this.record.executionId) return { record: this.record };
+    const summary = this.record.continuation?.executions.find(row => row.executionId === id);
+    return summary ? readExecution(this.stateDirectory, summary) : undefined;
+  }
+
   // ---- `kiln run` on a feature underway --------------------------------------------------
 
   /**
@@ -1978,6 +2144,11 @@ export class Engine {
     if (this.completedPlanReading) return this.completedPlanReading;
     if (!this.currentlyComplete) return Promise.reject(new AuditRefusal("wrong_activity", "Only a completed feature can check for added phases.", 409));
     if (this.commands.busy || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping) return Promise.reject(new AuditRefusal("busy", "Kiln is already checking or changing work.", 409));
+    return this.checkCompletedPlanOwned();
+  }
+
+  private checkCompletedPlanOwned(): Promise<CompletedPlanCheck> {
+    if (this.completedPlanReading) return this.completedPlanReading;
     this.checking = true;
     const previous = this.record.completedPlanCheck;
     const attemptedAt = this.now().toISOString();
@@ -1997,6 +2168,8 @@ export class Engine {
   }
 
   async prepare(): Promise<{ ok: true } | { ok: false; error: string }> {
+    const pending = this.pendingContinuation();
+    if (pending) await this.prepareContinuation(pending);
     if (this.record.completedAt) { if (this.currentlyComplete) await this.checkCompletedPlan(); return { ok: true }; }
     if (this.record.setupCompletedAt === undefined) {
       const setup = await this.finishSetup();
@@ -2184,6 +2357,8 @@ export class Engine {
   private async drive(): Promise<void> {
     const { record } = this;
     for (;;) {
+      const continuation = this.pendingContinuation();
+      if (continuation && !this.commands.blocked && !this.stopping) { await this.prepareContinuation(continuation); if (this.record.executionId === continuation.completedExecutionId) return; }
       if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
       if (this.requestedResume !== undefined) {
@@ -3352,6 +3527,7 @@ export class Engine {
     this.deliveryHistoryPending = true;
     this.deliveryHistoryError = undefined;
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(45_000)]);
+    const executionId = this.record.executionId;
     const reading = Promise.resolve().then(async () => {
       const repositories: NonNullable<PrdRecord["deliveryHistory"]>["repositories"] = [];
       for (const entry of this.setUpRepositories) {
@@ -3370,7 +3546,7 @@ export class Engine {
         history.problems.push(...missingRanges);
         repositories.push(history);
       }
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping || this.record.executionId !== executionId) return;
       this.record.deliveryHistory = { checkedAt: this.now().toISOString(), repositories };
       this.save();
     }).catch(error => { if (!this.closed && !this.stopping) this.deliveryHistoryError = `Delivery history unavailable: ${(error as Error).message}`; }).finally(() => {

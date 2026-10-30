@@ -4,6 +4,7 @@
   // address names ("HTTP API", the phase route). Once the view loses Kiln, every screen keeps
   // the last snapshot and says so ("Connection").
   import { onDestroy, onMount } from "svelte";
+  import ExecutionHistory from "./components/ExecutionHistory.svelte";
   import TopBar from "./components/TopBar.svelte";
   import type { PageConfig } from "./lib/api.js";
   import { Connection } from "./lib/connection.svelte.js";
@@ -105,6 +106,7 @@
     {:else}
       <Running {snapshot} {connected} {now} {lastSeenAt} />
     {/if}
+    {#key snapshot.continuation?.acceptance?.newExecutionId}<ExecutionHistory {snapshot} {config} {connected} />{/key}
   {/if}
 </div>
 
