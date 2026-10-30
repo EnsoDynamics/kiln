@@ -11,7 +11,7 @@ const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; 
 afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 
 describe("authoritative Codex conversation audit", () => {
-  it.each(["0.162.1", "0.165.0"])("reads historical evidence with qualified installed reader %s", async version => {
+  it.each(["0.162.1", "0.165.0", "0.165.1", "1.0.0", "9.0.0"])("reads historical evidence with eligible stable reader %s", async version => {
     const f = fixture();
     f.options.env.KILN_CODEX_HISTORY_VERSION = `codex-cli ${version}`;
     const path = f.state.threads.parent!.metadata.path;
@@ -22,14 +22,14 @@ describe("authoritative Codex conversation audit", () => {
     expect(result.operationsChecked).toBe(1);
     expect(f.calls().every(call => ["initialize", "thread/list", "thread/read", "thread/turns/list"].includes(call.method))).toBe(true);
   });
-  it.each(["codex-cli 0.165.1", "codex-cli 9.0.0", "codex-cli 0.165.0-dev", "unrecognized"])("rejects unqualified reader %s before history access", async version => {
+  it.each(["codex-cli 0.162.0", "codex-cli 0.165.0-dev", "unrecognized"])("rejects old or unrecognized reader %s before history access", async version => {
     const f = fixture(); f.options.env.KILN_CODEX_HISTORY_VERSION = version;
     const result = await auditCodexConversation(f.options);
     expect(result.coverage).toBe("inconclusive");
     expect(result.frontiers).toEqual([]);
     expect(result.problems.join(" ")).toContain(version);
     expect(result.problems.join(" ")).toContain("0.162.1");
-    expect(result.problems.join(" ")).toContain("0.165.0");
+    expect(result.problems.join(" ")).toContain("or later");
     expect(codexStayedOutcome("local", result, [result.fingerprint]).passed).toBe(false);
   });
   it("covers recorded image inspection outside the workspace without concealing mutations", async () => {

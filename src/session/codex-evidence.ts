@@ -1,3 +1,4 @@
+import { CODEX_VERSION_REQUIREMENT, supportedCodexVersion } from "../agents/codex-version.js";
 import type { CommandEvidence } from "../state/development-delivery.js";
 // Production, read-only Codex evidence. A successful model/process is never an audit verdict.
 import { createHash } from "node:crypto";
@@ -51,7 +52,6 @@ interface RawPayload {
   thread_id?: string; item?: { id: string; type: string; command: string[]; cwd: string; status: string; agent_thread_id?: string; changes?: Record<string, { move_path?: string }> };
   state?: { environments?: { environments?: { local?: { shell?: string } } } }; full?: boolean;
 }
-const EVIDENCE_READER_VERSIONS = ["codex-cli 0.162.1", "codex-cli 0.165.0"];
 const TERMINAL = new Set(["completed", "interrupted", "failed"]);
 const SETTLED_ITEM = new Set(["completed", "failed", "declined"]);
 const KINDS = ["subAgent", "subAgentThreadSpawn", "subAgentReview", "subAgentOther", "subAgentCompact"];
@@ -79,7 +79,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     if (!roots.length) throw new Error("No assigned Codex worktrees.");
     if (!options.rpc) {
       const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, signal, timeoutMs: 30_000 });
-      if (version.exitCode !== 0 || !EVIDENCE_READER_VERSIONS.includes(version.stdout.trim())) throw new Error(`Codex evidence reader ${version.stdout.trim() || "version unavailable"} is incompatible. Qualified readers: ${EVIDENCE_READER_VERSIONS.join(", ")}.`);
+      if (version.exitCode !== 0 || !supportedCodexVersion(version.stdout)) throw new Error(`Codex evidence reader ${version.stdout.trim() || "version unavailable"} is incompatible. Kiln requires ${CODEX_VERSION_REQUIREMENT}.`);
     }
     const rpc = options.rpc ?? (owned = new CodexHistoryRpc(options.executable, options.cwd, { ...options.env, CODEX_HOME: home }, signal));
     if (owned) await owned.initialize();

@@ -6,7 +6,7 @@ The Enso Method works without Kiln. Kiln automates the loop a person otherwise r
 
 ## Install
 
-Kiln requires Node 22 or later, Git 2.29 or later, the [GitHub CLI](https://cli.github.com/) signed in, and either [Claude Code](https://docs.claude.com/en/docs/claude-code) or Codex signed in with the [Enso Method](https://github.com/EnsoDynamics/enso-method) skills installed. Codex currently requires **codex-cli 0.162.1**, authenticated through ChatGPT; other versions are rejected for model work. Read-only workspace verification also supports 0.165.0 reading retained 0.162.1 histories. See [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
+Kiln requires Node 22 or later, Git 2.29 or later, the [GitHub CLI](https://cli.github.com/) signed in, and either [Claude Code](https://docs.claude.com/en/docs/claude-code) or Codex signed in with the [Enso Method](https://github.com/EnsoDynamics/enso-method) skills installed. Codex requires **stable codex-cli 0.162.1 or later**, authenticated through ChatGPT. Newer stable releases are accepted subject to the same required metadata, permission and workspace-evidence checks. See [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
 
 macOS is the natively validated platform. Linux and Windows remain best-effort targets: their native agent, console and sleep behavior is untested, and compatibility issues will be investigated from user reports. Native Windows/Linux proof is not a first-release gate. The [public release readiness review](docs/release/kiln-public-release-readiness-review.md) tracks validation evidence and the remaining publication gates.
 

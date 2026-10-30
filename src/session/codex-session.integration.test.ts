@@ -48,7 +48,7 @@ describe("durable protected Codex attempts", () => {
     const restored = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
     expect(restored.conversation).toEqual(f.record.conversation);
     expect(restored.codex?.originalAccount.accountId).toBe("proof-account");
-    f.set({ accountId: "other-account", email: "other@example.invalid" });
+    f.set({ version: "0.165.0", accountId: "other-account", email: "other@example.invalid" });
     const resumed = await runCodexSession({ ...f.options, record: restored, cause: "person_resume", prompt: "Person's note\n\nCarry on", note: "Person's note" });
     expect(resumed.codex?.failure).toBeUndefined(); expect(resumed.codex?.observed).toHaveLength(2);
     expect(resumed.codex?.account.accountId).toBe("other-account"); expect(f.record.codex?.originalAccount.accountId).toBe("proof-account");
@@ -61,6 +61,7 @@ describe("durable protected Codex attempts", () => {
     expect(persisted.runs).toHaveLength(2);
     for (const [index, attempt] of persisted.runs.entries()) {
       expect(attempt.codex?.account.accountId).toBe(index === 0 ? "proof-account" : "other-account");
+      expect(attempt.codex?.profile.version).toBe(index === 0 ? "0.162.1" : "0.165.0");
       expect(attempt.codex?.requested).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
       expect(attempt.codex?.effective).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
       expect(attempt.codex?.observed?.at(-1)).toMatchObject({ model: "gpt-6.1-sol", effort: "high", cwd: f.root });
@@ -91,7 +92,7 @@ describe("durable protected Codex attempts", () => {
     { name: "another provider", fixture: { provider: "custom" }, error: "OpenAI" },
     { name: "unreadable configuration", fixture: { configError: true }, error: "Could not inspect Codex provider and hooks" },
     { name: "new managed policy", fixture: { requirements: { unknownMandatoryRestriction: true } }, error: "managed requirement" },
-    { name: "changed CLI version", fixture: { version: "99.0.0" }, error: "incompatible" },
+    { name: "CLI version below the minimum", fixture: { version: "0.162.0" }, error: "incompatible" },
   ])("rechecks $name before a resumed saved conversation and records no new attempt", async example => {
     const f = fixture(); const first = await runCodexSession(f.options);
     expect(first.codex?.terminal?.status).toBe("completed"); expect(first.codex?.failure).toBeUndefined();

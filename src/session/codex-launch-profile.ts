@@ -1,6 +1,7 @@
 // Validate before allocating an implementation attempt. No thread or turn is created here.
 import { realpathSync } from "node:fs";
-import { readCodexMetadata, CODEX_VERSION } from "../agents/codex-metadata.js";
+import { readCodexMetadata } from "../agents/codex-metadata.js";
+import { supportedCodexVersion } from "../agents/codex-version.js";
 import { CodexMetadataRpc } from "../agents/codex-metadata-rpc.js";
 import { comparable } from "../engine/worktree-setup.js";
 import { findExecutable, runHelper } from "../platform/helper-process.js";
@@ -31,7 +32,7 @@ export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<P
   if (!model || metadata.modelListError) throw new Error("Codex's requested model is unavailable. Refresh and confirm a valid choice.");
   if (model.supportsEffort ? !options.choice.effort || !model.supportedEffortLevels.includes(options.choice.effort) : options.choice.effort !== undefined) throw new Error("Codex's requested reasoning effort is unavailable for this model.");
   if (metadata.account.error || metadata.account.stale) throw new Error("Fresh Codex ChatGPT authentication is required before work.");
-  const profile: CodexExecutionProfile = { version: CODEX_VERSION, cwd, writableRoots, repositories: options.repositories.map((repository, i) => ({ ...repository, path: paths[i]! })), skills: metadata.skills.find(entry => entry.cwd === cwd)!.entries.filter(skill => skill.enabled).map(({ name, path }) => ({ name, path })) };
+  const profile: CodexExecutionProfile = { version: supportedCodexVersion(metadata.version!)!, cwd, writableRoots, repositories: options.repositories.map((repository, i) => ({ ...repository, path: paths[i]! })), skills: metadata.skills.find(entry => entry.cwd === cwd)!.entries.filter(skill => skill.enabled).map(({ name, path }) => ({ name, path })) };
   if (process.platform === "win32") {
     const deadline = Date.now() + 30_000;
     const rpc = new CodexMetadataRpc(options.executable, cwd, options.env, options.signal, 30_000, codexServerArguments());
@@ -48,7 +49,7 @@ export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<P
     if (version.exitCode !== 0 || version.stdout.trim() !== POWERSHELL_VERSION) throw new Error(`Codex Windows parser requires pwsh ${POWERSHELL_VERSION}; found ${version.stdout.trim() || "unknown"}.`);
     const job = codexWindowsJob(options.executable, ["--version"], cwd, executable, options.env);
     const supervised = await runHelper(job.executable, job.args, { cwd, env: job.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: Math.max(1, deadline - Date.now()) });
-    if (supervised.exitCode !== 0 || supervised.stdout.trim() !== `codex-cli ${CODEX_VERSION}`) throw new Error("Codex Windows Job Object startup failed. Resolve PowerShell/application restrictions in a terminal before work; Kiln will not bypass them.");
+    if (supervised.exitCode !== 0 || supervised.stdout.trim() !== metadata.version) throw new Error("Codex Windows Job Object startup failed. Resolve PowerShell/application restrictions in a terminal before work; Kiln will not bypass them.");
     profile.powerShell = { executable, version: POWERSHELL_VERSION };
   }
   return { profile, choice: { ...options.choice }, usage: metadata.account, account: { at: metadata.account.updatedAt, ...(metadata.account.accountId ? { accountId: metadata.account.accountId } : {}), ...(metadata.account.email ? { email: metadata.account.email } : {}), ...(metadata.account.plan ? { plan: metadata.account.plan } : {}) } };
