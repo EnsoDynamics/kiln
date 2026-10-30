@@ -1,7 +1,7 @@
 import { preparationPermissions } from "./preparation-permissions.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt } from "../session/prompts.js";
-import { newPreparationState, preparationDigest, type PreparationReference } from "./preparation-state.js";
+import { newPreparationState, preparationAttemptNeedsReconciliation, preparationDigest, preparesPhase, type PreparationReference } from "./preparation-state.js";
 import { verifyPreparation, preparationCheckpoint, reconcilePreparationAttempt } from "./preparation-verifier.js";
 import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
@@ -65,7 +65,7 @@ import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
-import { namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
+import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
 import type { KeepAwakeHolder } from "../platform/keep-awake.js";
 import { isProcessLive } from "../platform/process-start-time.js";
@@ -1775,7 +1775,7 @@ export class Engine {
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
       if (!leaf.closed) break;
       const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
-      if (this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => binding.prerequisites.includes(leaf.id)))) continue;
+      if (this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
       if (!check.passed) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
     }
@@ -2920,6 +2920,12 @@ export class Engine {
       const stayed = await this.readWorkspaceEvidence(key);
       if (!stayed.passed || this.codexSafetyProblems(key).length) throw new Error([...stayed.check.facts, ...this.codexSafetyProblems(key)].join(" "));
       if (state.bindings.some(binding => !state.submissions.some(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.run === session.runs.length - 1))) throw new Error("Submit the pinned source references for every preparation binding, then return from the preparation turn.");
+      const preparedPlan = readBaseline(this.stateDirectory, this.record.planReconciliation!.baselineId!).active;
+      for (const binding of state.bindings.filter(binding => binding.repository === this.paths.repositoryName)) {
+        const source = await observeGitPlan(this.git, this.worktreePath, this.paths.prdDirectoryFromRoot, binding.sourceRevision);
+        const descendants = leavesOf(read.plan).filter(leaf => preparesPhase(binding, leaf.id));
+        if (!descendants.length || descendants.some(leaf => !leaf.closed || !source.plan.phases.some(original => original.id === leaf.id && original.closed && !original.splitInto) || !completedPhaseScopeUnchanged(source, preparedPlan, leaf.id))) throw new Error("The pinned preparation source must still contain every prerequisite leaf's unchanged Closed scope. Reconcile the prerequisite documents before verification.");
+      }
       await verifyPreparation(this.preparationContext());
       if (this.stopping || this.commands.blocked) return { kind: "stopped" };
       if (this.record.pause.requestedAt || this.record.pause.activeSince) { if (!this.record.pause.activeSince) this.activatePause(); return { kind: "stopped" }; }
@@ -2927,13 +2933,13 @@ export class Engine {
       // Mark prerequisite receipts only after independent integration and project checks.
       const baseline = readBaseline(this.stateDirectory, this.record.planReconciliation!.baselineId!);
       const { id: _id, ...body } = baseline; void _id;
-      for (const binding of state.bindings) for (const id of binding.prerequisites) {
+      for (const binding of state.bindings) for (const { id } of leavesOf(read.plan).filter(leaf => preparesPhase(binding, leaf.id))) {
         const receipt = body.completions[id] ??= { kind: "external", revision: binding.sourceRevision, repositories: {} };
         receipt.repositories ??= {};
         receipt.repositories[binding.repository] = { identity: binding.repositoryIdentity, revision: binding.sourceRevision };
       }
-      for (const id of [...new Set(state.bindings.flatMap(binding => binding.prerequisites))]) if (!body.completions[id]!.scopeRepositories) {
-        const binding = state.bindings.find(binding => binding.repository === this.paths.repositoryName && binding.prerequisites.includes(id));
+      for (const { id } of leavesOf(read.plan).filter(leaf => state.bindings.some(binding => preparesPhase(binding, leaf.id)))) if (!body.completions[id]!.scopeRepositories) {
+        const binding = state.bindings.find(binding => binding.repository === this.paths.repositoryName && preparesPhase(binding, id));
         if (!binding) throw new Error(`Restore the PRD source binding for prerequisite ${id} before recording completed scope.`);
         const source = await observeGitPlan(this.git, this.worktreePath, this.paths.prdDirectoryFromRoot, binding.sourceRevision);
         body.completions[id]!.scopeRepositories = phaseRepositories(source, id);
@@ -3105,7 +3111,7 @@ export class Engine {
     // A resumed run gets the flags for the workspace as it now stands.
     const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
     if (this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation") {
-      for (const attempt of this.record.preparation.attempts.filter(row => row.outcome === "running" || row.outcome === "unresolved")) { await reconcilePreparationAttempt(attempt); attempt.outcome = "interrupted"; attempt.reason = "Explicit preparation recovery; investigate external effects before a new submission."; }
+      for (const attempt of this.record.preparation.attempts.filter(preparationAttemptNeedsReconciliation)) { await reconcilePreparationAttempt(attempt); attempt.outcome = "interrupted"; attempt.reason = "Explicit preparation recovery; investigate external effects before a new submission."; }
       this.record.preparation.stage = "preparation"; this.record.preparation.submissions = []; delete this.record.preparation.verifiedCheckpoint; if (!await this.preparePolicyForTurn(phaseKey)) return; this.save();
     }
     const actualPrompt = this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation" ? this.preparationTask(request?.note) : prompt;
@@ -4968,7 +4974,7 @@ export class Engine {
           continue;
         }
         if (completions[phase.id]) continue;
-        if (this.record.preparation?.stage !== "implementation" && this.record.preparation?.bindings.some(binding => binding.prerequisites.includes(phase.id))) continue;
+        if (this.record.preparation?.stage !== "implementation" && this.record.preparation?.bindings.some(binding => preparesPhase(binding, phase.id))) continue;
         const affectedNames = namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName);
         const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
         if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);

@@ -1,5 +1,7 @@
 # Phase 8: Complete split prerequisites and native verifier recovery
 
+**Closed:** 2026-10-30
+
 **Added by delivery audit:** 2026-10-30, after every previously planned implementation leaf closed. It completes the missing preparation boundaries below.
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Preparation document contract; Preparation execution; Verification of the prepared work; Continuation Acceptance and Recovery.
@@ -34,3 +36,7 @@ Phase 7's [plan-source validation record](kiln-plan-source-feedback-validation.m
 
 ## Successor
 After this leaf closes and authorized development-base delivery completes, directly launch a fresh whole-PRD delivery audit in a GPT 6.1 Sol/high chat. A clean delivery audit then launches whole-PRD test audit; continue any required completion/re-audit chain. One implementation leaf per chat.
+
+## Completion evidence
+
+[Split preparation and verifier recovery validation](kiln-split-preparation-verifier-recovery-validation.md) records the complete scoped boundaries, retained-state compatibility, independent review/hardening, genuine native descendant proof, both final-build providers and the uninterrupted full repository/package gates. This leaf is closed; fresh whole-PRD delivery audit is next, followed by test audit when delivery is clean. Original criterion owners and historical audits remain unchanged.

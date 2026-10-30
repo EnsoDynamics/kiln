@@ -1,4 +1,4 @@
-import { newPreparationState } from "./preparation-state.js";
+import { newPreparationState, preparesPhase } from "./preparation-state.js";
 import { preparationPermissions } from "./preparation-permissions.js";
 /** Read-only proposal evaluation. Acceptance and setup remain owned by the continuation command. */
 import { createHash } from "node:crypto";
@@ -82,8 +82,8 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     if (repository.name === record.repository.name) {
     const sourcePlan = await observeGitPlan(git, repository.path, record.prdDirectory, binding.sourceRevision);
     for (const prerequisite of instruction.prerequisites) {
-      const original = sourcePlan.plan.phases.find(phase => phase.id === prerequisite);
-      if (!original?.closed || !completedPhaseScopeUnchanged(sourcePlan, candidate, prerequisite)) problems.push(`Phase ${instruction.phaseId}: source ${binding.sourceRevision} does not contain the unchanged Closed scope for prerequisite ${prerequisite}. Restore the matching source before preparation.`);
+      const descendants = leavesOf(candidate.plan).filter(phase => preparesPhase({ prerequisites: [prerequisite] }, phase.id));
+      if (!descendants.length || descendants.some(phase => !phase.closed || !sourcePlan.plan.phases.some(original => original.id === phase.id && original.closed && !original.splitInto) || !completedPhaseScopeUnchanged(sourcePlan, candidate, phase.id))) problems.push(`Phase ${instruction.phaseId}: source ${binding.sourceRevision} does not contain the unchanged Closed scope for prerequisite ${prerequisite} and every applicable leaf. Restore the matching source before preparation.`);
     }
     }
     if (instruction.destination !== "assigned_feature") {
@@ -146,10 +146,10 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     if (row.classification === "externally_verified" || row.classification === "carried_completed" && !integrationProblems.length) {
       prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
     }
-    const bindings = preparation.filter(binding => binding.prerequisites.includes(row.id));
+    const bindings = preparation.filter(binding => preparesPhase(binding, row.id));
     const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
     // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
-    const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && dependencyIds(first.dependenciesText).includes(row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
+    const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && preparesPhase({ prerequisites: dependencyIds(first.dependenciesText) }, row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
     if (eligible && !extracted.problems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });
     else { problems.push(...row.problems, ...integrationProblems); prerequisites.push({ phaseId: row.id, status: "blocked", evidence: [...row.problems, ...integrationProblems], recovery: "Restore the missing evidence or reconcile an explicit authorized preparation in the first unfinished phase, then check again." }); }
   }

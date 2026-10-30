@@ -14,7 +14,7 @@ import { LiveOwnedProcesses, captureOwnedProcesses } from "../live/owned-process
 import { requireExited } from "../live/ownership.js";
 import type { PrdRecord } from "../state/records.js";
 import { mergeTargetKey } from "../state/development-delivery.js";
-import { preparationDigest, type PreparationState, type PreparationCheckpoint, type PreparationCheckAttempt } from "./preparation-state.js";
+import { preparationAttemptNeedsReconciliation, preparationDigest, type PreparationState, type PreparationCheckpoint, type PreparationCheckAttempt } from "./preparation-state.js";
 import { checkArgv } from "./preparation-documents.js";
 
 export interface PreparationContext { record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; signal: AbortSignal; codex?: string | undefined; sessionId?: string | undefined; transcriptPath?: string | undefined; authorizeCommands?(): Promise<void>; save(): void; now(): string }
@@ -80,7 +80,11 @@ export async function preparationCheckpoint(context: PreparationContext): Promis
 export async function reconcilePreparationAttempt(attempt: PreparationCheckAttempt): Promise<void> {
   if (!attempt.pid || !attempt.processStartTime || !existsSync(attempt.gateDirectory)) throw new Error("Verification launch/process ownership is unresolved. Reconcile that check and its external effects before retrying preparation.");
   await requireExited({ pid: attempt.pid, processStartTime: attempt.processStartTime });
-  const gate = readGate(attempt.gateDirectory);
+  let gate = readGate(attempt.gateDirectory);
+  if (gate.obstacle || gate.processObservations?.length) {
+    await captureOwnedProcesses(attempt.gateDirectory, attempt.pid, attempt.processStartTime);
+    gate = readGate(attempt.gateDirectory);
+  }
   if (gate.obstacle || gate.processObservations?.length) throw new Error(gate.obstacle ?? "Verification descendant ownership remains unresolved.");
   for (const process of gate.tracked) await requireExited({ pid: process.pid, processStartTime: process.startTime });
 }
@@ -101,13 +105,27 @@ async function resolveCheck(context: PreparationContext, binding: PreparationSta
   return { executable: realpathSync(executable), environmentDigest: environmentDigest(context, environment), argv: check.argv.slice(1), directory, timeoutSeconds: check.timeoutSeconds };
 }
 async function executeCheck(context: PreparationContext, attempt: PreparationCheckAttempt): Promise<void> {
-  const environment = await preparationEnvironment(context, attempt.directory);
-  if (environmentDigest(context, environment) !== attempt.environmentDigest) throw new Error("The established validation environment changed before project-command launch.");
-  const output = openSync(attempt.output, "wx", 0o600);
-  const sandbox = verificationSandbox(context, attempt.gateDirectory);
-  const hooks = await preparationHooks(context, attempt.directory);
-  const nativeCommand = context.record.settings.agentId === "codex" ? { executable: context.codex!, args: [...codexVerificationArguments(context), attempt.executable, ...attempt.argv] } : { executable: sandbox.executable, args: [...sandbox.args, attempt.executable, ...attempt.argv] };
-  const child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/preparation-check-runner.mjs", import.meta.url))], { cwd: attempt.directory, env: context.record.settings.agentId === "codex" ? context.env : environment, stdin: "pipe" });
+  let output: number | undefined;
+  let hooks: Awaited<ReturnType<typeof preparationHooks>>;
+  let nativeCommand: { executable: string; args: string[] };
+  let child: ReturnType<typeof spawnDetached>;
+  try {
+    const environment = await preparationEnvironment(context, attempt.directory);
+    if (environmentDigest(context, environment) !== attempt.environmentDigest) throw new Error("The established validation environment changed before project-command launch.");
+    output = openSync(attempt.output, "wx", 0o600);
+    const sandbox = verificationSandbox(context, attempt.gateDirectory);
+    hooks = await preparationHooks(context, attempt.directory);
+    nativeCommand = context.record.settings.agentId === "codex" ? { executable: context.codex!, args: [...codexVerificationArguments(context), attempt.executable, ...attempt.argv] } : { executable: sandbox.executable, args: [...sandbox.args, attempt.executable, ...attempt.argv] };
+    child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/preparation-check-runner.mjs", import.meta.url))], { cwd: attempt.directory, env: context.record.settings.agentId === "codex" ? context.env : environment, stdin: "pipe" });
+  } catch (error) {
+    // No spawn occurred. A lost launch-intent acknowledgement never reaches here,
+    // and remains unknown on restart rather than being inferred safe to repeat.
+    if (output !== undefined) closeSync(output);
+    attempt.outcome = "failed"; attempt.launchFailure = "not_launched";
+    attempt.endedAt = context.now(); attempt.reason = (error as Error).message;
+    context.save(); return;
+  }
+  const outputFile = output;
   let failure: string | undefined; let outputBytes = 0; let tracker: LiveOwnedProcesses | undefined;
   const result = new Promise<{ code: number | null; signal?: string }>(resolve => {
     child.on("error", error => { failure = error.message; resolve({ code: null }); });
@@ -118,7 +136,7 @@ async function executeCheck(context: PreparationContext, attempt: PreparationChe
   const timer = setTimeout(() => terminate(`Verification timed out after ${attempt.timeoutSeconds} seconds.`), attempt.timeoutSeconds * 1000);
   const killer = setInterval(() => { if (failure) void endProcessTree(child.pid, "SIGKILL"); }, 1000);
   context.signal.addEventListener("abort", abort, { once: true });
-  const consume = (data: Buffer) => { outputBytes += data.length; if (outputBytes > 16 * 1024 * 1024) terminate("Verification output exceeds 16 MiB."); else try { writeSync(output, data); } catch (error) { terminate(`Verification output could not be retained: ${(error as Error).message}`); } };
+  const consume = (data: Buffer) => { outputBytes += data.length; if (outputBytes > 16 * 1024 * 1024) terminate("Verification output exceeds 16 MiB."); else try { writeSync(outputFile, data); } catch (error) { terminate(`Verification output could not be retained: ${(error as Error).message}`); } };
   child.stdout!.on("data", consume); child.stderr!.on("data", consume);
   try {
     if (child.pid) {
@@ -129,12 +147,17 @@ async function executeCheck(context: PreparationContext, attempt: PreparationChe
     }
     if (context.signal.aborted) abort();
     const outcome = await result;
+    if (!child.pid && failure) {
+      // Node's spawn error with no PID positively establishes no child launch.
+      attempt.outcome = "failed"; attempt.launchFailure = "not_launched";
+      attempt.endedAt = context.now(); attempt.reason = failure; return;
+    }
     await tracker?.close();
     // A process exiting does not establish that its descendants released the checkpoint.
     await endProcessTree(child.pid, "SIGKILL");
     if (attempt.pid && attempt.processStartTime) await reconcilePreparationAttempt(attempt);
     else throw new Error("Verification process identity is unresolved.");
-    fsyncSync(output);
+    fsyncSync(outputFile);
     attempt.outputDigest = preparationDigest(readFileSync(attempt.output).toString("base64"));
     const directory = openSync(attempt.gateDirectory, "r"); try { fsyncSync(directory); } finally { closeSync(directory); }
     attempt.endedAt = context.now();
@@ -147,11 +170,11 @@ async function executeCheck(context: PreparationContext, attempt: PreparationChe
     await result;
     await tracker?.close();
   }
-  finally { clearTimeout(timer); clearInterval(killer); context.signal.removeEventListener("abort", abort); closeSync(output); context.save(); }
+  finally { clearTimeout(timer); clearInterval(killer); context.signal.removeEventListener("abort", abort); closeSync(outputFile); context.save(); }
 }
 export async function verifyPreparation(context: PreparationContext): Promise<PreparationCheckpoint> {
   const state = context.record.preparation!;
-  for (const attempt of state.attempts.filter(row => row.outcome === "running" || row.outcome === "unresolved")) {
+  for (const attempt of state.attempts.filter(preparationAttemptNeedsReconciliation)) {
     await reconcilePreparationAttempt(attempt);
     attempt.outcome = "unresolved"; attempt.reason = "The controller lost this check's result. Resume preparation to investigate and resubmit after reconciling external effects."; context.save();
     throw new Error(attempt.reason);
@@ -173,8 +196,8 @@ export async function verifyPreparation(context: PreparationContext): Promise<Pr
     await executeCheck(context, attempt);
     let after: PreparationCheckpoint;
     try { after = await preparationCheckpoint(context); }
-    catch (error) { attempt.outcome = "failed"; attempt.reason = `Source/configuration changed during validation: ${(error as Error).message}`; context.save(); throw error; }
-    if (after.id !== checkpoint.id) { attempt.outcome = "failed"; attempt.reason = "Source/configuration changed while validation was running."; context.save(); }
+    catch (error) { if (attempt.outcome !== "unresolved") attempt.outcome = "failed"; attempt.reason = [attempt.reason, `Source/configuration changed during validation: ${(error as Error).message}`].filter(Boolean).join(" "); context.save(); throw error; }
+    if (after.id !== checkpoint.id) { if (attempt.outcome !== "unresolved") attempt.outcome = "failed"; attempt.reason = [attempt.reason, "Source/configuration changed while validation was running."].filter(Boolean).join(" "); context.save(); }
     if (attempt.outcome !== "succeeded") throw new Error(attempt.reason ?? "The engine did not observe a successful validation result.");
   }
   state.verifiedCheckpoint = checkpoint; context.save();

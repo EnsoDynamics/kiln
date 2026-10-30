@@ -12,7 +12,7 @@ import { landingSession, waitFor, type Harness } from "../test-support/engine-ha
 const nativeIt = it.skipIf(process.platform !== "darwin");
 let h: Harness;
 afterEach(async () => { vi.restoreAllMocks(); if (h) writeFileSync(join(h.sandbox.root, "release-preparation"), "release for cleanup"); await h?.engine.stop("sigint"); await h?.cleanup(); });
-async function fixture(command = "exit 0", destination = "this phase's branch", timeout = 10, secondRepositoryCheck?: string) {
+async function fixture(command = "exit 0", destination = "this phase's branch", timeout = 10, secondRepositoryCheck?: string, splitPrerequisite = false, carried = false, distinctRepositoryScope = false) {
   const f = await createCometContinuation(); h = f.h;
   let api: { path: string; sha: string } | undefined;
   if (secondRepositoryCheck) {
@@ -26,6 +26,11 @@ async function fixture(command = "exit 0", destination = "this phase's branch", 
   git(h.sandbox, h.repository, "checkout", "-q", "wt/catalog-accessibility");
   if (api) f.write("phase-8-catalog.md", cometPhase(8, true) + "\n**Repositories:** lending-api\n");
   writeFileSync(join(h.repository, "validate"), `#!/bin/sh\n${command}\n`); chmodSync(join(h.repository, "validate"), 0o755);
+  const prerequisiteFiles = splitPrerequisite ? {
+    "phase-8-catalog.md": "# Phase 8: Catalog preparation split\n\n" + (api && !distinctRepositoryScope ? "**Repositories:** lending-api\n\n" : "") + "## Split into\n| Phase | Work |\n|---|---|\n| [8a](phase-8a-catalog.md) | First prepared leaf |\n| [8b](phase-8b-catalog.md) | Second prepared leaf |\n",
+    "phase-8a-catalog.md": cometPhase("8a", true), "phase-8b-catalog.md": cometPhase("8b", true).replace("## Acceptance criteria covered", (api && distinctRepositoryScope ? "**Repositories:** lending-api\n\n" : "") + "## Acceptance criteria covered"),
+  } : {};
+  for (const [name, text] of Object.entries(prerequisiteFiles)) f.write(name, text);
   git(h.sandbox, h.repository, "add", "validate", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: prepared project check");
   const sha = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
   git(h.sandbox, h.repository, "checkout", "-q", "develop");
@@ -34,6 +39,19 @@ async function fixture(command = "exit 0", destination = "this phase's branch", 
     f.write("phase-8-catalog.md", cometPhase(8, true) + "\n**Repositories:** lending-api\n");
     const path = join(h.repository, COMET_DIRECTORY, "phase-9-catalog.md");
     writeFileSync(path, readFileSync(path, "utf8").replace("## Acceptance criteria covered", "**Repositories:** lending-api\n\n## Acceptance criteria covered").replace("Merge the local branch", "In repository `comet-library`, merge the local branch") + `\nFirst step: merge Phase 8. In repository \`lending-api\`, merge branch \`wt/api-preparation\` at \`${api.sha}\` into this phase's branch before building.\n\nVerify before building: run \`./validate\`.\n`);
+  }
+  for (const [name, text] of Object.entries(prerequisiteFiles)) f.write(name, text);
+  if (carried) {
+    const { observeGitPlan } = await import("./completed-plan-sources.js");
+    const { readBaseline, retainBaseline, phaseRepositories } = await import("./plan-reconciliation.js");
+    const old = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+    const source = await observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, COMET_DIRECTORY, sha);
+    const { id: _id, ...body } = old; void _id;
+    body.normalizerVersion = 4; body.active = source;
+    for (const [id, receipt] of Object.entries(body.completions)) receipt.scopeRepositories = phaseRepositories(old.active, id);
+    for (const id of ["8a", "8b"]) body.completions[id] = { kind: "external", revision: sha, doneAt: "2026-10-01T11:00:00Z", scopeRepositories: phaseRepositories(source, id), repositories: { "comet-library": { identity: "fictional/comet-library", revision: sha }, ...(api ? { "lending-api": { identity: "fictional/lending-api", revision: api.sha } } : {}) } };
+    h.engine.record.planReconciliation!.baselineId = retainBaseline(h.stateDirectory, body).id;
+    writePrdRecord(h.stateDirectory, h.engine.record);
   }
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: assign preparation"); f.publish();
   h.engine.close();
@@ -623,4 +641,281 @@ nativeIt("rechecks retained process owners after native verification before impl
     expect(h.engine.record.preparation?.reason).toContain("process still owns");
     expect(h.engine.latestSession("9")!.runs).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
   } finally { vi.restoreAllMocks(); child.stdin.end(); await exit; }
+}, 120_000);
+
+nativeIt.each([false, true])("prepares every leaf of an external/carried split prerequisite (carried=%s) across repositories", async carried => {
+  const f = await fixture("exit 0", "this phase's branch", 10, "exit 0", true, carried, true);
+  const { startFixtureController } = await import("../test-support/controller-server.js");
+  const { readBaseline } = await import("./plan-reconciliation.js");
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  try {
+    const response = await fetch(`${new URL(hosted.server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(hosted.server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
+    expect(response.status).toBe(200);
+    const check = await h.engine.checkCompletedPlan();
+    expect(check.status, JSON.stringify(check)).toBe("available");
+    expect(check.result!.proposal!.prerequisites.filter(row => row.phaseId.startsWith("8"))).toMatchObject([{ phaseId: "8a", status: "preparation_available" }, { phaseId: "8b", status: "preparation_available" }]);
+    expect(check.result!.proposal!.preparation.map(row => [row.prerequisites, row.repository])).toEqual([[["8"], "comet-library"], [["8"], "lending-api"]]);
+    expect(check.result!.added.map(row => row.id)).toEqual(["9", "10", "11", "12", "13", "14", "15"]);
+    await f.accept();
+    // The owning preparation session may split; its first descendant receives implementation.
+    const active = h.engine.worktreePath;
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9-catalog.md"), "# Phase 9: Catalog split\n\n## Split into\n| Phase | Work |\n|---|---|\n| [9a](phase-9a-catalog.md) | First implementation |\n| [9b](phase-9b-catalog.md) | Later implementation |\n");
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9a-catalog.md"), cometPhase("9a") + "\n## Phase dependencies\n8.\n");
+    writeFileSync(join(active, COMET_DIRECTORY, "phase-9b-catalog.md"), cometPhase("9b") + "\n## Phase dependencies\n9a.\n");
+    git(h.sandbox, active, "add", COMET_DIRECTORY); git(h.sandbox, active, "commit", "-qm", "test: split preparation owner"); git(h.sandbox, active, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
+    const scenario = JSON.parse(readFileSync(h.scenarioPath, "utf8"));
+    scenario.sessions[1].actions = scenario.sessions[1].actions.map((action: Record<string, unknown>) => ({ ...action, repository: "comet-library" }));
+    scenario.sessions[1].actions.splice(-2, 0, { push: true, repository: "lending-api" });
+    writeFileSync(h.scenarioPath, JSON.stringify(scenario));
+    const sessionId = h.engine.latestSession("9")!.sessionId;
+    await f.submit();
+    expect(h.engine.record.preparation?.reason).toBeUndefined();
+    expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded", "succeeded"]);
+    expect(h.engine.record.preparation?.stage).toBe("implementation");
+    expect(h.engine.latestSession("9")!.sessionId).toBe(sessionId); expect(h.engine.latestSession("9")!.runs).toHaveLength(2);
+    expect(h.claudeCalls()[1]!.prompt).toContain("phase-9a-catalog.md");
+    const baseline = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+    expect(baseline.completions["8"]).toBeUndefined();
+    for (const id of ["8a", "8b"]) {
+      expect(baseline.completions[id]?.scopeRepositories).toEqual(id === "8b" ? ["lending-api"] : []);
+      expect(Object.keys(baseline.completions[id]!.repositories!).sort()).toEqual(["comet-library", "lending-api"]);
+    }
+    expect(h.engine.record.phases["8a"]).toBeUndefined(); expect(h.engine.record.phases["8b"]).toBeUndefined();
+    expect(h.engine.judgedId("9")).toBe("9a"); expect(h.engine.record.phases["9"]?.doneAt, JSON.stringify(h.engine.record.phases["9"])).toBeDefined();
+  } finally { await hosted.server.close(); hosted.release(); }
+}, 120_000);
+
+async function resumePreparation() {
+  const release = join(h.sandbox.root, "release-native-recovery");
+  const before = h.engine.latestSession("9")!.runs.length;
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: release }, { result: "Recovered preparation." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Later work held." }, { exit: 0 }] }] }));
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
+  await waitFor(() => h.engine.latestSession("9")!.runs.length === before + 1 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
+  for (const binding of h.engine.record.preparation!.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
+  writeFileSync(release, "release"); await h.engine.settled();
+}
+
+nativeIt.each(["environment", "output", "hooks", "spawn", "spawn_throw"])("recovers a positively known no-launch %s failure through ordinary controls", async mode => {
+  const f = await fixture(); await f.accept();
+  const permissions = await import("./preparation-permissions.js");
+  const helpers = await import("../platform/helper-process.js");
+  const environment = permissions.preparationEnvironment; const hooks = permissions.preparationHooks; const launch = helpers.spawnDetached;
+  let injected = false;
+  const pending = () => h.engine.record.preparation?.attempts.at(-1)?.outcome === "running" && !h.engine.record.preparation.attempts.at(-1)?.pid;
+  const envFailure = vi.spyOn(permissions, "preparationEnvironment").mockImplementation(async (context, cwd) => {
+    const value = await environment(context, cwd);
+    if (!injected && pending() && ["environment", "output"].includes(mode)) {
+      injected = true;
+      if (mode === "environment") throw new Error("Synthetic no-launch environment projection unavailable");
+      mkdirSync(context.record.preparation!.attempts.at(-1)!.output);
+    }
+    return value;
+  });
+  const hookFailure = vi.spyOn(permissions, "preparationHooks").mockImplementation(async (context, cwd) => { if (!injected && pending() && mode === "hooks") { injected = true; throw new Error("Synthetic no-launch hook read unavailable"); } return hooks(context, cwd); });
+  const spawnFailure = vi.spyOn(helpers, "spawnDetached").mockImplementation((executable, args, options) => {
+    if (!injected && pending() && args.some(arg => arg.endsWith("preparation-check-runner.mjs")) && mode.startsWith("spawn")) {
+      injected = true;
+      if (mode === "spawn_throw") throw new Error("Synthetic synchronous spawn refusal");
+      return launch(join(h.sandbox.root, "missing-native-runner"), args, options);
+    }
+    return launch(executable, args, options);
+  });
+  await f.submit(); envFailure.mockRestore(); hookFailure.mockRestore(); spawnFailure.mockRestore();
+  expect(injected).toBe(true);
+  expect(h.engine.record.preparation?.attempts).toMatchObject([{ outcome: "failed", launchFailure: "not_launched" }]);
+  expect(h.engine.record.preparation!.attempts[0]!.pid).toBeUndefined(); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  expect(await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" })).toMatchObject({ ok: true, outcome: "still_stopped" });
+  expect(h.engine.record.preparation?.attempts).toHaveLength(1);
+  await resumePreparation();
+  expect(h.engine.record.preparation?.stage, JSON.stringify(h.engine.record.preparation)).toBe("implementation");
+  expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["failed", "succeeded"]);
+  expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
+}, 120_000);
+
+nativeIt.each(["inventory", "identity", "checkpoint_read", "checkpoint_changed"].flatMap(mode => [false, true].map(legacyFailed => ({ mode, legacyFailed }))))("retains and recovers native ownership across $mode failure and restart (legacy failed=$legacyFailed)", async ({ mode, legacyFailed }) => {
+  const f = await fixture(); await f.accept();
+  const child = spawn(process.execPath, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0))"], { stdio: ["pipe", "ignore", "ignore"] }); const exit = once(child, "exit");
+  const identities = await import("../platform/process-start-time.js"); const helpers = await import("../platform/helper-process.js");
+  const { readGate, withGate } = await import("../live/gate.js"); const { LiveOwnedProcesses } = await import("../live/owned-processes.js");
+  const permissions = await import("./preparation-permissions.js");
+  const ownership = await import("../live/ownership.js"); const exited = ownership.requireExited;
+  const close = LiveOwnedProcesses.prototype.close; const identity = identities.processStartTime; const helper = helpers.runHelper; const permission = permissions.preparationPermissions;
+  let observed = false;
+  try {
+    const start = await identities.processStartTime(child.pid!); expect(start).toBeTruthy();
+    vi.spyOn(ownership, "requireExited").mockImplementation(async identity => {
+      try { await exited(identity); }
+      catch (error) { if (mode === "checkpoint_changed" && identity.pid === child.pid) h.env.KILN_FICTIONAL_CHECKPOINT_MOVE = "changed"; throw error; }
+    });
+    vi.spyOn(LiveOwnedProcesses.prototype, "close").mockImplementation(async function(this: InstanceType<typeof LiveOwnedProcesses>) {
+      await close.call(this);
+      const attempt = h.engine.record.preparation?.attempts.at(-1);
+      if (!observed && attempt?.pid) {
+        observed = true;
+        await withGate(attempt.gateDirectory, gate => { gate.processObservations = mode === "identity" ? [child.pid!] : []; if (mode !== "identity") gate.tracked.push({ pid: child.pid!, startTime: start! }); if (mode === "inventory") gate.obstacle = "Retry native inventory"; });
+      }
+    });
+    vi.spyOn(identities, "processStartTime").mockImplementation((pid, options) => mode === "identity" && pid === child.pid ? Promise.resolve(undefined) : identity(pid, options));
+    vi.spyOn(helpers, "runHelper").mockImplementation((command, args, options) => mode === "inventory" && observed && command === "/bin/ps" && args.includes("pid=,ppid=") ? Promise.reject(new Error("Transient native inventory failure")) : helper(command, args, options));
+    vi.spyOn(permissions, "preparationPermissions").mockImplementation(async (...args) => {
+      if (observed && h.engine.record.preparation?.attempts.at(-1)?.outcome === "unresolved") {
+        if (mode === "checkpoint_read") throw new Error("Transient post-check permission read failed");
+      }
+      return permission(...args);
+    });
+    await f.submit();
+    expect(observed).toBe(true); expect(h.engine.record.preparation?.attempts).toMatchObject([{ outcome: "unresolved" }]);
+    if (legacyFailed) {
+      const attempt = h.engine.record.preparation!.attempts[0]!;
+      expect(attempt.endedAt).toBeUndefined(); expect(attempt.outputDigest).toBeUndefined();
+      attempt.outcome = "failed"; // The retained state written by the original G8 bug.
+      writePrdRecord(h.stateDirectory, h.engine.record);
+    }
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+    vi.restoreAllMocks();
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
+    expect(h.engine.record.preparation?.attempts).toHaveLength(1); expect(h.engine.record.preparation?.attempts[0]?.outcome).toBe(legacyFailed ? "failed" : "unresolved");
+    expect(h.claudeCalls()).toHaveLength(1);
+    const { verifyPreparation } = await import("./preparation-verifier.js");
+    await expect(verifyPreparation({ record: h.engine.record, stateDirectory: h.stateDirectory, git: { git: h.tools.git, env: h.env }, env: h.env, signal: new AbortController().signal, save: () => writePrdRecord(h.stateDirectory, h.engine.record), now: () => new Date().toISOString() })).rejects.toThrow(/owns|identity|inventory|unresolved/i);
+    expect(h.engine.record.preparation?.attempts).toHaveLength(1);
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
+    expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.preparation?.stage).not.toBe("implementation");
+    // Supported observations may refresh, but the real surviving owner is never released.
+    expect(readGate(h.engine.record.preparation!.attempts[0]!.gateDirectory).tracked.some(row => row.pid === child.pid)).toBe(true);
+    child.stdin.end(); await exit;
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare();
+    await resumePreparation();
+    expect(h.engine.record.preparation?.stage, JSON.stringify(h.engine.record.preparation)).toBe("implementation");
+    expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["interrupted", "succeeded"]);
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
+  } finally { vi.restoreAllMocks(); child.stdin.end(); await exit; }
+}, 120_000);
+
+nativeIt.each([false, true])("evaluates external/carried two-repository split preparation with Codex controls (carried=%s)", async carried => {
+  const f = await fixture("exit 0", "this phase's branch", 10, "exit 0", true, carried, true);
+  const { codexWorkFixture } = await import("../test-support/codex-work-fixture.js"); const codex = codexWorkFixture();
+  try {
+    h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
+    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
+    await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    const ready = await h.engine.checkCompletedPlan();
+    expect(ready.status, JSON.stringify(ready)).toBe("available");
+    expect(ready.result!.proposal!.prerequisites.filter(row => row.phaseId.startsWith("8")).map(row => row.status)).toEqual(["preparation_available", "preparation_available"]);
+    expect(ready.result!.proposal!.preparation.map(row => row.repository)).toEqual(["comet-library", "lending-api"]);
+    const before = ready.result!.proposal!.id;
+    const ownerFile = join(h.repository, COMET_DIRECTORY, "phase-9-catalog.md");
+    const ownerText = readFileSync(ownerFile, "utf8");
+    writeFileSync(ownerFile, ownerText.replace(/\nFirst step: merge Phase 8\. In repository `lending-api`,[\s\S]*$/, "\n"));
+    git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: remove required split repository tuple"); f.publish();
+    const incomplete = await h.engine.checkCompletedPlan(); expect(incomplete.status).toBe("blocked");
+    expect(incomplete.result!.proposal!.prerequisites.filter(row => row.phaseId.startsWith("8")).map(row => row.status)).toEqual(["preparation_available", "blocked"]);
+    writeFileSync(ownerFile, ownerText);
+    // A Closed parent cannot hide an unfinished descendant, in either source mode.
+    const path = join(h.repository, COMET_DIRECTORY, "phase-8b-catalog.md");
+    writeFileSync(path, cometPhase("8b"));
+    const parentFile = join(h.repository, COMET_DIRECTORY, "phase-8-catalog.md");
+    writeFileSync(parentFile, readFileSync(parentFile, "utf8").replace("## Split into", "**Closed:** 2026-10-01\n\n## Split into"));
+    git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: reopen prerequisite descendant"); f.publish();
+    const blocked = await h.engine.checkCompletedPlan(); expect(blocked.status).toBe("blocked");
+    expect(blocked.result!.proposal!.id).not.toBe(before); expect(blocked.result!.proposal!.readiness).toBe("blocked");
+    expect(h.claudeCalls()).toEqual([]); expect(codex.calls().filter(call => call.method === "turn/start")).toEqual([]);
+  } finally { await codex.sandbox.cleanup(); }
+}, 120_000);
+
+nativeIt.each(["legacy_obstacle", "unknown_start"].flatMap(mode => [false, true].map(legacyFailed => ({ mode, legacyFailed }))))("holds unreconstructible native $mode evidence through Verify and Resume (legacy failed=$legacyFailed)", async ({ mode, legacyFailed }) => {
+  const f = await fixture("exit 4"); await f.accept(); await f.submit();
+  const attempt = h.engine.record.preparation!.attempts[0]!;
+  const { withGate } = await import("../live/gate.js");
+  // Retain the supported old-format/unknown-identity state at a real native boundary.
+  attempt.outcome = legacyFailed ? "failed" : "unresolved";
+  delete attempt.endedAt; delete attempt.outputDigest;
+  if (mode === "unknown_start") delete attempt.processStartTime;
+  else await withGate(attempt.gateDirectory, gate => { gate.version = 1; delete gate.processObservations; gate.obstacle = "Legacy inventory cannot reconstruct missing observations"; });
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
+  await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
+  expect(h.engine.record.preparation?.stage).not.toBe("implementation");
+  expect(h.engine.record.preparation?.attempts).toHaveLength(1);
+  expect(h.engine.record.preparation?.attempts[0]?.outcome).toBe(legacyFailed ? "failed" : "unresolved");
+  expect(h.engine.record.preparation?.reason).toMatch(mode === "unknown_start" ? /ownership is unresolved/ : /Legacy inventory/);
+  expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+}, 120_000);
+
+nativeIt("rechecks every split prerequisite's source scope after preparation handback", async () => {
+  const f = await fixture("exit 0", "this phase's branch", 10, undefined, true);
+  await f.accept();
+  git(h.sandbox, h.engine.worktreePath, "merge", "--no-edit", f.sha);
+  const file = join(h.engine.worktreePath, COMET_DIRECTORY, "phase-8b-catalog.md");
+  writeFileSync(file, cometPhase("8b", true).replace("capability 8b", "changed prepared scope"));
+  git(h.sandbox, h.engine.worktreePath, "add", COMET_DIRECTORY); git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test: change pending prerequisite scope");
+  await f.submit(false);
+  expect(h.engine.record.preparation?.reason).toContain("unchanged Closed scope");
+  expect(h.engine.record.preparation?.attempts).toEqual([]);
+  expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+  expect(h.engine.record.phases["8b"]?.doneAt).toBeUndefined();
+}, 120_000);
+
+nativeIt.each(["checkpoint_read", "checkpoint_changed"])("discovers a real detached native descendant before %s failure and recovers safely", async mode => {
+  const descendant = "const fs=require('node:fs');setInterval(()=>{if(fs.existsSync(process.env.KILN_FICTIONAL_NATIVE_RELEASE)||!fs.existsSync(require('node:path').dirname(process.env.KILN_FICTIONAL_NATIVE_RELEASE)))process.exit(0)},25)";
+  const program = `const fs=require('node:fs');const child=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'});child.unref();fs.writeFileSync(process.env.KILN_FICTIONAL_NATIVE_PID,String(child.pid));setInterval(()=>{if(fs.existsSync(process.env.KILN_FICTIONAL_CHECK_RETURN))process.exit(0)},25)`;
+  const f = await fixture(`node -e '${program.replaceAll("'", "'\\''")}'`, "this phase's branch", 30);
+  const pidFile = join(h.sandbox.root, "native-descendant.pid"); const release = join(h.sandbox.root, "release-native-descendant"); const checkReturn = join(h.sandbox.root, "return-native-check");
+  Object.assign(h.env, { KILN_FICTIONAL_NATIVE_PID: pidFile, KILN_FICTIONAL_NATIVE_RELEASE: release, KILN_FICTIONAL_CHECK_RETURN: checkReturn });
+  const { readGate } = await import("../live/gate.js"); const ownership = await import("../live/ownership.js"); const requireExited = ownership.requireExited;
+  const permissions = await import("./preparation-permissions.js"); const permission = permissions.preparationPermissions;
+  let owner: { pid: number; processStartTime: string } | undefined;
+  try {
+    await f.accept();
+    vi.spyOn(ownership, "requireExited").mockImplementation(async identity => {
+      try { await requireExited(identity); }
+      catch (error) { if (mode === "checkpoint_changed" && owner?.pid === identity.pid) h.env.KILN_FICTIONAL_DESCENDANT_CHECKPOINT = "changed"; throw error; }
+    });
+    vi.spyOn(permissions, "preparationPermissions").mockImplementation(async (...args) => {
+      if (h.engine.record.preparation?.attempts.at(-1)?.outcome === "unresolved") {
+        if (mode === "checkpoint_read") throw new Error("Synthetic post-check checkpoint read failure beside real descendant");
+      }
+      return permission(...args);
+    });
+    const returned = f.submit();
+    await waitFor(() => existsSync(pidFile));
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    await waitFor(() => {
+      const attempt = h.engine.record.preparation?.attempts.at(-1); if (!attempt) return false;
+      const tracked = readGate(attempt.gateDirectory).tracked.find(row => row.pid === pid);
+      if (tracked) owner = { pid, processStartTime: tracked.startTime };
+      return !!owner;
+    });
+    // The real native scanner, not this test, recorded the detached child.
+    expect(owner?.pid).toBe(pid); expect(owner?.processStartTime).toBeTruthy();
+    writeFileSync(checkReturn, "return project check while descendant lives"); await returned;
+    vi.restoreAllMocks();
+    const attempt = h.engine.record.preparation!.attempts[0]!;
+    expect(attempt.outcome).toBe("unresolved"); expect(attempt.reason).toContain("Source/configuration changed");
+    expect(readGate(attempt.gateDirectory).tracked).toContainEqual({ pid, startTime: owner!.processStartTime });
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+    if (mode === "checkpoint_changed") { attempt.outcome = "failed"; writePrdRecord(h.stateDirectory, h.engine.record); }
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
+    await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
+    expect(h.engine.record.preparation?.attempts).toHaveLength(1); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
+    await expect(requireExited(owner!)).rejects.toThrow("still owns");
+    writeFileSync(release, "release descendant");
+    await waitFor(async () => { try { await requireExited(owner!); return true; } catch { return false; } });
+    h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await resumePreparation();
+    expect(h.engine.record.preparation?.stage, JSON.stringify(h.engine.record.preparation)).toBe("implementation");
+    expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["interrupted", "succeeded"]);
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
+  } finally {
+    vi.restoreAllMocks(); writeFileSync(checkReturn, "return for cleanup"); writeFileSync(release, "release for cleanup");
+    if (owner) await waitFor(async () => { try { await requireExited(owner!); return true; } catch { return false; } });
+  }
 }, 120_000);
