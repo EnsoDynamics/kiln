@@ -478,6 +478,14 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
     for (const candidate of record.settings.developmentDeployments?.targets ?? []) normalizeTarget(candidate.target);
   }
+  // Retired cross-PRD preference metadata is not execution authority. Keep the
+  // effective choices and grants so reopening this PRD preserves its scope.
+  if (record.settings.developmentDeployments !== undefined) {
+    const choices = record.settings.developmentDeployments as unknown as Record<string, unknown>;
+    delete choices.rememberForPrdRepository;
+    delete choices.useSavedTargetsForThisPrd;
+    delete choices.preferenceRevision;
+  }
   if (record.schemaVersion >= 5) {
     for (const owned of [...(record.developmentDelivery?.assessments ?? []), ...(record.developmentDelivery?.checkpoints ?? [])]) owned.owner ??= deliveryOwner(owned);
     const recovery = record.developmentAuthorization?.activationRecovery;

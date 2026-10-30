@@ -174,7 +174,6 @@ export interface Snapshot {
   activities?: PhaseView[];
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
-  savedDevelopmentTargets?: Engine["savedDevelopmentTargets"];
   feature: {
     name: string;
     repositoryName: string;
@@ -396,7 +395,6 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
-    ...(!record.startedAt ? { savedDevelopmentTargets: engine.savedDevelopmentTargets } : {}),
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),

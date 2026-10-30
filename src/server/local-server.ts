@@ -522,9 +522,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     const raw = body.developmentDeployments as DevelopmentSettings;
     if (!raw || typeof raw !== "object" || typeof raw.enabled !== "boolean" || !Array.isArray(raw.targets)) return "Development deployments need enabled and target rows.";
     try {
-      if (Object.keys(raw).some(key => !["enabled", "targets", "rememberForPrdRepository", "useSavedTargetsForThisPrd", "preferenceRevision"].includes(key))) throw new Error("Unknown development-deployment setting.");
-      for (const field of ["rememberForPrdRepository", "useSavedTargetsForThisPrd"] as const) if (raw[field] !== undefined && typeof raw[field] !== "boolean") throw new Error(`${field} must be true or false.`);
-      if (raw.preferenceRevision !== undefined && (!Number.isSafeInteger(raw.preferenceRevision) || raw.preferenceRevision < 0)) throw new Error("preferenceRevision must be a nonnegative integer.");
+      if (Object.keys(raw).some(key => !["enabled", "targets"].includes(key))) throw new Error("Unknown development-deployment setting.");
       change.developmentDeployments = { ...raw, enabled: raw.enabled, targets: raw.targets.map(candidate => {
         if (!candidate || typeof candidate !== "object") throw new Error("Select a repository branch for early merges.");
         return { target: normalizeMergeTarget(candidate.target), ...(candidate.confirmedNonProduction !== undefined ? { confirmedNonProduction: candidate.confirmedNonProduction } : {}), ...(candidate.confirmedTarget ? { confirmedTarget: normalizeMergeTarget(candidate.confirmedTarget) } : {}) };

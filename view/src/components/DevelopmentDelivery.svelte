@@ -14,10 +14,9 @@
   $effect(() => { snapshot.settings.developmentDeployments; untrack(() => { if (!saving) optimistic = undefined; }); });
   const saved = $derived(optimistic ?? snapshot.settings.developmentDeployments ?? { enabled: false, targets: [] });
   const delivery = $derived(snapshot.developmentDelivery);
-  const preference = $derived(snapshot.savedDevelopmentTargets);
   async function save(settings: DevelopmentSettings) {
     if (!config || saving) return;
-    optimistic = { ...saved, ...settings, rememberForPrdRepository: settings.rememberForPrdRepository ?? false, preferenceRevision: settings.preferenceRevision ?? preference?.revision };
+    optimistic = { ...saved, ...settings };
     saving = true;
     const answer = await changeSettings(config, { developmentDeployments: optimistic });
     error = answer.ok ? "" : answer.reason ?? "Could not save early-merge choices.";
@@ -43,17 +42,7 @@
   {#if editable}
     <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: saved.targets })} /> <span>Allow early merges</span></label>
     <p>Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
-    {#if preference}
-      <p>Choices are saved locally for PRDs in <strong>{preference.group.repository}</strong>, from this checkout: <span class="checkout">{preference.group.mainCheckoutPath}</span></p>
-      <p>Remember the early-merge on/off choice and selected repository branches. Each future PRD asks whether to reuse them; nothing is authorized automatically.</p>
-      {#if preference.revision > 0}
-        <ul>{#each preference.targets as target}<li>{target.repository} · {target.baseBranch}{#if target.environment}{" · "}Existing scope: {target.environment}{/if}</li>{/each}</ul>
-        {#if !preference.enabled}<p>The saved choice keeps early merges off.</p>{/if}
-        <label><input type="checkbox" checked={saved.useSavedTargetsForThisPrd === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, useSavedTargetsForThisPrd: event.currentTarget.checked, ...(event.currentTarget.checked ? {} : { enabled: false, targets: [] }) })} /> <span>Use these saved early-merge choices for this PRD</span></label>
-      {/if}
-      <label><input type="checkbox" checked={saved.rememberForPrdRepository === true} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ ...saved, rememberForPrdRepository: event.currentTarget.checked })} /> <span>Remember these early-merge choices for future PRDs</span></label>
-      {#if saved.useSavedTargetsForThisPrd}<p>Only matching repository branches are reused. Select any new or changed branches separately.</p>{/if}
-    {/if}
+    <p>Applies to this PRD only. Each new PRD starts with early merges off.</p>
     {#if saved.enabled}
       <div class="merge-targets">
         {#each snapshot.repositories as row (row.name)}
@@ -88,7 +77,7 @@
   {#if !editable && snapshot.needsYou && delivery?.executionId}
     <h3>Allow early merges</h3>
     <p>Allow merging into a selected branch when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
-    <p class="scope-note">Applies to this run only. Authorizing does not resume work or change saved choices.</p>
+    <p class="scope-note">Applies to this run only. Authorizing does not resume work.</p>
     <div class="merge-targets">
       {#each snapshot.repositories as row (row.name)}
         {@const grants = delivery.authorization.grants.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
@@ -107,7 +96,6 @@
   p { line-height: 1.55; color: var(--muted); overflow-wrap: anywhere; }
   label { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; margin: 10px 0; font-size: 14.5px; line-height: 1.5; cursor: pointer; }
   input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
-  .checkout { display: block; overflow-wrap: anywhere; }
   article { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--line); padding: 12px; margin: 12px 0; }
   .merge-targets { display: grid; gap: 10px; margin: 16px 0; }
   .scope-note { font-size: 12px; }

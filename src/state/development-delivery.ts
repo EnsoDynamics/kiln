@@ -22,7 +22,7 @@ export function recoveryStopKey(recovery: ActivationRecovery): string {
 export interface MergeTarget { repository: string; baseBranch: string; environment?: string }
 export interface DevelopmentTarget extends MergeTarget { environment: string }
 export interface DevelopmentCandidate { target: MergeTarget; confirmedNonProduction?: boolean; confirmedTarget?: MergeTarget }
-export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[]; rememberForPrdRepository?: boolean; useSavedTargetsForThisPrd?: boolean; preferenceRevision?: number }
+export interface DevelopmentSettings { enabled: boolean; targets: DevelopmentCandidate[] }
 export interface DevelopmentAuthorization {
   revision: number; enabled: boolean;
   activationRecovery?: ActivationRecovery;
@@ -105,7 +105,6 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
   const candidates = record.settings?.developmentDeployments;
   if (candidates !== undefined) {
     require(object(candidates) && typeof candidates.enabled === "boolean" && Array.isArray(candidates.targets), "before-Start development settings");
-    require([candidates.rememberForPrdRepository, candidates.useSavedTargetsForThisPrd].every(value => value === undefined || typeof value === "boolean") && (candidates.preferenceRevision === undefined || Number.isSafeInteger(candidates.preferenceRevision) && candidates.preferenceRevision >= 0), "preference choice/revision");
     for (const candidate of candidates.targets) { require(object(candidate), "selected merge target"); normalizeMergeTarget(candidate.target); if (candidate.target.environment !== undefined) require(typeof candidate.confirmedNonProduction === "boolean", "legacy target confirmation"); if (candidate.confirmedTarget !== undefined) normalizeMergeTarget(candidate.confirmedTarget); }
   }
   const authority = record.developmentAuthorization; const state = record.developmentDelivery;

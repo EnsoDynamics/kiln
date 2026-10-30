@@ -12,8 +12,8 @@ import { join } from "node:path";
 let h: Harness | undefined; let engine: Engine | undefined; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
 afterEach(async () => { await chrome?.close(); await server?.close(); engine?.close(); await h?.cleanup(); chrome = undefined; server = undefined; engine = undefined; h = undefined; });
 const clickLabel = (text: string) => `[...document.querySelectorAll('label')].find(e => e.textContent.trim() === ${JSON.stringify(text)}).querySelector('input').click()`;
-describe("remembered targets and grant browser controls", () => {
-  it("explicitly saves/reuses separate API/web targets without granting the documents-only product repository, requires selection after branch edits, then grants another branch without an environment", async () => {
+describe("current PRD targets and grant browser controls", () => {
+  it("selects separate API/web targets for this PRD without granting the documents-only product repository, requires selection after branch edits, then grants another branch without an environment", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], files: { "customer-returns-prd.md": "# PRD: Customer returns\n\n## Acceptance Criteria\n- [ ] **AC-RET-01 — Deliver API/web.** Verify development.\n", "technical-design.md": "# Technical Design\n\nAPI/web are separate from the documents-only product repository.\n", "phase-1-deliver.md": "# Phase 1: Deliver\n\n**Repositories:** returns-api, returns-web\n\n## Acceptance criteria covered\nAC-RET-01\n" } });
     const named = ["returns-api", "returns-web"].map(name => { const origin = createGithubOrigin(h!.sandbox, "acme", name); const mainCheckoutPath = createRepository(h!.sandbox, name, origin.url); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop"); git(h!.sandbox, mainCheckoutPath, "push", "origin", "develop:preview"); return { name, mainCheckoutPath, github: `acme/${name}` }; });
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
@@ -50,22 +50,19 @@ describe("remembered targets and grant browser controls", () => {
     await page.evaluate(clickLabel("Allow merging into returns-api / preview"));
     await waitFor(() => engine!.record.settings.developmentDeployments!.targets.some(one => one.target.baseBranch === "preview"));
     await page.waitFor(`[...document.querySelectorAll('.merge-target input')].every(e => !e.disabled)`);
-    await page.evaluate(clickLabel("Remember these early-merge choices for future PRDs"));
-    await waitFor(() => engine!.savedDevelopmentTargets?.revision === 1);
-    const targets = structuredClone(engine.savedDevelopmentTargets!.targets);
+    const targets = structuredClone(engine.record.settings.developmentDeployments!.targets.map(one => one.target));
     expect(targets).toEqual([{ repository: "github.com/acme/returns-web", baseBranch: "develop" }, { repository: "github.com/acme/returns-api", baseBranch: "preview" }]);
-    await engine.changeSettings({ developmentDeployments: { enabled: false, targets: [] } });
     await page.close(); page = await chrome.open(server.address);
-    await page.waitFor(`document.body.innerText.includes('Use these saved early-merge choices for this PRD')`);
+    await page.waitFor(`document.body.innerText.includes('Applies to this PRD only')`);
     expect(engine.record.developmentAuthorization?.enabled).toBe(false);
-    const savedDisclosure = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
-    expect(savedDisclosure).toContain("Choices are saved locally for PRDs in github.com/acme/acme-shop");
-    expect(savedDisclosure).toContain(h.repository);
-    expect(savedDisclosure).toContain("Each future PRD asks whether to reuse them; nothing is authorized automatically");
-    expect(savedDisclosure).toContain("github.com/acme/returns-api · preview");
-    await page.evaluate(clickLabel("Use these saved early-merge choices for this PRD"));
-    await waitFor(() => engine!.record.settings.developmentDeployments?.targets.length === 2);
+    const disclosure = await page.evaluate<string>(`document.querySelector('.delivery').innerText`);
+    expect(disclosure).not.toMatch(/Remember these|Use these saved|Choices are saved locally/);
     await page.waitFor(`[...document.querySelectorAll('.merge-target input')].filter(input => input.checked).length === 2`);
+    for (const retired of ["rememberForPrdRepository", "useSavedTargetsForThisPrd", "preferenceRevision"]) {
+      const response = await fetch(new URL("/api/settings", server.address), { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": engine.record.token, Origin: new URL(server.address).origin }, body: JSON.stringify({ developmentDeployments: { enabled: true, targets: engine.record.settings.developmentDeployments!.targets, [retired]: retired === "preferenceRevision" ? 1 : true } }) });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain("Unknown development-deployment setting");
+    }
     // Compare actual rendered controls with Keep awake, so the original native-size/colour mismatch fails.
     expect(await page.evaluate(`[...document.querySelectorAll('.delivery input[type=checkbox]')].every(input => ['width', 'height', 'marginTop', 'marginLeft', 'accentColor'].every(property => getComputedStyle(input)[property] === getComputedStyle(document.querySelector('#awake'))[property]))`)).toBe(true);
     await page.evaluate(`if (!document.querySelector('#refined').checked) document.querySelector('#refined').click()`);
