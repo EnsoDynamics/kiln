@@ -20,6 +20,6 @@ Continue and Not now interactions, pre-acceptance target grants, durable accepta
 | Phase | What it does | Depends on |
 |---|---|---|
 | [2a: Check current plans on completed features](phase-2a-completed-plan-checks.md) | Reopening and manual checks compare current sources with retained delivery scope and expose changes or failures without starting work. | 1 (retained scope and coherent document reader). |
-| [2b: Show added work and preparation readiness](phase-2b-added-work-readiness.md) | Classify external completion and evaluate documented preparation and original permissions, then show the ordered offer above history. | 2a (current-source observations and historical comparison). |
+| [2b: Show added work and preparation readiness](phase-2b-added-work-readiness.md) | Classify external completion and evaluate documented preparation and existing authorization controls, then show the ordered offer above history. | 2a (current-source observations and historical comparison). |
 
 Split 2026-10-29 at implementation sizing: original-conversation authority and multi-repository prerequisite proof form a separate read-only capability from checking current plan sources.

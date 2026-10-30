@@ -366,7 +366,8 @@ describe("automatic completion activities", () => {
       expect(h.engine.record.pause.activeSince).toBeTruthy();
       await h.engine.start(); await h.engine.settled();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);
-      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('PR ready for review')`);
+      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('No new phases found')`);
+      expect(await page.evaluate(`document.querySelector('a[href="${h.engine.record.pullRequests![0]!.url}"]')?.href`)).toBe(h.engine.record.pullRequests![0]!.url);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
       await page.waitFor(`document.body.innerText.includes('Outcome: passed')`);
       expect(await page.evaluate(`document.body.innerText`)).toContain("AC-PROOF-01");

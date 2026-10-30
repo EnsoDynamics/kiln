@@ -6,6 +6,7 @@ import { judgedPhase, recordedPlan } from "./plan-reading.js";
 import type { GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
 import { completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 
 export interface DiscoverySource { kind: "shared" | "delivery_base"; path: string; revision?: string; digest?: string; error?: string }
@@ -20,6 +21,7 @@ export interface CompletedPlanResult {
   unintegratedDocuments: string[];
   problems: string[];
   /** Immutable classification evidence; absent on legacy observations. Not a proposal. */
+  proposal?: ContinuationProposal;
   accountingId?: string;
   leaves?: AccountedLeaf[];
 }
@@ -94,16 +96,17 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const unintegratedDocuments = [...new Set([...Object.keys(selected.documents), ...Object.keys(remote.documents)])].filter(file => selected.documents[file] !== remote.documents[file]);
     if (unintegratedDocuments.length) problems.push(`Revised documents are not together in origin/${branch}: ${unintegratedDocuments.join(", ")}. Commit/integrate the coherent document set, then check again.`);
     const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}) });
-    problems.push(...accounting.leaves.flatMap(row => row.problems));
+    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems });
+    problems.splice(0, problems.length, ...proposal.problems);
     // Recheck before publishing: slow Git reads must not bless a moving shared checkout/base.
     if (observePlan(shared, record.prdDirectory).digest !== local.digest || await remoteBase(git, shared, branch, false) !== revision) throw new Error("source_changed: The shared documents or delivery base changed during this check. Check for new phases again.");
     git.signal?.throwIfAborted();
     const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: record.prdDirectory, active: selected, sources: [local, remote], completions: baseline.completions });
     let retained;
-    try { retained = retainCompletionAccounting(directory, accounting); }
+    try { retained = retainCompletionAccounting(directory, accounting); retainContinuationProposal(directory, proposal); }
     catch (error) { throw new DiscoveryWriteFailure(`Completion evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error }); }
     const added = accounting.leaves.filter(p => p.classification === "new_unfinished").map(({ id, title, file }) => ({ id, title, file }));
-    check.result = { baselineId: baseline.id, candidateId: candidate.id, source, added, earlierWorkChanges: conflicts, unintegratedDocuments, problems: [...new Set(problems)], accountingId: retained.id, leaves: retained.leaves };
+    check.result = { baselineId: baseline.id, candidateId: candidate.id, source, added, earlierWorkChanges: conflicts, unintegratedDocuments, problems: [...new Set(problems)], accountingId: retained.id, leaves: retained.leaves, proposal };
     check.status = problems.length ? "blocked" : added.length ? "available" : "unchanged";
     check.lastSuccessfulAt = attemptedAt;
     delete check.earlierResult;

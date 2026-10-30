@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
-import { readPrdRecord, writePrdRecord } from "../state/records.js";
+import { SCHEMA_VERSION, readPrdRecord, writePrdRecord } from "../state/records.js";
 import { preferencePath, readDevelopmentPreference } from "../state/development-preferences.js";
 import { git } from "../test-support/git-repositories.js";
 import { documentsDigest } from "./development-delivery.js";
@@ -204,7 +204,7 @@ it("grants a branch without environment or attestation, survives restart, and re
   expect(() => readPrdRecord(h.stateDirectory)).toThrow("development environment");
   writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(original));
   const upgraded = readPrdRecord(h.stateDirectory)!;
-  expect(upgraded.schemaVersion).toBe(15);
+  expect(upgraded.schemaVersion).toBe(SCHEMA_VERSION);
   expect(upgraded.developmentAuthorization).toEqual(original.developmentAuthorization);
   expect(upgraded.developmentDelivery).toEqual(original.developmentDelivery);
   expect(upgraded.phases).toEqual(original.phases);

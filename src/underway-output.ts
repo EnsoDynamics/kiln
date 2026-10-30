@@ -94,6 +94,10 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
           const count = check.result!.added.length;
           text = `${count} new unfinished ${count === 1 ? "phase" : "phases"} found. Review the current plan on the feature page.`;
         }
+        if (check.result?.proposal) {
+          const proposal = check.result.proposal;
+          text += ` Readiness: ${proposal.readiness === "ready" ? "Ready" : "Not ready"}.${proposal.firstEligiblePhase ? ` First phase to run: Phase ${proposal.firstEligiblePhase}${proposal.readiness === "blocked" ? " after resolving blockers" : ""}.` : ""} Phases: ${proposal.added.map(row => `${row.id} · ${row.title}`).join("; ")}. Review the feature page.`;
+        }
         if (check.result?.leaves) {
           const external = check.result.leaves.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified");
           if (external.length) text += ` External work: ${external.map(row => `Phase ${row.id} · ${row.title} (${row.classification === "externally_verified" ? "completion and integration verified" : "completion evidence unresolved"})`).join("; ")}.`;

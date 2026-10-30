@@ -19,6 +19,8 @@ const phase = "# Phase 1: Catalog\n\n**Closed:** 2026-10-01\n\n## Acceptance cri
 const newPhase = "# Phase 9: Lending\n\n## Acceptance criteria covered\nAC-COMET-01\n\n## Phase dependencies\n1.\n";
 async function fixture(retained = true) {
   h = await createHarness({ folder, auditCycles: true, sessions: [], logGit: true, files: { "comet-prd.md": "# PRD: Comet\n\n## Acceptance Criteria\n\n- [ ] **AC-COMET-01** Find books.\n", "comet-technical-design.md": "# Design\nCatalog.\n", "phase-1-catalog.md": phase } });
+  git(h.sandbox, h.repository, "config", `url.${h.origin}.insteadOf`, "https://github.com/acme/acme-shop.git");
+  git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
   const source = observePlan(h.repository, directory); const revision = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
   h.engine.record.repositories = [{ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop", worktreePath: join(h.sandbox.root, "old-workspace"), baseCommit: revision, setupCompletedAt: "2026-10-01T10:00:00Z" }];
   h.engine.record.setupCompletedAt = "2026-10-01T10:00:00Z";
@@ -49,7 +51,7 @@ it("checks restart, HTTP and repeated reads without work; persists history and j
   expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ check: { status: "available", result: { added: [{ id: "9" }] } } });
   expect(buildSnapshot(h.engine).continuation?.check?.result?.source.revision).toBe(git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
   expect(h.claudeCalls()).toEqual([]);
-  expect(h.kilnGitCalls().some(call => /^(checkout|switch|reset|worktree add|merge|push)\b/.test(call))).toBe(false);
+  expect(h.kilnGitCalls().some(call => /^(checkout|switch|reset|worktree add|merge|push)(?: |$)/.test(call))).toBe(false);
   expect(h.reopenFromDisk().record.completedPlanCheck?.status).toBe("available");
 });
 it("selects remote additions over a baseline shared copy and detects divergent scope", async () => {
@@ -192,7 +194,7 @@ it("checks page mount, reload and button through the real browser while preservi
         expect(await page.evaluate("document.querySelector('a[href=\"https://github.com/acme/acme-shop/pull/12\"]')?.href")).toBe("https://github.com/acme/acme-shop/pull/12");
         expect(page.problems.filter(problem => !problem.includes('503'))).toEqual([]);
         writeFileSync(`/tmp/kiln-completed-discovery-failed-${width}.png`, await page.screenshot());
-        git(h.sandbox, h.repository, "remote", "set-url", "origin", h.origin);
+        git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
       } finally { await page.close(); }
     }
     expect(h.claudeCalls()).toEqual([]);

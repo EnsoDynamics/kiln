@@ -34,6 +34,15 @@
       <p>{earlier ? "Earlier result: " : ""}{result.added.length} new unfinished {result.added.length === 1 ? "phase" : "phases"}.</p>
       <ul>{#each result.added as phase}<li>Phase {phase.id} · {phase.title}</li>{/each}</ul>
     {/if}
+    {#if result.proposal}
+      <h3>{earlier ? "Earlier readiness" : "Readiness"}: {result.proposal.readiness === "ready" ? "Ready" : "Not ready"}</h3>
+      {#if result.proposal.firstEligiblePhase}<p>First phase to run: Phase {result.proposal.firstEligiblePhase}{#if result.proposal.readiness !== "ready"} — after the blockers below are resolved{/if}.</p>{/if}
+      {#each result.proposal.preparation as preparation}
+        <p>Phase {preparation.phaseId} preparation: integrate Phase {preparation.prerequisites.join(", ")} in {preparation.repository} from {preparation.sourceRef} at {preparation.sourceRevision} into {preparation.destination === "assigned_feature" ? "the fresh phase branch" : preparation.destination}.</p>
+        <p>{preparation.authorization === "phase_preparation" ? "Continue authorizes this preparation." : "Requires the existing early-merge target authorization for the fresh run."} Verify before implementation: {preparation.checks.map(check => check.command).join("; ")}.</p>
+      {/each}
+      {#each result.proposal.prerequisites.filter(row => row.status === "preparation_available") as prerequisite}<p>Phase {prerequisite.phaseId}: awaiting planned preparation; not yet integrated.</p>{/each}
+    {/if}
     {#if result.leaves}
       <p>{earlier ? "Earlier accounting: " : "Plan accounting: "}{carried} earlier completed · {result.added.length} new unfinished · {external.length} externally closed.</p>
       {#if external.length}
