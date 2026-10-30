@@ -31,7 +31,7 @@ export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> 
   onHistory?(threadId: string, turns: { id: string; items?: unknown[]; startedAt?: number | null }[]): void;
   beforeEnd?(): Promise<void>;
   /** Engine checks current authorization immediately before durable attempt allocation. */
-  beforeStart?(): void;
+  beforeStart?(): void | Promise<void>;
   onRecordChange?(): void;
   onBilling?(summary: BillingSummary): void;
   /** Kiln guidance, separate from provider-native events. Wire to terminal/browser in 3b2. */
@@ -79,7 +79,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     writeSessionRecord(options.stateDirectory, record);
     throw new CodexUsageRecoveryUnavailable(automaticRelease);
   }
-  options.beforeStart?.();
+  await options.beforeStart?.();
   const files = sessionFiles(options.stateDirectory, record);
   ensurePrivateDirectory(files.directory);
   const save = () => { writeSessionRecord(options.stateDirectory, record); options.onRecordChange?.(); };

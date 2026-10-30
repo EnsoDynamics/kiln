@@ -96,7 +96,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (args.some((a, i) => i > 0 && a !== "--json") || args.filter(a => a === "--json").length > 1) throw new ControlFailure("invalid_input", "Unknown or duplicate help flag.", 2);
       context.stdout.write(commandHelp([], json)); return 0;
     }
-    const legacy = ["run", "audit", "delivery", "add-repository"].includes(args[0]!);
+    const legacy = ["run", "audit", "delivery", "add-repository", "preparation"].includes(args[0]!);
     if (legacy && !args.includes("--help") && !args.includes("-h")) return undefined;
     const parsed = parseCommand(args); const name = parsed.contract.path[0]!; const flags = parsed.flags;
     if (flags.help) { context.stdout.write(commandHelp(parsed.contract.path, json)); return 0; }

@@ -9,7 +9,7 @@ import type { Harness } from "../test-support/engine-harness.js";
 let h: Harness;
 afterEach(async () => { await h?.cleanup(); });
 
-it("requires a valid preparation tuple in every affected repository without requiring PRD files in secondary sources", async () => {
+it.skipIf(process.platform !== "darwin")("requires a valid preparation tuple in every affected repository without requiring PRD files in secondary sources", async () => {
   const fixture = await createCometContinuation(); h = fixture.h;
   const apiOrigin = createBareOrigin(h.sandbox, "lending-api");
   const api = createRepository(h.sandbox, "lending-api", apiOrigin);

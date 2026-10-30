@@ -15,6 +15,7 @@ export interface ContinuationAcceptance {
   formatVersion: 1; id: string; operationId: string; commandId: string; proposalId: string;
   completedExecutionId: string; newExecutionId: string; acceptedAt: string;
   candidateId: string; archiveId: string; proposal: ContinuationProposal;
+  pendingAuthorityId?: string; authorization?: import("../state/development-delivery.js").DevelopmentAuthorization;
   settings: PrdRecord["settings"]; canonicalWorkspace: string; repositories: RepositoryEntry[];
   state: "preparing" | "blocked" | "active" | "superseded"; reason?: string; activatedAt?: string;
 }

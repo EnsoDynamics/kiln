@@ -1,5 +1,7 @@
 # Phase 3b: Continue through planned preparation
 
+**Closed:** 2026-10-30
+
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Readiness and Planned Preparation; Continuation Acceptance and Recovery; Interfaces; Data Models and Migration; Validation and Criteria Coverage.
 **Parent phase:** [Phase 3](phase-3-accepted-feature-continuation.md)
@@ -33,3 +35,7 @@ Read the design's **Implemented integrated-prerequisite continuation (Phase 3a)*
 The ordinary integrated path is in `continuation-state.ts`, `continuation-setup.ts` and the engine's **Continuation Acceptance and Recovery** methods. Extend this one owner; do not add a parallel dispatch journal. Every effect-authorizing metadata publication, including partial setup progress and final active sidecar/baseline, faults mutations on an uncertain write. Recovery must preserve that behavior while adding pending authority, preparation and verifier stages. Historical completion references retain independently verified source/base mappings so prior squash/rebase deliveries remain usable on later continuations; they never become provider receipts or current target grants.
 
 The inherited boundary deliberately rejects `preparation_available` acceptance with `preparation_unverified`. Phase 3b removes that refusal only with complete pending-grant adoption, authorized preparation, engine-owned checkpoint verification and one dependent implementation admission in the same provider conversation. Copy the real Git/Chrome/controller-death and installed-provider proof patterns; add the complete preparation path for both actual providers. Continue to preserve earlier archives, current billing/model controls, exact replay and fresh required audits/delivery. No additional original-message permission gate belongs here.
+
+## Implementation and validation
+
+Implemented the entire leaf without another split. Schema 18, pending exact-target authority, preparation-only turns, engine-owned native verification and same-conversation implementation admission are described in the design's **Implemented planned-preparation continuation (Phase 3b)**. [Planned preparation validation](kiln-planned-preparation-validation.md) records both actual providers, Git/Chrome/process-recovery evidence, the complete revised-scope delivery fixture, review/hardening and passing full/package gates. All implementation leaves are closed; the next owned unit is fresh whole-PRD delivery audit, followed by test audit and any required completion work, per the parent phase plan.

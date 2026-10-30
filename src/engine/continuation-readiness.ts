@@ -1,3 +1,5 @@
+import { newPreparationState } from "./preparation-state.js";
+import { preparationPermissions } from "./preparation-permissions.js";
 /** Read-only proposal evaluation. Acceptance and setup remain owned by the continuation command. */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -13,6 +15,8 @@ import { runGit, originBranches, type GitContext } from "./git-reads.js";
 import { PLAN_LIMIT, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { extractPreparation, type PreparationInstruction } from "./preparation-documents.js";
 const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+import { readPendingAuthority, pendingForProposal } from "./continuation-authority.js";
+import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
@@ -24,8 +28,11 @@ export interface ContinuationProposal {
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
   repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
+  permissionDigest?: string; scopeDigest?: string; grantEligible?: boolean;
+  authorization?: { revision: number; executionId?: string; superseded: boolean; targets: { target: MergeTarget; granted: boolean }[] };
 }
 export interface ReadinessInput {
+  codex?: string | undefined;
   record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; accounting: Omit<CompletionAccounting, "id">;
   git: GitContext; shared: string; directory: string; problems: string[];
 }
@@ -74,7 +81,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     }
     if (instruction.destination !== "assigned_feature") {
       if (instruction.destination !== repository.baseBranch) problems.push(`Phase ${instruction.phaseId}: unknown integration destination ${instruction.destination}; use this phase's branch or configured ${repository.baseBranch}.`);
-      else problems.push(`Phase ${instruction.phaseId}: ${repository.name}/${repository.baseBranch} needs an explicit early-merge target grant for the proposed fresh run. Earlier execution grants do not apply; existing CI/CD may run before the PRD finishes.`);
+
     }
     for (const check of binding.checks) {
       const packagePath = check.directory === "." ? "package.json" : `${check.directory}/package.json`;
@@ -149,7 +156,23 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     if ((await gitRead(git, repo.path, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim() !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
   }
   const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
-  return { ...body, id: authorityDigest(body) };
+  if (preparation.length && preparation.every(binding => binding.valid)) {
+    const proposed = { ...body, id: authorityDigest(body) };
+    const permissionRecord: PrdRecord = { ...record, preparation: newPreparationState(proposed), repositories: repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" : "named", github: repo.identity, mainCheckoutPath: repo.path, worktreePath: repo.path, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision })) };
+    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true); }
+    catch (error) { body.permissionDigest = authorityDigest((error as Error).message); problems.push((error as Error).message); body.problems.push((error as Error).message); }
+  }
+  const scopeDigest = authorityDigest(body);
+  const retained = readPendingAuthority(input.directory, record);
+  const pending = pendingForProposal(retained, { scopeDigest, completedExecutionId: record.executionId });
+  const targets = [...new Map(preparation.filter(binding => binding.authorization === "delivery_target" && binding.destination === binding.baseBranch).map(binding => {
+    const target = { repository: `github.com/${binding.repositoryIdentity}`.toLowerCase(), baseBranch: binding.baseBranch };
+    return [mergeTargetKey(target), target];
+  })).values()].map(target => ({ target, granted: !!pending?.authorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target)) }));
+  const bound = { ...body, scopeDigest, grantEligible: !problems.length, authorization: { revision: pending?.authorization.revision ?? 0, ...(pending ? { executionId: pending.executionId } : {}), superseded: !!retained && !pending, targets } };
+  for (const { target, granted } of targets) if (!granted) bound.problems.push(`${target.repository}/${target.baseBranch} needs an explicit early-merge target grant for the proposed fresh run. Earlier execution grants do not apply; existing CI/CD may run before the PRD finishes.`);
+  bound.readiness = bound.problems.length ? "blocked" : "ready";
+  return { ...bound, id: authorityDigest(bound) };
 }
 
 export function retainContinuationProposal(directory: string, proposal: ContinuationProposal): void {

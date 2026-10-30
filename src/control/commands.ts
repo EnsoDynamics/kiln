@@ -9,7 +9,7 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 
 export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review"] as const;
 export type Action = typeof ACTIONS[number];
-const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry"] as const;
+const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
 export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
@@ -84,6 +84,12 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
 function validateInternalInstruction(raw: unknown): Instruction {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ControlFailure("invalid_input", "A command object is required.", 2);
   const value = raw as Instruction;
+  if (value.action === "continuation-grant") {
+    const input = value.inputs;
+    if (!input || Object.keys(input).sort().join() !== "authorization_revision,proposal_id,target" || typeof input.proposal_id !== "string" || !/^[a-f0-9]{64}$/.test(input.proposal_id) || !Number.isSafeInteger(input.authorization_revision) || !input.target || typeof input.target !== "object" || Array.isArray(input.target)) throw new ControlFailure("invalid_input", "Invalid continuation grant instruction.", 2);
+    validateInstruction({ ...value, action: "continue", inputs: {} });
+    return value;
+  }
   const key = value.action === "continuation-accept" ? "proposal_id" : "acceptance_id";
   if (!INTERNAL_ACTIONS.includes(value.action as typeof INTERNAL_ACTIONS[number]) || !value.inputs || Object.keys(value.inputs).join() !== key || typeof value.inputs[key] !== "string" || !(key === "proposal_id" ? /^[a-f0-9]{64}$/ : /^[\w.-]{1,128}$/).test(value.inputs[key] as string)) throw new ControlFailure("invalid_input", "Invalid internal continuation instruction.", 2);
   validateInstruction({ ...value, action: "continue", inputs: {} });

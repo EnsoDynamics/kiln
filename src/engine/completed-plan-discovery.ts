@@ -5,7 +5,7 @@ import type { PrdRecord } from "../state/records.js";
 import { judgedPhase, recordedPlan } from "./plan-reading.js";
 import type { GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
-import { completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 
@@ -34,7 +34,7 @@ export interface CompletedPlanCheck {
   result?: CompletedPlanResult;
   earlierResult?: CompletedPlanResult;
 }
-export interface DiscoveryContext { record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }> }
+export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }> }
 export class DiscoveryWriteFailure extends Error {}
 function retainDiscoveryBaseline(directory: string, value: Omit<PlanBaseline, "id">): PlanBaseline {
   try { return retainBaseline(directory, value); }
@@ -49,7 +49,7 @@ const semantic = (source: PlanSource) => hash({ phases: source.plan.phases.map(p
 /** Today's source is never used as yesterday's baseline. */
 async function completedBaseline(context: DiscoveryContext): Promise<PlanBaseline> {
   const { record, directory, shared, git } = context;
-  if (record.planReconciliation?.baselineId) return readBaseline(directory, record.planReconciliation.baselineId);
+  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId);
   const revision = record.phases.pr?.repositories[record.repository.name]?.pushedSha
     ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit;
   if (!revision || !record.plan?.length) throw new Error("baseline_unavailable: No retained accepted plan or recorded completion revision. Restore the original completion record and its Git revision, then check again; today's checkout cannot prove the earlier scope.");
@@ -64,7 +64,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
     if (!owner) throw new Error(`baseline_unavailable: Phase ${phase.id} has no recorded completion receipt. Restore its earlier receipt before checking again.`);
     completions[phase.id] = { kind: owner[1].sessionIds.length ? "kiln" : "external", doneAt: owner[1].doneAt!, revision, repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.pushedSha }]] : [])) };
   }
-  return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
+  return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
 }
 
 export async function discoverCompletedPlan(context: DiscoveryContext): Promise<CompletedPlanCheck> {
@@ -96,12 +96,12 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const unintegratedDocuments = [...new Set([...Object.keys(selected.documents), ...Object.keys(remote.documents)])].filter(file => selected.documents[file] !== remote.documents[file]);
     if (unintegratedDocuments.length) problems.push(`Revised documents are not together in origin/${branch}: ${unintegratedDocuments.join(", ")}. Commit/integrate the coherent document set, then check again.`);
     const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}) });
-    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems });
+    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, codex: context.codex });
     problems.splice(0, problems.length, ...proposal.problems);
     // Recheck before publishing: slow Git reads must not bless a moving shared checkout/base.
     if (observePlan(shared, record.prdDirectory).digest !== local.digest || await remoteBase(git, shared, branch, false) !== revision) throw new Error("source_changed: The shared documents or delivery base changed during this check. Check for new phases again.");
     git.signal?.throwIfAborted();
-    const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: record.prdDirectory, active: selected, sources: [local, remote], completions: baseline.completions });
+    const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: selected, sources: [local, remote], completions: baseline.completions });
     let retained;
     try { retained = retainCompletionAccounting(directory, accounting); retainContinuationProposal(directory, proposal); }
     catch (error) { throw new DiscoveryWriteFailure(`Completion evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error }); }

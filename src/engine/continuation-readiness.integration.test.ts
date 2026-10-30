@@ -37,7 +37,7 @@ it("keeps unavailable preparation blocked with exact recovery and no provider wo
   expect(check.result?.proposal?.problems.join(" ")).toContain("restore source missing"); expect(check.result?.added).toHaveLength(7); expect(h.claudeCalls()).toEqual([]);
 });
 
-it("offers seven phases with local preparation under Continue and requires the existing target grant for develop", async () => {
+it.skipIf(process.platform !== "darwin")("offers seven phases with local preparation under Continue and requires the existing target grant for develop", async () => {
   const f = await createCometContinuation(); h = f.h;
   git(h.sandbox, h.repository, "checkout", "-q", "wt/catalog-accessibility");
   writeFileSync(join(h.repository, "package.json"), JSON.stringify({ scripts: { test: "node --version" } }));

@@ -1,5 +1,11 @@
+import { preparationPermissions } from "./preparation-permissions.js";
+import { readContinuationProposal } from "./continuation-readiness.js";
+import { preparationPrompt, preparationImplementationPrompt } from "../session/prompts.js";
+import { newPreparationState, preparationDigest, type PreparationReference } from "./preparation-state.js";
+import { verifyPreparation, preparationCheckpoint, reconcilePreparationAttempt } from "./preparation-verifier.js";
 import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
+import { authorityForApproval, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority } from "./continuation-authority.js";
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, type ContinuationAcceptance } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
@@ -58,7 +64,6 @@ import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path"
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
-import { readPhaseDocument } from "../plan/phase-document.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -118,7 +123,8 @@ import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../
 import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
-import { phaseScopeDigest, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
+import { PLAN_NORMALIZER_VERSION, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -519,6 +525,20 @@ export class Engine {
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (receipt.instruction.action === "continuation-grant") {
+      const pending = authorityForApproval(this.stateDirectory, receipt.id);
+      const proposed = readContinuationProposal(this.stateDirectory, receipt.instruction.inputs.proposal_id as string);
+      const applied = pending?.completedExecutionId === receipt.execution_id && pending.scopeDigest === proposed.scopeDigest && pending.authorization.grants.some(grant => authorizationTargetKey(grant.target) === authorizationTargetKey(normalizeMergeTarget(receipt.instruction.inputs.target)));
+      const currentAuthority = readPendingAuthority(this.stateDirectory, this.record);
+      if (applied && currentAuthority?.id !== pending.id && (!currentAuthority || currentAuthority.state !== "pending" || currentAuthority.completedExecutionId !== this.record.executionId) && this.record.executionId === pending.completedExecutionId && pending.state === "pending" && (this.record.completedPlanCheck?.result ?? this.record.completedPlanCheck?.earlierResult)?.proposal?.scopeDigest === pending.scopeDigest) {
+        // Journal reconciliation runs during construction, before commands is assigned.
+        // The durable approval payload owns this reserved identity even if its pointer
+        // publication was interrupted; no setup or dispatch is authorized here.
+        this.record.pendingContinuationAuthority = pending.id;
+        writePrdRecord(this.stateDirectory, this.record);
+      }
+      return { ...receipt, state: applied ? "completed" : "failed", stage: "settled", outcome: applied ? "continuation_authorized" : "not_applied", reason: applied ? null : "No retained target approval exists. Refresh the proposal before choosing again." };
+    }
     if (["continuation-accept", "continuation-retry"].includes(receipt.instruction.action)) {
       const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
       const row = persisted?.continuation?.acceptances.find(row => receipt.instruction.action === "continuation-accept" ? row.commandId === receipt.command_id || row.completedExecutionId === receipt.execution_id && row.proposalId === receipt.instruction.inputs.proposal_id : row.id === receipt.instruction.inputs.acceptance_id && row.completedExecutionId === receipt.execution_id);
@@ -579,6 +599,7 @@ export class Engine {
   }
 
   private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
+    if (action === "continuation-grant") return this.grantContinuationTarget(inputs, receipt);
     if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
     if (action === "continuation-retry") return this.retryContinuation(inputs);
     let answer: CommandResult;
@@ -1744,6 +1765,8 @@ export class Engine {
     }
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
       if (!leaf.closed) break;
+      const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
+      if (this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => binding.prerequisites.includes(leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
       if (!check.passed) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
     }
@@ -1960,10 +1983,51 @@ export class Engine {
   }
 
   private continuationControl(instruction: import("../control/commands.js").Instruction) {
-    const known = this.continuationReference(instruction.action, instruction.inputs, instruction.execution_id);
+    const known = instruction.action === "continuation-grant" ? undefined : this.continuationReference(instruction.action, instruction.inputs, instruction.execution_id);
     if (known && (instruction.action === "continuation-accept" || known.state === "active" || known.state === "superseded" || known.state === "preparing" && !!this.driving)) return { available: true, reason: null, alreadyApplied: true };
     const available = this.currentlyComplete && !this.checking && !this.driving && !this.settingUp && !this.deliveryBusy && !this.stopping && !this.billing.busy && !this.billing.pending;
     return { available, reason: available ? null : "Wait for the current operation and billing read to settle before continuing." };
+  }
+
+  async authorizeContinuationTarget(body: Record<string, unknown>) {
+    if (Object.keys(body).sort().join() !== "authorizationRevision,commandId,executionId,proposalId,statusToken,target" || typeof body.commandId !== "string" || typeof body.executionId !== "string" || typeof body.statusToken !== "string" || typeof body.proposalId !== "string" || !Number.isSafeInteger(body.authorizationRevision)) return { ok: false, status: 400 as const, reason: "Use the displayed proposal, exact target, authorization revision and command identity." };
+    let target: MergeTarget;
+    try { target = normalizeMergeTarget(body.target); } catch (error) { return { ok: false, status: 400 as const, reason: (error as Error).message }; }
+    const answer = this.commands.submitInternal({ command_id: body.commandId, execution_id: body.executionId, status_token: body.statusToken, action: "continuation-grant", inputs: { authorization_revision: body.authorizationRevision, proposal_id: body.proposalId, target } });
+    if (!answer.ok) return { ok: false, status: 409 as const, reason: answer.errors[0]?.message ?? "The target grant was refused." };
+    await this.commands.settled();
+    if (this.commands.fault) return { ok: false, status: 503 as const, code: "state_write_failed", reason: this.commands.fault };
+    const receipt = this.commands.lookup(body.commandId).operation as Receipt;
+    if (receipt.state !== "completed") return { ok: false, status: 409 as const, reason: receipt.reason ?? "The grant could not be settled.", code: receipt.outcome };
+    const approved = authorityForApproval(this.stateDirectory, receipt.id);
+    return { ok: true, status: 200 as const, grant: approved ? { executionId: approved.executionId, valid: approved.state !== "superseded" && (approved.state === "adopted" || approved.executionId === this.record.executionId ? approved.executionId === this.record.executionId : this.record.completedPlanCheck?.result?.proposal?.scopeDigest === approved.scopeDigest) } : undefined, authorization: approved?.authorization, proposal: this.record.completedPlanCheck?.result?.proposal };
+  }
+
+  private async grantContinuationTarget(inputs: Record<string, unknown>, receipt: Receipt) {
+    const check = await this.checkCompletedPlanOwned();
+    const proposal = check.result?.proposal;
+    if (!proposal || check.status === "failed") return { ok: false, code: "proposal_changed", reason: "The proposal changed. Review the refreshed exact targets before granting authority." };
+    const displayed = readContinuationProposal(this.stateDirectory, inputs.proposal_id as string);
+    if (displayed.scopeDigest !== proposal.scopeDigest || displayed.completedExecutionId !== proposal.completedExecutionId) return { ok: false, code: "proposal_changed", reason: "The plan or target changed. Earlier approval is superseded; review the refreshed offer." };
+    const target = normalizeMergeTarget(inputs.target);
+    const required = proposal.authorization?.targets.find(row => authorizationTargetKey(row.target) === authorizationTargetKey(target));
+    if (!proposal.grantEligible || !required || target.environment !== undefined) return { ok: false, code: "prerequisite_blocked", reason: "Read and reconcile the complete preparation scope before authorizing its exact configured target." };
+    let pending = pendingForProposal(readPendingAuthority(this.stateDirectory, this.record), proposal);
+    if (required.granted && pending) {
+      this.writeContinuationMetadata(() => writeDurableMetadata(join(this.stateDirectory, "continuation-approval-links", `${receipt.id}.json`), { formatVersion: 1, authorityId: pending!.id }));
+      return { ok: true };
+    }
+    if (inputs.authorization_revision !== (pending?.authorization.revision ?? 0)) return { ok: false, code: "proposal_changed", reason: "The authorization revision changed. Refresh before granting authority." };
+    pending ??= reserveAuthority(proposal);
+    pending.authorization.grants.push({ target, confirmedAt: this.now().toISOString(), source: "continuation" });
+    pending.authorization.revision++;
+    pending.approvals.push({ operationId: receipt.id, commandId: receipt.command_id, target });
+    this.commands.enableExecutionIndex();
+    this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, pending!));
+    this.record.pendingContinuationAuthority = pending.id;
+    this.writeContinuationMetadata(() => this.save());
+    await this.checkCompletedPlanOwned();
+    return { ok: true };
   }
 
   continuationAcceptance(id?: string) {
@@ -1998,6 +2062,7 @@ export class Engine {
   }
 
   private writeContinuationMetadata<T>(write: () => T): T {
+    if (this.commands?.fault) throw new Error(this.commands.fault);
     try { return write(); }
     catch (error) { this.commands.fault = "Continuation metadata could not be durably saved. Restart to reconcile before changing work."; throw error; }
   }
@@ -2008,7 +2073,7 @@ export class Engine {
     if (check.status === "failed") return { ok: false, status: 503, code: "source_unavailable", reason: check.errors.join(" ") || "Required plan sources are unavailable. Restore them and retry the check." };
     if (!proposal || proposal.id !== inputs.proposal_id) return { ok: false, status: 409, code: "proposal_changed", reason: "The plan or delivery prerequisites changed. Review the refreshed offer and choose Continue again." };
     if (check.status !== "available" || proposal.readiness !== "ready" || !proposal.added.length) return { ok: false, status: 422, code: "prerequisite_blocked", reason: proposal.problems.join(" ") || "No ready additional work is available." };
-    if (proposal.prerequisites.some(row => row.status !== "integrated_verified")) return { ok: false, status: 422, code: "preparation_unverified", reason: "Prerequisite preparation has not been performed and independently verified. Dependent implementation cannot start." };
+    if (proposal.prerequisites.some(row => !["integrated_verified", "preparation_available"].includes(row.status))) return { ok: false, status: 422, code: "preparation_unverified", reason: "Required prerequisites are unresolved." };
     const previous = this.record.continuation?.acceptances.find(row => row.completedExecutionId === this.record.executionId && row.state !== "superseded");
     if (previous) {
       if (previous.state !== "blocked") return refuse("An accepted continuation already owns preparation.");
@@ -2076,19 +2141,25 @@ export class Engine {
       const { id: _candidateId, ...candidateBody } = candidate; void _candidateId;
       const baseline = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, { ...candidateBody, active: source, completions }));
       const old = this.record;
+      const authority = readPendingAuthority(this.stateDirectory, old);
+      if (acceptance.pendingAuthorityId) {
+        if (!authority || authority.id !== acceptance.pendingAuthorityId || authority.executionId !== acceptance.newExecutionId || authority.scopeDigest !== acceptance.proposal.scopeDigest || authority.state === "superseded") throw new Error("The accepted target authority is unavailable; no work can start.");
+
+      }
       const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old) };
       acceptance.state = "active"; acceptance.activatedAt = this.now().toISOString(); delete acceptance.reason;
       this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
       const continuation = structuredClone(old.continuation!);
       continuation.acceptances = continuation.acceptances.map(row => row.id === acceptance.id ? acceptanceSummary(acceptance) : row);
       if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
-      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: restrictedAuthorization(), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
+      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
       this.billing.invalidate(false);
       for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
       Object.assign(old, active);
       this.controlEpoch = randomUUID(); this.record.controlEpoch = this.controlEpoch;
       this.plan = source.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.stayedOutcomes.clear(); this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
       this.save();
+      if (authority && acceptance.pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = acceptance.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
       this.commands.rotateExecution(acceptance.newExecutionId, acceptance.operationId);
       bindExecutionAliases(this);
       bindLegacySessions(this);
@@ -2116,6 +2187,7 @@ export class Engine {
    */
   checkCompletedPlan(): Promise<CompletedPlanCheck> {
     if (this.completedPlanReading) return this.completedPlanReading;
+    if (this.commands.blocked) return Promise.reject(new AuditRefusal("busy", this.commands.fault ?? "Reconcile the retained command owner before another plan check.", 409));
     if (!this.currentlyComplete) return Promise.reject(new AuditRefusal("wrong_activity", "Only a completed feature can check for added phases.", 409));
     if (this.commands.busy || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping) return Promise.reject(new AuditRefusal("busy", "Kiln is already checking or changing work.", 409));
     return this.checkCompletedPlanOwned();
@@ -2128,8 +2200,13 @@ export class Engine {
     const attemptedAt = this.now().toISOString();
     this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
-    const reading = discoverCompletedPlan({ record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey) }).then(check => {
+    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]) }, attemptedAt, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey) }).then(check => {
       if (this.stopping || this.closed) return check;
+      const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
+      if (pendingAuthority?.state === "pending" && pendingAuthority.completedExecutionId === this.record.executionId && check.result?.proposal?.scopeDigest && pendingAuthority.scopeDigest !== check.result.proposal.scopeDigest) {
+        pendingAuthority.state = "superseded";
+        this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, pendingAuthority));
+      }
       this.record.completedPlanCheck = check;
       // The accepted historical pointer is immutable. Recovery may establish it once.
       if (!this.record.planReconciliation?.baselineId && check.result) this.record.planReconciliation = { ...this.record.planReconciliation, baselineId: check.result.baselineId };
@@ -2142,6 +2219,9 @@ export class Engine {
   }
 
   async prepare(): Promise<{ ok: true } | { ok: false; error: string }> {
+    const authority = readPendingAuthority(this.stateDirectory, this.record);
+    const active = this.record.continuation?.acceptances.find(row => row.id === this.record.continuation?.currentAcceptanceId && row.state === "active" && row.newExecutionId === this.record.executionId);
+    if (authority?.state === "pending" && authority.executionId === this.record.executionId && active && readAcceptance(this.stateDirectory, active.id).pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = active.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
     const pending = this.pendingContinuation();
     if (pending) await this.prepareContinuation(pending);
     if (this.record.completedAt) { if (this.currentlyComplete) await this.checkCompletedPlan(); return { ok: true }; }
@@ -2180,6 +2260,7 @@ export class Engine {
   }
 
   private async decideQuietly(): Promise<UnderwayDecision> {
+    if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
       const target = this.record.liveControl.takeover.target;
       const session = this.sessionRecord(target.activityKey, target.sessionId);
@@ -2359,6 +2440,12 @@ export class Engine {
       }
       if (record.pause.activeSince !== undefined) return;
 
+      const preparation = record.preparation;
+      if (preparation && !record.phases[preparation.phaseId]?.doneAt && this.latestSession(preparation.phaseId)?.runs.length && (preparation.stage !== "implementation" || !this.latestSession(preparation.phaseId)?.runs[preparation.implementationRun!])) {
+        const verdict = await this.advancePreparation();
+        if (verdict.kind !== "done") return;
+        continue;
+      }
       const read = await this.readPlan();
       if (!read.ok) {
         this.recordPlanStop(read.problem);
@@ -2586,12 +2673,146 @@ export class Engine {
     await this.additionChain;
     await this.recordStartCommits(leafId);
     const leaf = this.plan?.phases.find((phase) => phase.id === leafId);
-    const prompt = phaseSessionPrompt(this.phasePromptValues(leaf?.fileName ?? "", this.sessionFolder));
+    if (this.record.preparation?.phaseId === leafId) {
+      if (!await this.preparePolicyForTurn(leafId)) return "stopped";
+    }
+    const prompt = this.record.preparation?.phaseId === leafId ? this.preparationTask() : phaseSessionPrompt(this.phasePromptValues(leaf?.fileName ?? "", this.sessionFolder));
     if (this.stopping) return "stopped";
     this.emit({ kind: "phase", at: this.now(), phaseId: leafId, title: leaf?.title ?? leafId, event: "started" });
     await this.launchSession(leafId, "phase", prompt);
     const verdict = await this.settleSession(leafId);
     return verdict.kind === "done" ? "done" : "stopped";
+  }
+
+  private async preparePolicyForTurn(key: string): Promise<boolean> {
+    let digest: string;
+    try { digest = await preparationPermissions(this.preparationContext(), true); }
+    catch (error) {
+      this.record.preparation!.reason = (error as Error).message;
+      this.recordStop(key, this.latestSession(key)?.runs.length ? "done_check" : "selection", [{ name: "Preparation permissions", passed: false, facts: [this.record.preparation!.reason] }]);
+      this.current = undefined; this.checking = false; this.changed(); return false;
+    }
+    this.record.preparation!.providerPolicyDigest = digest;
+    this.writeContinuationMetadata(() => this.save()); return true;
+  }
+
+  private preparationTask(note?: string): string {
+    const state = this.record.preparation!;
+    return preparationPrompt({ phaseId: state.phaseId, featureName: this.record.featureName, branch: this.record.settings.featureBranch, bindings: JSON.stringify(state.bindings.map(binding => ({ ...binding, worktree: this.record.repositories.find(repo => repo.name === binding.repository)?.worktreePath })), null, 2), cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, executionId: this.record.executionId!, recovery: [state.reason, note].filter(Boolean).join("\n") });
+  }
+
+  preparationStatus(executionId: unknown, phaseId: unknown) {
+    const state = typeof executionId === "string" ? this.historicalExecution(executionId)?.record.preparation : undefined;
+    if (!state || phaseId !== state.phaseId) return undefined;
+    return { executionId, phaseId, stage: state.stage, bindings: state.bindings, checks: state.attempts.map(({ gateDirectory: _gate, output: _output, ...attempt }) => { void _gate; void _output; return { ...attempt, output: `/api/preparation/output/${attempt.id}?executionId=${executionId}` }; }), reason: state.reason, checkpoint: state.verifiedCheckpoint?.id };
+  }
+
+  async preparationReadStatus(executionId: unknown, phaseId: unknown) {
+    const status = this.preparationStatus(executionId, phaseId);
+    if (!status) return undefined;
+    const session = executionId === this.record.executionId && this.record.preparation ? this.latestSession(this.record.preparation.phaseId) : undefined;
+    let commands: CommandEvidence[] = [];
+    if (session?.runs.some(run => run.pid)) { try { commands = await this.deliveryCommands(session.sessionId); } catch (error) { return { ...status, availableCommandEvidence: [], commandEvidenceError: (error as Error).message }; } }
+    return { ...status, availableCommandEvidence: commands.filter(command => command.resultAt).map(command => ({ sessionId: session!.sessionId, callId: command.callId, command: command.command, cwd: command.cwd, outcome: command.outcome, resultAt: command.resultAt })) };
+  }
+
+  private async authorizePreparationCommands(): Promise<void> {
+    const state = this.record.preparation!; const session = this.latestSession(state.phaseId);
+    if (!session) throw new Error("No current preparation conversation can establish existing command permissions.");
+    const commands = await this.deliveryCommands(session.sessionId);
+    for (const binding of state.bindings) for (const check of binding.checks) {
+      const refs = state.submissions.filter(row => row.bindingId === binding.id && row.run === session.runs.length - 1 && row.sessionId === session.sessionId).flatMap(row => row.references);
+      const cwd = resolve(this.record.repositories.find(repo => repo.name === binding.repository)!.worktreePath, check.directory);
+      if (!refs.some(ref => ref.kind === "command" && commands.some(command => command.callId === ref.callId && command.command.trim() === check.command && resolve(command.cwd) === cwd && command.resultAt && command.outcome === "success" && Date.parse(command.calledAt) >= Date.parse(session.runs.at(-1)!.startedAt)))) throw new Error(`Existing Claude tool controls require a retained successful ${check.command} command from this preparation turn. Run it through the provider, submit its command reference, then return; Kiln still verifies independently.`);
+    }
+  }
+
+  async submitPreparation(body: Record<string, unknown>) {
+    const state = this.record.preparation;
+    if (Object.keys(body).sort().join() !== "bindingId,executionId,phaseId,references" || !Array.isArray(body.references) || !body.references.length || body.references.length > 100) return { ok: false, status: 400 as const, reason: "Submit the exact preparation binding and typed source references." };
+    if (!state || body.executionId !== this.record.executionId || body.phaseId !== state.phaseId) return { ok: false, status: 403 as const, reason: "Preparation belongs to another execution or phase." };
+    const binding = state.bindings.find(binding => binding.id === body.bindingId);
+    const session = this.latestSession(state.phaseId); const runIndex = (session?.runs.length ?? 0) - 1;
+    if (!binding || !session || runIndex < 0) return { ok: false, status: 409 as const, reason: "No owning preparation turn is available." };
+    const references = body.references as PreparationReference[];
+    const digest = preparationDigest(references);
+    const retained = state.submissions.find(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.digest === digest);
+    if (retained && (state.stage !== "preparation" || retained.run === runIndex)) return { ok: true, status: 200 as const, disposition: state.verifiedCheckpoint && !state.reason ? "verified" : "submitted", checks: this.preparationStatus(body.executionId, body.phaseId)?.checks };
+    if (this.commands.blocked || this.stopping) return { ok: false, status: 503 as const, code: "state_write_failed", reason: this.commands.fault ?? "Preparation ownership needs recovery before another submission." };
+    for (const reference of references) {
+      if (!reference || typeof reference !== "object") return { ok: false, status: 400 as const, reason: "Use typed preparation references." };
+      if (reference.kind === "git_revision") {
+        if (Object.keys(reference).sort().join() !== "commit,kind,repository" || reference.repository !== binding.repository || reference.commit !== binding.sourceRevision) return { ok: false, status: 400 as const, reason: "The Git reference must identify this binding's pinned repository/source revision." };
+      } else if (reference.kind === "command") {
+        if (Object.keys(reference).sort().join() !== "callId,kind,sessionId" || reference.sessionId !== session.sessionId || typeof reference.callId !== "string") return { ok: false, status: 403 as const, reason: "Command references must belong to the current preparation turn." };
+        const command = (await this.deliveryCommands(session.sessionId)).find(command => command.callId === reference.callId);
+        if (!command?.resultAt || Date.parse(command.calledAt) < Date.parse(session.runs[runIndex]!.startedAt)) return { ok: false, status: 422 as const, reason: "The current preparation command has no retained terminal result." };
+      } else return { ok: false, status: 400 as const, reason: "Unknown preparation reference kind." };
+    }
+    const previous = state.submissions.find(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.run === runIndex);
+    if (previous && previous.digest !== digest) return { ok: false, status: 409 as const, code: "result_conflict", reason: "This preparation turn already submitted different references." };
+    if (!previous) {
+      if (state.stage !== "preparation" || !this.current?.processRunning || this.current.session?.sessionId !== session.sessionId) return { ok: false, status: 409 as const, reason: "Only the current preparation turn can submit new references." };
+      if (this.commands.blocked || this.stopping) return { ok: false, status: 503 as const, code: "state_write_failed", reason: this.commands.fault ?? "Preparation ownership needs recovery." };
+      state.submissions.push({ bindingId: binding.id, sessionId: session.sessionId, run: runIndex, references, digest });
+      this.writeContinuationMetadata(() => this.save());
+    }
+    return { ok: true, status: 200 as const, disposition: state.verifiedCheckpoint ? "verified" : "submitted", checks: this.preparationStatus(body.executionId, body.phaseId)?.checks };
+  }
+
+  private preparationContext() {
+    return { record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString() };
+  }
+
+  private async recheckPreparationAdmission(key: string, session: SessionRecord): Promise<void> {
+    const state = this.record.preparation;
+    if (!state || state.phaseId !== key || state.stage !== "implementation" || session.runs.length !== state.implementationRun) return;
+    if (!state.verifiedCheckpoint || (await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint.id) throw new Error("Prepared source/configuration moved after verification; dependent implementation remains held.");
+    if (this.record.pause.requestedAt || this.record.pause.activeSince) throw new Error("The pause control holds dependent implementation.");
+  }
+
+  private async advancePreparation(): Promise<Verdict> {
+    const state = this.record.preparation!; const key = state.phaseId; const session = this.latestSession(key)!;
+    this.checking = true; this.changed();
+    try {
+      const run = session.runs.at(-1)!;
+      if (!run?.endedAt || run.interruptedAt || run.spawnError) throw new Error("The preparation provider has not settled. Resume it before verification.");
+      const stayed = await this.readWorkspaceEvidence(key);
+      if (!stayed.passed || this.codexSafetyProblems(key).length) throw new Error([...stayed.check.facts, ...this.codexSafetyProblems(key)].join(" "));
+      if (state.bindings.some(binding => !state.submissions.some(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.run === session.runs.length - 1))) throw new Error("Submit the pinned source references for every preparation binding, then return from the preparation turn.");
+      await verifyPreparation(this.preparationContext());
+      if (this.stopping || this.commands.blocked) return { kind: "stopped" };
+      if (this.record.pause.requestedAt || this.record.pause.activeSince) { if (!this.record.pause.activeSince) this.activatePause(); return { kind: "stopped" }; }
+      if ((await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint!.id) throw new Error("The prepared checkpoint changed before implementation admission.");
+      // Mark prerequisite receipts only after independent integration and project checks.
+      const baseline = readBaseline(this.stateDirectory, this.record.planReconciliation!.baselineId!);
+      const { id: _id, ...body } = baseline; void _id;
+      for (const binding of state.bindings) for (const id of binding.prerequisites) {
+        const receipt = body.completions[id] ??= { kind: "external", revision: binding.sourceRevision, repositories: {} };
+        receipt.repositories ??= {};
+        receipt.repositories[binding.repository] = { identity: binding.repositoryIdentity, revision: binding.sourceRevision };
+      }
+      const retained = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, body));
+      this.record.planReconciliation!.baselineId = retained.id;
+      state.stage = "implementation"; state.implementationRun = session.runs.length; delete state.reason;
+      this.writeContinuationMetadata(() => this.save());
+      const cwd = this.workingDirectoryOf(session);
+      const prompt = preparationImplementationPrompt({ phaseId: key, checkpoint: state.verifiedCheckpoint!.id, phasePrompt: phaseSessionPrompt(this.phasePromptValues(this.fileOf(key) ?? "", cwd)) });
+      const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
+      this.checking = false;
+      await this.runProcess(key, session, args, prompt, "resume", cwd, undefined, () => {
+        // runProcess's billing/provider read precedes this final dispatch hook.
+        if (this.record.pause.requestedAt || this.record.pause.activeSince || this.stopping) return false;
+        delete this.record.phases[key]!.stop; return true;
+      });
+      if (session.runs.length <= state.implementationRun) return { kind: "stopped" };
+      return this.settleSession(key);
+    } catch (error) {
+      if (this.commands.fault) throw error;
+      state.reason = (error as Error).message;
+      if (!this.stopping) this.recordStop(key, "done_check", [{ name: "Prerequisite preparation", passed: false, facts: [state.reason] }]);
+      return { kind: "stopped" };
+    } finally { this.checking = false; this.current = undefined; this.changed(); }
   }
 
   private async runPullRequestSession(): Promise<Verdict> {
@@ -2736,7 +2957,16 @@ export class Engine {
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
     const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
-    await this.runProcess(phaseKey, session, args, prompt, request?.cause ?? "resume", cwd, request?.note, started, account);
+    if (this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation") {
+      for (const attempt of this.record.preparation.attempts.filter(row => row.outcome === "running" || row.outcome === "unresolved")) { await reconcilePreparationAttempt(attempt); attempt.outcome = "interrupted"; attempt.reason = "Explicit preparation recovery; investigate external effects before a new submission."; }
+      this.record.preparation.stage = "preparation"; this.record.preparation.submissions = []; delete this.record.preparation.verifiedCheckpoint; if (!await this.preparePolicyForTurn(phaseKey)) return; this.save();
+    }
+    const actualPrompt = this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation" ? this.preparationTask(request?.note) : prompt;
+    await this.runProcess(phaseKey, session, args, actualPrompt, request?.cause ?? "resume", cwd, request?.note, started, account);
+    } catch (error) {
+      if (this.record.preparation?.phaseId !== phaseKey || this.commands.fault || this.stopping) throw error;
+      this.record.preparation.reason = (error as Error).message;
+      this.recordStop(phaseKey, "done_check", [{ name: "Preparation recovery", passed: false, facts: [(error as Error).message] }]); this.current = undefined; this.checking = false; this.changed();
     } finally { this.inspectionResumingSession = priorInspectionOwner; }
   }
 
@@ -2851,7 +3081,9 @@ export class Engine {
     mkdirSync(this.workspaceFolder, { recursive: true });
     const liveExitTarget = live ? readGate(live.gateDirectory).target : undefined;
     let dispatchFailed = false;
-    try { if (session.agentId === "codex") {
+    try {
+      await this.recheckPreparationAdmission(phaseKey, session);
+      if (session.agentId === "codex") {
       await this.runCodexProcess(current, session, prompt, cause, cwd, note, started);
     } else await runSessionProcess({
       claude: this.options.tools.claude,
@@ -2901,6 +3133,10 @@ export class Engine {
     });
     } catch (error) {
       if (error instanceof TakeoverAlreadyComplete) { this.controlDispatch = undefined; }
+      else if (this.record.preparation?.phaseId === phaseKey && session.runs.length === this.record.preparation.implementationRun) {
+        this.record.preparation.stage = "verification"; this.record.preparation.reason = (error as Error).message; this.recordStop(phaseKey, "done_check", [{ name: "Prepared checkpoint", passed: false, facts: [(error as Error).message] }]);
+        if (dispatchedControl) { dispatchedControl.effects.session = "not_started"; dispatchedControl.reason = (error as Error).message; }
+      }
       else if (error instanceof OwnershipError && session.runs.at(-1)?.control?.submitted !== true && dispatchedControl) {
         dispatchedControl.effects.session = "not_started"; dispatchedControl.outcome = error.code; dispatchedControl.reason = error.message;
       } else {
@@ -2977,7 +3213,8 @@ export class Engine {
     try {
       await runCodexSession({
         ...this.codexLaunchOptions(cwd), ...(this.controlDispatch ? { control: { operationId: this.controlDispatch.id, attemptId: this.controlDispatch.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
-        beforeStart: () => {
+        beforeStart: async () => {
+          await this.recheckPreparationAdmission(current.phaseKey, session);
           if (this.stopping || started?.() === false) throw new CodexLaunchCancelled("Codex launch authorization was withdrawn.");
           if (started) this.save();
         },
@@ -3115,6 +3352,13 @@ export class Engine {
         this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
         this.emitSessionEvent(phaseKey, "stopped");
         return { kind: "stopped" };
+      }
+      if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !session?.runs[this.record.preparation.implementationRun!])) {
+        if (!session || !run || run.interruptedAt || run.spawnError || !run.endedAt || run.exitCode !== 0) {
+          this.recordStop(phaseKey, "done_check", [{ name: "Prerequisite preparation", passed: false, facts: ["The preparation turn did not settle successfully. Resume this preparation conversation; dependent implementation remains held."] }]);
+          return { kind: "stopped" };
+        }
+        return this.advancePreparation();
       }
       const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (phaseKey === PR_PHASE_KEY) {
@@ -3370,6 +3614,7 @@ export class Engine {
         }
         outcome.plan = reconciled;
       }
+      if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !this.latestSession(phaseKey)?.runs[this.record.preparation.implementationRun!])) { outcome.passed = false; outcome.checks.push({ name: "Prerequisite preparation", passed: false, facts: [this.record.preparation.reason ?? "Preparation and the engine-owned verification checkpoint must pass before dependent implementation."] }); }
       return this.withCodexSafety(phaseKey, outcome);
     } finally {
       this.activeCheck = undefined;
@@ -4534,7 +4779,7 @@ export class Engine {
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
-      const previous = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
+      const previous = this.record.planReconciliation?.baselineId ? comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
       const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
         ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
@@ -4564,15 +4809,15 @@ export class Engine {
             if (!previous) {
               const historicalFile = this.record.plan?.find(p => p.id === phase.id)?.file;
               if (!revision || !historicalFile) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-              const original = await runGit(git, this.worktreePath, ["show", `${revision}:${this.paths.prdDirectoryFromRoot}/${historicalFile}`]);
-              const links = new Map<string, string>((this.record.plan ?? []).flatMap(p => [[p.file, p.id], [`./${p.file}`, p.id]]));
-              if (original.exitCode !== 0 || !readPhaseDocument(historicalFile, original.stdout).closed || phaseScopeDigest(original.stdout, historicalFile, links) !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+              const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision);
+              if (!original.plan.phases.find(p => p.id === phase.id)?.closed || original.scopes[phase.id] !== active.scopes[phase.id]) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
             }
             completions[phase.id] = { kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
           }
           continue;
         }
         if (completions[phase.id]) continue;
+        if (this.record.preparation?.stage !== "implementation" && this.record.preparation?.bindings.some(binding => binding.prerequisites.includes(phase.id))) continue;
         const affectedNames = namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName);
         const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
         if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);
@@ -4611,7 +4856,7 @@ export class Engine {
       for (const source of [active, ...sources]) if (observePlan(source.path, this.paths.prdDirectoryFromRoot).digest !== source.digest) throw new Error(`source_changed: ${source.path} changed during plan reconciliation. Retry the handback.`);
       added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
       // Publish sidecar before its record pointer; never roll back an uncertain durable write.
-      baseline = { formatVersion: 1, normalizerVersion: 1, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
+      baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
       if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
     } catch (error) {
       const problem = (error as Error).message;

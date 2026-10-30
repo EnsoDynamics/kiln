@@ -1,0 +1,15 @@
+Prepare the prerequisites for Phase {{phaseId}} of {{featureName}} in the assigned Kiln workspace.
+
+This turn is preparation only. Do not begin dependent implementation, close the phase, or launch another conversation. Integrate only the pinned source revisions and destinations below, resolving conflicts within the existing authority. Commit the prepared work on the assigned branch. For a delivery target, use the existing delivery controls, required checks and exact target grant; verify the merge and synchronize the assigned branch. Other merges, production actions, destructive operations and additional spending remain unauthorized.
+
+Assigned branch: {{branch}}
+Assigned repositories and immutable preparation bindings:
+{{bindings}}
+
+Use the pinned Kiln executable {{cli}} to run `preparation status`, then `preparation submit <JSON-file>`. The submission is {"executionId":"{{executionId}}","phaseId":"{{phaseId}}","bindingId":"<binding id>","references":[{"kind":"git_revision","repository":"<assigned repository>","commit":"<pinned source revision>"}]}. Submit once per binding after all listed commands have finished. Command references may identify retained commands in this preparation turn, but provider test claims never satisfy the gate.
+
+Use the existing provider tool controls to run each listed check once with its exact command in the assigned directory. Then read `preparation status` for retained command call IDs and include their `command` references in the binding submission. These successful provider commands establish only that current tool controls permitted the invocation; they do not satisfy Kiln's independent checkpoint verification.
+
+Return after submitting preparation. Kiln independently runs the bound project checks with the provider stopped, against one committed checkpoint. Only Kiln's later implementation turn in this same conversation authorizes dependent implementation.
+
+{{recovery}}

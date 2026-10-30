@@ -100,6 +100,7 @@ it("replays accepted work after restart, keeps current inspection scoped and ref
   expect(h.engine.record.executionId).toBe(execution); expect(h.claudeCalls()).toHaveLength(count);
   const { validateInstruction } = await import("../control/commands.js");
   expect(() => validateInstruction({ command_id: "bot-must-not-accept", execution_id: execution, status_token: h.engine.controlView().token, action: "continuation-accept", inputs: { proposal_id: body.proposalId } })).toThrow("Invalid command");
+  expect(() => validateInstruction({ command_id: "bot-must-not-grant", execution_id: execution, status_token: h.engine.controlView().token, action: "continuation-grant", inputs: { proposal_id: body.proposalId, authorization_revision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" } } })).toThrow("Invalid command");
   expect(h.engine.historicalExecution(oldId)?.record.phases.pr?.doneAt).toBeDefined();
   const { readHistory } = await import("../control/history.js"); const { readWork } = await import("../control/private-state.js"); const { dirname } = await import("node:path");
   const history = readHistory(readWork(dirname(dirname(h.stateDirectory)), h.stateDirectory));
@@ -108,7 +109,7 @@ it("replays accepted work after restart, keeps current inspection scoped and ref
   await expect(h.engine.continuationCommand("accept", { ...body, proposalId: "f".repeat(64) })).rejects.toThrow("Command ID already belongs");
 });
 
-it("holds planned preparation without starting dependent work", async () => {
+it.skipIf(process.platform !== "darwin")("starts preparation while holding dependent implementation until independent verification", async () => {
   const f = await fixture(false);
   const { writeFileSync, chmodSync } = await import("node:fs"); const { join } = await import("node:path");
   const { COMET_DIRECTORY, cometPhase } = await import("../test-support/comet-continuation-fixture.js");
@@ -121,8 +122,11 @@ it("holds planned preparation without starting dependent work", async () => {
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: planned preparation"); f.publish();
   const check = await h.engine.checkCompletedPlan(); expect(check.status).toBe("available");
   expect(check.result!.proposal!.prerequisites.find(row => row.phaseId === "8")?.status).toBe("preparation_available");
-  expect(await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "prep-not-yet-verified"))).toMatchObject({ ok: false, status: 422, code: "preparation_unverified" });
-  expect(h.engine.record.continuation).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(0);
+  expect(await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "prep-not-yet-verified"))).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.preparation?.stage).toBe("preparation"); expect(h.claudeCalls()).toHaveLength(1);
+  expect(h.engine.latestSession("9")?.runs).toHaveLength(1);
+  expect(h.engine.record.phases["9"]?.doneAt).toBeUndefined();
 });
 
 it("prepares every repository from its current base and retains a collision for an exact retry", async () => {

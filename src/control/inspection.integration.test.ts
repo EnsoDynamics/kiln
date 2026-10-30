@@ -175,7 +175,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','outside-confirmation','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','outside-confirmation','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});

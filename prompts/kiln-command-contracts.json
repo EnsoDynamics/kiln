@@ -1885,7 +1885,9 @@
       },
       "required_exclusive_groups": [
         {
-          "required": ["command-id"]
+          "required": [
+            "command-id"
+          ]
         }
       ],
       "limits": [
@@ -3154,6 +3156,217 @@
           "Current-artifact submissions must answer the active dependent verification request, with command start after verificationProbeAfter. Empty normal references can trigger reconciliation but do not establish success.",
           "Evidence records do not execute remote operations, buy credits, approve targets or waive reviews. Inspect returned checkpoints/operations/unresolved reasons; ok:true alone is not proof every delivery requirement is satisfied."
         ]
+      }
+    },
+    {
+      "side_effect": "group",
+      "implemented": true,
+      "availability": "executable",
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Help only; execution already emits JSON."
+        },
+        "help": {
+          "value": null,
+          "source": "Show complete help without a running controller or provider."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Requires the current assigned preparation workspace. Submissions record references only; they never execute checks, grant permission or launch work."
+      ],
+      "errors": [
+        "400 malformed input",
+        "403 outside execution",
+        "409 result conflict or wrong stage",
+        "503 unavailable evidence"
+      ],
+      "exits": {
+        "0": "Read or submission succeeded.",
+        "1": "Read/submission failed; inspect the reason before retrying.",
+        "2": "Invalid syntax."
+      },
+      "path": [
+        "preparation"
+      ],
+      "purpose": "Read and submit the owning phase’s preparation evidence.",
+      "usage": "kiln preparation status | submit <JSON-file>",
+      "arguments": [],
+      "result_fields": {
+        "help_output": "Preparation helper subcommands."
+      },
+      "examples": [
+        {
+          "request": "Show preparation helpers.",
+          "argv": [
+            "kiln",
+            "preparation",
+            "--help"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "400 malformed input": "The request fields or JSON shape are invalid; correct the named field and retry the exact preparation binding.",
+        "403 outside execution": "The execution, phase or command reference does not belong to the owning preparation turn; reread preparation status in its assigned workspace.",
+        "409 result conflict or wrong stage": "The preparation stage moved or this turn already submitted different references; inspect retained status before attempting recovery.",
+        "503 unavailable evidence": "Required retained evidence or durable state is unavailable; follow the returned reason and reconcile before another submission."
+      }
+    },
+    {
+      "side_effect": "legacy",
+      "implemented": true,
+      "availability": "executable",
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Help only; execution already emits JSON."
+        },
+        "help": {
+          "value": null,
+          "source": "Show complete help without a running controller or provider."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Requires the current assigned preparation workspace. Submissions record references only; they never execute checks, grant permission or launch work."
+      ],
+      "errors": [
+        "400 malformed input",
+        "403 outside execution",
+        "409 result conflict or wrong stage",
+        "503 unavailable evidence"
+      ],
+      "exits": {
+        "0": "Read or submission succeeded.",
+        "1": "Read/submission failed; inspect the reason before retrying.",
+        "2": "Invalid syntax."
+      },
+      "path": [
+        "preparation",
+        "status"
+      ],
+      "purpose": "Read current bindings, native command references and engine-owned check attempts.",
+      "usage": "kiln preparation status",
+      "arguments": [],
+      "result_fields": {
+        "executionId, phaseId, stage": "Exact current preparation identity and preparation/verification/implementation stage.",
+        "bindings": "Pinned repository/source/destination and checks; copy binding IDs.",
+        "availableCommandEvidence": "Current provider command call IDs, session IDs, invocations, directories and terminal outcomes.",
+        "checks": "Engine-owned attempt outcomes and output links; provider check claims cannot replace these."
+      },
+      "examples": [
+        {
+          "request": "Read the assigned preparation.",
+          "argv": [
+            "kiln",
+            "preparation",
+            "status"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "400 malformed input": "The request fields or JSON shape are invalid; correct the named field and retry the exact preparation binding.",
+        "403 outside execution": "The execution, phase or command reference does not belong to the owning preparation turn; reread preparation status in its assigned workspace.",
+        "409 result conflict or wrong stage": "The preparation stage moved or this turn already submitted different references; inspect retained status before attempting recovery.",
+        "503 unavailable evidence": "Required retained evidence or durable state is unavailable; follow the returned reason and reconcile before another submission."
+      }
+    },
+    {
+      "side_effect": "legacy",
+      "implemented": true,
+      "availability": "executable",
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Help only; execution already emits JSON."
+        },
+        "help": {
+          "value": null,
+          "source": "Show complete help without a running controller or provider."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Requires the current assigned preparation workspace. Submissions record references only; they never execute checks, grant permission or launch work."
+      ],
+      "errors": [
+        "400 malformed input",
+        "403 outside execution",
+        "409 result conflict or wrong stage",
+        "503 unavailable evidence"
+      ],
+      "exits": {
+        "0": "Read or submission succeeded.",
+        "1": "Read/submission failed; inspect the reason before retrying.",
+        "2": "Invalid syntax."
+      },
+      "path": [
+        "preparation",
+        "submit"
+      ],
+      "purpose": "Submit typed references for one immutable binding; identical replay is idempotent.",
+      "usage": "kiln preparation submit <JSON-file>",
+      "arguments": [
+        {
+          "name": "JSON-file",
+          "required": true,
+          "source": "UTF-8 JSON request file, relative to cwd or absolute."
+        }
+      ],
+      "result_fields": {
+        "disposition": "submitted or verified; verified is an engine checkpoint, never phase completion.",
+        "checks": "Retained native verification attempts."
+      },
+      "input_contract": {
+        "fields": {
+          "executionId": "Current executionId from status.",
+          "phaseId": "Current phaseId from status.",
+          "bindingId": "Exact bindings[].id.",
+          "references": "Typed git_revision {repository,commit} or command {sessionId,callId} references."
+        },
+        "rules": [
+          "Git references identify the binding’s pinned source. Command IDs must belong to the current preparation turn and have retained terminal results.",
+          "Existing restrictive provider controls need successful exact command references from the current turn; the engine independently reruns checks at the prepared checkpoint.",
+          "Return from the preparation turn after submission. Submission itself starts no verifier or implementation."
+        ]
+      },
+      "examples": [
+        {
+          "request": "Submit one prepared binding.",
+          "argv": [
+            "kiln",
+            "preparation",
+            "submit",
+            "/tmp/preparation-result.json"
+          ],
+          "preparation": "Read status; replace the placeholders using the pinned binding and actual current command IDs.",
+          "files": {
+            "/tmp/preparation-result.json": {
+              "executionId": "EXECUTION_FROM_STATUS",
+              "phaseId": "PHASE_FROM_STATUS",
+              "bindingId": "BINDING_FROM_STATUS",
+              "references": [
+                {
+                  "kind": "git_revision",
+                  "repository": "REPOSITORY_FROM_BINDING",
+                  "commit": "SOURCE_REVISION_FROM_BINDING"
+                },
+                {
+                  "kind": "command",
+                  "sessionId": "SESSION_FROM_STATUS",
+                  "callId": "SUCCESSFUL_COMMAND_FROM_STATUS"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "error_meanings": {
+        "400 malformed input": "The request fields or JSON shape are invalid; correct the named field and retry the exact preparation binding.",
+        "403 outside execution": "The execution, phase or command reference does not belong to the owning preparation turn; reread preparation status in its assigned workspace.",
+        "409 result conflict or wrong stage": "The preparation stage moved or this turn already submitted different references; inspect retained status before attempting recovery.",
+        "503 unavailable evidence": "Required retained evidence or durable state is unavailable; follow the returned reason and reconcile before another submission."
       }
     }
   ],

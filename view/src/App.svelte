@@ -85,6 +85,13 @@
   <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} />
   {#if connection.notice}<div class="command-notice" role="status">{connection.notice}<button type="button" onclick={() => { connection.notice = undefined; }}>Dismiss</button></div>{/if}
   {#if snapshot}
+    {#if snapshot.continuation?.preparation && !snapshot.phases.find(phase => phase.id === snapshot.continuation?.preparation?.phaseId)?.doneAt}
+      {@const preparation = snapshot.continuation.preparation}
+      <div class="command-notice" role="status"><div><strong>Phase {preparation.phaseId}: {preparation.stage === "preparation" ? "Preparing prerequisites" : preparation.stage === "verification" ? "Verifying prepared work" : "Implementing additional work"}</strong>
+        {#if preparation.reason}<p>{preparation.reason}</p>{/if}
+        {#each preparation.checks as check}<p>{check.argv.join(" ")}: {check.outcome} <a href={check.output}>Check output</a></p>{/each}
+      </div></div>
+    {/if}
     {#if snapshot.continuation?.planCheck}
       <div class="command-notice" role="alert"><div><strong>Plan needs reconciliation</strong><p>{snapshot.continuation.planCheck.problem}</p></div></div>
     {:else if snapshot.continuation?.handback}

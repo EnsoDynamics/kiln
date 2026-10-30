@@ -14,6 +14,7 @@ import type { RecordedPlanPhase } from "../state/records.js";
 
 export const PLAN_LIMIT = 8 * 1024 * 1024;
 export const PHASE_LIMIT = 10_000;
+export const PLAN_NORMALIZER_VERSION = 2;
 const markdown = new MarkdownIt();
 const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export interface PlanSource {
@@ -27,7 +28,7 @@ export interface PlanSource {
 }
 export interface PlanBaseline {
   formatVersion: 1;
-  normalizerVersion: 1;
+  normalizerVersion: 1 | 2;
   id: string;
   prdDirectory: string;
   active: PlanSource;
@@ -43,7 +44,7 @@ export interface PlanReconciliationState {
 }
 
 /** Structural normalization keeps code and link destinations, ignores presentation only. */
-export function normalizedScope(content: string, phaseLinks: Map<string, string> = new Map()): string {
+export function normalizedScope(content: string, phaseLinks: Map<string, string> = new Map(), documentPath = ""): string {
   // Ignore only the phase parser's historical closure metadata, not arbitrary Closed prose.
   let preamble = true;
   const lines = markdownLines(content.replace(/\r\n?/g, "\n")).filter(line => {
@@ -55,7 +56,7 @@ export function normalizedScope(content: string, phaseLinks: Map<string, string>
     if (["em_open", "em_close", "strong_open", "strong_close"].includes(token.type)) return [];
     if (["softbreak", "hardbreak"].includes(token.type)) return [{ type: "text", content: " " }];
     if (token.type === "inline") return flatten(token.children ?? []);
-    const attrs = token.attrs?.map(([key, value]) => [key, key === "href" && phaseLinks.has(String(value).split(/[?#]/)[0]!) ? `phase:${phaseLinks.get(String(value).split(/[?#]/)[0]!)}${String(value).slice(String(value).split(/[?#]/)[0]!.length)}` : value]);
+    const attrs = token.attrs?.map(([key, value]) => [key, key === "href" ? phaseLinkIdentity(String(value), documentPath, phaseLinks) : value]);
     const text = token.type === "text" ? token.content.replace(/\s+/g, " ") : token.content;
     return [{ type: token.type, tag: token.tag, ...(attrs?.length ? { attrs } : {}), ...(text ? { content: text } : {}), ...(token.type === "fence" ? { info: token.info } : {}) }];
   });
@@ -69,10 +70,22 @@ export function normalizedScope(content: string, phaseLinks: Map<string, string>
   return digest(merged);
 }
 
+/** Resolve only repository-local targets; query/fragment bytes remain part of scope. */
+function phaseLinkIdentity(href: string, documentPath: string, phaseLinks: Map<string, string>): string {
+  const path = href.split(/[?#]/)[0]!;
+  if (!path || /^[a-z][a-z0-9+.-]*:/i.test(path)) return href;
+  const decoded = decodeURIComponent(path);
+  if (posix.isAbsolute(decoded) || decoded.includes("\\") || decoded.includes("\0")) return href;
+  const target = posix.normalize(posix.join(posix.dirname(documentPath), decoded));
+  if (target === ".." || target.startsWith("../")) return href;
+  const id = phaseLinks.get(target);
+  return id ? `phase:${id}${href.slice(path.length)}` : href;
+}
+
 /** Compare the execution semantics as well as the normalized document words. */
-export function phaseScopeDigest(content: string, fileName: string, phaseLinks: Map<string, string>): string {
+export function phaseScopeDigest(content: string, fileName: string, phaseLinks: Map<string, string>, documentPath = fileName): string {
   const phase = readPhaseDocument(fileName, content);
-  return digest({ scope: normalizedScope(content, phaseLinks), repositories: phase.repositories, dependencies: dependencyIds(phase.dependenciesText), splitInto: phase.splitInto?.map(child => child.id) });
+  return digest({ scope: normalizedScope(content, phaseLinks, documentPath), repositories: phase.repositories, dependencies: dependencyIds(phase.dependenciesText), splitInto: phase.splitInto?.map(child => child.id) });
 }
 
 function safeFile(root: string, path: string): string {
@@ -139,11 +152,10 @@ export function planSourceFromDocuments(path: string, prdDirectory: string, docu
   const problems = [...plan.problems, ...(plan.problems.length ? [] : planStartProblems(plan, prdDirectory))];
   if (problems.length) throw new Error(problems.join(" "));
   const phasePaths = new Set(plan.phases.map(p => `${prdDirectory}/${p.fileName}`));
+  const links = new Map(plan.phases.map(phase => [`${prdDirectory}/${phase.fileName}`, phase.id]));
   const scopes = Object.fromEntries(plan.phases.map(phase => {
     const file = `${prdDirectory}/${phase.fileName}`;
-    const links = new Map<string, string>();
-    for (const other of plan.phases) { links.set(other.fileName, other.id); links.set(`./${other.fileName}`, other.id); }
-    return [phase.id, phaseScopeDigest(documents[file]!, phase.fileName, links)];
+    return [phase.id, phaseScopeDigest(documents[file]!, phase.fileName, links, file)];
   }));
   // File names may change without changing phase identity; requirements are compared separately.
   const requirements = digest(Object.entries(documents).filter(([file]) => !phasePaths.has(file)).map(([file, bytes]) => [file, normalizedScope(bytes)]));
@@ -187,8 +199,17 @@ export function readBaseline(directory: string, id: string): PlanBaseline {
   if (statSync(path).size > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
   const value = JSON.parse(readFileSync(path, "utf8")) as PlanBaseline;
   const { id: stored, ...body } = value;
-  if (value.formatVersion !== 1 || value.normalizerVersion !== 1 || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
+  if (value.formatVersion !== 1 || ![1, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
   return value;
+}
+
+/** Recompute from immutable original bytes and publish a new comparison identity. */
+export function comparisonBaseline(directory: string, id: string): PlanBaseline {
+  const original = readBaseline(directory, id);
+  if (original.normalizerVersion === PLAN_NORMALIZER_VERSION) return original;
+  const { id: _id, ...body } = original; void _id;
+  const reparse = (source: PlanSource) => planSourceFromDocuments(source.path, original.prdDirectory, source.documents);
+  return retainBaseline(directory, { ...body, normalizerVersion: PLAN_NORMALIZER_VERSION, active: reparse(original.active), sources: original.sources.map(reparse) });
 }
 
 /** Used only for presentation/comparison, never to infer historical completion evidence. */
