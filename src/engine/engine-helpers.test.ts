@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPhasePlan } from "../plan/phase-plan.js";
 import { launchArguments, modelNameFromId, resumeArguments } from "../session/claude-session.js";
-import { freshSessionPrompt, outsideWorkspacePrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { auditSessionPrompt, freshSessionPrompt, outsideWorkspacePrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { keepAwakeMissingMessage, keepAwakeTool } from "../platform/keep-awake.js";
 import { formatPhaseLine, formatStartedLine, planColumns, terminalColors, terminalTime } from "../terminal-output.js";
 import { PHASES } from "../test-support/fixture-documents.js";
@@ -118,6 +118,12 @@ describe("the prompts", () => {
     });
     expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
     expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
+  });
+
+  it("tells an audit session which edits void a passing run and that the report and test-audit.md are exempt", () => {
+    const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
+    expect(prompt).toContain("A passing run mapped to a test part, and each red check's restored passing run, is void once any repository file changes after it starts: an edit, a byte-identical restore, a checkout or a stash. Only the portable report and test-audit.md are exempt.");
+    expect(prompt).toContain("Finish every red check and code or test change first, then rerun those passing runs, each red check's with its identical command.");
   });
 });
 

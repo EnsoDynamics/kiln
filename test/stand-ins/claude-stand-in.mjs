@@ -62,6 +62,14 @@ const args = process.argv.slice(2);
 // Billing contract qualification is passive and never consumes a scenario.
 if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "2.1.299-stand-in"}\n`); process.exit(0); }
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
+// A waiting stand-in gives up once the test's sandbox is gone, or once the Kiln that launched
+// it is: a test run killed before its cleanup leaves the sandbox behind, and would otherwise
+// leave the stand-in polling forever under init. Intentional supervisor-crash proofs can
+// name their test worker as KILN_STANDIN_OWNER_PID; that worker then owns the lifetime.
+const launcher = process.ppid;
+const owner = process.env.KILN_STANDIN_OWNER_PID;
+const ownerAlive = () => { try { process.kill(Number(owner), 0); return true; } catch { return false; } };
+const abandoned = () => !existsSync(scenarioPath) || process.ppid !== launcher && !(owner && /^[1-9]\d*$/.test(owner) && ownerAlive());
 // The session's git calls are the session's, not Kiln's: they stay out of the harness's log of Kiln's.
 delete process.env.GIT_TRACE2_EVENT;
 
@@ -258,10 +266,10 @@ for (const action of session.actions) {
     await new Promise((resolve) => {
       onInterrupt = resolve;
       if (interruptBy !== undefined) resolve();
-      // Gives up once the test's sandbox is gone, so a failed test leaves no process behind.
+      // Gives up once abandoned, so a failed test leaves no process behind.
       // A ctrlCFile that appears is the console's Ctrl+C, for Windows, where Node can't send SIGINT.
       setInterval(() => {
-        if (!existsSync(scenarioPath)) process.exit(1);
+        if (abandoned()) process.exit(1);
         if (action.ctrlCFile && existsSync(action.ctrlCFile)) interrupt("sigint");
       }, 200);
     });
@@ -363,9 +371,9 @@ for (const action of session.actions) {
   } else if (action.stderr) {
     process.stderr.write(`${action.stderr}\n`);
   } else if (action.waitForFile) {
-    // Gives up once the test's sandbox is gone, so a failed test leaves no process behind.
+    // Gives up once abandoned, so a failed test leaves no process behind.
     while (!existsSync(action.waitForFile)) {
-      if (!existsSync(scenarioPath)) process.exit(1);
+      if (abandoned()) process.exit(1);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   } else if (action.replay) {

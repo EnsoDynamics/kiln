@@ -100,6 +100,9 @@ it.skipIf(process.platform !== "darwin")("serializes takeover against message de
 
 it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write_completed", "evidence", "review", "partial_review", "saved_reverseOrder", "saved_wrongSession", "saved_crossEvent", "resume_review", "resume_partial_review", "verify_review", "verify_partial_review", "resume_dispatch_review"])("reconciles an actual supervisor death at the %s boundary without resend or advancement", async boundary => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
+  // These proofs intentionally keep the provider alive after its controller dies.
+  // The test worker owns its lifetime, so an interrupted suite still cleans it up.
+  h.env.KILN_STANDIN_OWNER_PID = String(process.pid);
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release"); const killedAt = join(h.sandbox.root, "boundary");
   // At write_completed the callback may settle before the provider's replay.

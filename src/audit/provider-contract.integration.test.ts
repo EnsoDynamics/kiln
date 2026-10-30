@@ -10,7 +10,7 @@ import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { newPrdRecord } from "../state/new-record.js";
 import { SCHEMA_VERSION, type SessionRecord } from "../state/records.js";
 import type { AuditActivity } from "./contracts.js";
-import { hashBytes } from "./storage.js";
+import { AuditStore, hashBytes } from "./storage.js";
 import { resolveAuditSkill } from "./workflow.js";
 import { collectProviderEvidence } from "./provider-evidence.js";
 
@@ -92,6 +92,16 @@ describe("native Codex audit catalog (AC-TEST-01, AC-RUN-04)", () => {
     const assessments = evidence.filter(entry => entry.kind === "assessment");
     expect(assessments).toHaveLength(mode === "qualified" ? 1 : 0);
     if (mode === "qualified") expect(assessments[0]).toMatchObject({ conversationId: "child", assessment: { purpose: "test_classification", partIds: ["value"], testPaths: [{ path: "value.test.mjs" }] } });
+    // Each entry retains its own provider source: the command beside its observation, the skill
+    // read as the conversation it came from, a delegated assessment with both histories.
+    const store = new AuditStore(context.stateDirectory);
+    expect(evidence.every(entry => entry.sourceDigest === entry.retainedSource)).toBe(true);
+    const retained = (kind: string) => JSON.parse(store.bytes(evidence.find(entry => entry.kind === kind)!.retainedSource)) as Record<string, unknown>;
+    const commandSource = retained("command");
+    expect(Object.keys(commandSource)).toEqual(["raw", "observed"]);
+    expect(commandSource.observed).toMatchObject({ command });
+    expect(store.bytes(evidence.find(entry => entry.kind === "skill")!.retainedSource)).toBe(commandSource.raw);
+    if (mode === "qualified") expect(Object.keys(retained("assessment"))).toEqual(["child", "parent"]);
     expect(f.calls().some(call => /^(turn\/start|turn\/resume|thread\/start)$/.test(call.method))).toBe(false);
   });
 });

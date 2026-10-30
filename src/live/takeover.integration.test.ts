@@ -286,6 +286,8 @@ it.skipIf(process.platform !== "darwin")("explains unsupported new CLI profiles 
 
 it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through actual controller death while the old operation remains running", async () => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
+  // The provider must survive the killed controller, but not its owning test worker.
+  h.env.KILN_STANDIN_OWNER_PID = String(process.pid);
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "crash-operation-ready"); const release = join(h.sandbox.root, "crash-operation-release");
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, { waitForFile: release }, { result: "Operation finished after controller death." }] }] }));

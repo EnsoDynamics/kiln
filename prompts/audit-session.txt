@@ -41,6 +41,10 @@ File references are {repository,path,blob}. Current parts need reachable code ev
 methodEvidence names skillEvidenceId, assessmentEvidenceIds and reviewEvidenceIds; test audits
 also name baselineRunEvidenceIds, finalRunEvidenceIds, redChecks and regradeEvidenceIds.
 For Claude red-check mutation/restoration evidence use native Write/Edit tools.
+A passing run mapped to a test part, and each red check's restored passing run, is void once
+any repository file changes after it starts: an edit, a byte-identical restore, a checkout or a
+stash. Only the portable report and test-audit.md are exempt. Finish every red check and code
+or test change first, then rerun those passing runs, each red check's with its identical command.
 Test mappings require observed successful command evidence; do not infer runs from prose.
 Maintain the method's exact test-audit.md record for test audits.
 For continuationIndex > 1, continue the preceding accepted nextTestBatch in this same round

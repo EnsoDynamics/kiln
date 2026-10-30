@@ -66,10 +66,13 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
   const roots = context.record.repositories.map(r => comparable(realPathOfNearestAncestor(resolve(expandHome(r.worktreePath)))));
   const skillBytes = readFileSync(activity.skill.path, "utf8");
   requireAudit(hashBytes(skillBytes) === activity.skill.digest, `Assigned skill source changed: ${activity.skill.path}`, "missing_evidence");
-  const put = (conversationId: string, locator: string, source: string, at: string, value: Partial<EvidenceEntry>) => {
+  type Retained = { sourceDigest: string; retainedSource: string };
+  // The store's content address is the source digest; hashing again would double the cost.
+  const retain = (source: string): Retained => { const id = store.putBytes(source); return { sourceDigest: id, retainedSource: id }; };
+  const put = (conversationId: string, locator: string, retained: Retained, at: string, value: Partial<EvidenceEntry>) => {
     const run = session.runs.findLastIndex(r => r.startedAt <= at);
     requireAudit(run >= 0, "Provider evidence predates every assigned run.", "missing_evidence");
-    const raw = { provider: session.agentId!, sessionId: session.sessionId, run, conversationId, locator, capturedAt, sourceDigest: hashBytes(source), retainedSource: store.putBytes(source), ...value } as Omit<EvidenceEntry, "evidenceId">;
+    const raw = { provider: session.agentId!, sessionId: session.sessionId, run, conversationId, locator, capturedAt, ...retained, ...value } as Omit<EvidenceEntry, "evidenceId">;
     const evidenceId = hashValue({ provider: raw.provider, sessionId: raw.sessionId, run: raw.run, conversationId, locator, ...value }); result.push({ ...raw, evidenceId });
   };
   if (session.agentId === "codex") {
@@ -114,19 +117,19 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
         }
         if (row.type === "event_msg" && payload.type === "task_complete" && ownTurns.has(String(payload.turn_id)) && task && taskTurn === payload.turn_id && typeof payload.last_agent_message === "string") {
           const assessed = assessment(task, payload.last_agent_message, linkedOpaqueTask);
-          if (assessed) put(frontier.threadId, `delegated-final:${taskTurn}`, JSON.stringify({ child: bytes, parent: parentBytes }), row.timestamp, { kind: "assessment", assessment: assessed });
+          if (assessed) put(frontier.threadId, `delegated-final:${taskTurn}`, retain(JSON.stringify({ child: bytes, parent: parentBytes })), row.timestamp, { kind: "assessment", assessment: assessed });
           task = "";
         }
       }
     }
-    for (const mutation of audit.mutations ?? []) put(mutation.conversationId, `${mutation.callId}:mutation`, sources.get(mutation.conversationId)!, mutation.at, { kind: "mutation", mutation: { at: mutation.at, paths: mutation.paths } });
+    for (const mutation of audit.mutations ?? []) put(mutation.conversationId, `${mutation.callId}:mutation`, retain(sources.get(mutation.conversationId)!), mutation.at, { kind: "mutation", mutation: { at: mutation.at, paths: mutation.paths } });
     for (const command of audit.commands ?? []) {
       const conversation = command.source.split("/")[0]!; const source = sources.get(conversation);
       requireAudit(source && command.resultAt && command.outcome && command.output !== undefined, "Incomplete command provenance.", "missing_evidence");
       const observed: EvidenceEntry["command"] = { invocation: command.command, cwd: command.cwd, startedAt: command.calledAt, endedAt: command.resultAt, outcome: command.outcome, output: command.output, ...(command.exitCode === undefined ? {} : { exitCode: command.exitCode }) };
-      put(conversation, command.callId, JSON.stringify({ raw: source, observed: command }), command.calledAt, { kind: "command", command: observed });
+      put(conversation, command.callId, retain(JSON.stringify({ raw: source, observed: command })), command.calledAt, { kind: "command", command: observed });
       const words = simpleCommands(command.command);
-      if (command.outcome === "success" && words.length === 1 && words[0]?.length === 2 && words[0][0] === "cat" && words[0][1] === activity.skill.path && command.output.trim() === skillBytes.trim()) put(conversation, `${command.callId}:skill`, source, command.calledAt, { kind: "skill", skill: activity.skill });
+      if (command.outcome === "success" && words.length === 1 && words[0]?.length === 2 && words[0][0] === "cat" && words[0][1] === activity.skill.path && command.output.trim() === skillBytes.trim()) put(conversation, `${command.callId}:skill`, retain(source), command.calledAt, { kind: "skill", skill: activity.skill });
     }
   } else {
     const files = findTranscripts(claudeConfigFolder(context.env), session.sessionId);
@@ -135,6 +138,9 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
     requireAudit(!parent.problem, parent.problem ?? "", "missing_evidence");
     for (const path of [files.main, ...files.subagents]) {
       signal.throwIfAborted(); const source = readFileSync(path, "utf8"); const transcript = readTranscript(path);
+      // One transcript backs every call in it. Retaining it per call blocked the event loop for
+      // 20s on a 14 MB, 1,400-call audit transcript, past the dashboard's heartbeat timeout.
+      let retained: Retained | undefined; const once = () => retained ??= retain(source);
       requireAudit(!transcript.problem, `${path}: ${transcript.problem}`, "missing_evidence");
       const findings = outsideChanges(transcript, roots);
       requireAudit(!findings.length, findings.map(f => f.fact).join(" "), "outside_execution");
@@ -143,9 +149,9 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
       const conversation = path === files.main ? session.sessionId : basename(path, ".jsonl");
       for (const call of transcript.calls) {
         signal.throwIfAborted(); if (!call.id || !call.at || !call.result?.at) continue;
-        if (call.name === "Bash" && typeof call.input.command === "string") put(conversation, call.id, source, call.at, { kind: "command", command: { invocation: call.input.command, cwd: call.cwd, startedAt: call.at, endedAt: call.result.at, outcome: call.result.isError ? "error" : "success", output: call.result.text } });
-        if (call.name === "Skill" && !call.result.isError && typeof call.input.skill === "string" && call.input.skill.split(":").at(-1) === activity.skill.name) put(conversation, call.id, source, call.at, { kind: "skill", skill: activity.skill });
-        if (["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(call.name) && !call.result.isError) put(conversation, call.id, source, call.at, { kind: "mutation", mutation: { at: call.at, paths: [String(call.input.file_path ?? call.input.notebook_path)] } });
+        if (call.name === "Bash" && typeof call.input.command === "string") put(conversation, call.id, once(), call.at, { kind: "command", command: { invocation: call.input.command, cwd: call.cwd, startedAt: call.at, endedAt: call.result.at, outcome: call.result.isError ? "error" : "success", output: call.result.text } });
+        if (call.name === "Skill" && !call.result.isError && typeof call.input.skill === "string" && call.input.skill.split(":").at(-1) === activity.skill.name) put(conversation, call.id, once(), call.at, { kind: "skill", skill: activity.skill });
+        if (["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(call.name) && !call.result.isError) put(conversation, call.id, once(), call.at, { kind: "mutation", mutation: { at: call.at, paths: [String(call.input.file_path ?? call.input.notebook_path)] } });
       }
       if (path !== files.main) {
         const id = basename(path, ".jsonl").replace(/^agent-/, "");
@@ -155,7 +161,7 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
         const handback = transcript.calls.findLast(c => c.name === "SubagentHandback" && c.result && !c.result.isError && typeof c.input.message === "string");
         const response = handback ? String(handback.input.message) : contentText(object(last?.message)?.content);
         const assessed = assessment(taskCall.input.prompt, response);
-        if (assessed && last && typeof last.timestamp === "string") put(conversation, taskCall.id!, source, last.timestamp, { kind: "assessment", assessment: assessed });
+        if (assessed && last && typeof last.timestamp === "string") put(conversation, taskCall.id!, once(), last.timestamp, { kind: "assessment", assessment: assessed });
       }
     }
   }
