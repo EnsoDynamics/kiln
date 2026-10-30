@@ -14,6 +14,7 @@
   $effect(() => { snapshot.settings.developmentDeployments; untrack(() => { if (!saving) optimistic = undefined; }); });
   const saved = $derived(optimistic ?? snapshot.settings.developmentDeployments ?? { enabled: false, targets: [] });
   const delivery = $derived(snapshot.developmentDelivery);
+  const legacyChoices = $derived(saved.targets.length > 0);
   async function save(settings: DevelopmentSettings) {
     if (!config || saving) return;
     optimistic = { ...saved, ...settings };
@@ -25,9 +26,6 @@
     saving = false;
   }
   function target(row: Snapshot["repositories"][number]): MergeTarget { return { repository: row.github ?? "", baseBranch: row.baseBranch }; }
-  async function select(row: Snapshot["repositories"][number], selected: boolean) {
-    await save({ enabled: saved.enabled, targets: [...saved.targets.filter(one => one.target.repository !== row.github), ...(selected ? [{ target: target(row) }] : [])] });
-  }
   async function grant(row: Snapshot["repositories"][number]) {
     if (!config || !delivery?.executionId || granting) return;
     granting = true;
@@ -40,14 +38,20 @@
 {#if (editable && snapshot.settings.developmentDeployments !== undefined) || delivery?.authorization.enabled || snapshot.needsYou}
 <section class="delivery" aria-label="Early merges">
   {#if editable}
-    <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: saved.targets })} /> <span>Allow early merges</span></label>
+    <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: [] })} /> <span>Allow early merges</span></label>
     <p>Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     <p>Applies to this PRD only. Each new PRD starts with early merges off.</p>
+    {#if saved.enabled}
+      {#if legacyChoices}<p>This existing setup keeps its earlier branch permissions. Turn early merges off and back on to cover all participating repositories.</p>
+      {:else}<p>All repository branches listed below are covered. Repositories added after Start need separate approval.</p>{/if}
+    {/if}
     {#if saved.enabled}
       <div class="merge-targets">
         {#each snapshot.repositories as row (row.name)}
           {@const candidate = saved.targets.find(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
-          <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="select" disabled={!connected || saving || !!snapshot.documents?.starting} checked={!!candidate && (candidate.target.environment === undefined || candidate.confirmedNonProduction === true)} legacyEnvironment={candidate?.target.environment} onselect={selected => select(row, selected)} />
+          {#if !legacyChoices || candidate}
+            <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />
+          {/if}
         {/each}
       </div>
     {/if}

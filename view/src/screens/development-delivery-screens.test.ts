@@ -13,15 +13,33 @@ describe("current execution development setting",()=>{
     const html=page(false);expect(html).toContain("Allow early merges");expect(html).toContain("existing CI/CD may run before the PRD finishes");const option=html.match(/<label\b[^>]*>(?:(?!<\/label>)[\s\S])*Allow early merges(?:(?!<\/label>)[\s\S])*<\/label>/)?.[0];expect(option).toBeDefined();expect(option).not.toContain('checked=""');
   });
   it("identifies the actual repository and base branch for early merges",()=>{
-    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("Allow merging into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");
+    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("May merge into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");
   });
 });
 
-it.each(["select", "grant"] as const)("disables the %s action when its screen is disconnected", mode => {
-  const html = render(EarlyMergeTarget, { props: { name: "pricing", repository: "github.com/acme/pricing", branch: "develop", mode, disabled: true } }).body;
-  const action = html.match(mode === "select" ? /<input\b[^>]*>/ : /<button\b[^>]*>/)?.[0];
-  expect(action).toBeDefined();
-  expect(action).toMatch(/\bdisabled(?:[\s=>])/);
+it("disables a grant action when its screen is disconnected", () => {
+  const html = render(EarlyMergeTarget, { props: { name: "pricing", repository: "github.com/acme/pricing", branch: "develop", mode: "grant", disabled: true } }).body;
+  expect(html.match(/<button\b[^>]*>/)?.[0]).toMatch(/\bdisabled(?:[\s=>])/);
+});
+
+it("summarizes a branch without a second permission checkbox", () => {
+  const html = render(EarlyMergeTarget, { props: { name: "pricing", repository: "github.com/acme/pricing", branch: "develop", mode: "summary", disabled: false } }).body;
+  expect(html).toContain("May merge into");
+  expect(html).not.toMatch(/<input\b|<button\b/);
+});
+
+it("shows the complete earlier limited scope before selecting all repositories anew", () => {
+  const snapshot = documentsFoundSnapshot();
+  snapshot.repositories[0]!.github = "github.com/acme/pricing";
+  snapshot.repositories[0]!.name = "pricing";
+  snapshot.repositories[0]!.baseBranch = "develop";
+  snapshot.repositories.push({ ...snapshot.repositories[0]!, name: "other", github: "github.com/acme/other" });
+  snapshot.settings.developmentDeployments = { enabled: true, targets: ["dev-a", "dev-b"].map(environment => ({ target: { repository: "github.com/acme/pricing", baseBranch: "develop", environment }, confirmedNonProduction: true })) };
+  const html = render(DocumentsFound, { props: { snapshot, config: { token: "fixture-token", base: "/customer-returns" }, connected: true, now: Date.now() } }).body;
+  const section = html.split('aria-label="Early merges"')[1]!.split('</section>')[0]!;
+  expect(section).toContain("keeps its earlier branch permissions");
+  expect(section).toContain("dev-a, dev-b");
+  expect(section).not.toContain('Early merges for other');
 });
 
 // AC-PERMIT-03: every new PRD reviews its own choices.

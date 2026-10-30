@@ -1,18 +1,14 @@
 <script lang="ts">
-  let { name, repository, branch, disabled, checked = false, authorized = false, legacyEnvironment, mode, onselect, onauthorize }: {
-    name: string; repository?: string; branch: string; disabled: boolean; checked?: boolean;
-    authorized?: boolean; legacyEnvironment?: string; mode: "select" | "grant";
-    onselect?: (selected: boolean) => void; onauthorize?: () => void;
+  let { name, repository, branch, disabled, authorized = false, legacyEnvironment, mode, onauthorize }: {
+    name: string; repository?: string; branch: string; disabled: boolean;
+    authorized?: boolean; legacyEnvironment?: string; mode: "summary" | "grant";
+    onauthorize?: () => void;
   } = $props();
 </script>
 
 <article class="merge-target" aria-label={`Early merges for ${name}`}>
   <div class="target-copy">
-    {#if mode === "select"}
-      <label><input type="checkbox" {checked} disabled={disabled || !repository || !branch.trim()} onchange={event => onselect?.(event.currentTarget.checked)} /> <span>Allow merging into{" "}<strong>{`${name} / ${branch || "Choose a base branch"}`}</strong></span></label>
-    {:else}
-      <h4>Allow merging into{" "}<strong>{`${name} / ${branch || "Choose a base branch"}`}</strong></h4>
-    {/if}
+    <h4>{mode === "summary" ? "May merge into" : "Allow merging into"}{" "}<strong>{`${name} / ${branch || "Choose a base branch"}`}</strong></h4>
     <p class="repository">{repository ?? "Repository identity unavailable"}</p>
     {#if legacyEnvironment}<p class="legacy">Existing permission is limited to {legacyEnvironment}.</p>{/if}
   </div>
@@ -25,9 +21,7 @@
 <style>
   .merge-target { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--panel); }
   .target-copy { min-width: 0; }
-  h4, label { margin: 0; font-size: 13px; font-weight: 400; line-height: 1.5; }
-  label { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 0 12px; cursor: pointer; }
-  input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
+  h4 { margin: 0; font-size: 13px; font-weight: 400; line-height: 1.5; }
   p { margin: 5px 0 0; overflow-wrap: anywhere; line-height: 1.5; color: var(--muted); font-size: 12px; }
   strong { font-weight: 600; overflow-wrap: anywhere; }
   button { flex-shrink: 0; border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }

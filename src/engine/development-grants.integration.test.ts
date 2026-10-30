@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { SCHEMA_VERSION, readPrdRecord, writePrdRecord } from "../state/records.js";
-import { git } from "../test-support/git-repositories.js";
+import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { documentsDigest } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 let h: Harness | undefined;
@@ -17,15 +17,16 @@ async function stopped() {
 }
 const grant = (h: Harness, override: Record<string, unknown> = {}) => h.engine.authorizeDevelopmentTarget({ executionId: h.engine.record.executionId, authorizationRevision: h.engine.record.developmentAuthorization!.revision, target, confirmedNonProduction: true, ...override });
 describe("PRD-scoped early-merge choices", () => {
-  it("keeps new PRDs restricted in the same checkout and writes no cross-PRD preferences", async () => {
+  it("starts with one option and no target selections, keeps new PRDs restricted and writes no preferences", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], extraFolders: ["another-project"] });
     const branch = { repository: target.repository, baseBranch: target.baseBranch };
-    const choices = { enabled: true, targets: [{ target: branch }] };
+    const choices = { enabled: true, targets: [] };
+    const accepted = { enabled: true, targets: [{ target: branch }] };
     const path = join(dirname(h.stateDirectory), "development-deployment-preferences.json");
     expect(await h.engine.changeSettings({ developmentDeployments: choices })).toEqual({ ok: true });
     expect(readPrdRecord(h.stateDirectory)!.settings.developmentDeployments).toEqual(choices);
     expect(existsSync(path)).toBe(false);
-    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true }); await h.engine.settled();
     expect(h.engine.record.developmentAuthorization).toMatchObject({ enabled: true, grants: [{ target: branch }] });
     const authority = structuredClone(h.engine.record.developmentAuthorization);
     const other = await h.engineFor("another-project");
@@ -35,8 +36,29 @@ describe("PRD-scoped early-merge choices", () => {
     expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [] } })).toEqual({ ok: true });
     const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
     expect(reopened.record.developmentAuthorization).toEqual(authority);
-    expect(reopened.record.settings.developmentDeployments).toEqual(choices);
+    expect(reopened.record.settings.developmentDeployments).toEqual(accepted);
     expect(existsSync(path)).toBe(false);
+  });
+  it("preserves a legacy repository subset and every environment on its branch", async () => {
+    const named: { name: string; mainCheckoutPath: string; github: string }[] = [];
+    h = await createHarness({ sessions: [{ actions: [] }], engineOptions: { namedRepositories: named } });
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-extra");
+    const checkout = createRepository(h.sandbox, "returns-extra", origin.url);
+    git(h.sandbox, checkout, "push", "origin", "develop");
+    h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+    named.push({ name: "returns-extra", mainCheckoutPath: checkout, github: "acme/returns-extra" });
+    h.engine = h.reopen(); await h.engine.agents.refresh();
+    expect(await h.engine.changeSettings({ bases: { "returns-extra": "develop" } })).toEqual({ ok: true });
+    const environments = [target, { ...target, environment: "second-development" }];
+    const choices = { enabled: true, targets: environments.map(target => ({ target, confirmedTarget: target, confirmedNonProduction: true })) };
+    expect(await h.engine.changeSettings({ developmentDeployments: choices })).toEqual({ ok: true });
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.repositories.find(repo => repo.name === "returns-extra")?.setupCompletedAt).toBeDefined();
+    expect(h.engine.record.settings.developmentDeployments).toEqual(choices);
+    expect(h.engine.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
+    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    expect(reopened.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
   });
   it("ignores obsolete preference files, including corrupt contents, for every new PRD", async () => {
     h = await createHarness({ sessions: [], extraFolders: ["other", "third"] });

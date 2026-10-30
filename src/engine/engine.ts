@@ -1226,7 +1226,15 @@ export class Engine {
       record.repositories = [...list, ...leftOut];
       repositoryCount = list.length;
       const at = this.now().toISOString();
-      try { validateStartTargets(record, list); } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
+      try {
+        const choices = record.settings.developmentDeployments;
+        if (choices?.enabled && choices.targets.length === 0) {
+          // The current checkbox covers the displayed repository/base pairs.
+          // Nonempty older selections retain their complete narrower scope.
+          choices.targets = list.map(repository => ({ target: normalizeMergeTarget({ repository: `github.com/${repository.github}`, baseBranch: repository.baseBranch }) }));
+        }
+        validateStartTargets(record, list);
+      } catch (error) { return { ok: false, status: 422, reason: (error as Error).message }; }
       record.executionId ??= randomUUID();
       if (!record.startedAt) record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
       record.developmentDelivery ??= emptyDevelopmentLedger();
