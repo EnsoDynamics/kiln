@@ -222,6 +222,18 @@ The pinned CLI's `preparation status` and `preparation submit` helpers expose ty
 
 Current snapshot/status and exact historical execution reads retain preparation stage, check outcomes and bounded output links. The completed offer exposes exact early-merge targets separately from Continue, with no launch or preference change on authorization. Earlier delivery remains immutable; current whole-PRD audits and final delivery must cover the revised scope. [Planned preparation validation](kiln-planned-preparation-validation.md) owns Phase 3b's observed proof and runtime limits.
 
+### Implemented source reconciliation and feedback (Phase 7)
+
+Comparison normalizer 4 reparses retained original documents from versions 1–3 into a new immutable sidecar. Completed leaf comparison also preserves enclosing split identities in their original relative order and the first descendant that owns an earlier splitting session. Compatible appended children remain additions; ancestor prose is not retroactively leaf scope. Legacy split completions also validate their original recorded work revision before migration; missing immutable evidence reports `baseline_unavailable` instead of trusting a possibly reordered final snapshot. Historical repository scope and completion receipts retain their existing rules.
+
+Active handback compares both closure transitions in known sources with the active workspace. Unchanged older observations remain harmless. The CLI's explicitly supplied, Git-resolved registered checkout participates alongside the active/shared/retained sources; Kiln does not enumerate other branches. Completed execution decisions retain delivered history when old workspaces or published feature refs are positively absent and any remaining assigned workspaces are provably unchanged at retained completion heads. Available later work, dirty source, wrong branches and indeterminate reads retain the existing enabled completion-recovery and current-audit checks. One missing repository cannot hide changed or unproved available work in another. Discovery and acceptance still verify current bases and prerequisite evidence.
+
+A proposal retains the exact saved shared-document digest separately from the selected candidate digest. Partial observations compare each input with its own approved input, so stable equivalent shared/base scope with different exact bytes cannot supersede its target grant. Real observed movement still irreversibly supersedes pending authority, and incomplete reads never authorize work. Older proposals without a shared digest remain readable; a complete fresh check establishes the new binding before another choice.
+
+Repository lookup distinguishes positive absence/misconfiguration from failed directory, identity or Git-helper reads. Incomplete reads retain the previous successful observation and time. Failed or unacknowledged check publication faults mutations and publishes only failed/earlier observation state until restart reconciles disk. Browser-local transport/response failures independently hold old offers as earlier information until a successful retry. Each completed check emits the same retained result to the foreground terminal, including ordered phases, readiness, first phase, source and existing page address.
+
+Replaces in part: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §One evaluator at every transition (only the historical-artifact absence boundary above; current work and audit recovery remain).
+
 ## Interfaces
 
 ### Local HTTP and engine commands

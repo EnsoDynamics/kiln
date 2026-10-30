@@ -204,7 +204,13 @@ nativeIt.each(["alive", "inventory", "identity", "operation", "takeover"])("hold
     const identityFault = obstacle === "identity" ? vi.spyOn(identities, "processStartTime").mockImplementation((pid, options) => pid === child.pid ? Promise.resolve(undefined) : readIdentity(pid, options)) : undefined;
     const helper = inventory.runHelper;
     const inventoryFault = obstacle === "inventory" ? vi.spyOn(inventory, "runHelper").mockImplementation((command, args, options) => command === "/bin/ps" && args.includes("pid=,ppid=") ? Promise.reject(new Error("Tracked inventory unavailable")) : helper(command, args, options)) : undefined;
-    if (obstacle === "takeover") { const target = h.engine.liveTarget()!; expect(h.engine.commands.submit({ command_id: "takeover-preparation", execution_id: target.executionId, status_token: JSON.stringify(target), action: "take-over", inputs: { target } })).toMatchObject({ ok: true }); await h.engine.commands.settled(); }
+    if (obstacle === "takeover") {
+      // PID publication precedes launch settlement; wait for actual control admission.
+      await waitFor(() => h.engine.controlView().controls.find(control => control.name === "take-over")?.available === true);
+      const target = h.engine.liveTarget()!;
+      expect(h.engine.commands.submit({ command_id: "takeover-preparation", execution_id: target.executionId, status_token: JSON.stringify(target), action: "take-over", inputs: { target } })).toMatchObject({ ok: true });
+      await h.engine.commands.settled();
+    }
     await f.submit();
     if (obstacle === "takeover") { await h.engine.reconcileTakeover(); expect(h.engine.record.liveControl?.takeover.state).toBe("pending"); }
     else expect(h.engine.record.preparation?.reason).toMatch(/process|inventory|unsettled/i);

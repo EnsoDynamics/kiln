@@ -267,3 +267,50 @@ it.each([false, true])("retains original completed repository scope through pare
   expect(h.engine.record.completedAt).toBeUndefined();
   expect(readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!).completions["8a"]!.scopeRepositories).toEqual(["comet-api"]);
 }, 120_000);
+
+it("rejects completed sibling reordering without changing parent session ownership, while accepting compatible additions", async () => {
+  const parent = (children: string[]) => `# Phase 2: Catalog split\n\n## Split into\n| Phase | Work |\n|---|---|\n${children.map(id => `| [${id}](phase-${id}-catalog.md) | Catalog ${id} |`).join("\n")}\n`;
+  h = await createHarness({ folder: "comet", sessions: [], files: { "comet-prd.md": prd, "comet-technical-design.md": "# Design\nCatalog.\n", "phase-1-catalog.md": phase("1"), "phase-2-catalog.md": parent(["2a", "2b"]), "phase-2a-catalog.md": phase("2a"), "phase-2b-catalog.md": phase("2b") } });
+  git(h.sandbox, h.repository, "config", `url.${h.origin}.insteadOf`, "https://github.com/acme/acme-shop.git"); git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
+  const old = observePlan(h.repository, directory); const revision = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  const record = h.engine.record; record.startedAt = record.setupCompletedAt = "2026-10-01T10:00:00Z"; record.completedAt = "2026-10-01T12:00:00Z"; record.plan = recordedPlan(old.plan);
+  record.repositories = [{ name: "acme-shop", kind: "prd", github: "acme/acme-shop", mainCheckoutPath: h.repository, worktreePath: join(h.sandbox.root, "removed-comet-history"), baseBranch: "develop", baseCommit: revision, setupCompletedAt: record.setupCompletedAt }];
+  record.phases["2"] = { doneAt: record.completedAt, sessionIds: [], finishedByPerson: true, outsideConfirmations: [], repositories: { "acme-shop": { startCommit: revision, pushedSha: revision } } };
+  record.planReconciliation = { baselineId: retainBaseline(h.stateDirectory, { formatVersion: 1, normalizerVersion: 3, prdDirectory: directory, active: old, sources: [], completions: Object.fromEntries(["1", "2a", "2b"].map(id => [id, { kind: "external" as const, scopeRepositories: [], revision }])) }).id };
+  writePrdRecord(h.stateDirectory, record);
+  const { judgedPhase } = await import("./plan-reading.js"); expect(judgedPhase(old.plan.phases, "2")?.id).toBe("2a");
+  write("phase-2-catalog.md", parent(["2b", "2a"])); publish();
+  const changed = await h.engine.checkCompletedPlan();
+  expect(changed.status).toBe("blocked"); expect(changed.result!.earlierWorkChanges.join(" ")).toContain("Phase 2a");
+  expect(changed.result!.leaves!.filter(row => ["2a", "2b"].includes(row.id)).map(row => row.classification)).toEqual(["unresolved_earlier_work", "unresolved_earlier_work"]);
+  expect(judgedPhase(record.plan!, "2")?.id).toBe("2a"); expect(record.phases["2"]!.doneAt).toBe(record.completedAt);
+  expect(readBaseline(h.stateDirectory, changed.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
+  const acceptedRecord = structuredClone(record);
+  const reordered = observePlan(h.repository, directory);
+  const reorderedRevision = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  const { id: _originalId, ...acceptedBody } = readBaseline(h.stateDirectory, record.planReconciliation!.baselineId!); void _originalId;
+  for (const version of [1, 2, 3] as const) {
+    const completions = Object.fromEntries(Object.entries(acceptedBody.completions).map(([id, receipt]) => {
+      if (version === 3) return [id, receipt];
+      const { scopeRepositories: _scope, ...legacy } = receipt; void _scope; return [id, legacy];
+    }));
+    const invalid = retainBaseline(h.stateDirectory, { ...acceptedBody, normalizerVersion: version, active: reordered, completions });
+    record.planReconciliation = { baselineId: invalid.id };
+    const refused = await h.engine.checkCompletedPlan(); expect(refused.status).toBe("failed");
+    expect(refused.errors.join(" ")).toContain("immutable completion scope"); expect(refused.result).toBeUndefined();
+    expect(record.planReconciliation.baselineId).toBe(invalid.id);
+  }
+  // No-sidecar recovery must also compare the saved final tree with each original
+  // phase receipt, rather than trusting a final tree whose split order was changed.
+  delete record.planReconciliation; record.plan = recordedPlan(reordered.plan);
+  const facts = structuredClone(record.phases["2"]!);
+  record.phases["1"] = structuredClone(facts); record.phases["2a"] = structuredClone(facts);
+  record.phases.pr = { ...structuredClone(facts), repositories: { "acme-shop": { startCommit: revision, pushedSha: reorderedRevision } } };
+  const recovered = await h.engine.checkCompletedPlan(); expect(recovered.status).toBe("failed");
+  expect(recovered.errors.join(" ")).toContain("differs from its original completion revision");
+  Object.assign(record, acceptedRecord);
+  write("phase-2-catalog.md", parent(["2a", "2b", "2c"])); write("phase-2c-catalog.md", phase("2c", false)); publish();
+  const compatible = await h.engine.checkCompletedPlan(); expect(compatible.result!.earlierWorkChanges).toEqual([]); expect(compatible.result!.added.map(row => row.id)).toEqual(["2c"]);
+  expect(compatible.result!.leaves!.filter(row => ["2a", "2b"].includes(row.id)).every(row => row.classification === "carried_completed")).toBe(true);
+  expect(h.claudeCalls()).toEqual([]);
+});

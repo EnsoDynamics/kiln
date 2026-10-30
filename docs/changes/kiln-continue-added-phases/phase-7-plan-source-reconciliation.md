@@ -1,5 +1,8 @@
 # Phase 7: Complete plan source reconciliation and discovery feedback
 
+**Closed:** 2026-10-30
+**Validation:** [Plan source reconciliation and discovery feedback](kiln-plan-source-feedback-validation.md) — required full verify/package gates, independent review/hardening and both authenticated provider proofs pass.
+
 **Added by delivery audit:** 2026-10-30, after every previously planned implementation leaf closed. It completes the missing source, comparison and observation boundaries below.
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Plan Identity and Comparison; Source Reconciliation; Target grants before acceptance; Interfaces and Snapshot and screen contract.

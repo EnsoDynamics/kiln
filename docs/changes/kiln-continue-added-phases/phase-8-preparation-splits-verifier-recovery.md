@@ -28,5 +28,9 @@ Separate positively known no-launch failures from genuinely ambiguous launch/pro
 
 Prove the whole criterion through real saved/Git and HTTP readiness, native subprocess/ownership/checkpoint and restart/Resume boundaries. Include external and carried split prerequisites in both provider modes and multiple repositories; first-descendant implementation after an owning phase split; known no-launch environment/output/hook/spawn failures; transient inventory/identity failures followed by safe recovery; unresolved native descendants combined with source/configuration movement; and genuinely unknown launches that remain held. Checks cannot repeat before reconciliation or start implementation from forged/provider-only success. Preserve source/settings/authority movement, failed/timeout checks, same-conversation one-turn admission and whole-PRD completion behavior. Repeat the applicable actual-provider preparation proofs with fictional disposable repositories and qualified tools. Required gates remain `npm run verify` and `npm run test:package`, freezing sources/build output during integration.
 
+## Predecessor evidence
+
+Phase 7's [plan-source validation record](kiln-plan-source-feedback-validation.md) owns the retained comparison, source/read-failure, historical discovery and equivalent-source grant proof. Its normalizer 4 and shared-digest bindings must survive this leaf's readiness/preparation changes; original scope, closure, repository and permission evidence stays authoritative. Read the record's actual final gate and delivery state before acting.
+
 ## Successor
 After this leaf closes and authorized development-base delivery completes, directly launch a fresh whole-PRD delivery audit in a GPT 6.1 Sol/high chat. A clean delivery audit then launches whole-PRD test audit; continue any required completion/re-audit chain. One implementation leaf per chat.

@@ -14,6 +14,8 @@ export const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface RepositoryPaths {
   mainCheckoutPath: string;
+  /** Explicit Git-resolved CLI source; never an arbitrary branch search. */
+  suppliedCheckoutPath?: string;
   repositoryName: string;
   folderName: string;
   /** `docs/prds/<name>`, with `/` separators. */

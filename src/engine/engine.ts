@@ -59,7 +59,7 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -161,6 +161,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
+  | { kind: "completed_plan_checked"; check: CompletedPlanCheck }
   | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
   | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
@@ -2204,27 +2205,29 @@ export class Engine {
   private checkCompletedPlanOwned(): Promise<CompletedPlanCheck> {
     if (this.completedPlanReading) return this.completedPlanReading;
     const previous = this.record.completedPlanCheck;
-    const authority = readPendingAuthority(this.stateDirectory, this.record);
-    const priorProposal = previous?.result?.proposal ?? previous?.earlierResult?.proposal;
-    const approvalProposalId = authority?.state === "pending" && !authority.proposalId && authority.approvals[0]
-      ? lookupReceipt(this.stateDirectory, authority.approvals[0].commandId).instruction.inputs.proposal_id : undefined;
-    const originalProposalId = authority?.proposalId ?? (typeof approvalProposalId === "string" ? approvalProposalId : undefined);
-    const approved = authority?.state === "pending" && authority.completedExecutionId === this.record.executionId
-      ? originalProposalId ? readContinuationProposal(this.stateDirectory, originalProposalId) : priorProposal?.scopeDigest === authority.scopeDigest ? priorProposal : undefined
-      : undefined;
-    if (authority?.state === "pending" && authority.completedExecutionId === this.record.executionId && (!approved || approved.scopeDigest !== authority.scopeDigest)) return Promise.reject(new Error("Restore the original continuation offer and approval receipt before checking its authority."));
-    const observeInput = (observation: ContinuationInputObservation) => {
-      if (!authority || authority.state !== "pending" || !approved || !changesContinuationScope(approved, observation)) return;
-      authority.state = "superseded";
-      try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
-      catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
-    };
     this.checking = true;
     const attemptedAt = this.now().toISOString();
     this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    const reading = discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) }).then(check => {
+    const reading = Promise.resolve().then(async () => {
+      const authority = readPendingAuthority(this.stateDirectory, this.record);
+      const priorProposal = previous?.result?.proposal ?? previous?.earlierResult?.proposal;
+      const approvalProposalId = authority?.state === "pending" && !authority.proposalId && authority.approvals[0]
+        ? lookupReceipt(this.stateDirectory, authority.approvals[0].commandId).instruction.inputs.proposal_id : undefined;
+      const originalProposalId = authority?.proposalId ?? (typeof approvalProposalId === "string" ? approvalProposalId : undefined);
+      const approved = authority?.state === "pending" && authority.completedExecutionId === this.record.executionId
+        ? originalProposalId ? readContinuationProposal(this.stateDirectory, originalProposalId) : priorProposal?.scopeDigest === authority.scopeDigest ? priorProposal : undefined
+        : undefined;
+      if (authority?.state === "pending" && authority.completedExecutionId === this.record.executionId && (!approved || approved.scopeDigest !== authority.scopeDigest)) return Promise.reject(new Error("Restore the original continuation offer and approval receipt before checking its authority."));
+      const observeInput = (observation: ContinuationInputObservation) => {
+        if (!authority || authority.state !== "pending" || !approved || !changesContinuationScope(approved, observation)) return;
+        authority.state = "superseded";
+        try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
+        catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
+      };
+      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) });
+    }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
       if (pendingAuthority?.state === "pending" && pendingAuthority.completedExecutionId === this.record.executionId && check.result?.proposal?.grantEligible && check.result.proposal.scopeDigest && pendingAuthority.scopeDigest !== check.result.proposal.scopeDigest) {
@@ -2237,7 +2240,22 @@ export class Engine {
       try { this.save(); }
       catch (error) { this.commands.fault = "Plan check could not be durably saved. Restart Kiln before changing work."; throw error; }
       return check;
-    }).catch(error => { if (error instanceof DiscoveryWriteFailure) this.commands.fault = error.message; throw error; }).finally(() => { this.checking = false; this.completedPlanReading = undefined; this.changed(); });
+    }).catch(error => {
+      if (error instanceof DiscoveryWriteFailure) this.commands.fault = error.message;
+      // An uncertain record/sidecar write is not an acknowledged successful check.
+      // Keep disk reconciliation faulted; only the public observation becomes unknown.
+      this.record.completedPlanCheck = {
+        status: "failed", attemptedAt, sources: this.record.completedPlanCheck?.sources ?? [],
+        errors: [this.commands.fault ?? (error as Error).message],
+        ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}),
+        ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}),
+      };
+      throw error;
+    }).finally(() => {
+      this.checking = false; this.completedPlanReading = undefined;
+      if (!this.stopping && !this.closed) this.emit({ kind: "completed_plan_checked", check: this.record.completedPlanCheck! });
+      this.changed();
+    });
     this.completedPlanReading = reading;
     return reading;
   }
@@ -2283,6 +2301,56 @@ export class Engine {
     }
   }
 
+  /** Exact retained completion/synchronization heads, never today's source as history. */
+  private async completedDeliveryHeadUnchanged(entry: RepositoryEntry, revision: string, cwd: string): Promise<boolean> {
+    const state = this.record.developmentDelivery;
+    const result = state?.repositoryResults.find(row => row.repository === entry.name);
+    if (!result || result.state === "unresolved") return false;
+    if (result.remainingHeadSha) return result.remainingHeadSha === revision;
+    if (result.state === "unchanged") return entry.baseCommit === revision;
+    const checkpoints = result.deliveredCheckpointIds.map(id => state!.checkpoints.find(checkpoint => checkpoint.id === id));
+    if (!checkpoints.length || checkpoints.some(checkpoint => !checkpoint?.merge)) return false;
+    const synchronized = checkpoints.flatMap(checkpoint => checkpoint!.operations.filter(operation => operation.kind === "synchronize" && operation.state === "observed" && operation.synchronized));
+    const latest = Math.max(...synchronized.map(operation => Date.parse(operation.preparedAt)));
+    const latestHeads = synchronized.filter(operation => Date.parse(operation.preparedAt) === latest).map(operation => operation.synchronized!.featureHead);
+    if (!latestHeads.length || latestHeads.some(head => head !== revision)) return false;
+    for (const checkpoint of checkpoints) if ((await runGit(this.git, cwd, ["merge-base", "--is-ancestor", checkpoint!.headSha, revision])).exitCode !== 0) return false;
+    return true;
+  }
+
+  /** Historical absence can skip old delivery checks only without hiding available work. */
+  private async obsoleteCompletedDeliveryArtifacts(): Promise<boolean> {
+    let missing = false;
+    for (const entry of this.setUpRepositories) {
+      const main = expandHome(entry.mainCheckoutPath); const cwd = expandHome(entry.worktreePath);
+      const published = await runGit(this.git, main, ["ls-remote", "origin", `refs/heads/${this.record.settings.featureBranch}`]);
+      if (published.exitCode !== 0) return false;
+      let publishedHead: string | undefined;
+      if (!published.stdout.trim()) missing = true;
+      else {
+        const [revision, ref, ...extra] = published.stdout.trim().split(/\s+/);
+        if (extra.length || ref !== `refs/heads/${this.record.settings.featureBranch}` || !/^[a-f0-9]{40,64}$/.test(revision!)) return false;
+        publishedHead = revision;
+      }
+      try { if (!lstatSync(cwd).isDirectory()) return false; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
+        missing = true;
+        if (publishedHead && !await this.completedDeliveryHeadUnchanged(entry, publishedHead, main)) return false;
+        continue;
+      }
+      const [top, branch, status, head] = await Promise.all([
+        runGit(this.git, cwd, ["rev-parse", "--show-toplevel"]),
+        runGit(this.git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+        runGit(this.git, cwd, ["status", "--porcelain", "--untracked-files=all"]), runGit(this.git, cwd, ["rev-parse", "HEAD"]),
+      ]);
+      if ([top, branch, status, head].some(read => read.exitCode !== 0) || branch.stdout.trim() !== this.record.settings.featureBranch || comparable(top.stdout.trim()) !== comparable(realPathOfNearestAncestor(cwd)) || status.stdout.trim()) return false;
+      const revision = head.stdout.trim();
+      if (publishedHead && publishedHead !== revision || !await this.completedDeliveryHeadUnchanged(entry, revision, cwd)) return false;
+    }
+    return missing;
+  }
+
   private async decideQuietly(): Promise<UnderwayDecision> {
     if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
@@ -2317,7 +2385,7 @@ export class Engine {
     }
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
-    if (deliveryEnabled(record) && record.completedAt) {
+    if (deliveryEnabled(record) && record.completedAt && !await this.obsoleteCompletedDeliveryArtifacts()) {
       await this.readPlan();
       const earlier = await this.unresolvedDeliveryLeaf();
       if (earlier) { record.completionAudits!.policy = "required"; this.save(); return { kind: "needs_you", phaseKey: earlier, again: true }; }
@@ -4864,6 +4932,7 @@ export class Engine {
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
       const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
         ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
+        ...(this.paths.suppliedCheckoutPath ? [this.paths.suppliedCheckoutPath] : []),
         ...(previous?.sources.map(source => source.path) ?? [])].map(path => expandHome(path)))];
       const sources = sourcePaths.filter(path => path !== active.path).map(path => observePlan(path, this.paths.prdDirectoryFromRoot));
       if (!previous) for (const [key, facts] of Object.entries(this.record.phases)) {

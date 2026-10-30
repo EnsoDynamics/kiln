@@ -28,7 +28,7 @@ import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
 import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
-import { formatDecisionLine, formatSummaryLine } from "./underway-output.js";
+import { formatCompletedPlanCheck, formatDecisionLine, formatSummaryLine } from "./underway-output.js";
 
 export interface CommandContext {
   cwd: string;
@@ -219,6 +219,7 @@ function makeEngine(
   const engine: Engine = new Engine({
     paths: {
       mainCheckoutPath: location.mainCheckoutPath,
+      suppliedCheckoutPath: location.checkoutRoot,
       repositoryName: location.repositoryName,
       folderName: location.folderName,
       prdDirectoryFromRoot: location.prdDirectoryFromRoot,
@@ -233,7 +234,11 @@ function makeEngine(
     ...(start?.plan === undefined ? {} : { startPlan: start.plan }),
     ...(start === undefined ? {} : { namedRepositories: start.repositories }),
     ...kilnBinDirectory(),
-    onTerminal: (event) => write(formatTerminalEvent(event, engine.record, colors)),
+    onTerminal: (event) => {
+      // Startup already prints the retained check in its ordinary decision line.
+      if (event.kind === "completed_plan_checked" && !run.stop.server) return;
+      write(formatTerminalEvent(event, engine.record, colors) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
+    },
     keepAwake,
   });
   const savedInspection = readWork(stateRoot(context.env), run.stateDirectory);
@@ -362,6 +367,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
+    case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit": return formatPhaseLine(event.at, "", `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`, event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;

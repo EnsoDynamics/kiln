@@ -28,12 +28,14 @@ export interface ContinuationProposal {
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
   repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
+  sharedDigest?: string;
   permissionDigest?: string; scopeDigest?: string; grantEligible?: boolean;
   /** Read evidence already covered by permissionDigest, retained for partial observations. */
   permissionInputs?: { repository: string; digest: string }[];
   authorization?: { revision: number; executionId?: string; superseded: boolean; targets: { target: MergeTarget; granted: boolean }[] };
 }
 export interface ReadinessInput {
+  sharedDigest?: string;
   codex?: string | undefined;
   record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; accounting: Omit<CompletionAccounting, "id">;
   git: GitContext; shared: string; directory: string; problems: string[];
@@ -51,7 +53,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(one => one.name === name);
     if (!repo) {
       const found = await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
-      if (!found.ok) { problems.push(found.problem); continue; }
+      if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); problems.push(found.problem); continue; }
       const origin = await originBranches(git, found.repository.mainCheckoutPath);
       if (!origin.ok) throw new Error(`source_unavailable: Could not read ${name}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
       const baseBranch = record.settings.bases[name] ?? defaultBaseBranch(origin.value);
@@ -166,7 +168,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
     if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
   }
-  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
+  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.sharedDigest ? { sharedDigest: input.sharedDigest } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
   const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
   if (preparation.length && preparation.every(binding => binding.valid)) {
     const proposed = { ...body, id: authorityDigest(body) };

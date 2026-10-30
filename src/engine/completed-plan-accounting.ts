@@ -121,7 +121,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(entry => entry.name === name);
       if (!repo) {
         const found = await findRepository(git, repositoriesParent(shared), name, phase.fileName);
-        if (!found.ok) { row.problems.push(`Phase ${phase.id}: ${found.problem}`); continue; }
+        if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${found.problem}`); continue; }
         const baseBranch = record.settings.bases[name];
         if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${name} before its completion can be verified.`); continue; }
         repo = { ...found.repository, baseBranch };
@@ -138,7 +138,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       if (name === prdName) {
         const original = await observeGitPlan(git, path, record.prdDirectory, revision);
         const originalPhase = leavesOf(original.plan).find(p => p.id === phase.id);
-        if (!originalPhase?.closed || original.scopes[phase.id] !== candidate.scopes[phase.id] || JSON.stringify(original.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort()) !== JSON.stringify(candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort())) {
+        if (!originalPhase?.closed || !completedPhaseScopeUnchanged(original, candidate, phase.id) || JSON.stringify(original.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort()) !== JSON.stringify(candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort())) {
           row.problems.push(`Phase ${phase.id}: ${revision} does not contain its unchanged Closed scope at ${row.file}. Restore the matching source reference.`); continue;
         }
       }
