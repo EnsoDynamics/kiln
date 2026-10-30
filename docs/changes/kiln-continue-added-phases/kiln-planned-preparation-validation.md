@@ -2,7 +2,7 @@
 
 **Scope:** Phase 3b of Kiln Continue Added Phases, including its inherited offer, recovery, history and delivery constraints.
 **Validation date:** 2026-10-30 UTC.
-**Gate state:** Implementation verification complete; develop integration remains a separate delivery boundary.
+**Gate state:** Combined implementation and development-base integration verification complete.
 
 ## Boundary evidence
 
@@ -25,7 +25,7 @@ Each actual Claude invocation receives current trusted synchronous command hooks
 
 `node scripts/proof-run/preparation-provider-proof.mjs claude_code` and the same command with `codex` create only a fictional disposable repository and local origin. The production engine and authenticated local HTTP acceptance select an available unpushed source. The actual provider merges the pinned source, runs the documented check with its own tool, and submits typed references through the pinned Kiln CLI. The engine independently executes one native project check, then resumes the same provider conversation for a separate implementation turn. Assertions require both provider turns to exit zero, exact selected model/high effort, retained prior history, one successful engine receipt, an implementation marker, and exact acceptance replay starting no turn. This deliberately stops before fixture phase completion; the deterministic full-delivery case covers the later audit/PR lifecycle.
 
-The final observations used Claude Code 2.1.307 / Opus high (conversation `387e6c15-64c1-4fc7-9835-65b2b41148d4`) and Codex 0.162.1 / GPT 6.1 Sol high (conversation `01a18cfa-12bf-7aa0-9a61-65506dcdeb36`). Both observed one preparation run, one successful native engine check and one implementation run in that same conversation; exact replay started no turn. No real client repository, production data or remote delivery was used.
+The pre-merge observations used Claude Code 2.1.307 / Opus high (conversation `387e6c15-64c1-4fc7-9835-65b2b41148d4`) and Codex 0.162.1 / GPT 6.1 Sol high (conversation `01a18cfa-12bf-7aa0-9a61-65506dcdeb36`). Both observed one preparation run, one successful native engine check and one implementation run in that same conversation; exact replay started no turn. No real client repository, production data or remote delivery was used.
 
 ## Durability and review
 
@@ -42,3 +42,11 @@ Earlier diagnostic runs exposed real recovery/control defects and test fixture e
 The first broad diagnostic was stopped after the existing historical-completion audit test exposed an overly broad exemption from current development-delivery obligations. The exemption now applies only to carried leaves with no current owner in an active continuation execution; the unchanged legacy regression and the complete preparation/audit/new-delivery case passed in focused checks. A second diagnostic was stopped to remove a test-only dependency on the ignored session-log directory; the native outside-write test now creates its own temporary canary beneath the guaranteed checkout root and passed independently. Neither interrupted diagnostic counts as full verification.
 
 All planned implementation leaves are closed. Authorized delivery is a normal fast-forward push to develop and a clean shared-checkout fast-forward, followed by a fresh whole-PRD delivery audit, its completion work if needed, and a fresh whole-PRD test audit. No main release or production changes are part of this leaf.
+
+## Combined develop integration
+
+Feature commit `f2b5c31` was merged normally with the published Codex compatibility update `90a816c` in merge commit `39e4f6f`. Both independent changes to `src/state/records.ts` are preserved. No retained history was rewritten and the worktree branch is not published.
+
+The merged tree passed a fresh complete `npm run verify`: dependency audit, lint, type checking with zero errors/warnings, 685 unit tests, 14 release checks, 18 Codex contract checks, and all 107 integration files with 1,216 passing cases and three skips. The command took 2,112.78 seconds; integration took 2,084.23 seconds. Source and build hash comparison found no changes during this entire gate. `npm run test:package` then passed all eight cases (35.85 seconds for the command); its ordinary prepack browser rebuild happened afterward and changed no tracked source.
+
+Both actual providers also repeated the complete preparation/check/implementation proof on the merged tree: Claude Code 2.1.307 / Opus high in conversation `0abd9a82-7b46-4558-bd7f-5903cf0e394f`, and Codex 0.162.1 / GPT 6.1 Sol high in conversation `01a18d30-03fe-7942-a445-5f10059e2c9c`. Each retained one preparation turn, one engine-owned successful check and one implementation turn in that same conversation. Replay added no turn. These combined observations are the final integration evidence; the earlier diagnostic and standalone observations above retain their original scope.
