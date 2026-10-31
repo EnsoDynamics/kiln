@@ -6,7 +6,7 @@ import { posix, win32 } from 'node:path';
 const UNKNOWN = Symbol('opaque tool result');
 const TOOLS = new Set(['exec_command', 'write_stdin', 'view_image', 'apply_patch', 'spawn_agent', 'send_message', 'wait_agent', 'list_agents', 'followup_task', 'interrupt_agent']);
 const OUTPUT = new Set(['text', 'notify', 'image', 'audio', 'generatedImage']);
-const RESERVED = new Set(['tools', 'Promise', 'JSON', 'ALL_TOOLS', ...OUTPUT]);
+const RESERVED = new Set(['tools', 'Promise', 'JSON', 'ALL_TOOLS', ...OUTPUT, 'store', 'load']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_ARRAY = 1024;
 
@@ -134,13 +134,18 @@ export function decodeWrapper(callId, program) {
         return undefined;
       case 'ArrayExpression': {
         const value = [];
+        let opaque = false;
         for (const element of node.elements) {
           if (!element) fail(node, 'Array hole');
-          if (element.type === 'SpreadElement') value.push(...array(read(element.argument, scope), element));
+          if (element.type === 'SpreadElement') {
+            const spread = read(element.argument, scope);
+            if (spread === UNKNOWN) opaque = true;
+            else value.push(...array(spread, element));
+          }
           else value.push(read(element, scope));
           array(value, node);
         }
-        return value;
+        return opaque ? UNKNOWN : value;
       }
       case 'ObjectExpression': {
         const value = Object.create(null);
@@ -232,6 +237,14 @@ export function decodeWrapper(callId, program) {
         const name = exactMember(node.callee);
         if (node.optional) fail(node, 'Optional invocation is unsupported');
         if (catalogueRoot(node)) { catalogue(node); return UNKNOWN; }
+        if (node.callee.type === 'Identifier' && ['store', 'load'].includes(node.callee.name)) {
+          const arity = node.callee.name === 'store' ? 2 : 1;
+          if (node.arguments.length !== arity) fail(node, 'Unsupported note storage invocation');
+          const key = literal(read(node.arguments[0], scope), node);
+          if (typeof key !== 'string') fail(node, 'Nonliteral note storage key');
+          if (arity === 2) read(node.arguments[1], scope);
+          return UNKNOWN;
+        }
         if (name?.startsWith('tools.')) {
           const tool = name.slice(6);
           if (!TOOLS.has(tool) || node.arguments.length !== 1) fail(node, 'Unknown tool or invocation');

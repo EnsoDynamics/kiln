@@ -148,3 +148,28 @@ it("reuses the same browser instruction after an accepted response is lost and t
     expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]); expect(requests[0]!.token).toBe("execution:original-token"); expect(requests[0]!.id).toMatch(/^[a-f0-9-]{36}$/); expect(effects.size).toBe(1);
   } finally { await server.close(); }
 });
+
+it("offers a distinct uncertainty acknowledgment and collapsed diagnostics in both recovery layouts", async () => {
+  for (const handoff of [true, false]) {
+    const snapshot = fixture("Codex"); const stop = snapshot.needsYou!;
+    if (!handoff) delete stop.phaseRecovery;
+    stop.checks = [{ name: "Stayed in the workspace", passed: false, facts: ["Codex evidence is incomplete: Unknown helper or dynamic call"] }];
+    stop.outside = { changes: [], checkouts: [], missingTranscripts: stop.checks[0]!.facts, confirmation: { offered: false, ticked: false }, uncertainty: { offered: true, ticked: false } };
+    const server = await serveViewFixture({ port: handoff ? 41983 : 41984, folder: "customer-returns", snapshot });
+    const page = await chrome.open(server.address, { width: 390, height: 900 });
+    try {
+      await words(page, "Accept workspace uncertainty"); await words(page, "Unable to verify");
+      expect(await page.evaluate("document.body.innerText.includes('Unknown helper or dynamic call')")).toBe(false);
+      await page.evaluate("[...document.querySelectorAll('summary')].find(e => e.textContent.includes('Workspace evidence details')).click()");
+      await words(page, "Unknown helper or dynamic call");
+      await page.evaluate("document.querySelector('.accept-uncertainty input').click()");
+      await page.waitFor("!document.querySelector('.accept-uncertainty input').disabled");
+      expect(server.commands).toEqual(["POST /api/workspace-uncertainty"]);
+      stop.outside.uncertainty!.ticked = true; server.send("snapshot", snapshot);
+      await page.waitFor("document.querySelector('.accept-uncertainty input').checked");
+      writeFileSync(`/tmp/kiln-workspace-uncertainty-${handoff ? "handoff" : "recovery"}.png`, await page.screenshot());
+      expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  }
+});

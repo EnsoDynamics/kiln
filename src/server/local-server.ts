@@ -448,6 +448,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
   });
   // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
+  app.post("/api/workspace-uncertainty", (c) => legacyControl(c, "outside-confirmation", { confirmed: true, accept_uncertainty: true }));
+  app.delete("/api/workspace-uncertainty", (c) => legacyControl(c, "outside-confirmation", { confirmed: false, accept_uncertainty: true }));
   app.post("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: true }));
   app.delete("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: false }));
 

@@ -1,5 +1,7 @@
 # Phase 4: Wait and resume after a confirmed Codex usage stop
 
+**Superseded in part by:** [AC-WORK-04, workspace evidence recovery amendment of 2026-10-30](kiln-codex-support-prd.md#workspace-evidence-recovery-amendment--2026-10-30). Historical unknown-evidence confirmation restrictions below describe the original delivery; the amended PRD and technical design govern explicit acknowledgment now.
+
 **Closed:** 2026-10-23 — implementation accepted with Doug’s explicit deferral of real quota exhaustion/recovery to live use.
 
 **Parent PRD:** [Codex support for Kiln](kiln-codex-support-prd.md)

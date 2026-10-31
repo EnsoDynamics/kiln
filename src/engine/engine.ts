@@ -119,8 +119,8 @@ import {
   type StopLimit,
 } from "../state/records.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
-import { auditCodexConversation, codexStayedOutcome, type CodexAudit } from "../session/codex-evidence.js";
-import { stayedInWorkspace, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type StayedOutcome } from "../session/outside-workspace.js";
+import { auditCodexConversation, codexStayedOutcome, uncertaintyFingerprint, type CodexAudit } from "../session/codex-evidence.js";
+import { stayedInWorkspace, STAYED_CHECK_NAME, type StayedOutcome } from "../session/outside-workspace.js";
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
@@ -508,7 +508,7 @@ export class Engine {
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
-      "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.coverage === "complete" && a.findings.length > 0)),
+      "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.findings.length > 0 || a.coverage === "inconclusive" && uncertaintyFingerprint(a) !== undefined)),
     };
     const unavailable: Partial<Record<Action, string>> = {
       "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
@@ -615,7 +615,7 @@ export class Engine {
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
-      case "outside-confirmation": answer = this.setOutsideConfirmation(inputs.confirmed === true); break;
+      case "outside-confirmation": answer = this.setOutsideConfirmation(inputs.confirmed === true, inputs.accept_uncertainty === true); break;
       case "continue": answer = await this.start(); break;
       case "check-again": answer = await this.checkAgain(); break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
@@ -1454,7 +1454,7 @@ export class Engine {
    * has failed; a tick covers every change recorded up to it, and unticking before the next
    * check takes it back.
    */
-  setOutsideConfirmation(ticked: boolean): CommandResult {
+  setOutsideConfirmation(ticked: boolean, acceptUncertainty = false): CommandResult {
     const key = this.stoppedPhaseKey();
     const facts = key === undefined ? undefined : this.record.phases[key];
     const stop = facts?.stop;
@@ -1465,10 +1465,19 @@ export class Engine {
     if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is checking. Tick it once the check ends.");
     if (this.record.settings.agentId === "codex") {
       const audits = facts.codexAudits ?? {};
-      const complete = Object.values(audits).filter(audit => audit.coverage === "complete" && audit.findings.length);
-      if (!complete.length) return refuse("Missing or unreadable Codex evidence cannot be confirmed. Recover its history and Check again.");
-      if (!ticked) facts.codexConfirmations = [];
-      else facts.codexConfirmations = [{ at: this.now().toISOString(), fingerprints: Object.fromEntries(Object.entries(audits).filter(([, audit]) => audit.coverage === "complete").map(([id, audit]) => [id, audit.fingerprint])) }];
+      const eligible = Object.entries(audits).filter(([, audit]) => acceptUncertainty
+        ? audit.coverage === "inconclusive" && uncertaintyFingerprint(audit) !== undefined
+        : audit.findings.length > 0);
+      if (!eligible.length) return refuse("No checked evidence is available for this acknowledgment. Restore its history and Check again.");
+      const previous = facts.codexConfirmations ?? [];
+      const fingerprints = Object.assign({}, ...previous.map(one => one.fingerprints)) as Record<string, string>;
+      const uncertaintyFingerprints = Object.assign({}, ...previous.map(one => one.uncertaintyFingerprints)) as Record<string, string>;
+      const target = acceptUncertainty ? uncertaintyFingerprints : fingerprints;
+      for (const [id, audit] of eligible) {
+        if (ticked) target[id] = acceptUncertainty ? uncertaintyFingerprint(audit)! : audit.fingerprint;
+        else delete target[id];
+      }
+      facts.codexConfirmations = [{ at: this.now().toISOString(), fingerprints, uncertaintyFingerprints }];
       this.save(); this.changed(); return { ok: true };
     }
     const sinceCheck = (confirmation: { at: string }) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt);
@@ -3980,7 +3989,7 @@ export class Engine {
     const stop = this.record.phases[phaseKey]!.stop!;
     // Stayed in the workspace stays listed, as passed, once it has failed in this stop (multi-repo AC-OUTSIDE-01).
     const listed = stop.checks.some((check) => check.name === STAYED_CHECK_NAME);
-    if (listed && !checks.some((check) => check.name === STAYED_CHECK_NAME)) checks = [...checks, { name: STAYED_CHECK_NAME, passed: true, facts: [STAYED_PASSED_FACT] }];
+    if (listed && !checks.some((check) => check.name === STAYED_CHECK_NAME)) checks = [...checks, this.latestStayed(phaseKey).check];
     stop.checks = checks;
     stop.checkedAt = this.now().toISOString();
     this.save();
@@ -4777,7 +4786,7 @@ export class Engine {
             signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
             ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}) })
           : this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
-        const outcome = codexStayedOutcome(id, audit, (facts?.codexConfirmations ?? []).flatMap(one => one.fingerprints[id] ? [one.fingerprints[id]!] : []));
+        const outcome = codexStayedOutcome(id, audit, (facts?.codexConfirmations ?? []).flatMap(one => one.fingerprints[id] ? [one.fingerprints[id]!] : []), (facts?.codexConfirmations ?? []).flatMap(one => one.uncertaintyFingerprints?.[id] ? [one.uncertaintyFingerprints[id]!] : []));
         outcomes.push(outcome.check);
       } else {
         const endedAt = session.runs.at(-1)?.endedAt;
@@ -4799,14 +4808,14 @@ export class Engine {
       const facts = this.record.phases[phaseKey];
       const results = (facts?.sessionIds ?? []).filter(id => !codexSessionNotDispatched(this.sessionRecord(phaseKey, id))).map(id => codexStayedOutcome(id,
         facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
-        (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : [])));
+        (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : []), (facts?.codexConfirmations ?? []).flatMap(one => one.uncertaintyFingerprints?.[id] ? [one.uncertaintyFingerprints[id]!] : [])));
       // Before the final session exists there are no final-session operations to audit.
       // Proven unused attempts need no history. Missing records still fail above.
       if (!results.length && phaseKey !== PR_PHASE_KEY && !facts?.sessionIds.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
       const changes = results.flatMap(result => result.changes);
       const transcripts = results.flatMap(result => result.transcripts);
       const passed = results.every(result => result.passed);
-      const outcome: StayedOutcome = { passed, changes, transcripts, check: { name: STAYED_CHECK_NAME, passed, facts: passed ? [STAYED_PASSED_FACT] : results.filter(result => !result.passed).flatMap(result => result.check.facts) } };
+      const outcome: StayedOutcome = { passed, changes, transcripts, check: { name: STAYED_CHECK_NAME, passed, facts: passed ? [...new Set(results.flatMap(result => result.check.facts))] : results.filter(result => !result.passed).flatMap(result => result.check.facts) } };
       this.stayedOutcomes.set(phaseKey, outcome);
       return outcome;
     }

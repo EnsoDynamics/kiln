@@ -1,5 +1,7 @@
 # Codex support for Kiln — Workspace evidence results
 
+**Superseded in part by:** [AC-WORK-04, workspace evidence recovery amendment of 2026-10-30](kiln-codex-support-prd.md#workspace-evidence-recovery-amendment--2026-10-30). Historical unknown-evidence confirmation restrictions below describe the original delivery; the amended PRD and technical design govern explicit acknowledgment now.
+
 **Recorded:** 2026-10-23 UTC. **Scope:** [Phase 3a — Audit Codex conversation workspace evidence](phase-3a-codex-workspace-evidence.md).
 
 ## Production check contracts

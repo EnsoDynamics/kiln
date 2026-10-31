@@ -156,7 +156,7 @@ export interface PhaseFacts {
   outsideConfirmations: { at: string }[];
   /** Compact authoritative scan records; provider history remains outside Kiln state. */
   codexAudits?: Record<string, CodexAudit>;
-  codexConfirmations?: { at: string; fingerprints: Record<string, string> }[];
+  codexConfirmations?: { at: string; fingerprints: Record<string, string>; uncertaintyFingerprints?: Record<string, string> }[];
 }
 
 export interface PullRequestFacts {

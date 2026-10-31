@@ -3,7 +3,7 @@ import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync, statSy
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { auditCodexConversation, codexStayedOutcome } from "./codex-evidence.js";
+import { auditCodexConversation, codexStayedOutcome, uncertaintyFingerprint } from "./codex-evidence.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 
 const fixtures: ReturnType<typeof historyFixture>[] = [];
@@ -167,6 +167,7 @@ describe("authoritative Codex conversation audit", () => {
     if (kind === "unknown-tool") writeFileSync(path, readFileSync(path, "utf8").replace("tools.apply_patch", "tools.unknown_writer"));
     const audit = await auditCodexConversation(f.options);
     expect(audit.coverage).toBe("inconclusive"); expect(audit.problems.length).toBeGreaterThan(0);
+    if (["missing", "corrupt", "truncated", "unsettled", "empty", "unowned", "wrong-owner", "invalid-envelope"].includes(kind)) expect(uncertaintyFingerprint(audit)).toBeUndefined();
     expect(codexStayedOutcome("local", audit, [audit.fingerprint]).passed).toBe(false);
   });
   it("rediscovers a moved archived file by ID without reading unrelated histories", async () => {
@@ -181,11 +182,13 @@ describe("authoritative Codex conversation audit", () => {
     if (kind === "changedTree") f.state.changedTree = true;
     if (kind === "changeRawOnRead") f.state.changeRawOnRead = f.record("event_msg", { type: "agent_message" });
     f.save(); const result = await auditCodexConversation(f.options); expect(result.coverage).toBe("inconclusive");
+    expect(uncertaintyFingerprint(result)).toBeUndefined();
   });
   it("bounds hung history requests by the total deadline and starts no turn", async () => {
     const f = fixture(); f.state.hang = "thread/read"; f.save();
     const at = Date.now(); const result = await auditCodexConversation({ ...f.options, timeoutMs: 1500 });
     expect(Date.now() - at).toBeLessThan(4000); expect(result.coverage).toBe("inconclusive");
+    expect(uncertaintyFingerprint(result)).toBeUndefined();
     expect(f.calls().some(call => /start|resume|interrupt/.test(call.method))).toBe(false);
   });
   it("covers failed or missing-result Git work and both patch rename endpoints conservatively", async () => {
@@ -219,4 +222,42 @@ describe("authoritative Codex conversation audit", () => {
     expect(statSync(f.root).isDirectory()).toBe(true);
     expect(f.calls().filter(call => call.method === "thread/turns/list").every(call => call.params.limit === 100 && call.params.itemsView === "full")).toBe(true);
   });
+});
+
+it.each(["active", "unsettled", "missing-child"])("cannot acknowledge %s history even with a readable root frontier", async mode => {
+  const f = fixture();
+  if (mode === "active") f.state.threads.parent!.metadata.status = { type: "active" };
+  if (mode === "unsettled") f.state.threads.parent!.turns[0]!.status = "inProgress";
+  if (mode === "missing-child") {
+    f.addThread("child", { parent: "parent" });
+    f.state.listed = ["child"];
+    rmSync(f.state.threads.child!.metadata.path);
+  }
+  f.save();
+  const audit = await auditCodexConversation(f.options);
+  expect(audit.coverage).toBe("inconclusive");
+  expect(audit.uncertaintyReviewable).not.toBe(true);
+  expect(codexStayedOutcome("local", audit, [], [audit.fingerprint]).passed).toBe(false);
+});
+
+it("keeps identified outside writes visible when the same wrapper later becomes unknown", async () => {
+  const f = fixture();
+  const patch = `*** Begin Patch\n*** Add File: ${join(f.outside, "mixed.txt")}\n+change\n*** End Patch`;
+  f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "mixed", input: `await tools.apply_patch(${JSON.stringify(patch)}); unknownHelper();`, internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+  const audit = await auditCodexConversation(f.options);
+  expect(audit.coverage).toBe("inconclusive");
+  expect(audit.uncertaintyReviewable).toBe(true);
+  expect(audit.findings).toHaveLength(1);
+  const acceptance = uncertaintyFingerprint(audit)!;
+  expect(codexStayedOutcome("local", audit, [], [acceptance])).toMatchObject({ passed: false, transcripts: [], changes: [expect.objectContaining({ checkout: f.outside })] });
+  expect(codexStayedOutcome("local", audit, [audit.fingerprint], [acceptance]).passed).toBe(true);
+});
+
+it("refuses acknowledgment when the bounded problem report is exhausted", async () => {
+  const f = fixture();
+  for (let i = 0; i < 201; i++) f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: `unknown-${i}`, input: "unknownHelper();", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+  const audit = await auditCodexConversation(f.options);
+  expect(audit.problems).toHaveLength(200);
+  expect(audit.coverage).toBe("inconclusive");
+  expect(uncertaintyFingerprint(audit)).toBeUndefined();
 });
