@@ -4,6 +4,8 @@
 
 ## Overview
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
+
 Add execution-scoped development authorization, a small delivery ledger and a shared evidence-based completion check to Kiln. Sessions continue to own engineering and deployment through each project's documented workflow. Kiln owns the permission snapshot, records intent before delivery, reconciles external facts and explains unresolved results. No new service, database, deployment scheduler or provider credentials are introduced.
 
 ## Existing Code

@@ -10,9 +10,12 @@ it("migrates schema 7 without granting old unknown billing fields or changing ex
   const record = structuredClone(h.engine.record); const executionId = record.executionId;
   const path = join(h.stateDirectory, "prd.json");
   record.schemaVersion = 7; record.phases["1"] = { sessionIds: ["saved-session"], repositories: {}, outsideConfirmations: [], finishedByPerson: false, wait: { since: "2026-10-26T10:00:00Z", sessionId: "saved-session", run: 0, checks: [], checkedAt: "2026-10-26T10:00:00Z" } };
-  const before = JSON.stringify(record.phases); writeFileSync(path, JSON.stringify(record));
+  const before = structuredClone(record.phases);
+  // Confinement confirmations are retired; execution and every other progress fact survive.
+  delete before["1"]!.outsideConfirmations;
+  writeFileSync(path, JSON.stringify(record));
   const migrated = readPrdRecord(h.stateDirectory)!;
-  expect(migrated.schemaVersion).toBe(SCHEMA_VERSION); expect(migrated.executionId).toBe(executionId); expect(JSON.stringify(migrated.phases)).toBe(before);
+  expect(migrated.schemaVersion).toBe(SCHEMA_VERSION); expect(migrated.executionId).toBe(executionId); expect(migrated.phases).toEqual(before);
   expect(migrated.billing?.approval).toBeUndefined(); expect(migrated.billing?.current).toBeUndefined(); expect(migrated.billing?.lastLaunch).toBeUndefined();
   expect(migrated.billing!.key).not.toBe(record.billing!.key); writePrdRecord(h.stateDirectory, migrated);
   const privateBytes = readFileSync(path, "utf8");

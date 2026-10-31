@@ -118,6 +118,7 @@
 </div>
 
 <style>
+  .command-notice button { flex-shrink: 0; white-space: nowrap; overflow-wrap: normal; }
   .command-notice { overflow-wrap: anywhere; margin: 16px 28px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); display: flex; justify-content: space-between; gap: 16px; }
   .page { min-height: 100vh; }
 </style>

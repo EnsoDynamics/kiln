@@ -248,6 +248,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     const effects = (calls: TranscriptToolCall[]) => {
       for (const call of calls) {
         report.operationsChecked++;
+        if (options.commandProjection) continue;
         for (const finding of outsideChanges({ calls: [call] }, roots)) {
           if (report.findings.some(previous => previous.fact === finding.fact && previous.checkout === finding.checkout)) continue;
           if (report.findings.length >= 200) { problem("Outside findings exceed the bounded report; evidence remains inconclusive.", true); break; }
@@ -294,7 +295,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         const context = index.get<Context>(`context:${id}`, turnId);
         if (!context?.cwd) throw new Error(`${id}: missing call context.`);
         const decoded = decodeRawCall(payload);
-        if (decoded.coverage !== "complete") problem(`${id}/${payload.call_id}: ${decoded.reason}`);
+        if (!options.commandProjection && decoded.coverage !== "complete") problem(`${id}/${payload.call_id}: ${decoded.reason}`);
         const at = requireText(record.timestamp, "call timestamp");
         for (const operation of decoded.operations as { name: string; input: unknown }[]) {
           if (operation.name === "exec_command") {
@@ -331,7 +332,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
                     output: result.aggregatedOutput === null ? "" : result.aggregatedOutput });
                 }
               }
-              if (powerShell) {
+              if (powerShell && !options.commandProjection) {
                 handledPowerShell = true;
                 const parser = options.powerShellExecutable ?? findExecutable("pwsh", options.env);
                 if (!parser) throw new Error("Qualified PowerShell parser is unavailable.");
@@ -341,8 +342,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
               }
             }
             const isPowerShell = typeof input.shell === "string" && /(?:pwsh|powershell)(?:\.exe)?$/i.test(input.shell);
-            if (!matched && (input.shell !== undefined || !["zsh", "bash", "sh"].includes(shell ?? ""))) { problem(`${id}: no recorded shell identity.`); continue; }
-            if (!isPowerShell && !handledPowerShell) {
+            if (!matched && (input.shell !== undefined || !["zsh", "bash", "sh"].includes(shell ?? ""))) { if (!options.commandProjection) problem(`${id}: no recorded shell identity.`); continue; }
+            if (!options.commandProjection && !isPowerShell && !handledPowerShell) {
               for (const git of gitCommandsIn(command, cwd)) if (gitChange(git.subcommand, git.args) && !git.place) problem(`${id}: unplaced mutating Git command.`);
               effects([{ name: "Bash", cwd, at, input: { command } }]);
             }
@@ -368,7 +369,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
               }
             }
             for (const path of paths) { index.put(`patch:${id}`, `${turnId}:${physical(path)}`, true); effects([{ name: "Write", cwd: context.cwd, at, input: { file_path: path } }]); }
-          } else if (operation.name === "write_stdin" && (operation.input as { chars?: string }).chars) problem(`${id}: interactive input requires a separate reader.`);
+          } else if (!options.commandProjection && operation.name === "write_stdin" && (operation.input as { chars?: string }).chars) problem(`${id}: interactive input requires a separate reader.`);
           else if (["spawn_agent", "send_message", "followup_task"].includes(operation.name)) {
             let found = false;
             for await (const delegation of index.values<{ callId: string; threadId: string; kind: string }>(`delegation:${id}:${turnId}`)) if (delegation.callId === payload.call_id && byId.has(delegation.threadId) && ["started", "interacted"].includes(delegation.kind)) found = true;
@@ -378,11 +379,11 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       }
       for await (const command of index.values<Item & { turnId: string }>(`expectedCommand:${id}`)) {
         const native = index.get<NativeCommand>(`nativeCommand:${id}:${command.turnId}`, command.id);
-        if (!native || native.status !== command.status || !index.get(`coveredCommand:${id}`, command.id)) problem(`${id}: native command not covered by a decoded invocation.`);
+        if (!options.commandProjection && (!native || native.status !== command.status || !index.get(`coveredCommand:${id}`, command.id))) problem(`${id}: native command not covered by a decoded invocation.`);
       }
       // Raw-only commands must also be covered, even if the normalized view omitted them.
-      for await (const turn of index.values<{ id: string }>(`turn:${id}`)) for await (const native of index.values<NativeCommand>(`nativeCommand:${id}:${turn.id}`)) if (!index.get(`coveredCommand:${id}`, native.id)) problem(`${id}: uncovered raw native command.`);
-      for await (const write of index.values<{ turnId: string; path: string }>(`expectedWrite:${id}`)) if (!index.get(`patch:${id}`, `${write.turnId}:${physical(write.path)}`)) problem(`${id}: native file change not covered by decoded input.`);
+      for await (const turn of index.values<{ id: string }>(`turn:${id}`)) for await (const native of index.values<NativeCommand>(`nativeCommand:${id}:${turn.id}`)) if (!options.commandProjection && !index.get(`coveredCommand:${id}`, native.id)) problem(`${id}: uncovered raw native command.`);
+      for await (const write of index.values<{ turnId: string; path: string }>(`expectedWrite:${id}`)) if (!options.commandProjection && !index.get(`patch:${id}`, `${write.turnId}:${physical(write.path)}`)) problem(`${id}: native file change not covered by decoded input.`);
     }
     if (digest(before) !== digest(await discovered())) problem("Conversation tree changed during scan.", true);
     for (const frontier of report.frontiers) {

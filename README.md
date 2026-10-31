@@ -6,7 +6,7 @@ The Enso Method works without Kiln. Kiln automates the loop a person otherwise r
 
 ## Install
 
-Kiln requires Node 22 or later, Git 2.29 or later, the [GitHub CLI](https://cli.github.com/) signed in, and either [Claude Code](https://docs.claude.com/en/docs/claude-code) or Codex signed in with the [Enso Method](https://github.com/EnsoDynamics/enso-method) skills installed. Codex requires **stable codex-cli 0.162.1 or later**, authenticated through ChatGPT. Newer stable releases are accepted subject to the same required metadata, permission and workspace-evidence checks. See [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
+Kiln requires Node 22 or later, Git 2.29 or later, the [GitHub CLI](https://cli.github.com/) signed in, and either [Claude Code](https://docs.claude.com/en/docs/claude-code) or Codex signed in with the [Enso Method](https://github.com/EnsoDynamics/enso-method) skills installed. Codex requires **stable codex-cli 0.162.1 or later**, authenticated through ChatGPT. Newer stable releases are accepted subject to the same required metadata and permission checks. See [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
 
 macOS is the natively validated platform. Linux and Windows remain best-effort targets: their native agent, console and sleep behavior is untested, and compatibility issues will be investigated from user reports. Native Windows/Linux proof is not a first-release gate. The [public release readiness review](docs/release/kiln-public-release-readiness-review.md) tracks validation evidence and the remaining publication gates.
 
@@ -41,7 +41,7 @@ The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) 
 
 `kiln run` again, after Ctrl+C or a restart, checks the saved work and opens the phase overview without starting model work. Review completed and planned phases, then press **Resume Kiln**. Unresolved Needs you and intentional pauses retain their existing controls.
 
-If Codex workspace evidence is inconclusive, Needs you distinguishes **Unable to verify** from detected outside changes and keeps technical diagnostics expandable. Once the full conversation tree is readable, stable and stopped, **Accept workspace uncertainty** acknowledges only that activity’s checked history. Then use Verify/Check again; closure, commit, push and other checks still apply. Known outside changes require their separate confirmation. New recorded work invalidates acceptance. The CLI equivalent is `kiln outside-confirmation <PRD-path> --confirm-resolved --accept-uncertainty --command-id <id> --only-if-status-matches <status_token>`; use `--clear-confirmation` with the same uncertainty flag to revoke it.
+Completion checks use the assigned worktrees’ Git state and required audit/delivery receipts. Kiln does not audit session transcripts for outside-workspace changes or ask users to accept workspace uncertainty. Other checkouts and worktrees may change normally while Kiln runs.
 
 For terminal or bot orchestration, `kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved agent, model, effort and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the existing status-bound `kiln continue` command.
 

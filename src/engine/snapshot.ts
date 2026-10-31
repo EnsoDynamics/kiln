@@ -1,4 +1,3 @@
-import { uncertaintyFingerprint } from "../session/codex-evidence.js";
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
@@ -20,8 +19,7 @@ import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
-import { STAYED_CHECK_NAME } from "../session/outside-workspace.js";
-import { auditRecoveryPrompt, codexSessionPrompt, freshSessionOutsideNote, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { auditRecoveryPrompt, codexSessionPrompt, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
@@ -277,9 +275,7 @@ export interface Snapshot {
     /** The phase's commits by repository, only those with commits, newest first. */
     repositories?: RepositoryCommits[];
     /**
-     * While Stayed in the workspace fails (multi-repo AC-OUTSIDE-02, 03): each uncovered change's
-     * fact; each uncovered missing or unreadable transcript's; the changed checkouts' folder names;
-     * the prompt for the reopened session, when there are changes; and the confirmation.
+     * @deprecated Retired legacy snapshot shape. New snapshots never expose it.
      */
     outside?: {
       changes: string[];
@@ -289,7 +285,7 @@ export interface Snapshot {
       confirmation: { offered: boolean; ticked: boolean };
       uncertainty?: { offered: boolean; ticked: boolean };
     };
-    /** Kiln stopped this interrupted session instead of resuming it, since it worked outside the workspace (AC-OUTSIDE-04). */
+    /** The interrupted run's timing, retained while independent recovery requirements are checked. */
     interrupted?: { at: string; atIsLastOutput: boolean };
     /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
     limit?: LimitView & { refusedAgainAt?: string };
@@ -524,7 +520,6 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  const outside = stop.kind === "selection" || !retainedStop ? undefined : outsideView(engine, phaseKey);
   const base = {
     phaseId: judged,
     kind: stop.kind,
@@ -532,17 +527,13 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
-    ...optional("outside", outside?.view),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
-  // The fresh-session prompt carries the changes outside the workspace too (AC-OUTSIDE-02).
-  const withOutside = (prompt: string) => (outside?.note === undefined ? prompt : `${prompt}\n\n${outside.note}`);
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const originalPrompts = (ran: boolean) =>
-    withOutside(
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
         ? pullRequestSessionPrompt({
@@ -558,8 +549,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
               isPrd: entry.kind === "prd",
             })),
           })
-        : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran),
-    );
+        : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
   const prompts = (ran: boolean) => session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
   const freshSessionCommand = (session?.agentId ?? record.settings.agentId) === "codex" ? codexCommand(folder) : claudeCommand(folder);
@@ -627,7 +617,6 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
         time: interrupted?.at ?? endedAt,
         ...(auditTask ? { auditTask } : isPr ? {} : { phaseDoc: engine.pathFrom(folder, `${engine.paths.prdDirectoryFromRoot}/${engine.fileOf(judged) ?? ""}`) }),
         multiRepository: isPr ? engine.pullRequestRepositories().length > 1 : folder !== engine.worktreePath,
-        ...(outside?.view?.prompt === undefined ? {} : { outside: outside.view.prompt }),
       }) } : {}),
     } : {}),
     freshSessionPrompt: prompts(everStarted),
@@ -720,42 +709,6 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   }
   view.account = account;
   return view;
-}
-
-/**
- * Needs you's part for Stayed in the workspace while it fails (multi-repo AC-OUTSIDE-02, 03):
- * the facts and checkouts from the phase's latest check, the prompt for the reopened session,
- * the fresh-session prompt's addition, and whether the confirmation is ticked: a tick made
- * since the stop was last checked.
- */
-function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snapshot["needsYou"]>["outside"]; note?: string } | undefined {
-  const facts = engine.record.phases[phaseKey]!;
-  const stop = facts.stop!;
-  if (!stop.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed)) return undefined;
-  const outcome = engine.latestStayed(phaseKey);
-  const { changes, checkouts, prompt } = engine.uncoveredOutside(phaseKey);
-  const multi = engine.multiRepository;
-  const codex = engine.record.settings.agentId === "codex";
-  const ticked = codex
-    ? (facts.codexConfirmations ?? []).some(confirmation => Object.entries(facts.codexAudits ?? {}).some(([id, audit]) => audit.findings.length > 0 && confirmation.fingerprints[id] === audit.fingerprint))
-    : facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
-  return {
-    view: {
-      changes,
-      missingTranscripts: outcome.transcripts.map((problem) => problem.fact),
-      checkouts: [...new Set(checkouts.map((checkout) => checkout.name))],
-      ...optional("prompt", prompt),
-      confirmation: { offered: !codex || outcome.changes.length > 0, ticked },
-      ...(codex ? { uncertainty: {
-        offered: Object.values(facts.codexAudits ?? {}).some(audit => audit.coverage === "inconclusive" && uncertaintyFingerprint(audit) !== undefined),
-        ticked: Object.entries(facts.codexAudits ?? {}).filter(([, audit]) => audit.coverage === "inconclusive").every(([id, audit]) => {
-          const fingerprint = uncertaintyFingerprint(audit);
-          return fingerprint !== undefined && (facts.codexConfirmations ?? []).some(one => one.uncertaintyFingerprints?.[id] === fingerprint);
-        }),
-      } } : {}),
-    },
-    ...(changes.length === 0 ? {} : { note: freshSessionOutsideNote(changes, checkouts.length, multi) }),
-  };
 }
 
 /**
@@ -1026,7 +979,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const attempt = accepted?.result ?? (audit.attempts.at(-1) ? store.read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
-      row.audit = { ...optional("outcome", report?.outcome), checks: facts?.stop?.checks ?? attempt?.checks ?? [], criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
+      row.audit = { ...optional("outcome", report?.outcome), checks: (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace"), criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
       if (accepted?.report.outcome === "passed" && facts?.doneAt) {
         row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }

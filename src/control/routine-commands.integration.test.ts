@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import { createHarness, landingSession, waitFor, type Harness } from '../test-support/engine-harness.js';
-import { createRepository, git } from '../test-support/git-repositories.js';
+import { git } from '../test-support/git-repositories.js';
 import { FOLDER } from '../test-support/fixture-documents.js';
 import { startLocalServer, type LocalServer } from '../server/local-server.js';
 import { isPortFree } from '../state/instance-lock.js';
@@ -13,8 +13,6 @@ import { processStartTime } from '../platform/process-start-time.js';
 import { writeJsonAtomically } from '../state/state-files.js';
 import { buildSnapshot } from '../engine/snapshot.js';
 import type { Receipt } from './commands.js';
-import { historyFixture } from '../test-support/codex-history-fixture.js';
-import { writeSessionRecord } from '../state/records.js';
 import { claudeConfigFolder, findTranscripts } from '../session/transcripts.js';
 
 let h: Harness;
@@ -76,19 +74,15 @@ it('continues to the next eligible activity and rechecks a broken plan without s
   expect(h.claudeCalls()).toHaveLength(2); expect(h.claudeCalls()[1]!.prompt).toContain('phase-2b-store-credit.md'); expect(h.engine.record.phases['2b']!.sessionIds).toHaveLength(1); expect(h.engine.record.phases['2b']!.doneAt).toBeUndefined(); expect(h.engine.record.phases['1']!.doneAt).toEqual(expect.any(String));
 });
 
-it('confirms and clears only reviewed outside evidence, without altering files, sessions or phase completion', async () => {
-  h = await createHarness({ sessions: [] }); const outside = createRepository(h.sandbox, 'outside-reviewed'); const file = join(outside, 'changed.txt');
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ write: { path: file, content: 'Outside work for review.\n' } }, { result: 'Review the outside change.' }] }] }));
+it('rejects retired workspace confirmation CLI requests without changing state', async () => {
+  h = await createHarness({ sessions: [{ actions: [] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
-  expect(buildSnapshot(h.engine).needsYou?.outside?.confirmation).toEqual({ offered: true, ticked: false });
-  const facts = h.engine.record.phases['1']!; const stop = structuredClone(facts.stop); const bytes = readFileSync(file); const head = git(h.sandbox, outside, 'rev-parse', 'HEAD'); const dirty = git(h.sandbox, outside, 'status', '--porcelain');
-  const session = h.engine.latestSession('1')!; const attempts = session.runs.length;
-  await waitFor(() => Date.now() > Date.parse(stop!.checkedAt));
-  const confirm = await mutate('outside-confirmation', 'confirm-reviewed', ['--confirm-resolved'], true);
-  expect(confirm.operation).toMatchObject({ state: 'completed', effects: { session: 'not_started', plan: 'not_advanced' } }); expect(buildSnapshot(h.engine).needsYou?.outside?.confirmation).toEqual({ offered: true, ticked: true });
-  await mutate('outside-confirmation', 'clear-reviewed', ['--clear-confirmation']); expect(buildSnapshot(h.engine).needsYou?.outside?.confirmation).toEqual({ offered: true, ticked: false });
-  const replay = await cli([...confirm.args, '--json']); expect(replay.code).toBe(0); expect(replay.json().operation.id).toBe(confirm.operation.id); expect(buildSnapshot(h.engine).needsYou?.outside?.confirmation?.ticked).toBe(false);
-  expect(facts.stop).toEqual(stop); expect(facts.doneAt).toBeUndefined(); expect(h.engine.latestSession('1')!.runs).toHaveLength(attempts); expect(h.claudeCalls()).toHaveLength(1); expect(readFileSync(file)).toEqual(bytes); expect(git(h.sandbox, outside, 'rev-parse', 'HEAD')).toBe(head); expect(git(h.sandbox, outside, 'status', '--porcelain')).toBe(dirty);
+  const before = structuredClone(h.engine.record.phases['1']);
+  expect(buildSnapshot(h.engine).needsYou?.outside).toBeUndefined();
+  const answer = await cli(['outside-confirmation',target(),'--confirm-resolved','--json']);
+  expect(answer.code).toBe(2);
+  expect(h.engine.record.phases['1']).toEqual(before);
+  expect(h.claudeCalls()).toHaveLength(1);
 });
 
 // AC-CLI-04: repeat the public workflow contract on two concurrent controllers.
@@ -164,28 +158,4 @@ it('excludes provider credential canaries from account, inventory and operation 
     for(const credential of privateValues)expect(answer.stdout).not.toContain(credential);
   }
   expect(h.claudeCalls()).toHaveLength(0);
-});
-
-
-it('acknowledges uncertainty through the explicit built CLI flag and persists a receipt without advancing', async () => {
-  h = await createHarness({ sessions: [{ actions: [] }] });
-  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  const f = historyFixture();
-  try {
-    f.addThread('parent', { target: join(h.engine.worktreePath, 'inside.txt') });
-    f.append('parent', f.record('response_item', { type: 'custom_tool_call', name: 'exec', call_id: 'unknown-cli', input: 'unknownHelper();', internal_chat_message_metadata_passthrough: { turn_id: 'parent-turn-0' } }));
-    Object.assign(h.tools, { codex: f.options.executable }); h.env.KILN_CODEX_HISTORY_FIXTURE = f.options.env.KILN_CODEX_HISTORY_FIXTURE;
-    h.engine.record.settings.agentId = 'codex'; h.engine.record.settings.agentChoices.codex = { model: 'gpt-6.1-sol', effort: 'high' };
-    const facts = h.engine.record.phases['1']!; const session = h.engine.latestSession('1')!;
-    session.agentId = 'codex'; session.conversation = { threadId: 'parent', codexHome: f.codexHome }; writeSessionRecord(h.stateDirectory, session);
-    facts.stop!.checks = [(await h.engine.readWorkspaceEvidence('1')).check];
-    await serve();
-    const accepted = await mutate('outside-confirmation', 'accept-uncertain-history', ['--confirm-resolved', '--accept-uncertainty']);
-    expect(accepted.operation).toMatchObject({ state: 'completed', effects: { session: 'not_started', plan: 'not_advanced' } });
-    expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty).toEqual({ offered: true, ticked: true });
-    expect(facts.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
-    const replay = await cli([...accepted.args, '--json']); expect(replay.json().operation.id).toBe(accepted.operation.id);
-    await mutate('outside-confirmation', 'clear-uncertain-history', ['--clear-confirmation', '--accept-uncertainty']);
-    expect(buildSnapshot(h.engine).needsYou!.outside!.uncertainty?.ticked).toBe(false);
-  } finally { await f.sandbox.cleanup(); }
 });

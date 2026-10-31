@@ -9,10 +9,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readPrdRecord, SCHEMA_VERSION, writeSessionRecord } from "../state/records.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { createRepository, git, posixShellPath } from "../test-support/git-repositories.js";
+import { git } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
-import { displayPath } from "./worktree-setup.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -274,111 +273,6 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     expect(h.engine.latestSession("pr")!.runs).toHaveLength(1);
     expect(h.claudeCalls()).toHaveLength(4);
     expect(phaseEvents(h)).not.toContain("PR resumed");
-  });
-});
-
-describe("after work outside the workspace (multi-repo AC-OUTSIDE-04)", () => {
-  /** A design-system checkout beside the PRD's repository. */
-  const designSystem = (h: Harness) => createRepository(h.sandbox, "design-system");
-
-  it("resumes with the note, then the prompt to bring that work in, while the confirmation is unticked", async () => {
-    harness = await createHarness({ sessions: [] });
-    const h = harness;
-    const outside = designSystem(h);
-    const landing = landingSession("src/intake.txt");
-    const edit = { write: { path: join(outside, "src", "tokens", "colors.ts"), content: "export const refunded = '#e6b450';\n" } };
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [edit, ...landing.actions] }, { actions: [{ result: "Moved it." }] }] }));
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    const needsYou = buildSnapshot(h.engine).needsYou!;
-    expect(needsYou.outside!.confirmation.ticked).toBe(false);
-    expect(needsYou.resumeOffered).toBe(true);
-    const endedAt = h.engine.latestSession("1")!.runs[0]!.endedAt!;
-
-    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Copy the token into storefront instead." })).toMatchObject({ ok: true });
-    await h.engine.settled();
-    expect(h.claudeCalls()[1]!.prompt.split("\n\nThis session runs unattended.")[0]).toBe(
-      [
-        "The person running Kiln says:",
-        "",
-        "Copy the token into storefront instead.",
-        "",
-        "While working on phase 1, you changed a checkout outside the Kiln workspace, the worktree named in your instructions:",
-        `- Wrote src/tokens/colors.ts in ${displayPath(outside)}`,
-        "",
-        `Bring the changes you made there into the workspace, committed and pushed on feature/customer-returns, and nothing else from that checkout. design-system isn’t in the workspace yet, so ask Kiln to add it first. Leave ${displayPath(outside)} as it is, and tell me what in it still needs putting back.`,
-        "",
-        `${stoppedOpening(endedAt)} ${CARRY_ON}`,
-      ].join("\n"),
-    );
-    // The resumed run reported its init and stopped again: an ordinary Needs you, Resume still offered.
-    expect(h.engine.record.phases["1"]!.stop!.kind).toBe("done_check");
-    expect(buildSnapshot(h.engine).needsYou!.resumeOffered).toBe(true);
-    expect(phaseEvents(h).slice(-2)).toEqual(["1 resumed", "1 stopped"]);
-  });
-
-  it("sends no prompt about the outside work once the confirmation covers it, though another check still fails", async () => {
-    harness = await createHarness({ sessions: [] });
-    const h = harness;
-    const outside = designSystem(h);
-    const edit = { write: { path: join(outside, "notes.txt"), content: "x\n" } };
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [edit, ...askingSession().actions] }, { actions: [{ result: "Carrying on." }] }] }));
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    expect(h.engine.record.phases["1"]!.stop!.checks.map((check) => [check.name, check.passed])).toContainEqual(["Stayed in the workspace", false]);
-    expect(h.engine.setOutsideConfirmation(true)).toEqual({ ok: true });
-    const endedAt = h.engine.latestSession("1")!.runs[0]!.endedAt!;
-
-    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
-    await h.engine.settled();
-    expect(h.claudeCalls()[1]!.prompt).toBe(`${stoppedOpening(endedAt)} ${CARRY_ON}`);
-  });
-
-  it("honors the confirmation as Check again does: ticked, the check passes and nothing is resumed", async () => {
-    harness = await createHarness({ sessions: [] });
-    const h = harness;
-    const outside = designSystem(h);
-    const landing = landingSession("src/intake.txt");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ write: { path: join(outside, "notes.txt"), content: "x\n" } }, ...landing.actions] }, landingSession("src/credit.txt")] }));
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    expect(h.engine.setOutsideConfirmation(true)).toEqual({ ok: true });
-
-    expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Never sent." })).toMatchObject({ ok: true, outcome: "already_complete" });
-    expect(h.engine.record.phases["1"]!.stop).toBeDefined();
-    expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
-    expect(h.claudeCalls()).toHaveLength(1);
-    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "advanced" });
-    await h.engine.settled();
-    expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true });
-    expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
-  });
-
-  it("offers Resume at an interrupted session's Needs you, and resumes it with the interruption's opening after the prompt", async () => {
-    harness = await createHarness({ sessions: [] });
-    const h = harness;
-    const outside = designSystem(h);
-    const working = join(h.sandbox.root, "working");
-    writeFileSync(
-      h.scenarioPath,
-      JSON.stringify({ sessions: [{ actions: [{ bash: `git -C ${posixShellPath(outside)} checkout -q -b scratch` }, { text: "Building the intake form." }, { touch: working }, { work: "npm test" }] }, { actions: [{ result: "Put it back." }] }] }),
-    );
-    await h.engine.start({ refinementConfirmed: true });
-    await waitFor(() => existsSync(working));
-    await h.engine.stop("sigint");
-    const interruptedAt = h.engine.latestSession("1")!.runs[0]!.interruptedAt!;
-
-    const engine = h.reopenFromDisk();
-    await engine.prepare();
-    expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: false });
-    expect(buildSnapshot(engine).needsYou).toMatchObject({ interrupted: { at: interruptedAt }, resumeOffered: true });
-
-    expect(await engine.resume(recoveryRequest(engine))).toMatchObject({ ok: true });
-    await engine.settled();
-    const prompt = h.claudeCalls()[1]!.prompt;
-    expect(prompt.startsWith("While working on phase 1, you changed a checkout outside the Kiln workspace")).toBe(true);
-    expect(prompt.endsWith(`\n\nKiln was interrupted at \`${seconds(interruptedAt)}\` (Ctrl+C) while this session was working, and has resumed it. ${CARRY_ON}`)).toBe(true);
-    expect(engine.latestSession("1")!.runs[1]!.cause).toBe("person_resume");
   });
 });
 

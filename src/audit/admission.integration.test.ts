@@ -147,7 +147,7 @@ describe("audit evidence admission", () => {
     } finally { spy.mockRestore(); }
   });
 
-  it("accepts an aliased workspace root without accepting writes to another checkout", async () => {
+  it("retains authentic audit evidence through aliased roots and unrelated outside writes", async () => {
     const f = await fixture();
     const alias = join(f.sandbox.root, "worktree-alias");
     symlinkSync(f.root, alias, "junction");
@@ -158,11 +158,13 @@ describe("audit evidence admission", () => {
     expect(evidence.find(entry => entry.locator === "inside-write")?.mutation?.paths).toEqual([inside]);
     const outside = createRepository(f.sandbox, "outside");
     f.call("outside-write", "Write", { file_path: join(outside, "value.mjs") }, "Written");
-    await expect(refreshAuditEvidence(f.context)).rejects.toMatchObject({ code: "outside_execution" });
+    const updated = await refreshAuditEvidence(f.context);
+    expect(updated.find(entry => entry.locator === "outside-write")?.mutation?.paths).toEqual([join(outside, "value.mjs")]);
   });
   it("accepts current whole-PRD evidence, survives a lost response, and preserves immutable result history", async () => {
     const f = await fixture(); f.saveReport(); const request = { ...f.body(), reportPath: f.activity.reportPath };
     const result = await submitAudit(f.context, request); expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Audit result recorded", passed: true })])); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("test_audit");
+    expect(result.checks.some(check => check.name === "Stayed in the workspace")).toBe(false);
     writePrdRecord(f.stateDirectory, f.record); const recovered = readPrdRecord(f.stateDirectory)!;
     expect(await submitAudit({ ...f.context, record: recovered }, request)).toEqual(result);
     f.report.outcome = "blocked"; f.saveReport(); await expect(submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).rejects.toMatchObject({ code: "result_conflict" });

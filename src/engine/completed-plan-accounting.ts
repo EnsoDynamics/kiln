@@ -69,7 +69,7 @@ async function ancestor(git: GitContext, path: string, from: string, to: string)
 }
 
 /** Completion is bound to the immutable scope, never to today's Closed line alone. */
-export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }>; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<Omit<CompletionAccounting, "id">> {
+export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<Omit<CompletionAccounting, "id">> {
   const { record, baseline, candidate, git, shared, verifiedAt } = input;
   const extracted = externalCompletionReferences(candidate, record.prdDirectory);
   const prdName = record.repository.name;
@@ -98,11 +98,9 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
     let references = extracted.references.filter(ref => ref.phaseId === phase.id);
     if (owner) {
       row.provenance = "retained_kiln";
-      if (owners.length !== 1 || !owner[1].doneAt || !input.readProvenance) {
-        row.problems.push(`Phase ${phase.id} has a Kiln session. Restore its scope-bound completion and provider/workspace evidence; it cannot be treated as work with no provider owner.`); continue;
+      if (owners.length !== 1 || !owner[1].doneAt) {
+        row.problems.push(`Phase ${phase.id} has a Kiln session. Restore its scope-bound completion receipt; it cannot be treated as work with no provider owner.`); continue;
       }
-      const provenance = await input.readProvenance(owner[0]);
-      if (!provenance.passed) row.problems.push(...provenance.facts.map(fact => `Phase ${phase.id}: ${fact}`));
       row.completedAt = owner[1].doneAt;
       references = names.flatMap(repository => {
         const revision = owner[1].repositories[repository]?.pushedSha;

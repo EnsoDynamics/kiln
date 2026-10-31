@@ -148,6 +148,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Sessions, §Stoppin
 
 ### Authoritative evidence
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
+
 For every recorded session of the phase, read the provider's own history, including terminal resumes and all descendants. Kiln's event capture is supplementary evidence and the source of live output, never the sole workspace audit. A turn that was dispatched counts as possibly having acted even when no successful initialization/model response was recorded.
 
 For Codex, use metadata and paginated history to discover the tree: `thread/read`, `thread/turns/list` with `itemsView: full`, `thread/items/list` when supported, plus `thread/list` filtered by `ancestorThreadId`, with explicit subagent source kinds and separate archived/unarchived passes. Exhaust every cursor. Union descendants from returned parent links, collab receiver IDs, subagent-activity IDs and the persisted spawn records; recursively verify referenced children. A page of summaries, an empty default interactive listing or a parent's final report is never complete evidence.
@@ -332,6 +334,8 @@ Use unit tests for deterministic model selection, dynamic efforts, provider-even
 No open business assumptions are introduced. AUTH-001 and UI-001 remain settled. These questions are technical proof obligations, not delegated product decisions or permission to ship weaker behavior. Earlier designs receive supersession pointers when this change is implemented, not during this drafting session.
 
 ### Workspace uncertainty acknowledgment — 2026-10-30
+
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
 
 Implements the amended AC-WORK-04. Keep resolved-change confirmations separate from optional `uncertaintyFingerprints` on each activity’s Codex confirmation record. Bind uncertainty to the scan fingerprint, coverage and problems; the existing scan fingerprint binds assigned roots, thread identities and source/turn frontiers. Refuse acknowledgments unless the entire conversation tree is readable and stable and authoritative activity is terminal. Active/unsettled work, missing/corrupt children, changing sources, scan aborts and exhausted bounds cannot be acknowledged. Persist `uncertaintyReviewable` only after the complete scan and final stability checks. Unreadable/missing history must be restored before this scoped acknowledgment is available. A new check always reads provider history; changed evidence invalidates the acknowledgment. Known outside changes still require their separate confirmation. Preserve the raw inconclusive audit and diagnostics; a tolerated check says “Workspace uncertainty accepted” rather than claiming verified confinement. Existing records need no backfill; older readers ignore the optional acknowledgment and continue refusing incomplete evidence.
 

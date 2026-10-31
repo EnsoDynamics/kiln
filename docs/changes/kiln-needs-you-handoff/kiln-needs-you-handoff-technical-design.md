@@ -110,6 +110,8 @@ Replaces in part: [usage-limit recovery design](../kiln-usage-limit-recovery/tec
 
 ## Completion Evidence and Errors
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
+
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan/source failures prevent advancement while preserving session facts).
 

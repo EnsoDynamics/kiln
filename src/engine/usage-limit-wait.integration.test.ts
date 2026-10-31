@@ -684,7 +684,7 @@ describe("the pull-request session (AC-AUTO-01, AC-LIMIT-05)", () => {
 });
 
 describe("what keeps a usage-limit stop from waiting (multi-repo seam)", () => {
-  it("doesn't wait for a session that worked outside the workspace before the limit refused it (AC-OUTSIDE-04)", async () => {
+  it("waits normally after a session recorded an outside edit", async () => {
     const s = await setup(() => []);
     const { h } = s;
     writeFileSync(
@@ -693,10 +693,8 @@ describe("what keeps a usage-limit stop from waiting (multi-repo seam)", () => {
     );
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.waitingPhaseKey()).toBeUndefined();
-    const stop = h.engine.record.phases["1"]!.stop!;
-    expect(stop.limit).toMatchObject({ label: "5-hour window" });
-    expect(stop.checks.some((check) => check.name === "Stayed in the workspace" && !check.passed)).toBe(true);
+    expect(h.engine.waitingPhaseKey()).toBe("1");
+    expect(h.engine.record.phases["1"]!.wait!.checks.some(check => check.name === "Stayed in the workspace")).toBe(false);
   });
 
   it("doesn't wait for a session with no transcript, and Needs you offers no Resume", async () => {
@@ -708,7 +706,7 @@ describe("what keeps a usage-limit stop from waiting (multi-repo seam)", () => {
     expect(buildSnapshot(s.h.engine).needsYou!.resumeOffered).toBe(false);
   });
 
-  it("goes to Needs you, resuming nothing, when the session's transcript shows work outside the workspace by the end of the wait", async () => {
+  it("resumes normally after an outside edit was recorded during the wait", async () => {
     const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
     const { h, claude } = s;
     await startToWait(s);
@@ -722,10 +720,9 @@ describe("what keeps a usage-limit stop from waiting (multi-repo seam)", () => {
       `${JSON.stringify({ type: "assistant", sessionId: session.sessionId, timestamp: new Date().toISOString(), cwd: h.engine.worktreePath, message: { model: "claude-opus-5-5", content: [{ type: "tool_use", id: "toolu_outside", name: "Write", input: { file_path: outside } }] } })}\n`,
     );
     claude.queue(signedIn([usageRow("session", 3)]), signedIn([usageRow("session", 3)]));
-    await untilSettled(h.engine, () => h.engine.stoppedPhaseKey() !== undefined);
-    expect(h.claudeCalls()).toHaveLength(1);
-    expect(h.engine.record.phases["1"]!.stop!.checks.some((check) => check.name === "Stayed in the workspace" && !check.passed)).toBe(true);
-    expect(h.engine.record.phases["1"]!.stop!.limit).toMatchObject({ label: "5-hour window" });
+    await untilSettled(h.engine, () => h.engine.record.phases["1"]!.doneAt !== undefined);
+    expect(h.claudeCalls().length).toBeGreaterThanOrEqual(2);
+    expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
   });
 });
 

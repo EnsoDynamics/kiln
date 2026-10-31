@@ -29,7 +29,6 @@ import {
   needsYouCrashedSnapshot,
   needsYouMessageSnapshot,
   pausedSnapshot,
-  needsYouOutsideWorkspaceSnapshot,
   needsYouRepositoriesSnapshot,
   needsYouUsageLimitSnapshot,
   PHASE_DETAIL_LINES,
@@ -512,24 +511,6 @@ const SCREENS: {
       "13:20:51 claude Running the dashboard Playwright suite. It needs the dev server on 5173; starting it. 13:20:52 tool Bash npm run dev & 13:20:55 stderr Error: listen EADDRINUSE: address already in use :::5173 13:21:03 exit Process exited with code 1",
       "Full session output · 2,031 lines",
       "Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Everything committed Yes Latest commit a41c9e2, tree clean Pushed Not yet a41c9e2 isn’t on origin yet Check again Checked 1:21 PM.",
-    ],
-  },
-  {
-    name: "needs-you-outside-workspace",
-    mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-needs-you-outside-workspace.html`,
-    snapshot: needsYouOutsideWorkspaceSnapshot,
-    clock: Date.parse("2026-10-17T17:21:00Z"),
-    addition: withResumeCard("Phase 3"),
-    copy: [
-      "Customer returns Needs you Phase 3 · Returns dashboard · Stopped 1:20 PM",
-      "Phase 3 ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 1:20 PM last skill seen: refactor-pass, 2 min earlier",
-      "Full session output · 1,148 lines",
-      "1 Open the same Claude Code session in a terminal cd ~/devel/acme/.worktrees/customer-returns claude --resume 4d9a2c7e-1f53-4b8e-9a06-3c5e7b1d2f88 Copy command",
-      "2 Ask it to bring its design-system work into the workspace While working on phase 3, you changed a checkout outside the Kiln workspace, the worktrees listed in your instructions: - Edited src/tokens/colors.ts in ~/devel/acme/design-system - Committed 6b0d2fa to main in ~/devel/acme/design-system",
-      "Copy prompt Or deal with it however you like.",
-      "3 Come back, confirm and check again Once what’s left in design-system’s own checkout is put back, tick the confirmation on the right and press Check again. If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.",
-      "Stayed in the workspace No Edited src/tokens/colors.ts in ~/devel/acme/design-system Committed 6b0d2fa to main in ~/devel/acme/design-system Kiln changed nothing in that checkout, since it may hold other work too.",
-      "The changes outside the workspace have been dealt with Covers every change outside the workspace up to when you tick it. Any later one fails the check again. Check again Checked 1:20 PM.",
     ],
   },
   {
@@ -1276,26 +1257,6 @@ describe("the controls, in a real browser", () => {
     }
   });
 
-  it("sends the confirmation that the changes outside the workspace were dealt with, and takes it back (multi-repo AC-OUTSIDE-03)", async () => {
-    const { server, page } = await openScreen(needsYouOutsideWorkspaceSnapshot(), "", Date.parse("2026-10-17T17:21:00Z"));
-    try {
-      await page.waitFor(`document.querySelector("#outside-dealt-with")`);
-      await page.evaluate(`document.querySelector("#outside-dealt-with").click()`);
-      await waitUntil(() => server.commands.length === 1);
-      await page.evaluate(`document.querySelector("#outside-dealt-with").click()`);
-      await waitUntil(() => server.commands.length === 2);
-      expect(server.commands).toEqual(["POST /api/outside-confirmation", "DELETE /api/outside-confirmation"]);
-      // Ticked in Kiln's record, the snapshot shows it ticked.
-      const ticked = needsYouOutsideWorkspaceSnapshot();
-      ticked.needsYou!.outside!.confirmation.ticked = true;
-      server.send("snapshot", ticked);
-      await page.waitFor(`document.querySelector("#outside-dealt-with").checked`);
-    } finally {
-      await page.close();
-      await server.close();
-    }
-  });
-
   it("sends Start from Paused (AC-VIEW-02, AC-VIEW-03)", async () => {
     const { server, page } = await openScreen(pausedSnapshot());
     try {
@@ -1649,10 +1610,9 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       await click(page, "Advance without sending reply");
       await page.waitFor(`document.body.innerText.includes("Implementing phase 2b") && !document.querySelector("textarea")`);
       expect(harness.engine.latestSession("1")!.runs).toHaveLength(1);
-      expect(await words(page)).toContain(flat("Phase 1 verified and accepted"));
+      expect(await words(page)).not.toContain(flat("Phase 1 verified and accepted"));
       expect(page.problems).toEqual([]);
-      await click(page, "Dismiss");
-      await page.waitFor(`!document.querySelector('[role="status"]')`);
+      expect(await page.evaluate(`document.querySelector(".command-notice")`)).toBeNull();
     } finally {
       await page.close();
       await server.close();

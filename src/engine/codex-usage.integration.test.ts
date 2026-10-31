@@ -65,7 +65,6 @@ it("waits on explicit blocked permission, resumes once with the original pair, p
   const recovered = h.engine.latestSession("1")!;
   expect(recovered.conversation?.threadId).toBe(original.conversation?.threadId);
   expect(recovered.runs[2]).toMatchObject({ cause: "limit_resume", codex: { requested: { model: original.model, effort: "high" }, terminal: { status: "completed" } } });
-  expect(h.engine.latestStayed("1").passed).toBe(true);
   expect(h.claudeCalls()).toEqual([]);
 });
 
@@ -150,7 +149,7 @@ it("does not classify a transient retry or generic rate failure as an exhausted 
   expect(buildSnapshot(h.engine).needsYou?.limit).toBeUndefined();
 });
 
-it("retains manual Resume now and setting-off behavior and rejects usage recovery when workspace evidence becomes incomplete", async () => {
+it("retains manual Resume now and setting-off behavior and does not gate usage recovery on confinement history", async () => {
   await setup();
   await h.engine.changeSettings({ resumeAfterUsageLimit: false });
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
@@ -167,9 +166,8 @@ it("retains manual Resume now and setting-off behavior and rejects usage recover
   const session = h.engine.latestSession("1")!;
   appendFileSync(join(f.home, "sessions", session.conversation!.threadId + ".jsonl"), "{broken}\n");
   await refresh({ ordinaryUsageAllowed: true });
-  await waitFor(() => buildSnapshot(h.engine).feature.state === "needs_you");
-  expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
-  expect(h.engine.latestStayed("1").passed).toBe(false); expect(dispatches()).toHaveLength(2);
+  await waitFor(() => dispatches().length === 3);
+  expect(dispatches()).toHaveLength(3);
 });
 
 it("finishes passing checks before any automatic retry", async () => {

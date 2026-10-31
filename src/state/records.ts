@@ -149,13 +149,11 @@ export interface PhaseFacts {
   wait?: PhaseWait;
   /** By repository name. */
   repositories: Record<string, RepositoryPhaseFacts>;
-  /**
-   * Each tick of Needs you's confirmation that the changes outside the workspace were dealt
-   * with; the latest covers every change recorded at or before it (multi-repo AC-OUTSIDE-03).
-   */
-  outsideConfirmations: { at: string }[];
-  /** Compact authoritative scan records; provider history remains outside Kiln state. */
+  /** @deprecated Legacy confinement facts, discarded when saved records are loaded. */
+  outsideConfirmations?: { at: string }[];
+  /** @deprecated Legacy confinement facts, discarded when saved records are loaded. */
   codexAudits?: Record<string, CodexAudit>;
+  /** @deprecated Legacy confinement facts, discarded when saved records are loaded. */
   codexConfirmations?: { at: string; fingerprints: Record<string, string>; uncertaintyFingerprints?: Record<string, string> }[];
 }
 
@@ -508,8 +506,14 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   assertAgent(record.settings.agentId);
   record.settings.selectionGeneration ??= 0;
   for (const id of Object.keys(record.settings.agentChoices)) assertAgent(id);
-  // A schema 2 record written before Stayed in the workspace was built holds no confirmations.
-  for (const facts of Object.values(record.phases)) facts.outsideConfirmations ??= [];
+  // Retire only the old confinement predicate; keep every independent recovery obligation.
+  for (const facts of Object.values(record.phases)) {
+    delete facts.outsideConfirmations;
+    delete facts.codexAudits;
+    delete facts.codexConfirmations;
+    if (facts.stop) facts.stop.checks = facts.stop.checks.filter(check => check.name !== "Stayed in the workspace");
+    if (facts.wait) facts.wait.checks = facts.wait.checks.filter(check => check.name !== "Stayed in the workspace");
+  }
   record.settings.resumeAfterUsageLimit ??= true;
   if (record.schemaVersion >= 2) {
     record.schemaVersion = SCHEMA_VERSION;

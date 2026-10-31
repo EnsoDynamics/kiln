@@ -1,11 +1,9 @@
 <script lang="ts">
-  import WorkspaceUncertainty from "../components/WorkspaceUncertainty.svelte";
-  import WorkspaceEvidenceFacts from "../components/WorkspaceEvidenceFacts.svelte";
   import { tick } from "svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { sameRecoveryTarget } from "../../../src/engine/phase-recovery.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
-  import { confirmOutside, resumePhase, verifyPhase } from "../lib/api.js";
+  import { resumePhase, verifyPhase } from "../lib/api.js";
   import { viewContext } from "../lib/view-context.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { endingFact } from "../lib/progress.js";
@@ -55,7 +53,6 @@
       : await verifyPhase(config, target, action);
     state.pending = undefined;
     if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.billing?.executionId === target.executionId) {
-      connection.notice = `${activity} verified and accepted. Kiln follows the plan and any requested pause.`;
       return;
     }
     // An old response cannot put a choice or draft onto another stopped session.
@@ -77,11 +74,6 @@
     page.choice = false; page.unsent = !!page.draft;
     await tick();
     if (lastAction === "reply") replyField?.focus(); else resumeButton?.focus();
-  }
-  async function confirmation(event: Event) {
-    if (busy) return;
-    const answer = await confirmOutside(config, (event.currentTarget as HTMLInputElement).checked);
-    page.feedback = answer.ok ? undefined : answer.reason;
   }
 </script>
 
@@ -161,7 +153,6 @@
           <p>The saved conversation cannot be opened. Start {agent} in the recorded workspace and supply the recovery prompt.</p>
           <pre>{stop.freshSessionCommand}</pre><CopyButton text={stop.freshSessionCommand} label="Copy terminal command" />
         {/if}
-        {#if stop.outside?.prompt && !stop.resumePrompt}<p>Recover the work outside the workspace:</p><pre>{stop.outside.prompt}</pre><CopyButton text={stop.outside.prompt} label="Copy workspace recovery prompt" />{/if}
         <details><summary>{stop.resumeCommand ? "Session cannot be opened? Use a fresh session" : "Fresh-session recovery prompt"}</summary><pre>{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" /></details>
         <p class="hint"><strong>Changed the plan?</strong> Ask {agent} to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
         <p>When you’re done, exit {agent} and use <strong>Back from your terminal?</strong> below.</p>
@@ -185,17 +176,11 @@
           <h3>I finished the entire activity myself.</h3>
           <p>Check that {activity} is complete, then move to the next step in the plan.</p>
           <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
-          <WorkspaceUncertainty {stop} {busy} />
           <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
             {#each stop.checks as check (check.name)}
-              <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? (check.facts.some(fact => fact.startsWith("Workspace uncertainty accepted")) ? "Accepted uncertainty" : "Passed") : check.name === "Stayed in the workspace" && stop.outside?.missingTranscripts.length ? "Unable to verify" : "Not yet"}</span></div>{#if check.name === "Stayed in the workspace" && stop.outside?.missingTranscripts.length}{#each stop.outside.changes as fact, index (index)}<p>{fact}</p>{/each}<WorkspaceEvidenceFacts facts={stop.outside.missingTranscripts} uncertain />{:else}<WorkspaceEvidenceFacts facts={check.facts} />{/if}</li>
+              <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? "Passed" : "Not yet"}</span></div>{#each check.facts as fact, index (index)}<p>{fact}</p>{/each}</li>
             {/each}
           </ul>
-          {#if stop.outside?.changes.length}<p class="hint">Kiln changed nothing in those checkouts, since they may hold other work too.</p>{/if}
-          {#if stop.outside?.confirmation.offered}
-            <label class="confirmation"><input type="checkbox" disabled={busy} checked={stop.outside.confirmation.ticked} onchange={confirmation} />The changes outside the workspace have been dealt with</label>
-            <p class="hint">Covers changes recorded up to this confirmation. Later changes must be checked again.</p>
-          {/if}
           <button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Verify ${activity} & advance`}</button>
           <p class="hint">Rechecks all applicable requirements. Advances only if all pass, respecting any requested pause. This does not finish, commit or push unfinished work.</p>
           {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; use Verify to try again.</p>{/if}
@@ -229,7 +214,6 @@
   .passed { color: var(--green); } .warning { color: var(--amber); }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }
-  .confirmation { display: flex; align-items: start; gap: 10px; font-size: 13px; }
   .lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 10px; overflow-wrap: anywhere; font-size: 12px; }
   summary { cursor: pointer; } details pre { margin: 12px 0; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } .finished { border-left: 0; border-top: 1px solid var(--line); padding: 24px 0 0; } }

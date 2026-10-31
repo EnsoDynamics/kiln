@@ -44,11 +44,11 @@ it("rejects malformed, old, stale and competing clients before any check or mode
   expect((await post("resume", {})).body.code).toBe("stale_target");
   expect((await post("check-again", {})).body.code).toBe("stale_target");
   for (const field of ["executionId", "phaseKey", "sessionId", "stoppedAt"]) expect((await post("resume", { target: { ...target(), [field]: "old" } })).body.code).toBe("stale_target");
-  const real = h.engine.readWorkspaceEvidence.bind(h.engine);
+  const real = h.engine["readPlan"].bind(h.engine);
   let release!: () => void; let entered!: () => void;
   const inside = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
-  vi.spyOn(h.engine, "readWorkspaceEvidence").mockImplementationOnce(async key => { entered(); await gate; return real(key); });
+  vi.spyOn(h.engine, "readPlan").mockImplementationOnce(async () => { entered(); await gate; return real(); });
   const first = post("check-again", { target: target(), intent: "verify" }); await inside;
   expect(buildSnapshot(h.engine).needsYou!.checking).toBe(true);
   expect((await post("resume", { target: target(), note: "competing" })).body.code).toBe("busy");

@@ -3,7 +3,6 @@
 // (technical design, "The Done Check").
 
 import { runHelper } from "../platform/helper-process.js";
-import type { StayedOutcome } from "../session/outside-workspace.js";
 import type { CheckResult, MergedBranchFacts, PullRequestFacts } from "../state/records.js";
 import { gitError, isAncestor, localBranchCommit, runGit, shortSha, type GitContext } from "./git-reads.js";
 import { judgedLeaf, readPlanAt, type PlanRead } from "./plan-reading.js";
@@ -38,8 +37,6 @@ export interface DoneCheckInput {
   branch: string;
   /** The leaf Kiln launched; when the session split it, its first leaf is judged instead. */
   launchedLeafId: string;
-  /** Stayed in the workspace, already read from the phase's transcripts (multi-repo AC-OUTSIDE-01). */
-  stayed: StayedOutcome;
   originRetryMs?: number;
   /**
    * When the computer last woke, as Kiln's sleep readings found it (milliseconds since the
@@ -58,13 +55,11 @@ export interface DoneCheckOutcome {
   judgedLeafId: string;
   /** Each repository's branch tip, when Pushed passed: matched on origin, or its base commit when it has no commits of its own. */
   pushedShas?: Record<string, string>;
-  stayed: StayedOutcome;
 }
 
 /**
- * Runs the done check's four checks: Closed in the PRD's repository's worktree, Committed and
- * Pushed in every repository's (multi-repo AC-CHECK-01), and Stayed in the workspace (multi-repo
- * AC-OUTSIDE-01), listed only when it failed. All four must pass. A one-repository PRD's facts
+ * Runs the done check's three checks: Closed in the PRD's repository's worktree, Committed and
+ * Pushed in every repository's (multi-repo AC-CHECK-01). All three must pass. A one-repository PRD's facts
  * are v1's; with several, each names its repository (AC-CHECK-02).
  *
  *   const outcome = await runDoneCheck({ git, prdWorktreePath, prdDirectoryFromRoot, repositories, branch, launchedLeafId: "2b" });
@@ -86,7 +81,7 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
     // Passing, one line per repository; failing, the repositories that failed.
     facts: multi ? pushed.filter((one) => one.passed === pushedPassed).map((one) => `${one.name}: ${one.fact}`) : [pushed[0]!.fact],
   };
-  const checks = [closed.check, committedCheckResult, pushedCheckResult, ...(input.stayed.passed ? [] : [input.stayed.check])];
+  const checks = [closed.check, committedCheckResult, pushedCheckResult];
   return {
     ...(!plan.ok && plan.unavailable ? { unavailable: plan.problem } : committed.some(one => one.unavailable) || pushed.some(one => one.unavailable) ? { unavailable: [...committed, ...pushed].filter(one => one.unavailable).map(one => one.fact).join(" ") } : {}),
     passed: checks.every((check) => check.passed),
@@ -94,7 +89,6 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
     plan,
     judgedLeafId: closed.judgedLeafId,
     ...(pushedPassed ? { pushedShas: Object.fromEntries(pushed.map((one) => [one.name, one.sha!])) } : {}),
-    stayed: input.stayed,
   };
 }
 
@@ -223,9 +217,8 @@ export interface PullRequestsCheckOutcome {
   ghError?: boolean;
   passed: boolean;
   check: CheckResult;
-  /** The pull-request check, then Stayed in the workspace when it failed: what a stop records. */
+  /** The per-repository final-delivery checks recorded at a stop. */
   checks: CheckResult[];
-  stayed: StayedOutcome;
   /** Actual review PRs, in list order, when every repository qualifies. */
   pullRequests?: PullRequestFacts[];
   mergedBranches?: MergedBranchFacts[];
@@ -233,23 +226,21 @@ export interface PullRequestsCheckOutcome {
 
 /**
  * The pull-request check across the repositories whose feature branch has commits of its own
- * (multi-repo AC-PRS-05): every one has a ready PR or verified prior integration, and the
- * pull-request session stayed in the workspace (AC-PRS-06). With one repository the facts are
+ * (multi-repo AC-PRS-05): every one has a ready PR or verified prior integration, with qualifying delivery evidence. With one repository the facts are
  * v1's; with several, each names its repository.
  */
-export async function runPullRequestChecks(inputs: PullRequestCheckInput[], stayed: StayedOutcome): Promise<PullRequestsCheckOutcome> {
+export async function runPullRequestChecks(inputs: PullRequestCheckInput[]): Promise<PullRequestsCheckOutcome> {
   const name = CHECK_NAMES.pullRequest;
   const outcomes = await Promise.all(inputs.map((input) => runPullRequestCheck(input)));
   const open = outcomes.length > 0 && outcomes.every((outcome) => outcome.passed);
   const facts =
     outcomes.length === 1 ? outcomes[0]!.check.facts : outcomes.map((outcome, index) => `${inputs[index]!.repository}: ${outcome.check.facts.join(" ")}`);
   const check = { name, passed: open, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts };
-  const passed = open && stayed.passed;
+  const passed = open;
   return {
     passed,
     check,
-    checks: [check, ...(stayed.passed ? [] : [stayed.check])],
-    stayed,
+    checks: [check],
     ...(passed ? {
       pullRequests: outcomes.flatMap(outcome => outcome.pullRequest ? [outcome.pullRequest] : []),
       ...(outcomes.some(outcome => outcome.mergedBranch) ? { mergedBranches: outcomes.flatMap(outcome => outcome.mergedBranch ? [outcome.mergedBranch] : []) } : {}),

@@ -67,7 +67,7 @@ describe("Ctrl+C while a session works", () => {
     // No Claude Code process is left behind (AC-KEEP-02).
     expect(await isProcessLive(run!.pid!, run!.processStartTime)).toBe(false);
     // Nothing was judged: no Needs you, no Done (technical design, "Once a stop begins").
-    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } }, outsideConfirmations: [] });
+    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } } });
     // The work in progress stays exactly as it was (AC-KEEP-03), staged and unstaged alike.
     expect(workState()).toEqual(workBefore);
 

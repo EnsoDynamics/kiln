@@ -26,21 +26,28 @@ describe("authoritative delivery command provenance", () => {
       {id:"pending",at:at(4),result:undefined},
     ]);
   });
-  it.each(["qualified","silent output","missing result","ambiguous invocation"] as const)("projects Codex's actual native command result without recycling an earlier success: %s",async mode=>{
+  it.each(["qualified","silent output","missing result","ambiguous invocation","unrelated calls","undecodable required input"] as const)("projects Codex's actual native command result without recycling an earlier success: %s",async mode=>{
     const f=fixture();const thread=f.addThread("parent",{command:"node verify.mjs source test-development",native:["/bin/zsh","-lc","node verify.mjs source test-development"]});
     const original=readFileSync(thread.metadata.path,"utf8").trim().split("\n").map(line=>JSON.parse(line) as {type:string;timestamp:string;payload:Record<string,unknown>});
     const prefix=original.filter(one=>!["response_item"].includes(one.type)&&one.payload.type!=="item_completed"&&one.payload.type!=="task_complete");
     const raw=[...prefix];const items:Record<string,unknown>[]=[];
     for(let i=0;i<2;i++){
       const second=i*2;const id=`native-${i}`;
-      raw.push({type:"response_item",timestamp:at(second),payload:{type:"function_call",name:"exec_command",call_id:`call-${i}`,arguments:JSON.stringify({cmd:"node verify.mjs source test-development"})}});
+      raw.push({type:"response_item",timestamp:at(second),payload:mode==="undecodable required input"?{type:"custom_tool_call",name:"exec",call_id:`call-${i}`,input:'await tools.exec_command({cmd:load("required-command")});'}:{type:"function_call",name:"exec_command",call_id:`call-${i}`,arguments:JSON.stringify({cmd:"node verify.mjs source test-development"})}});
       raw.push({type:"event_msg",timestamp:at(second+1),payload:{type:"item_completed",thread_id:"parent",turn_id:"parent-turn-0",...(mode!=="ambiguous invocation"?{started_at_ms:Date.parse(at(second))+10}:{}),item:{type:"CommandExecution",id,command:["/bin/zsh","-lc","node verify.mjs source test-development"],cwd:f.root,status:i===0?"completed":"failed"}}});
       items.push({type:"commandExecution",id,status:i===0?"completed":"failed",...(mode==="missing result"&&i===1?{}:{exitCode:i===0?0:1,aggregatedOutput:i===0?(mode==="silent output"?silent.item.aggregatedOutput:"actual earlier success"):"actual later failure"})});
     }
     raw.push({type:"event_msg",timestamp:at(5),payload:{type:"task_complete",turn_id:"parent-turn-0"}});writeFileSync(thread.metadata.path,raw.map(one=>JSON.stringify(one)).join("\n")+"\n");
-    thread.turns[0]!.items=items;f.save();const result=await auditCodexConversation({...f.options,commandProjection:true});
+    thread.turns[0]!.items=items;f.save();
+    if(mode==="unrelated calls") {
+      for(const [id,input] of [["display", 'text("read" + 1);'], ["browser", 'text(await tools.web__run({search_query:[{q:"example"}]}));'], ["dynamic-git", `text(await tools.exec_command({cmd:'git -C "$OTHER_CHECKOUT" commit -m external'}));`], ["stdin", 'text(await tools.write_stdin({session_id:7,chars:"x"}));']] as const) f.append("parent",f.record("response_item",{type:"custom_tool_call",name:"exec",call_id:id,input,internal_chat_message_metadata_passthrough:{turn_id:"parent-turn-0"}}));
+    }
+    if (mode === "unrelated calls") {
+      for (let i=0;i<205;i++) f.append("parent",f.record("response_item",{type:"custom_tool_call",name:"apply_patch",call_id:`outside-${i}`,input:`*** Begin Patch\n*** Add File: ${join(f.outside, `unrelated-${i}.txt`)}\n+x\n*** End Patch`,internal_chat_message_metadata_passthrough:{turn_id:"parent-turn-0"}}));
+    }
+    const result=await auditCodexConversation({...f.options,commandProjection:true});
     expect(result.coverage).toBe("complete");expect(result.problems).toEqual([]);
-    if(mode==="ambiguous invocation")expect(result.commands??[]).toEqual([]);
+    if(mode==="ambiguous invocation"||mode==="undecodable required input")expect(result.commands??[]).toEqual([]);
     else expect(result.commands).toEqual([
       {source:"parent/parent-turn-0",callId:"native-0",command:"node verify.mjs source test-development",cwd:f.root,calledAt:at(0),resultAt:at(1),outcome:"success",exitCode:0,output:mode==="silent output"?"":"actual earlier success"},
       ...(mode==="missing result"?[]:[{source:"parent/parent-turn-0",callId:"native-1",command:"node verify.mjs source test-development",cwd:f.root,calledAt:at(2),resultAt:at(3),outcome:"error",exitCode:1,output:"actual later failure"}]),

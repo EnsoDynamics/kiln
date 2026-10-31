@@ -6,6 +6,8 @@
 
 ## Overview
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
+
 Add a versioned local command client to Kiln's existing controller. The PRD path remains the public target. Discovery reads owner-only saved state across repositories and authenticates each live controller before trusting it. Browser, CLI and automatic recovery share one engine authority boundary; durable command receipts protect retries across disconnects and restarts.
 
 Help has two levels: `kiln --help` inventories every command, and `kiln <command> --help` is the complete reference for that command. Bare `kiln` points to help. Grok Bot on Doug's Mac is an accepted equivalent caller for the phone workflow (AC-CLI-04); the CLI remains vendor-independent.

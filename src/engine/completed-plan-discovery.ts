@@ -36,7 +36,7 @@ export interface CompletedPlanCheck {
   result?: CompletedPlanResult;
   earlierResult?: CompletedPlanResult;
 }
-export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; readProvenance?: (phaseKey: string) => Promise<{ passed: boolean; facts: string[] }>; observeInput?: (observation: ContinuationInputObservation) => void }
+export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; observeInput?: (observation: ContinuationInputObservation) => void }
 export class DiscoveryWriteFailure extends Error {}
 function retainDiscoveryBaseline(directory: string, value: Omit<PlanBaseline, "id">): PlanBaseline {
   try { return retainBaseline(directory, value); }
@@ -113,7 +113,7 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const source = selected === remote ? remoteFact : localFact;
     const unintegratedDocuments = [...new Set([...Object.keys(selected.documents), ...Object.keys(remote.documents)])].filter(file => selected.documents[file] !== remote.documents[file]);
     if (unintegratedDocuments.length) problems.push(`Revised documents are not together in origin/${branch}: ${unintegratedDocuments.join(", ")}. Commit/integrate the coherent document set, then check again.`);
-    const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}), ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
+    const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, sharedDigest: local.digest, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     problems.splice(0, problems.length, ...proposal.problems);
     // Recheck before publishing: slow Git reads must not bless a moving shared checkout/base.

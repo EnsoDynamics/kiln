@@ -26,7 +26,7 @@ import { chooseSession, readHistory, readInspectionSession, newestSession, worki
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "message", "take-over"];
+export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "message", "take-over"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -127,6 +127,20 @@ function cached(work: SavedWork, deadline = Date.now() + 5000): InspectionCache 
   if (!existsSync(path)) return null;
   const saved = privateJson<InspectionCache>(work.root, path, deadline);
   if (saved.version !== 1 || saved.execution_id !== work.record.executionId) throw new ControlFailure("state_unavailable", "Saved inspection snapshot does not match this execution.");
+  const stop = saved.snapshot.needsYou;
+  if (stop) {
+    const retired = stop.outside !== undefined || stop.checks.some(check => check.name === "Stayed in the workspace");
+    stop.checks = stop.checks.filter(check => check.name !== "Stayed in the workspace");
+    delete stop.outside;
+    if (retired) {
+      // Do not rewrite a cached prompt that can contain the person's exact reply.
+      // The controller regenerates these instructions from current requirements on restart.
+      delete stop.resumePrompt;
+      stop.freshSessionPrompt = "";
+      if (stop.sessionId && saved.handoffs) delete saved.handoffs[stop.sessionId];
+    }
+  }
+  for (const phase of [...saved.snapshot.phases ?? [], ...saved.snapshot.activities ?? []]) if (phase.audit) phase.audit.checks = phase.audit.checks.filter(check => check.name !== "Stayed in the workspace");
   return saved;
 }
 export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, reachable: boolean, history: History): Record<string, unknown> {
@@ -302,10 +316,10 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   const saved = engine ? null : cached(work);
   const view = engine ? inspectionSnapshot(engine) : saved?.snapshot;
   const currentStop = view?.needsYou?.sessionId === session.sessionId ? view.needsYou : undefined;
-  const instructions = engine && view ? instructionsFor(engine, selected, view) : saved?.handoffs?.[session.sessionId] ?? { continuation_prompt: currentStop?.resumePrompt ?? null, fresh_session_instructions: currentStop ? { command: currentStop.freshSessionCommand, prompt: currentStop.freshSessionPrompt } : null };
+  const instructions = engine && view ? instructionsFor(engine, selected, view) : saved?.handoffs?.[session.sessionId] ?? { continuation_prompt: currentStop?.resumePrompt ?? null, fresh_session_instructions: currentStop?.freshSessionPrompt.trim() ? { command: currentStop.freshSessionCommand, prompt: currentStop.freshSessionPrompt } : null };
   const owned = engine?.ownsInspectionSession(selected.id) ?? false;
   if (owned) { available = false; reason = "This conversation is currently owned by Kiln; a concurrent manual resume is unavailable."; }
-  const instructionsRecorded = !!(engine && view || saved?.handoffs && Object.hasOwn(saved.handoffs, session.sessionId) || currentStop);
+  const instructionsRecorded = !!(engine && view || saved?.handoffs && Object.hasOwn(saved.handoffs, session.sessionId) || currentStop?.freshSessionPrompt.trim());
   const instructionReason = !instructionsRecorded || !instructions.fresh_session_instructions ? "Some saved recovery instructions are unavailable; their inspection sidecar or activity context is missing." : null;
   const hold = engine?.record.liveControl?.takeover ?? work.record.liveControl?.takeover;
   const heldSession = hold?.target.sessionId === session.sessionId;

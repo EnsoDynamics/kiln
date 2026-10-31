@@ -447,11 +447,6 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
     return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
   });
-  // Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03).
-  app.post("/api/workspace-uncertainty", (c) => legacyControl(c, "outside-confirmation", { confirmed: true, accept_uncertainty: true }));
-  app.delete("/api/workspace-uncertainty", (c) => legacyControl(c, "outside-confirmation", { confirmed: false, accept_uncertainty: true }));
-  app.post("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: true }));
-  app.delete("/api/outside-confirmation", (c) => legacyControl(c, "outside-confirmation", { confirmed: false }));
 
   app.all("/api/*", (c) => refuse(c, 404, "No such API."));
 

@@ -60,7 +60,7 @@ import { selectedChoice } from "../state/records.js";
 
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
@@ -83,11 +83,9 @@ import {
   type SessionControl,
 } from "../session/claude-session.js";
 import {
-  outsideWorkspacePrompt,
   phaseSessionPrompt,
   pullRequestSessionPrompt,
   resumePrompt,
-  type OutsideCheckout,
   type PhasePromptValues,
   type AuditRecoveryTask,
   type PromptRepository,
@@ -119,8 +117,7 @@ import {
   type StopLimit,
 } from "../state/records.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
-import { auditCodexConversation, codexStayedOutcome, uncertaintyFingerprint, type CodexAudit } from "../session/codex-evidence.js";
-import { stayedInWorkspace, STAYED_CHECK_NAME, type StayedOutcome } from "../session/outside-workspace.js";
+import { auditCodexConversation } from "../session/codex-evidence.js";
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
@@ -393,8 +390,6 @@ export class Engine {
   /** Additions run one at a time; a request for a repository being set up waits for that setup. */
   private additionChain: Promise<unknown> = Promise.resolve();
   private readonly additionsUnderway = new Map<string, Promise<AddRepositoryResult>>();
-  /** Each phase's latest Stayed in the workspace, which Needs you shows without reading the transcripts again. */
-  private readonly stayedOutcomes = new Map<string, StayedOutcome>();
   /** The repositories the last pull-request check read from Git as getting a pull request. */
   private lastPullRequestRepositories: RepositoryEntry[] | undefined;
 
@@ -508,20 +503,20 @@ export class Engine {
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
-      "outside-confirmation": !!key && !busy && !!this.record.phases[key]?.stop?.checks.some(c => c.name === STAYED_CHECK_NAME && !c.passed) && (this.record.settings.agentId !== "codex" || Object.values(this.record.phases[key]?.codexAudits ?? {}).some(a => a.findings.length > 0 || a.coverage === "inconclusive" && uncertaintyFingerprint(a) !== undefined)),
+      "outside-confirmation": false,
     };
     const unavailable: Partial<Record<Action, string>> = {
       "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
       message: this.liveView()?.input?.reason ?? "No active supported Claude input is available.",
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
-      "outside-confirmation": "Stayed in the workspace hasn't failed, so there is nothing to confirm.",
+      "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
     };
-    const controls = ACTIONS.map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
+    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
-      outside: key && { checks: this.record.phases[key]?.stop?.checks, confirmations: this.record.phases[key]?.outsideConfirmations, codex: this.record.phases[key]?.codexConfirmations }, unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
+      unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
 
@@ -615,7 +610,7 @@ export class Engine {
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
-      case "outside-confirmation": answer = this.setOutsideConfirmation(inputs.confirmed === true, inputs.accept_uncertainty === true); break;
+      case "outside-confirmation": answer = refuse("Workspace confirmations have been retired; recheck the remaining completion requirements."); break;
       case "continue": answer = await this.start(); break;
       case "check-again": answer = await this.checkAgain(); break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
@@ -943,7 +938,7 @@ export class Engine {
     const audit = this.auditActivity(key);
     let report: string | undefined;
     if (audit) { try { report = readFileSync(join(this.worktreePath, audit.reportPath), "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
-    return createHash("sha256").update(JSON.stringify({ repositories, report, authorization: this.record.developmentAuthorization, settings: this.record.settings, confirmations: this.record.phases[key]?.outsideConfirmations })).digest("hex");
+    return createHash("sha256").update(JSON.stringify({ repositories, report, authorization: this.record.developmentAuthorization, settings: this.record.settings })).digest("hex");
   }
 
   private resolveMessageHold(): void {
@@ -1446,46 +1441,6 @@ export class Engine {
     const session = this.latestSession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
     return !this.transcriptMissing(session) && this.codexSafetyProblems(phaseKey, false).length === 0;
-  }
-
-  /**
-   * Ticks or unticks Needs you's confirmation that the changes outside the workspace have been
-   * dealt with (multi-repo AC-OUTSIDE-03, OUT-001). Offered only while Stayed in the workspace
-   * has failed; a tick covers every change recorded up to it, and unticking before the next
-   * check takes it back.
-   */
-  setOutsideConfirmation(ticked: boolean, acceptUncertainty = false): CommandResult {
-    const key = this.stoppedPhaseKey();
-    const facts = key === undefined ? undefined : this.record.phases[key];
-    const stop = facts?.stop;
-    if (!facts || !stop || !stop.checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed)) {
-      return refuse("Stayed in the workspace hasn't failed, so there is nothing to confirm.");
-    }
-    // A tick during a check would land after it and show unticked, so the box waits for the check to end.
-    if (this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is checking. Tick it once the check ends.");
-    if (this.record.settings.agentId === "codex") {
-      const audits = facts.codexAudits ?? {};
-      const eligible = Object.entries(audits).filter(([, audit]) => acceptUncertainty
-        ? audit.coverage === "inconclusive" && uncertaintyFingerprint(audit) !== undefined
-        : audit.findings.length > 0);
-      if (!eligible.length) return refuse("No checked evidence is available for this acknowledgment. Restore its history and Check again.");
-      const previous = facts.codexConfirmations ?? [];
-      const fingerprints = Object.assign({}, ...previous.map(one => one.fingerprints)) as Record<string, string>;
-      const uncertaintyFingerprints = Object.assign({}, ...previous.map(one => one.uncertaintyFingerprints)) as Record<string, string>;
-      const target = acceptUncertainty ? uncertaintyFingerprints : fingerprints;
-      for (const [id, audit] of eligible) {
-        if (ticked) target[id] = acceptUncertainty ? uncertaintyFingerprint(audit)! : audit.fingerprint;
-        else delete target[id];
-      }
-      facts.codexConfirmations = [{ at: this.now().toISOString(), fingerprints, uncertaintyFingerprints }];
-      this.save(); this.changed(); return { ok: true };
-    }
-    const sinceCheck = (confirmation: { at: string }) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt);
-    if (!ticked) facts.outsideConfirmations = facts.outsideConfirmations.filter((confirmation) => !sinceCheck(confirmation));
-    else if (!facts.outsideConfirmations.some(sinceCheck)) facts.outsideConfirmations.push({ at: this.now().toISOString() });
-    this.save();
-    this.changed();
-    return { ok: true };
   }
 
   /**
@@ -2175,7 +2130,7 @@ export class Engine {
       for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
       Object.assign(old, active);
       this.controlEpoch = randomUUID(); this.record.controlEpoch = this.controlEpoch;
-      this.plan = source.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.stayedOutcomes.clear(); this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
+      this.plan = source.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
       this.save();
       if (authority && acceptance.pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = acceptance.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
       this.commands.rotateExecution(acceptance.newExecutionId, acceptance.operationId);
@@ -2235,7 +2190,7 @@ export class Engine {
         try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
-      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput, readProvenance: phaseKey => this.readRetainedCompletionProvenance(phaseKey, signal) });
+      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -2446,7 +2401,7 @@ export class Engine {
           }
           this.interruptedKey = undefined;
           if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: latest.phaseKey, limit: this.waitLimit(latest.phaseKey) };
-          // It worked outside the workspace: Needs you, never resumed (multi-repo AC-OUTSIDE-04).
+          // Retain independent runtime and recovery failures.
           if (verdict.kind === "stopped") return { kind: "needs_you", phaseKey: latest.phaseKey, again: false };
           if (verdict.kind === "done") doneFirst = { phaseId: verdict.judgedId, byPerson: false };
         } else {
@@ -2663,7 +2618,7 @@ export class Engine {
       const observed = observeActivity(this.record, this.stateDirectory, `audit-${id}`, kind, at, id);
       const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: predecessor?.round ?? Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: predecessor ? predecessor.continuationIndex + 1 : 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, skill, snapshots: [], attempts: [] };
       state.activities.push(activity); this.record.nextActivityKey = auditKey(activity);
-      this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
+      this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {} };
       const context = this.admissionContext();
       const initial = await captureSnapshot({ ...context, activity, evidence: [], now: at }, [], []);
       activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial));
@@ -2702,9 +2657,9 @@ export class Engine {
       const plan = await this.readPlan();
       if (!plan.ok) throw new CompletionCheckUnavailable(plan.problem);
       before = structuredClone(this.record);
+      await this.refreshCodexConversations(key);
       const activity = this.auditActivity(key)!; const context = this.admissionContext();
       if (deliveryEnabled(this.record)) context.developmentChecks = () => [ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId })];
-      const stayed = await this.readWorkspaceEvidence(key);
       const checks: CheckResult[] = [];
       if (deliveryEnabled(this.record)) {
         await reconcileDelivery(this.deliveryContext(key));
@@ -2733,10 +2688,10 @@ export class Engine {
         if (!(error instanceof AuditRefusal) || error.status === 503 || error.code === "evidence_unavailable") throw new CompletionCheckUnavailable((error as Error).message);
         checks.push({ name: "Audit result recorded", passed: false, facts: [error.message] });
       }
-      checks.push(...await repositoryChecks(context), ...(stayed.passed ? [] : [stayed.check]));
+      checks.push(...await repositoryChecks(context));
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       this.save();
-      return this.withCodexSafety(key, { passed: checks.every(c => c.passed), checks, plan, judgedLeafId: key, stayed });
+      return this.withCodexSafety(key, { passed: checks.every(c => c.passed), checks, plan, judgedLeafId: key });
     } catch (error) { if (before && !this.commands.fault) Object.assign(this.record, before); throw error; }
     finally { this.activeCheck = undefined; }
   }
@@ -2769,7 +2724,7 @@ export class Engine {
 
   private async runPhaseSession(leafId: string): Promise<"done" | "stopped"> {
     const { record } = this;
-    record.phases[leafId] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
+    record.phases[leafId] ??= { sessionIds: [], finishedByPerson: false, repositories: {} };
     // The prompt lists the workspace as it stands once any addition under way has ended.
     await this.additionChain;
     await this.recordStartCommits(leafId);
@@ -2926,8 +2881,8 @@ export class Engine {
       await this.requirePreparationRelease(key, session);
       const read = await this.readPlan();
       if (!read.ok) throw new Error(read.problem);
-      const stayed = await this.readWorkspaceEvidence(key);
-      if (!stayed.passed || this.codexSafetyProblems(key).length) throw new Error([...stayed.check.facts, ...this.codexSafetyProblems(key)].join(" "));
+      await this.refreshCodexConversations(key);
+      if (this.codexSafetyProblems(key).length) throw new Error(this.codexSafetyProblems(key).join(" "));
       if (state.bindings.some(binding => !state.submissions.some(row => row.bindingId === binding.id && row.sessionId === session.sessionId && row.run === session.runs.length - 1))) throw new Error("Submit the pinned source references for every preparation binding, then return from the preparation turn.");
       const preparedPlan = readBaseline(this.stateDirectory, this.record.planReconciliation!.baselineId!).active;
       for (const binding of state.bindings.filter(binding => binding.repository === this.paths.repositoryName)) {
@@ -2978,7 +2933,7 @@ export class Engine {
   }
 
   private async runPullRequestSession(): Promise<Verdict> {
-    this.record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] };
+    this.record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {} };
     const prompt = pullRequestSessionPrompt(await this.pullRequestPromptValues(this.sessionFolder));
     this.emit({ kind: "pull_request", at: this.now(), event: "started" });
     await this.launchSession(PR_PHASE_KEY, "pull_request", prompt);
@@ -3034,8 +2989,7 @@ export class Engine {
    * Kiln resumes by itself gets v1's openings. With `request`, the stopped session the person
    * pressed Resume for (usage-limit recovery AC-RESUME-02, 03): the opening for a session that
    * ended on its own, or an interruption's after multi-repo delivery's interrupted Needs you; any
-   * note first, then AC-OUTSIDE-02's prompt while Stayed in the workspace fails (multi-repo
-   * AC-OUTSIDE-04). The end of a wait is the same, with `limit_resume` (usage-limit recovery
+   * note first. The end of a wait is the same, with `limit_resume` (usage-limit recovery
    * AC-AUTO-02); after a usage limit the opening says so. Before any of these, the account is
    * read again (awaited, 30 seconds at most) and the run records it. Its stop or wait, and
    * `checking`, are cleared as the run starts.
@@ -3079,9 +3033,6 @@ export class Engine {
     const refusal = request === undefined ? undefined : run.limitRefusal;
     const recorded = run.interruptedBy !== undefined && run.interruptedAt !== undefined;
     const time = endedOnItsOwn ? (run.endedAt ?? run.startedAt) : recorded ? run.interruptedAt! : (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt);
-    const checks = facts.stop?.checks ?? facts.wait?.checks ?? [];
-    const outsideFailed = request !== undefined && checks.some((check) => check.name === STAYED_CHECK_NAME && !check.passed);
-    const outside = outsideFailed ? this.uncoveredOutside(phaseKey).prompt ?? (session.agentId === "codex" ? `The workspace check is inconclusive. Recover the missing or unreadable evidence below; resuming does not clear this obligation:\n${checks.filter(check => check.name === STAYED_CHECK_NAME && !check.passed).flatMap(check => check.facts).join("\n")}` : undefined) : undefined;
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
     const label = facts.stop?.limit?.label ?? refusal?.label;
@@ -3094,7 +3045,6 @@ export class Engine {
       ...(this.auditRecoveryTask(phaseKey, cwd) ? { auditTask: this.auditRecoveryTask(phaseKey, cwd)! } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
-      ...(outside === undefined ? {} : { outside }),
     });
     if (!request) this.emitSessionEvent(phaseKey, "resumed");
     // The stop or wait ends as the run starts, and with it the hold on Resume, Resume now and Check
@@ -3531,7 +3481,7 @@ export class Engine {
           return { kind: "complete" };
         }
         if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
-        if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks, check.stayed.passed);
+        if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks);
         this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", check.checks);
         this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
         return { kind: "stopped" };
@@ -3543,7 +3493,7 @@ export class Engine {
         await this.recordDone(phaseKey, outcome, byPerson);
         return { kind: "done", judgedId: outcome.judgedLeafId };
       }
-      if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks, outcome.stayed.passed);
+      if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
       this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
@@ -3558,20 +3508,20 @@ export class Engine {
   /**
    * An interrupted session's check, before any resume (AC-KEEP-04, AC-DONE-03): a pass is Done
    * (or the PRD complete) and nothing is resumed; a failure means resume it, unless the session
-   * worked outside the workspace, which only the person can deal with (multi-repo AC-OUTSIDE-04).
+   * cannot safely resume under the runtime and conversation recovery requirements.
    */
   private async checkInterrupted(phaseKey: string): Promise<Verdict | { kind: "resume" }> {
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return { kind: "stopping" };
       if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
-      if (!check.passed) return check.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
+      if (!check.passed) return !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
       this.complete(check.pullRequests!, false, check.mergedBranches);
       return { kind: "complete" };
     }
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping" || this.stopping) return { kind: "stopping" };
-    if (!outcome.passed) return outcome.stayed.passed && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
+    if (!outcome.passed) return !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
     await this.recordDone(phaseKey, outcome, false);
     return { kind: "done", judgedId: outcome.judgedLeafId };
   }
@@ -3704,6 +3654,14 @@ export class Engine {
     return outcome;
   }
 
+  /** Refresh recovery/output facts independently of the retired confinement audit. */
+  private async refreshCodexConversations(phaseKey: string): Promise<void> {
+    for (const id of this.record.phases[phaseKey]?.sessionIds ?? []) {
+      const session = this.sessionRecord(phaseKey, id);
+      if (session?.agentId === "codex" && !codexSessionNotDispatched(session)) await this.readCodexAvailability(session, true);
+    }
+  }
+
   private async readCodexAvailability(session: SessionRecord, hydrate = false): Promise<void> {
     if (!session.codex || !session.conversation?.threadId || !this.options.tools.codex) return;
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(30_000)]);
@@ -3749,9 +3707,9 @@ export class Engine {
     this.watchSleep();
     try {
       const beforePlan = await this.readPlan();
+      await this.refreshCodexConversations(phaseKey);
       const beforeBaseline = this.record.planReconciliation?.baselineId;
       const outcome = await runDoneCheck({
-        stayed: await this.readWorkspaceEvidence(phaseKey),
         git: this.git,
         prdWorktreePath: this.worktreePath,
         repositories: this.setUpRepositories.map((entry) => this.checkedRepository(entry)),
@@ -3792,14 +3750,11 @@ export class Engine {
     await this.deliveryPending;
     try {
       if (!this.record.completedAt) await this.readPlan();
+      await this.refreshCodexConversations(PR_PHASE_KEY);
       if (deliveryEnabled(this.record)) {
         const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
-        const histories = await Promise.all(Object.keys(this.record.phases).map(key => this.readWorkspaceEvidence(key)));
-        const finalStayed = await this.readWorkspaceEvidence(PR_PHASE_KEY);
-        const failed = histories.filter(one => !one.passed);
-        const stayed = failed.length ? { ...finalStayed, passed: false, check: { name: STAYED_CHECK_NAME, passed: false, facts: failed.flatMap(one => one.check.facts) }, changes: failed.flatMap(one => one.changes), transcripts: failed.flatMap(one => one.transcripts) } : finalStayed;
         const check = result.checks[0]!;
-        const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed && stayed.passed, check, checks: [...result.checks, ...(stayed.passed ? [] : [stayed.check])], stayed, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
+        const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed, check, checks: result.checks, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
         await this.requireCurrentAudits(outcome); ledger(this.record).currentComplete = outcome.passed; this.save(); return outcome;
       }
       const repositories = await this.pullRequestRepositoriesNow();
@@ -3817,7 +3772,6 @@ export class Engine {
           completedCommits: Object.entries(this.record.phases).filter(([key, facts]) => key !== PR_PHASE_KEY && facts.doneAt).flatMap(([, facts]) => facts.repositories[entry.name]?.pushedSha ? [facts.repositories[entry.name]!.pushedSha!] : []),
           signal: this.abort.signal,
         })),
-        await this.readWorkspaceEvidence(PR_PHASE_KEY),
       );
       await this.requireCurrentAudits(outcome);
       return this.withCodexSafety(PR_PHASE_KEY, outcome);
@@ -3940,7 +3894,7 @@ export class Engine {
 
   private complete(pullRequests: PullRequestFacts[], byPerson: boolean, mergedBranches: MergedBranchFacts[] = []): void {
     const { record } = this;
-    const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
+    const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
     const at = this.now().toISOString();
     delete facts.stop;
     facts.doneAt ??= at;
@@ -3977,7 +3931,7 @@ export class Engine {
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
-    const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
+    const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
     facts.stop = { kind, at, checks, checkedAt: checkedAt ?? at, ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
@@ -3987,9 +3941,6 @@ export class Engine {
 
   private updateStop(phaseKey: string, checks: CheckResult[]): void {
     const stop = this.record.phases[phaseKey]!.stop!;
-    // Stayed in the workspace stays listed, as passed, once it has failed in this stop (multi-repo AC-OUTSIDE-01).
-    const listed = stop.checks.some((check) => check.name === STAYED_CHECK_NAME);
-    if (listed && !checks.some((check) => check.name === STAYED_CHECK_NAME)) checks = [...checks, this.latestStayed(phaseKey).check];
     stop.checks = checks;
     stop.checkedAt = this.now().toISOString();
     this.save();
@@ -4058,15 +4009,15 @@ export class Engine {
   /**
    * A session that ended on its own refused by a usage limit, its check failed (AC-AUTO-01,
    * AC-AUTO-05): Needs you when Kiln's own resume was refused again by the same limit on the same
-   * account; a wait while the setting is on, the session stayed in the workspace and its
+   * account; a wait while the setting is on and its
    * transcript is there; otherwise Needs you with the limit's facts.
    */
-  private settleRefused(phaseKey: string, session: SessionRecord, runIndex: number, checks: CheckResult[], stayedPassed: boolean): Verdict {
+  private settleRefused(phaseKey: string, session: SessionRecord, runIndex: number, checks: CheckResult[]): Verdict {
     const run = session.runs[runIndex]!;
     const limit = stopLimit(run.limitRefusal!);
     const kind: StopKind = phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check";
     if (session.agentId === "codex") {
-      if (this.record.settings.resumeAfterUsageLimit && stayedPassed && !this.codexSafetyProblems(phaseKey).length && !this.transcriptMissing(session)) {
+      if (this.record.settings.resumeAfterUsageLimit && !this.codexSafetyProblems(phaseKey).length && !this.transcriptMissing(session)) {
         this.recordWait(phaseKey, session, runIndex, checks);
         return { kind: "waiting" };
       }
@@ -4079,7 +4030,7 @@ export class Engine {
       this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     }
-    if (this.record.settings.resumeAfterUsageLimit && stayedPassed && !this.transcriptMissing(session)) {
+    if (this.record.settings.resumeAfterUsageLimit && !this.transcriptMissing(session)) {
       this.recordWait(phaseKey, session, runIndex, checks);
       return { kind: "waiting" };
     }
@@ -4130,13 +4081,12 @@ export class Engine {
   /**
    * The wait's check: at `kiln run` (`restart`), at the end of a wait (`limit_resume`) or at
    * Resume now (`person_resume`). A pass is Done, finished by the person. A failure keeps the
-   * wait, with these results, unless the session worked outside the workspace, its transcript
+   * wait, with these results, unless its transcript
    * is gone, or (except at Resume now) the setting is off: then it is Needs you.
    */
   private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping"> {
     const facts = this.record.phases[phaseKey]!;
     let checks: CheckResult[];
-    let stayedPassed: boolean;
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "stopping";
@@ -4149,7 +4099,6 @@ export class Engine {
       }
       if (this.finalNeedsAudits(check)) { delete facts.wait; this.unwatchWait(); return "done"; }
       checks = check.checks;
-      stayedPassed = check.stayed.passed;
     } else {
       const outcome = await this.doneCheck(phaseKey);
       if (outcome === "stopping" || this.stopping) return "stopping";
@@ -4161,11 +4110,10 @@ export class Engine {
         return "done";
       }
       checks = outcome.checks;
-      stayedPassed = outcome.stayed.passed;
     }
     const session = this.latestSession(phaseKey);
     const settingOff = mode !== "person_resume" && !this.record.settings.resumeAfterUsageLimit;
-    if (!stayedPassed || settingOff || this.codexSafetyProblems(phaseKey).length || (session !== undefined && this.transcriptMissing(session))) {
+    if (settingOff || this.codexSafetyProblems(phaseKey).length || (session !== undefined && this.transcriptMissing(session))) {
       this.waitToStop(phaseKey, checks);
       return "stopped";
     }
@@ -4608,7 +4556,7 @@ export class Engine {
     // The finishing request's phase is the first whose session has the repository.
     entry.addedInPhase = phaseKey;
     entry.addedAt = this.now().toISOString();
-    const facts = (record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [] });
+    const facts = (record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
     facts.repositories[name] = { startCommit: entry.baseCommit! };
     this.save();
     // The added line names the session's judged leaf, from the latest read of the plan.
@@ -4735,137 +4683,6 @@ export class Engine {
   }
 
   // ---- Reading the record and the plan ---------------------------------------------------
-
-  /**
-   * Stayed in the workspace for the sessions Kiln recorded for a phase, or for the pull-request
-   * session (multi-repo AC-OUTSIDE-01, AC-PRS-06), read from its recorded agent's evidence.
-   * Completion/PR verdicts always read fresh provider history; cached scans are display only.
-   */
-  async readWorkspaceEvidence(phaseKey: string): Promise<StayedOutcome> {
-    if (this.record.settings.agentId !== "codex") return this.stayedInWorkspace(phaseKey);
-    const facts = this.record.phases[phaseKey];
-    if (!facts) return this.stayedInWorkspace(phaseKey);
-    facts.codexAudits = {};
-    const scanSignal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    for (const sessionId of facts.sessionIds) {
-      const session = this.sessionRecord(phaseKey, sessionId);
-      if (codexSessionNotDispatched(session)) continue;
-      if (session?.agentId === "codex") await this.readCodexAvailability(session, true);
-      const conversation = session?.agentId === "codex" ? session.conversation : undefined;
-      if (!conversation?.threadId || !conversation.codexHome || !this.options.tools.codex) {
-        facts.codexAudits[sessionId] = this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
-      } else {
-        facts.codexAudits[sessionId] = await auditCodexConversation({
-          threadId: conversation.threadId, codexHome: conversation.codexHome,
-          worktrees: this.setUpRepositories.map(entry => expandHome(entry.worktreePath)),
-          cwd: session?.workingDirectory ?? this.worktreePath, executable: this.options.tools.codex,
-          env: this.options.env, signal: scanSignal,
-          ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}),
-        });
-      }
-    }
-    this.save();
-    return this.stayedInWorkspace(phaseKey);
-  }
-
-  /** A completed-plan observation must not rewrite original provider scans or receipts. */
-  private async readRetainedCompletionProvenance(phaseKey: string, signal: AbortSignal): Promise<{ passed: boolean; facts: string[] }> {
-    const facts = this.record.phases[phaseKey];
-    const outcomes: { passed: boolean; facts: string[] }[] = [];
-    const worktrees = this.setUpRepositories.map(entry => expandHome(entry.worktreePath));
-    for (const id of facts?.sessionIds ?? []) {
-      signal.throwIfAborted();
-      const session = this.sessionRecord(phaseKey, id);
-      if (!session) { outcomes.push({ passed: false, facts: [`Restore missing Kiln session ${id} and its provider history.`] }); continue; }
-      if (session.agentId === "codex") {
-        if (codexSessionNotDispatched(session)) continue;
-        const conversation = session.conversation;
-        const audit = conversation?.threadId && conversation.codexHome && this.options.tools.codex
-          ? await auditCodexConversation({ threadId: conversation.threadId, codexHome: conversation.codexHome, worktrees,
-            cwd: this.stateDirectory, executable: this.options.tools.codex, env: this.options.env,
-            signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
-            ...(conversation.knownThreadIds ? { knownThreadIds: conversation.knownThreadIds } : {}) })
-          : this.missingCodexAudit("Codex conversation identity, home or executable is unavailable.");
-        const outcome = codexStayedOutcome(id, audit, (facts?.codexConfirmations ?? []).flatMap(one => one.fingerprints[id] ? [one.fingerprints[id]!] : []), (facts?.codexConfirmations ?? []).flatMap(one => one.uncertaintyFingerprints?.[id] ? [one.uncertaintyFingerprints[id]!] : []));
-        outcomes.push(outcome.check);
-      } else {
-        const endedAt = session.runs.at(-1)?.endedAt;
-        const outcome = stayedInWorkspace({ sessions: [{ sessionId: id, reportedInit: session.initModel !== undefined, ...(endedAt ? { endedAt } : {}) }], worktrees,
-          configFolder: claudeConfigFolder(this.options.env), confirmations: facts?.outsideConfirmations ?? [], ...(facts?.stop ? { stopAt: facts.stop.at } : {}) });
-        outcomes.push(outcome.check);
-      }
-    }
-    signal.throwIfAborted();
-    return { passed: outcomes.length > 0 && outcomes.every(one => one.passed), facts: outcomes.length ? outcomes.filter(one => !one.passed).flatMap(one => one.facts) : ["No dispatched provider evidence is available for the retained completion."] };
-  }
-
-  private missingCodexAudit(reason: string): CodexAudit {
-    return { profile: "codex-0.162.1-static-v1", coverage: "inconclusive", at: this.now().toISOString(), fingerprint: "", frontiers: [], findings: [], problems: [reason], operationsChecked: 0 };
-  }
-
-  stayedInWorkspace(phaseKey: string): StayedOutcome {
-    if (this.record.settings.agentId === "codex") {
-      const facts = this.record.phases[phaseKey];
-      const results = (facts?.sessionIds ?? []).filter(id => !codexSessionNotDispatched(this.sessionRecord(phaseKey, id))).map(id => codexStayedOutcome(id,
-        facts?.codexAudits?.[id] ?? this.missingCodexAudit("Codex history has not been checked."),
-        (facts?.codexConfirmations ?? []).flatMap(confirmation => confirmation.fingerprints[id] ? [confirmation.fingerprints[id]!] : []), (facts?.codexConfirmations ?? []).flatMap(one => one.uncertaintyFingerprints?.[id] ? [one.uncertaintyFingerprints[id]!] : [])));
-      // Before the final session exists there are no final-session operations to audit.
-      // Proven unused attempts need no history. Missing records still fail above.
-      if (!results.length && phaseKey !== PR_PHASE_KEY && !facts?.sessionIds.length) results.push(codexStayedOutcome("unknown", this.missingCodexAudit("No Codex session record is available."), []));
-      const changes = results.flatMap(result => result.changes);
-      const transcripts = results.flatMap(result => result.transcripts);
-      const passed = results.every(result => result.passed);
-      const outcome: StayedOutcome = { passed, changes, transcripts, check: { name: STAYED_CHECK_NAME, passed, facts: passed ? [...new Set(results.flatMap(result => result.check.facts))] : results.filter(result => !result.passed).flatMap(result => result.check.facts) } };
-      this.stayedOutcomes.set(phaseKey, outcome);
-      return outcome;
-    }
-    const facts = this.record.phases[phaseKey];
-    const sessions = (facts?.sessionIds ?? []).flatMap((sessionId) => {
-      const session = this.sessionRecord(phaseKey, sessionId);
-      if (!session) return [];
-      const endedAt = session.runs.at(-1)?.endedAt;
-      return [{ sessionId, reportedInit: session.initModel !== undefined, ...(endedAt === undefined ? {} : { endedAt }) }];
-    });
-    const outcome = stayedInWorkspace({
-      sessions,
-      worktrees: this.setUpRepositories.map((entry) => expandHome(entry.worktreePath)),
-      configFolder: claudeConfigFolder(this.options.env),
-      confirmations: facts?.outsideConfirmations ?? [],
-      ...(facts?.stop === undefined ? {} : { stopAt: facts.stop.at }),
-    });
-    this.stayedOutcomes.set(phaseKey, outcome);
-    return outcome;
-  }
-
-  /**
-   * The changes outside the workspace Stayed in the workspace found uncovered at the phase's latest
-   * check (multi-repo AC-OUTSIDE-02): each change's fact, each changed checkout as the prompt names
-   * it (a subagent's worktree by its main checkout's repository), and the prompt when there are changes.
-   */
-  uncoveredOutside(phaseKey: string): { changes: string[]; checkouts: OutsideCheckout[]; prompt?: string } {
-    const outcome = this.latestStayed(phaseKey);
-    const repositories = new Set(this.setUpRepositories.map((entry) => entry.name));
-    // Each checkout once, named by its repository: a subagent's worktree by its main checkout's.
-    const seen = new Map<string, string>();
-    for (const change of outcome.changes) if (change.checkout !== undefined) seen.set(change.checkout, change.repository ?? basename(change.checkout));
-    const checkouts = [...seen].map(([path, name]) => ({ shownPath: displayPath(path), name, inWorkspace: repositories.has(name) }));
-    const changes = outcome.changes.map((change) => change.fact);
-    if (changes.length === 0) return { changes, checkouts };
-    const isPr = phaseKey === PR_PHASE_KEY;
-    const prompt = outsideWorkspacePrompt({
-      ...(isPr ? { pullRequests: this.pullRequestRepositories().length > 1 ? ("several" as const) : ("one" as const) } : { phaseName: `phase ${this.judgedId(phaseKey)}` }),
-      facts: changes,
-      checkouts,
-      branch: this.record.settings.featureBranch,
-      multiRepository: this.multiRepository,
-    });
-    return { changes, checkouts, prompt };
-  }
-
-  /** Stayed in the workspace as the phase's latest check found it, for Needs you; read again only when Kiln has none in memory. */
-  latestStayed(phaseKey: string): StayedOutcome {
-    return this.stayedOutcomes.get(phaseKey) ?? this.stayedInWorkspace(phaseKey);
-  }
 
   /** Whether a session ran and Claude Code holds no transcript for it, so it can't be resumed (OUT-003). */
   transcriptMissing(session: SessionRecord): boolean {
@@ -5001,7 +4818,6 @@ export class Engine {
         }
         const outcome = await runDoneCheck({ git, prdWorktreePath: this.worktreePath, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
           repositories: this.setUpRepositories.map(entry => this.checkedRepository(entry)), branch: this.record.settings.featureBranch, launchedLeafId: phase.id,
-          stayed: { passed: true, check: { name: STAYED_CHECK_NAME, passed: true, facts: ["No Kiln session owned this external work; provider provenance is not applicable."] }, changes: [], transcripts: [] },
           ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }) });
         if (!outcome.passed) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence: ${outcome.checks.filter(c => !c.passed).flatMap(c => c.facts).join(" ")}`);
         if (deliveryEnabled(this.record)) {
@@ -5057,7 +4873,7 @@ export class Engine {
     const previousControl = { controlRevision: this.record.controlRevision, controlFingerprint: this.record.controlFingerprint, controlApplied: this.record.controlApplied };
     const fingerprint = createHash("sha256").update(JSON.stringify({
       execution: this.record.executionId, pause: this.record.pause, settings: this.record.settings, completed: this.record.completedAt,
-      phases: Object.fromEntries(Object.entries(this.record.phases).map(([key, facts]) => [key, { sessions: facts.sessionIds, doneAt: facts.doneAt, stop: facts.stop?.at, wait: facts.wait, outside: facts.outsideConfirmations, codex: facts.codexConfirmations }])),
+      phases: Object.fromEntries(Object.entries(this.record.phases).map(([key, facts]) => [key, { sessions: facts.sessionIds, doneAt: facts.doneAt, stop: facts.stop?.at, wait: facts.wait }])),
       next: this.record.nextActivityKey, authorization: this.record.developmentAuthorization, billingHold: this.record.billing?.hold,
     })).digest("hex");
     if (this.record.controlFingerprint !== fingerprint) { this.record.controlRevision = (this.record.controlRevision ?? 0) + 1; this.record.controlFingerprint = fingerprint; }

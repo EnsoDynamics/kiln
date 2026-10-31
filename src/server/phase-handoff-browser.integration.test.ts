@@ -64,7 +64,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     await click(page, `Verify Phase ${stop.phaseId} & advance`); await words(page, "Checking…");
     expect(await page.evaluate("[...document.querySelectorAll('main button')].filter(e => /^(Send reply|Resume Phase|Verify Phase|Checking)/.test(e.textContent.trim())).every(e => e.disabled)")).toBe(true);
     stop.checkedAt = new Date("2026-10-26T20:01:02Z").toISOString();
-    stop.checks.push({ name: "Stayed in the workspace", passed: true, facts: ["Prior repair confirmed"] });
+    stop.checks.push({ name: "Required delivery", passed: true, facts: ["Delivery receipt confirmed"] });
     server.send("snapshot", snapshot); release(); gate = undefined;
     await words(page, "still unfinished"); await words(page, `of ${stop.checks.length} requirements passed`);
     expect(await page.evaluate("document.querySelector('.finished [role=status]').textContent")).not.toBe(previousTime);
@@ -149,27 +149,37 @@ it("reuses the same browser instruction after an accepted response is lost and t
   } finally { await server.close(); }
 });
 
-it("offers a distinct uncertainty acknowledgment and collapsed diagnostics in both recovery layouts", async () => {
+it("shows no workspace controls in either recovery layout", async () => {
   for (const handoff of [true, false]) {
     const snapshot = fixture("Codex"); const stop = snapshot.needsYou!;
     if (!handoff) delete stop.phaseRecovery;
-    stop.checks = [{ name: "Stayed in the workspace", passed: false, facts: ["Codex evidence is incomplete: Unknown helper or dynamic call"] }];
-    stop.outside = { changes: [], checkouts: [], missingTranscripts: stop.checks[0]!.facts, confirmation: { offered: false, ticked: false }, uncertainty: { offered: true, ticked: false } };
     const server = await serveViewFixture({ port: handoff ? 41983 : 41984, folder: "customer-returns", snapshot });
     const page = await chrome.open(server.address, { width: 390, height: 900 });
     try {
-      await words(page, "Accept workspace uncertainty"); await words(page, "Unable to verify");
-      expect(await page.evaluate("document.body.innerText.includes('Unknown helper or dynamic call')")).toBe(false);
-      await page.evaluate("[...document.querySelectorAll('summary')].find(e => e.textContent.includes('Workspace evidence details')).click()");
-      await words(page, "Unknown helper or dynamic call");
-      await page.evaluate("document.querySelector('.accept-uncertainty input').click()");
-      await page.waitFor("!document.querySelector('.accept-uncertainty input').disabled");
-      expect(server.commands).toEqual(["POST /api/workspace-uncertainty"]);
-      stop.outside.uncertainty!.ticked = true; server.send("snapshot", snapshot);
-      await page.waitFor("document.querySelector('.accept-uncertainty input').checked");
-      writeFileSync(`/tmp/kiln-workspace-uncertainty-${handoff ? "handoff" : "recovery"}.png`, await page.screenshot());
+      await words(page, "Everything committed");
+      expect(await page.evaluate("document.body.innerText")).not.toMatch(/Stayed in the workspace|Accept workspace uncertainty|Workspace evidence details|changes outside the workspace/);
+      expect(await page.evaluate("document.querySelectorAll('.accept-uncertainty, .confirmation, #outside-dealt-with').length")).toBe(0);
+      expect(server.commands).toEqual([]);
+      writeFileSync(`/tmp/kiln-completion-checks-${handoff ? "handoff" : "recovery"}.png`, await page.screenshot());
       expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   }
+});
+
+it("advances without creating a persistent verification success notice", async () => {
+  const snapshot = fixture("Claude Code");
+  const target = snapshot.needsYou!.phaseRecovery!.target;
+  snapshot.billing!.executionId = target.executionId;
+  const server = await serveViewFixture({ port: 41983, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "advanced", target } }) });
+  const page = await chrome.open(server.address, { width: 1200, height: 900 });
+  try {
+    await words(page, "Verify Phase 2b & advance");
+    await click(page, "Verify Phase 2b & advance");
+    await page.waitFor("!document.querySelector('.finished button').disabled");
+    expect(server.commands).toHaveLength(1);
+    expect(await page.evaluate("document.body.innerText")).not.toContain("verified and accepted");
+    expect(await page.evaluate("document.querySelector('.command-notice')?.textContent ?? ''")).not.toContain("Dismiss");
+    expect(page.problems).toEqual([]);
+  } finally { await page.close(); await server.close(); }
 });

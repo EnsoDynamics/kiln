@@ -253,6 +253,8 @@ and the authorization and finished lines name every repository: "commit to `<bra
 
 ## The Done Check
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery (workspace auditing and its confirmation only).
+
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Completion Evidence and Errors (manual phase evaluation/acceptance and unavailable-check display; completion predicates remain).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled delivery assessment and retained checkpoint obligations). Restricted execution behavior remains in force.
@@ -271,6 +273,8 @@ Four checks. The first is v1's Closed check, run in the PRD's repository's workt
 The git reads for the repositories run in parallel; v1's 2-minute origin retry applies per repository. A pass records per repository the pushed commit and the phase's commit count (v1's `--first-parent` count, from that repository's start commit for the phase). The pull-request check gets the fourth check too (AC-PRS-06).
 
 ### Stayed in the workspace (AC-OUTSIDE-01 to 04)
+
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Workspace Evidence, Output and Progress → Authoritative evidence (Codex complete history and frontier-bound confirmations; Claude semantics retained).
 
@@ -488,6 +492,8 @@ The four drawn screens are built from their mockups' HTML, which is their specif
 The view renders all of it from the snapshot; no new view logic decides anything.
 
 ## Seam With Usage-Limit Recovery
+
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery (workspace auditing and its confirmation only).
 
 That PRD has no design yet. This design asks of it, so its design honors AC-OUTSIDE-01, AC-OUTSIDE-04, AC-PRS-05 and AC-SHOW-01's `Replaces in part:` lines on it, the last by naming each failed fact's repository on its Needs you screens:
 

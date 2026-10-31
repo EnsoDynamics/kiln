@@ -127,8 +127,7 @@ describe("the local server", () => {
     expect((await raw(port, "/api/sessions/any/output", { Host: host })).status).toBe(403);
     // Multi-repo AC-OUTSIDE-03: with the token and Kiln's own Origin, the confirmation reaches the engine, which refuses it while nothing has failed.
     const confirm = await raw(port, "/api/outside-confirmation", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST");
-    expect(confirm.status).toBe(409);
-    expect(JSON.parse(confirm.body).reason).toBe("Stayed in the workspace hasn't failed, so there is nothing to confirm.");
+    expect(confirm.status).toBe(404);
     expect(h.engine.record.settings.agentChoices.claude_code!.effort).toBe("high");
     expect(h.engine.record.startedAt).toBeUndefined();
 

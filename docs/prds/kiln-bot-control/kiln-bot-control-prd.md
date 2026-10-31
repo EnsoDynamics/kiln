@@ -73,6 +73,7 @@ The command interface supports the common controls used after work starts. Each 
   Every outcome distinguishes reply delivery, session resumption and plan advancement. Competing reply/resume/verify/advance actions cannot start duplicate work. Missing conversation history exposes the existing fresh-session path instead of promising same-session resumption. See the prerequisite's AC-REPLY-01, AC-RETURN-01–03, AC-VERIFY-01–04 and AC-COMPAT-01–02.
 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
+  - Superseded in part by: AC-CHECK-03 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
   - Superseded in part by: AC-LIVE-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (human-facing cancellation and pending/reached pause wording; existing deferred command semantics remain, live bot commands are a later phase).
 
   | Person's intention | Observable behavior |
@@ -93,6 +94,7 @@ The command interface supports the common controls used after work starts. Each 
   The bot supplies `--command-id`, a new unique identifier for one instruction, unrelated to the Claude or Codex session ID. Repeating that command identifier and inputs returns its recorded result before checking current eligibility, without repeating effects, including after a controller restart. Reusing an identifier with different inputs is refused. Concurrent browser, bot and automatic-recovery actions cannot start duplicate work or deliver a reply to a later stop.
 
 - [ ] **AC-ACT-05 — Acknowledgement is distinct from completion.** Every changing command returns an identified operation whose acceptance, progress, outcome and refusal reason can be queried after the bot disconnects. Operations and retry protection remain queryable for the lifetime of the run, including after completion until its saved history is removed. An unknown result remains unknown until reconciled; retrying cannot silently start a second attempt. Existing checks for work outside the workspace, authentication, billing and delivery authority continue to apply.
+  - Superseded in part by: AC-CHECK-03 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
 
 ### Know which account and usage limits Kiln reports
 

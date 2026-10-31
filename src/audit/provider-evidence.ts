@@ -5,7 +5,6 @@ import { comparable, expandHome, realPathOfNearestAncestor } from "../engine/wor
 import { auditCodexConversation } from "../session/codex-evidence.js";
 import { claudeConfigFolder, findTranscripts, readTranscript } from "../session/transcripts.js";
 import { simpleCommands } from "../session/bash-command.js";
-import { outsideChanges } from "../session/outside-workspace.js";
 import type { PrdRecord, SessionRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type EvidenceEntry, type FileReference } from "./contracts.js";
 import { AuditStore, hashBytes, hashValue, strictJson } from "./storage.js";
@@ -79,7 +78,6 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
     requireAudit(session.conversation?.threadId && session.conversation.codexHome, "Codex conversation provenance is unavailable.", "missing_evidence");
     const audit = await auditCodexConversation({ threadId: session.conversation.threadId, codexHome: session.conversation.codexHome, worktrees: roots, cwd: session.workingDirectory!, executable: context.codex, env: context.env, signal, commandProjection: true, ...(session.conversation.knownThreadIds ? { knownThreadIds: session.conversation.knownThreadIds } : {}) });
     if (audit.coverage !== "complete") throw new AuditRefusal("evidence_unavailable", audit.problems.join(" "), 503);
-    requireAudit(!audit.findings.length, audit.findings.map(f => f.fact).join(" "), "outside_execution");
     const sources = new Map<string, string>();
     for (const frontier of audit.frontiers) {
       signal.throwIfAborted(); const bytes = readFileSync(frontier.path, "utf8");
@@ -142,8 +140,6 @@ export async function collectProviderEvidence(context: ProviderEvidenceContext):
       // 20s on a 14 MB, 1,400-call audit transcript, past the dashboard's heartbeat timeout.
       let retained: Retained | undefined; const once = () => retained ??= retain(source);
       requireAudit(!transcript.problem, `${path}: ${transcript.problem}`, "missing_evidence");
-      const findings = outsideChanges(transcript, roots);
-      requireAudit(!findings.length, findings.map(f => f.fact).join(" "), "outside_execution");
       // Unlike the legacy reader, an incomplete final JSON record is unresolved for audits.
       const rows = source.trimEnd().split("\n").filter(Boolean).map(line => JSON.parse(line) as Json);
       const conversation = path === files.main ? session.sessionId : basename(path, ".jsonl");

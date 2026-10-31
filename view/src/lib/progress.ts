@@ -274,64 +274,11 @@ export interface NeedsYouCopy {
   sideHeading: string;
   /** The line under Check again; empty when the stop shows none. */
   footnote: string;
-  /**
-   * Steps 2 and 3 after work outside the workspace, in place of finishing the phase (multi-repo
-   * AC-OUTSIDE-02, AC-OUTSIDE-03): the prompt for the reopened session, or, when Kiln has no
-   * transcript to go on, what to check by hand; then the confirmation.
-   */
-  outside?: { title: string; prompt?: string; text?: string; againTitle: string; againText: string };
   /** What Resume does, and the note's placeholder, when Resume is offered (usage-limit recovery AC-RESUME-01 to 03). */
   resumeText: string;
   notePlaceholder: string;
 }
 
-const MISSING_TRANSCRIPT = "No transcript found for session ";
-
-/** `design-system’s own checkout`, `design-system’s and storefront’s own checkouts`, or `your own checkouts`. */
-function ownCheckouts(names: string[]): string {
-  if (names.length === 0) return "your own checkouts";
-  const owned = names.map((name) => `${name}’s`);
-  return `${owned.length === 1 ? owned[0] : `${owned.slice(0, -1).join(", ")} and ${owned.at(-1)}`} own checkout${names.length === 1 ? "" : "s"}`;
-}
-
-function joinedNames(names: string[]): string {
-  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
-
-/** Steps 2 and 3 for Stayed in the workspace, as the outside-workspace mockup draws them. */
-function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside"] {
-  const outside = stop.outside!;
-  const names = outside.checkouts;
-  const againTitle = "Come back, confirm and check again";
-  if (outside.changes.length > 0) {
-    const where = joinedNames(names);
-    return {
-      title: stop.phaseId === PR_ID ? `Ask it what still needs putting back in ${where || "those checkouts"}` : `Ask it to bring its ${where ? `${where} ` : ""}work into the workspace`,
-      ...(outside.prompt === undefined ? {} : { prompt: outside.prompt }),
-      againTitle,
-      againText: `Once what’s left in ${ownCheckouts(names)} is put back, tick the confirmation on the right and press Check again. ${afterCheck}`,
-    };
-  }
-  if (stop.agentId === "codex") return {
-    title: outside.uncertainty?.offered ? "Review the workspace uncertainty" : "Recover the missing Codex evidence",
-    text: outside.uncertainty?.offered ? "Kiln could not interpret all recorded work. Review the evidence details, then explicitly accept workspace uncertainty if you choose to proceed." : "Kiln cannot complete the workspace check from the available conversation history. Restore the missing or unreadable evidence shown on the right. Resume can help repair the work, but does not clear this check.",
-    againTitle: "Come back and check again",
-    againText: `Check again reads the complete conversation tree afresh. ${outside.uncertainty?.offered ? "Accepting uncertainty covers only this checked history; every other completion requirement still applies." : "Missing history or active work must be resolved before this check can pass."} ${afterCheck}`,
-  };
-  const missing = outside.missingTranscripts.some((fact) => fact.startsWith(MISSING_TRANSCRIPT));
-  return {
-    title: "Check your own checkouts for anything this session changed",
-    text: `${missing ? "Kiln found no transcript for this session" : "Kiln couldn’t read this session’s transcript"}, so it can’t see what it did outside the workspace. Deal with anything it changed however you like.`,
-    againTitle,
-    againText: `Once your checkouts are as they should be, tick the confirmation on the right and press Check again. ${afterCheck}`,
-  };
-}
-
-/**
- * The Needs you screen's copy for the stop: as drawn for a phase that failed the done check,
- * and with UI-007's lines for the pull request, a session that can't be resumed, a broken plan,
- * and a session Kiln couldn't start or restart.
- */
 export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
   const name = stop.phaseId.startsWith("audit-") ? "This audit" : capitalized(phaseName(stop.phaseId));
@@ -392,13 +339,6 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
       checkAgainText: `Kiln reads the plan again. If it reads, Kiln starts ${phaseName(stop.phaseId)}, or pauses first if you pressed Pause.`,
     };
   }
-  if (stop.outside) {
-    // What Check again then does, as the mockup's step 3 says it.
-    const afterCheck = developmentDelivery ? copy.checkAgainText : isPr
-      ? `When every changed repository has a ready pull request or verified prior integration, the feature is complete.`
-      : "If the phase is done, Kiln starts the next one, or pauses first if you pressed Pause after this phase.";
-    copy.outside = outsideSteps(stop, afterCheck);
-  }
   // A session that ran with no resume command has no transcript for `claude --resume`: step 1 is the fresh session (OUT-003).
   if (stop.sessionId !== undefined && stop.resumeCommand === undefined && !stop.spawnError && stop.kind !== "not_resumable") {
     copy.firstStep = "fresh";
@@ -406,12 +346,9 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
   }
   if (stop.interrupted) {
     const when = clockTime(stop.stoppedAt, now, { afterWord: true });
-    // Kiln saw changes outside the workspace, or couldn't see what the session did there.
-    const unseen = stop.outside !== undefined && stop.outside.changes.length === 0;
-    const why = unseen ? "since it can’t see what the session did outside the workspace" : "since it worked outside the workspace";
     return {
       ...copy,
-      line: `Kiln was interrupted ${stop.stoppedAtIsLastOutput ? "" : `at ${when} `}while this session was working, and didn’t resume it, ${why}.${stop.stoppedAtIsLastOutput ? ` Its last output was at ${when}.` : ""} These are the last lines it wrote.`,
+      line: `Kiln was interrupted ${stop.stoppedAtIsLastOutput ? "" : `at ${when} `}while this session was working, and needs recovery before it can continue.${stop.stoppedAtIsLastOutput ? ` Its last output was at ${when}.` : ""} These are the last lines it wrote.`,
       showFacts: false,
     };
   }

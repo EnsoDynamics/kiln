@@ -175,7 +175,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','outside-confirmation','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});
@@ -264,7 +264,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','settings','outside-confirmation','message','take-over'].sort();
+    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','settings','message','take-over'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
     for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
@@ -1036,4 +1036,18 @@ it.each(['replacement','truncation','generation'] as const)('rejects frozen outp
   if(change==='replacement'){rmSync(saved.output);renameSync(backup,saved.output);}else writeFileSync(saved.output,bytes);
   if(change==='generation'){delete saved.record.outputGeneration;writeSessionRecord(f.directory,saved.record);}
   expect(outputPage(f.work(),null,{max:1,json:true,cursor}).lines).toEqual(older);
+});
+
+
+it('retires confinement facts and contaminated prompts from offline inspection caches', async () => {
+  sandbox=createSandbox(); const f=fixture(); const saved=session(f,'legacy-stop','1a','claude_code');
+  f.record.phases['1a']!.stop={kind:'done_check',at:saved.record.createdAt,checkedAt:saved.record.createdAt,checks:[{name:'Pushed',passed:false,facts:['Not pushed']}]};writePrdRecord(f.directory,f.record);
+  const snapshot={feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},phases:[],needsYou:{phaseId:'1a',kind:'done_check',sessionId:saved.record.sessionId,stoppedAt:saved.record.createdAt,checks:[{name:'Pushed',passed:false,facts:['Not pushed']},{name:'Stayed in the workspace',passed:false,facts:['Unknown helper']}],outside:{changes:['Outside edit'],missingTranscripts:[],checkouts:[],confirmation:{offered:true,ticked:false}},resumePrompt:'Retired workspace repair',freshSessionPrompt:'Retired workspace repair',freshSessionCommand:'claude'}} as unknown as Snapshot;
+  writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:saved.record.createdAt,snapshot,handoffs:{[saved.record.sessionId]:{continuation_prompt:'Retired workspace repair',fresh_session_instructions:{command:'claude',prompt:'Retired workspace repair'}}}});
+  const before=tree(stateRoot(sandbox.env)); const status=await command(['status',f.path,'--detail','full','--json']);
+  expect(status.stdout).not.toMatch(/Stayed in the workspace|Unknown helper|Outside edit|Retired workspace repair/);
+  expect(status.stdout).toContain('Not pushed');
+  const handoff=await handoffProjection(f.work(),saved.record.sessionId,sandbox.env);
+  expect(handoff.data).toMatchObject({continuation_prompt:null,fresh_session_instructions:null,instructions_availability:{state:'unavailable'}});
+  expect(tree(stateRoot(sandbox.env))).toEqual(before);
 });

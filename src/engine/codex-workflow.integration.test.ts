@@ -18,7 +18,6 @@ import type { EngineOptions } from "./engine.js";
 import { sessionFiles } from "../session/claude-session.js";
 import { appendJsonLine } from "../state/state-files.js";
 import { CodexOutputReader } from "../session/codex-output.js";
-import type { CodexAudit } from "../session/codex-evidence.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
@@ -64,7 +63,6 @@ it("shows a refused first launch at Needs you without scanning nonexistent histo
   expect(h.engine.record.phases["1"]!.sessionIds).toEqual([session.sessionId, retried.sessionId]);
   expect(retried.runs[0]?.codex?.terminal?.status).toBe("completed");
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
-  expect(h.engine.latestStayed("1").passed).toBe(true);
   expect(buildSnapshot(h.engine).needsYou?.checks.some(check => check.name === "Codex process cleanup and dispatch")).toBe(false);
 });
 
@@ -91,23 +89,10 @@ it.each(["not_dispatched", "dispatched", "cleanup_unknown"])("reconciles an olde
     expect(h.engine.commands.all().at(-1)).toMatchObject({ state: "failed", outcome: "dispatch_not_started", effects: { session: "not_started" } });
     expect((await h.engine.decide()).kind).toBe("needs_you");
     expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
-    expect(await h.engine.readWorkspaceEvidence("1")).toMatchObject({ passed: true });
   }
   expect(f.calls()).toHaveLength(calls);
 });
 
-it("still audits earlier dispatched work when the latest attempt never dispatched", async () => {
-  await setup({ badReviewer: true });
-  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  const session = h.engine.latestSession("1")!;
-  const earlier = structuredClone(session.runs[0]!);
-  earlier.codex!.dispatch = { at: earlier.startedAt, previousTurnIds: [] };
-  delete earlier.control;
-  session.runs.unshift(earlier);
-  writeSessionRecord(h.stateDirectory, session);
-  expect((await h.engine.readWorkspaceEvidence("1")).passed).toBe(false);
-  expect(f.calls().some(call => call.method === "thread/read")).toBe(true);
-});
 
 it("starts with only Codex, streams/saves native output, fixes the agent, and resumes the original pair after restart", async () => {
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimitsByLimitId: { codex: { credits: { balance: "50", hasCredits: true, unlimited: false } } } };
@@ -120,7 +105,6 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(session).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", conversation: { threadId: expect.any(String) } });
   expect(session.initModel).toBeUndefined();
   expect(session.codex?.launchIntent.writableRoots).toEqual([h.engine.workspaceFolder]);
-  expect(h.engine.latestStayed("1").passed).toBe(true);
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ agent: "Codex", resumeOffered: true, requested: { effort: "high" }, observed: [expect.objectContaining({ effort: "high" })], cleanupWarning: expect.stringContaining("Independently detached") });
   expect(h.engine.outputLines(session).some(line => line.source === "codex" && line.text.includes("Fixture final"))).toBe(true);
   expect(partials).toContain("Fixture streaming");
@@ -150,21 +134,18 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(codexResumeCommand("C:\\with ' quote", resumed, "win32")).toContain("with '' quote");
 });
 
-it("permits explicit repair with incomplete evidence without clearing the original audit obligation", async () => {
+it("permits explicit resume without a confinement audit obligation", async () => {
   await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const session = h.engine.latestSession("1")!;
   const raw = join(f.home, "sessions", `${session.conversation!.threadId}.jsonl`);
   writeFileSync(raw, readFileSync(raw, "utf8") + "{broken}\n");
   await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
-  expect(h.engine.latestStayed("1").passed).toBe(false);
   expect(buildSnapshot(h.engine).needsYou?.resumeOffered).toBe(true);
-  expect(h.engine.setOutsideConfirmation(true).ok).toBe(false);
   await h.engine.resume({ ...recoveryRequest(h.engine), note: "Repair the recorded work." }); await h.engine.settled();
   expect(h.engine.latestSession("1")?.runs).toHaveLength(2);
-  expect(h.engine.latestStayed("1").passed).toBe(false);
   const input = JSON.stringify(f.calls().filter(call => call.method === "turn/start").at(-1)?.params?.input);
-  expect(input.indexOf("Repair the recorded work")).toBeLessThan(input.indexOf("workspace check is inconclusive"));
-  expect(input.indexOf("workspace check is inconclusive")).toBeLessThan(input.indexOf("Carry on"));
+  expect(input).toContain("Repair the recorded work");
+  expect(input).not.toContain("workspace check is inconclusive");
 });
 
 it("refreshes terminal recovery messages and separate observed settings on Check again without dispatch or duplicates", async () => {
@@ -232,7 +213,6 @@ it("removes resume actions for unavailable conversations while retaining the fre
   set({ missingThread: true }); await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ resumeOffered: false, freshSessionCommand: expect.stringContaining("codex"), resumeError: expect.stringContaining("cannot be opened") });
   expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toBeUndefined();
-  expect(h.engine.latestStayed("1").passed).toBe(false);
   expect(readPrdRecord(h.stateDirectory)!.completedAt).toBeUndefined();
 });
 
@@ -257,11 +237,6 @@ it("treats tool-only activity after sleep as interrupted, checks, and recovers t
     reported = true;
     return [{ at: new Date(Date.now() - 600_000).toISOString(), seconds: 600 }];
   } } });
-  let auditBeforeResume: CodexAudit | undefined;
-  h.engine.onChange(() => {
-    const session = h.engine.latestSession("1");
-    if (session?.runs.length === 2 && !session.runs[1]?.codex?.dispatch) auditBeforeResume = structuredClone(h.engine.record.phases["1"]?.codexAudits?.[session.sessionId]);
-  });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const session = h.engine.latestSession("1")!;
   expect(session.runs).toHaveLength(2);
@@ -269,9 +244,8 @@ it("treats tool-only activity after sleep as interrupted, checks, and recovers t
   expect(session.runs[1]).toMatchObject({ cause: "resume", codex: { modelActivityAt: [expect.any(String)] } });
   expect(h.engine.outputLines(session).some(line => line.text.includes("Command completed; exit 0"))).toBe(true);
   const calls = f.calls();
-  expect(auditBeforeResume).toMatchObject({ coverage: "complete", problems: [], findings: [], operationsChecked: 1 });
+  expect(h.engine.record.phases["1"]?.codexAudits).toBeUndefined();
   expect(calls.filter(call => call.method === "thread/resume")).toEqual([expect.objectContaining({ params: expect.objectContaining({ threadId: session.conversation!.threadId }) })]);
-  expect(h.engine.latestStayed("1").passed).toBe(true);
 });
 
 it("follows a phase's own split through fresh Codex conversations and the final PR session using real Git", async () => {
@@ -313,7 +287,6 @@ it("follows a phase's own split through fresh Codex conversations and the final 
   expect(sessions[0]?.effort).toBe("high");
   expect(sessions.slice(1).map(session => session.runs[0]?.codex?.requested.effort)).toEqual(["low", "low", "low", "low"]);
   expect(h.engine.record.plan?.find(phase => phase.id === "1")?.splitInto).toEqual(["1a", "1b"]);
-  expect(h.engine.latestStayed("pr").passed).toBe(true);
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(5);
   expect(h.claudeCalls()).toEqual([]);
 });
@@ -445,6 +418,4 @@ it("finishes already-merged Codex work before a final conversation, but never ex
   expect(h.engine.record.mergedBranches?.[0]?.repository).toBe("acme-shop");
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(count);
   h.engine.record.phases.pr!.sessionIds.push("missing-recorded-final-session");
-  expect((await h.engine.readWorkspaceEvidence("pr")).passed).toBe(false);
-  expect(h.engine.stayedInWorkspace("never-recorded-phase").passed).toBe(false);
 });

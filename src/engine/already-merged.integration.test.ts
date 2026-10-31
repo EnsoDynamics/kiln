@@ -11,12 +11,10 @@ import { formatDecisionLine } from "../underway-output.js";
 import { terminalColors } from "../terminal-output.js";
 import { buildSnapshot } from "./snapshot.js";
 import { runPullRequestChecks, type PullRequestCheckInput } from "./checks.js";
-import type { StayedOutcome } from "../session/outside-workspace.js";
 
 let sandbox: Sandbox | undefined;
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.cleanup(); harness = undefined; await sandbox?.cleanup(); sandbox = undefined; });
-const STAYED: StayedOutcome = { passed: true, changes: [], transcripts: [], check: { name: "Stayed in the workspace", passed: true, facts: [] } };
 const BRANCH = "feature/customer-returns";
 function repositoryFixture(name = "pricing") {
   sandbox ??= createSandbox();
@@ -45,7 +43,7 @@ describe("completion after independently merged work", () => {
   it.each([false, true])("accepts exact-tip integration, including fast-forward=%s and deleted remote source", async fastForward => {
     const f = repositoryFixture(); f.integrate(fastForward);
     git(sandbox!, f.repo, "push", "-q", "origin", "--delete", BRANCH);
-    const result = await runPullRequestChecks([f.input], STAYED);
+    const result = await runPullRequestChecks([f.input]);
     expect(result.passed).toBe(true);
     expect(result.pullRequests).toEqual([]);
     expect(result.mergedBranches).toEqual([{ repository: "pricing", head: BRANCH, base: "develop", featureCommit: f.tip, baseCommit: git(sandbox!, f.repo, "rev-parse", "develop").trim(), url: `https://github.com/acme/pricing/commit/${f.tip}` }]);
@@ -54,32 +52,30 @@ describe("completion after independently merged work", () => {
   it("does not confuse an empty diff, old merged work, dirty files or wrong branches with complete delivery", async () => {
     const f = repositoryFixture(); f.integrate();
     writeFileSync(join(f.repo, "pending.txt"), "pending");
-    expect((await runPullRequestChecks([f.input], STAYED)).passed).toBe(false);
+    expect((await runPullRequestChecks([f.input])).passed).toBe(false);
     rmSync(join(f.repo, "pending.txt"));
     git(sandbox!, f.repo, "switch", "-q", "develop");
-    expect((await runPullRequestChecks([f.input], STAYED)).passed).toBe(false);
+    expect((await runPullRequestChecks([f.input])).passed).toBe(false);
     git(sandbox!, f.repo, "switch", "-q", BRANCH);
     // An empty commit has no diff, but is still new feature work outside the base.
     git(sandbox!, f.repo, "commit", "-q", "--allow-empty", "-m", "new unmerged work");
-    expect((await runPullRequestChecks([f.input], STAYED)).passed).toBe(false); // Unpushed local tip.
+    expect((await runPullRequestChecks([f.input])).passed).toBe(false); // Unpushed local tip.
     git(sandbox!, f.repo, "push", "-q", "origin", BRANCH);
-    expect((await runPullRequestChecks([f.input], STAYED)).passed).toBe(false); // Old integration cannot cover it.
+    expect((await runPullRequestChecks([f.input])).passed).toBe(false); // Old integration cannot cover it.
   });
 
   it("requires live intended-base evidence and preserves workspace checks", async () => {
     const f = repositoryFixture(); f.integrate();
-    expect((await runPullRequestChecks([{ ...f.input, baseBranch: "missing-base" }], STAYED)).passed).toBe(false);
+    expect((await runPullRequestChecks([{ ...f.input, baseBranch: "missing-base" }])).passed).toBe(false);
     for (const override of [{ compareError: "GitHub unavailable" }, { comparison: "invalid JSON" }, { comparison: { status: "identical", ahead_by: 0 } }]) {
       writeFileSync(f.state, JSON.stringify({ pulls: [], ...override }));
-      const result = await runPullRequestChecks([f.input], STAYED);
+      const result = await runPullRequestChecks([f.input]);
       expect(result.passed).toBe(false); expect(result.mergedBranches).toBeUndefined();
       expect(result.check.facts.join(" ")).toContain("Could not confirm prior integration");
     }
     writeFileSync(f.state, JSON.stringify({ pulls: [] }));
-    const outside = { ...STAYED, passed: false, check: { name: "Stayed in the workspace", passed: false, facts: ["Outside write"] } };
-    const blocked = await runPullRequestChecks([f.input], outside);
-    expect(blocked.passed).toBe(false); expect(blocked.mergedBranches).toBeUndefined();
-    expect(blocked.checks).toContainEqual(outside.check);
+    const accepted = await runPullRequestChecks([f.input]);
+    expect(accepted.passed).toBe(true); expect(accepted.mergedBranches).toHaveLength(1);
   });
 
   it("cannot mistake a branch reset for delivery of previously completed work", async () => {
@@ -87,7 +83,7 @@ describe("completion after independently merged work", () => {
     const base = git(sandbox!, f.repo, "rev-parse", "develop").trim();
     git(sandbox!, f.repo, "reset", "--hard", base);
     git(sandbox!, f.repo, "--git-dir", f.origin, "update-ref", `refs/heads/${BRANCH}`, base);
-    const result = await runPullRequestChecks([{ ...f.input, completedCommits: [f.tip] }], STAYED);
+    const result = await runPullRequestChecks([{ ...f.input, completedCommits: [f.tip] }]);
     expect(result.passed).toBe(false);
     expect(result.check.facts.join(" ")).toContain("Previously completed commit");
   });
@@ -95,7 +91,7 @@ describe("completion after independently merged work", () => {
   it("rejects worktree changes made while GitHub is being read", async () => {
     const f = repositoryFixture(); f.integrate();
     writeFileSync(f.state, JSON.stringify({ pulls: [], compareWriteFile: { path: join(f.repo, "concurrent-edit.txt"), content: "new work" } }));
-    const result = await runPullRequestChecks([f.input], STAYED);
+    const result = await runPullRequestChecks([f.input]);
     expect(result.passed).toBe(false);
     expect(result.check.facts.join(" ")).toContain("uncommitted changes");
   });
@@ -103,9 +99,9 @@ describe("completion after independently merged work", () => {
   it("permits a mixed delivery only when every repository qualifies", async () => {
     const merged = repositoryFixture("pricing"); merged.integrate();
     const pending = repositoryFixture("storefront");
-    expect((await runPullRequestChecks([merged.input, pending.input], STAYED)).passed).toBe(false);
+    expect((await runPullRequestChecks([merged.input, pending.input])).passed).toBe(false);
     writeFileSync(pending.state, JSON.stringify({ pulls: [{ repo: "acme/storefront", number: 7, title: "Storefront", url: "https://github.com/acme/storefront/pull/7", isDraft: false, isCrossRepository: false, headRefName: BRANCH, baseRefName: "develop", additions: 1, deletions: 0, commits: [{}] }] }));
-    const result = await runPullRequestChecks([merged.input, pending.input], STAYED);
+    const result = await runPullRequestChecks([merged.input, pending.input]);
     expect(result.passed).toBe(true);
     expect(result.pullRequests?.map(p => p.repository)).toEqual(["storefront"]);
     expect(result.mergedBranches?.map(p => p.repository)).toEqual(["pricing"]);

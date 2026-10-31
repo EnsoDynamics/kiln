@@ -12,6 +12,8 @@ The browser delivery stands alone. The [bot design](../../prds/kiln-bot-control/
 
 ## Existing Code
 
+Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
+
 **Posture: Preserve.** Change only the PRD's named behavior.
 
 - Reuse execution/activity identity, original audit rounds, session histories, controller ownership, private state and local HTTP/SSE authentication.
