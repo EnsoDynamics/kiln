@@ -265,3 +265,19 @@ it("freezes the just-completed child's checked repository scope before a later p
   expect(h.engine.record.repositories.find(repo => repo.name === "comet-web")?.setupCompletedAt).toBeDefined();
   expect(h.engine.record.phases["1b"]?.stop).toBeDefined(); expect(h.claudeCalls()).toHaveLength(2);
 }, 120_000);
+
+it("holds a newly closed known-source phase, then advances automatically after safe reconciliation", async () => {
+  h = await createHarness({ sessions: [asking, asking] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  const file = `${directory}/phase-1-return-intake.md`;
+  const shared = join(h.repository, file);
+  writeFileSync(shared, readFileSync(shared, "utf8").replace("\n", "\n\n**Closed:** 2026-10-30\n"));
+  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, code: "check_unavailable" });
+  expect(h.engine.record.planReconciliation?.check?.problem).toContain("Phase 1"); expect(h.claudeCalls()).toHaveLength(1);
+  const again = h.reopenFromDisk(); await again.prepare();
+  expect(again.record.planReconciliation?.check?.status).toBe("failed");
+  copyFileSync(shared, join(again.worktreePath, file));
+  git(h.sandbox, again.worktreePath, "add", file); git(h.sandbox, again.worktreePath, "commit", "-qm", "test: reconcile closed catalog"); git(h.sandbox, again.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
+  expect(await again.checkAgain(recoveryRequest(again, "advance"))).toMatchObject({ ok: true, outcome: "advanced" }); await again.settled();
+  expect(again.record.phases["1"]?.doneAt).toBeDefined(); expect(h.claudeCalls()).toHaveLength(2);
+});

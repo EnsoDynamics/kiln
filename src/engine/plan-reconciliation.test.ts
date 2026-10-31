@@ -51,3 +51,23 @@ it("reports actual immutable accounting/proposal writer and reader capacity befo
     expect(() => readContinuationProposal(root, proposal.id)).toThrow(PlanCapacityError);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+it("distinguishes forward and reverse known closure changes from unchanged stale copies", async () => {
+  const { planSourceFromDocuments, sourceDiscrepancies } = await import("./plan-reconciliation.js");
+  const source = (closed: boolean, content = "Catalog") => planSourceFromDocuments("/comet", "plan", {
+    "plan/comet-prd.md": "# PRD: Comet\n\n## Acceptance Criteria\n- [ ] **AC-COMET-01** Find books.\n",
+    "plan/comet-technical-design.md": "# Design\nCatalog.\n",
+    "plan/phase-1-catalog.md": `# Phase 1: ${content}\n\n${closed ? "**Closed:** 2026-10-01\n\n" : ""}## Acceptance criteria covered\nAC-COMET-01\n`,
+  });
+  const open = source(false), closed = source(true);
+  expect(sourceDiscrepancies(open, closed, open)).toEqual(["1"]);
+  expect(sourceDiscrepancies(closed, open, closed)).toEqual(["1"]);
+  expect(sourceDiscrepancies(closed, open, open)).toEqual([]);
+  expect(sourceDiscrepancies(open, closed, closed)).toEqual([]);
+  expect(sourceDiscrepancies(closed, closed, open)).toEqual([]);
+  expect(sourceDiscrepancies(open, open, closed)).toEqual([]);
+  expect(sourceDiscrepancies(open, source(true, "Lending"), closed)).toEqual(["1"]);
+  // Legacy recovery without an earlier observation does not mistake the normal
+  // unclosed shared checkout for reopening a phase completed in the active tree.
+  expect(sourceDiscrepancies(closed, open)).toEqual([]);
+});

@@ -313,10 +313,10 @@ function outsideSteps(stop: NeedsYou, afterCheck: string): NeedsYouCopy["outside
     };
   }
   if (stop.agentId === "codex") return {
-    title: "Recover the missing Codex evidence",
-    text: "Kiln cannot complete the workspace check from the available conversation history. Restore the missing or unreadable evidence shown on the right. Resume can help repair the work, but does not clear this check.",
+    title: outside.uncertainty?.offered ? "Review the workspace uncertainty" : "Recover the missing Codex evidence",
+    text: outside.uncertainty?.offered ? "Kiln could not interpret all recorded work. Review the evidence details, then explicitly accept workspace uncertainty if you choose to proceed." : "Kiln cannot complete the workspace check from the available conversation history. Restore the missing or unreadable evidence shown on the right. Resume can help repair the work, but does not clear this check.",
     againTitle: "Come back and check again",
-    againText: `Check again reads the complete conversation tree afresh. Unknown evidence cannot be confirmed into a pass. ${afterCheck}`,
+    againText: `Check again reads the complete conversation tree afresh. ${outside.uncertainty?.offered ? "Accepting uncertainty covers only this checked history; every other completion requirement still applies." : "Missing history or active work must be resolved before this check can pass."} ${afterCheck}`,
   };
   const missing = outside.missingTranscripts.some((fact) => fact.startsWith(MISSING_TRANSCRIPT));
   return {

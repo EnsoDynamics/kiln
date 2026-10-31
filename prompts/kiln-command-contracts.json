@@ -1764,6 +1764,10 @@
         "clear-confirmation": {
           "value": null,
           "source": "Operator clears the same confirmation."
+        },
+        "accept-uncertainty": {
+          "value": null,
+          "source": "Explicitly acknowledge inability to verify the current checked history, separately from resolved outside changes."
         }
       },
       "required_exclusive_groups": [
@@ -1777,7 +1781,8 @@
       "limits": [
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
-        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying."
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "With --accept-uncertainty, acknowledge only the current activity and checked history. Changed evidence invalidates acceptance; all other completion checks still apply."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",

@@ -8,8 +8,9 @@
   let continuing = $state(false);
   let dismissed = $state<string>();
   let error = $state<string>();
-  const earlier = $derived(check?.status === "failed" || check?.status === "checking");
-  const result = $derived(earlier ? check?.earlierResult : check?.result);
+  let refreshFailure = $state<string>();
+  const earlier = $derived(pending || !!refreshFailure || check?.status === "failed" || check?.status === "checking");
+  const result = $derived(earlier ? check?.earlierResult ?? check?.result : check?.result);
   const external = $derived(result?.leaves?.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified") ?? []);
   const carried = $derived(result?.leaves?.filter(row => row.classification === "carried_completed").length ?? 0);
   const time = (value: string) => new Date(value).toLocaleString();
@@ -19,8 +20,11 @@
     try {
       const response = await fetch("/api/continuation/check", { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": config.token }, body: "{}" });
       const answer = await response.json();
-      if (!response.ok && !answer.check) error = answer.reason ?? "Could not check the current plan. Try again.";
-    } catch (failure) { error = (failure as Error).message; }
+      if (!answer.check || !["unchanged", "available", "blocked", "failed"].includes(answer.check.status)) throw new Error(answer.reason ?? "Could not check the current plan. Try again.");
+      // Apply the HTTP observation before releasing pending; SSE may arrive later.
+      check = answer.check;
+      refreshFailure = undefined;
+    } catch (failure) { refreshFailure = (failure as Error).message; }
     finally { pending = false; }
   }
   async function grant(target: import("../../../src/state/development-delivery.js").MergeTarget) {
@@ -44,7 +48,8 @@
 </script>
 
 <section class="plan-check" aria-label="Current plan check" aria-live="polite">
-  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : check?.status === "failed" ? "Could not check for new phases" : check?.status === "unchanged" ? "No new phases found" : result?.added.length ? "New phases found" : check?.status === "blocked" ? "Plan needs reconciliation" : "Check the current plan"}</h2>
+  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : refreshFailure || check?.status === "failed" ? "Could not check for new phases" : check?.status === "unchanged" ? "No new phases found" : result?.added.length ? "New phases found" : check?.status === "blocked" ? "Plan needs reconciliation" : "Check the current plan"}</h2>
+  {#if refreshFailure}<p role="alert">{refreshFailure}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if earlier}<p>Showing earlier results. The current phase count is unknown.</p>{/if}
   {#each check?.errors ?? [] as problem}<p class="problem">{problem}</p>{/each}

@@ -1,3 +1,4 @@
+import { uncertaintyFingerprint } from "../session/codex-evidence.js";
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
@@ -286,6 +287,7 @@ export interface Snapshot {
       checkouts: string[];
       prompt?: string;
       confirmation: { offered: boolean; ticked: boolean };
+      uncertainty?: { offered: boolean; ticked: boolean };
     };
     /** Kiln stopped this interrupted session instead of resuming it, since it worked outside the workspace (AC-OUTSIDE-04). */
     interrupted?: { at: string; atIsLastOutput: boolean };
@@ -735,7 +737,7 @@ function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snap
   const multi = engine.multiRepository;
   const codex = engine.record.settings.agentId === "codex";
   const ticked = codex
-    ? (facts.codexConfirmations ?? []).some(confirmation => Object.entries(facts.codexAudits ?? {}).some(([id, audit]) => audit.coverage === "complete" && audit.findings.length > 0 && confirmation.fingerprints[id] === audit.fingerprint))
+    ? (facts.codexConfirmations ?? []).some(confirmation => Object.entries(facts.codexAudits ?? {}).some(([id, audit]) => audit.findings.length > 0 && confirmation.fingerprints[id] === audit.fingerprint))
     : facts.outsideConfirmations.some((confirmation) => Date.parse(confirmation.at) > Date.parse(stop.checkedAt));
   return {
     view: {
@@ -744,6 +746,13 @@ function outsideView(engine: Engine, phaseKey: string): { view: NonNullable<Snap
       checkouts: [...new Set(checkouts.map((checkout) => checkout.name))],
       ...optional("prompt", prompt),
       confirmation: { offered: !codex || outcome.changes.length > 0, ticked },
+      ...(codex ? { uncertainty: {
+        offered: Object.values(facts.codexAudits ?? {}).some(audit => audit.coverage === "inconclusive" && uncertaintyFingerprint(audit) !== undefined),
+        ticked: Object.entries(facts.codexAudits ?? {}).filter(([, audit]) => audit.coverage === "inconclusive").every(([id, audit]) => {
+          const fingerprint = uncertaintyFingerprint(audit);
+          return fingerprint !== undefined && (facts.codexConfirmations ?? []).some(one => one.uncertaintyFingerprints?.[id] === fingerprint);
+        }),
+      } } : {}),
     },
     ...(changes.length === 0 ? {} : { note: freshSessionOutsideNote(changes, checkouts.length, multi) }),
   };

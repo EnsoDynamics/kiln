@@ -14,7 +14,7 @@ import type { RecordedPlanPhase } from "../state/records.js";
 
 export const PLAN_LIMIT = 8 * 1024 * 1024;
 export const PHASE_LIMIT = 10_000;
-export const PLAN_NORMALIZER_VERSION = 3;
+export const PLAN_NORMALIZER_VERSION = 4;
 export class PlanBaselineWriteFailure extends Error {}
 /** A capacity refusal happens before publication; it is not a durability fault. */
 export class PlanCapacityError extends Error {
@@ -36,7 +36,7 @@ export interface PlanSource {
 }
 export interface PlanBaseline {
   formatVersion: 1;
-  normalizerVersion: 1 | 2 | 3;
+  normalizerVersion: 1 | 2 | 3 | 4;
   id: string;
   prdDirectory: string;
   active: PlanSource;
@@ -180,7 +180,14 @@ export function phaseRepositories(source: PlanSource, id: string): string[] {
 }
 export function completedPhaseScopeUnchanged(previous: PlanSource, current: PlanSource, id: string, scopeRepositories = phaseRepositories(previous, id)): boolean {
   const currentRepositories = new Set(phaseRepositories(current, id));
-  return previous.scopes[id] === current.scopes[id] && scopeRepositories.every(name => currentRepositories.has(name));
+  // Ancestor prose is not leaf scope. Its ordered split identities are: in particular,
+  // a parent's historical session must still judge the same first descendant.
+  const splitStructureIntact = previous.plan.phases.filter(phase => isAncestorOf(phase.id, id) && phase.splitInto).every(parent => {
+    const before = parent.splitInto!;
+    const after = current.plan.phases.find(phase => phase.id === parent.id)?.splitInto;
+    return after && after[0] === before[0] && before.every((child, index) => after.includes(child) && (index === 0 || after.indexOf(child) > after.indexOf(before[index - 1]!)));
+  });
+  return previous.scopes[id] === current.scopes[id] && splitStructureIntact && scopeRepositories.every(name => currentRepositories.has(name));
 }
 
 export function completedScopeProblems(previous: PlanSource, current: PlanSource, completions: PlanBaseline["completions"] = {}): string[] {
@@ -196,9 +203,9 @@ export function sourceDiscrepancies(active: PlanSource, source: PlanSource, prev
   const problems: string[] = [];
   for (const phase of source.plan.phases) {
     const earlier = previous?.plan.phases.find(p => p.id === phase.id);
-    const changed = !earlier || previous!.scopes[phase.id] !== source.scopes[phase.id] || earlier.closed && !phase.closed;
+    const changed = !earlier || previous!.scopes[phase.id] !== source.scopes[phase.id] || earlier.closed !== phase.closed;
     const assigned = active.plan.phases.find(p => p.id === phase.id);
-    if (changed && (!assigned || source.scopes[phase.id] !== active.scopes[phase.id] || earlier?.closed && !phase.closed && assigned.closed)) problems.push(phase.id);
+    if (changed && (!assigned || source.scopes[phase.id] !== active.scopes[phase.id] || (earlier ? assigned.closed !== phase.closed : phase.closed && !assigned.closed))) problems.push(phase.id);
   }
   for (const old of previous?.plan.phases ?? []) if (!source.plan.phases.some(p => p.id === old.id) && active.plan.phases.some(p => p.id === old.id)) problems.push(old.id);
   if ((!previous || previous.requirements !== source.requirements) && active.requirements !== source.requirements) problems.push("requirements");
@@ -222,7 +229,7 @@ export function readBaseline(directory: string, id: string): PlanBaseline {
   if (statSync(path).size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "retained baseline bytes");
   const value = JSON.parse(readFileSync(path, "utf8")) as PlanBaseline;
   const { id: stored, ...body } = value;
-  if (value.formatVersion !== 1 || ![1, 2, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
+  if (value.formatVersion !== 1 || ![1, 2, 3, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");
   return value;
 }
 
@@ -236,13 +243,14 @@ export async function comparisonBaseline(directory: string, id: string, history?
   const revisions = new Map<string, Promise<PlanSource>>();
   const completions = { ...body.completions };
   for (const [phaseId, receipt] of Object.entries(completions)) {
-    if (receipt.scopeRepositories) continue;
+    const splitCompletion = active.plan.phases.some(phase => isAncestorOf(phase.id, phaseId) && phase.splitInto);
+    if (receipt.scopeRepositories && !splitCompletion) continue;
     const revision = history && (receipt.repositories?.[history.repositoryName]?.revision ?? receipt.revision);
-    if (!history || !revision) throw new Error(`baseline_unavailable: Phase ${phaseId} needs its original completion revision to recover historical repository scope. Restore that receipt/revision, then check again.`);
+    if (!history || !revision) throw new Error(`baseline_unavailable: Phase ${phaseId} needs its original completion revision to recover historical repository/split scope. Restore that receipt/revision, then check again.`);
     if (!revisions.has(revision)) revisions.set(revision, history.read(revision));
     const source = await revisions.get(revision)!;
-    if (!source.plan.phases.some(phase => phase.id === phaseId && phase.closed && !phase.splitInto) || source.scopes[phaseId] !== active.scopes[phaseId]) throw new Error(`baseline_unavailable: Phase ${phaseId} does not match its immutable completion scope at ${revision}. Reconcile the historical receipt and plan, then check again.`);
-    completions[phaseId] = { ...receipt, scopeRepositories: phaseRepositories(source, phaseId) };
+    if (!source.plan.phases.some(phase => phase.id === phaseId && phase.closed && !phase.splitInto) || !completedPhaseScopeUnchanged(source, active, phaseId, receipt.scopeRepositories ?? phaseRepositories(source, phaseId))) throw new Error(`baseline_unavailable: Phase ${phaseId} does not match its immutable completion scope at ${revision}. Reconcile the historical receipt and plan, then check again.`);
+    completions[phaseId] = { ...receipt, scopeRepositories: receipt.scopeRepositories ?? phaseRepositories(source, phaseId) };
   }
   return retainBaseline(directory, { ...body, completions, normalizerVersion: PLAN_NORMALIZER_VERSION, active, sources: original.sources.map(reparse) });
 }

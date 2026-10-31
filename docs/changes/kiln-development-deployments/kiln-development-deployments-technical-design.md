@@ -146,6 +146,8 @@ A deployment is historical evidence, not a claim that a shared environment stays
 
 ### One evaluator at every transition
 
+Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented source reconciliation and feedback (Phase 7) (positively absent historical execution artifacts may be skipped for completed-feature discovery when available artifacts are provably unchanged; changed or indeterminate available work retains current recovery/audit checks).
+
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (current audit gates join retained development checks), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 The phase result retains Closed, Committed, Pushed and Stayed in the workspace, and adds **Required development delivery verified** for phases with obligations. Enabled phases also need a current assessment. Keep the first descendant as `judgedLeaf` for the splitting session and existing Closed check; its delivery check evaluates only obligations assigned to that leaf, allowing later descendants to run. A Closed document alone cannot advance past that leaf’s unresolved obligations. Use this same evaluation after sessions, on Check again, before manual/automatic resume, after manual work and during restart reconciliation. Revalidate saved split assignments against the current split documents at each transition. An unresolved earlier phase is considered before the next unclosed document: do not skip it merely because its Closed line was written early.

@@ -3,9 +3,9 @@
 // AC-REPO-02, AC-ADD-02; technical design, "Found beside the PRD's repository").
 
 import { lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseGithubOrigin } from "../github-origin.js";
-import { runGit, type GitContext } from "./git-reads.js";
+import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { displayPath } from "./worktree-setup.js";
 
 export interface FoundRepository {
@@ -15,7 +15,7 @@ export interface FoundRepository {
   github: string;
 }
 
-export type RepositoryLookup = { ok: true; repository: FoundRepository } | { ok: false; problem: string };
+export type RepositoryLookup = { ok: true; repository: FoundRepository } | { ok: false; problem: string; unavailable?: true };
 
 /** The folder the PRD's repositories sit in: the real parent of the PRD's main checkout. */
 export function repositoriesParent(prdMainCheckoutPath: string): string {
@@ -37,14 +37,17 @@ export async function findRepository(git: GitContext, parent: string, name: stri
   try {
     entries = readdirSync(parent);
   } catch (error) {
-    return { ok: false, problem: `Couldn't read ${shownParent}/: ${(error as Error).message}` };
+    return { ok: false, unavailable: true, problem: `Couldn't read ${shownParent}/: ${(error as Error).message}` };
   }
   // The listing, never an exists check: on macOS and Windows that ignores case.
   if (!entries.includes(name)) {
     return { ok: false, problem: namedIn === undefined ? `${name} isn’t in ${shownParent}/.` : `${namedIn} names ${name}, which isn’t in ${shownParent}/.` };
   }
   const folder = join(parent, name);
-  if (lstatSync(folder).isSymbolicLink()) {
+  let linked: boolean;
+  try { linked = lstatSync(folder).isSymbolicLink(); }
+  catch (error) { return { ok: false, unavailable: true, problem: `Couldn't inspect ${name}: ${(error as Error).message}` }; }
+  if (linked) {
     let target: string;
     try {
       target = readlinkSync(folder);
@@ -55,16 +58,20 @@ export async function findRepository(git: GitContext, parent: string, name: stri
   }
   const notCheckout = { ok: false as const, problem: `${name} in ${shownParent}/ isn’t a Git checkout.` };
   const toplevel = await runGit(git, folder, ["rev-parse", "--show-toplevel"]);
-  if (toplevel.exitCode !== 0) return notCheckout;
+  if (toplevel.exitCode !== 0) return !toplevel.failure && toplevel.exitCode === 128 && /not a git repository/i.test(toplevel.stderr)
+    ? notCheckout : { ok: false, unavailable: true, problem: `Couldn't read ${name}'s checkout: ${gitError(toplevel)}` };
+  if (!isAbsolute(toplevel.stdout.trim())) return { ok: false, unavailable: true, problem: `Couldn't read ${name}'s checkout: Git returned no absolute top-level path.` };
   let top: string;
   try {
     top = realpathSync.native(resolve(toplevel.stdout.trim()));
-  } catch {
-    return notCheckout;
+    if (comparable(top) !== comparable(realpathSync.native(folder))) return notCheckout;
+  } catch (error) {
+    return { ok: false, unavailable: true, problem: `Couldn't resolve ${name}'s checkout: ${(error as Error).message}` };
   }
-  if (comparable(top) !== comparable(realpathSync.native(folder))) return notCheckout;
   const origin = await runGit(git, folder, ["remote", "get-url", "origin"]);
-  if (origin.exitCode !== 0) return { ok: false, problem: `${name} in ${shownParent}/ has no origin remote.` };
+  if (origin.exitCode !== 0) return !origin.failure && origin.exitCode === 2 && /No such remote ['"]origin['"]/i.test(origin.stderr)
+    ? { ok: false, problem: `${name} in ${shownParent}/ has no origin remote.` }
+    : { ok: false, unavailable: true, problem: `Couldn't read ${name}'s origin: ${gitError(origin)}` };
   const github = parseGithubOrigin(origin.stdout);
   if (!github) return { ok: false, problem: `${name} in ${shownParent}/ has an origin that isn’t on GitHub: ${origin.stdout.trim()}` };
   return { ok: true, repository: { name, mainCheckoutPath: folder, github: `${github.owner}/${github.name}` } };

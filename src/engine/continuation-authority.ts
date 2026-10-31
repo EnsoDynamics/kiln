@@ -38,13 +38,14 @@ export function reserveAuthority(proposal: ContinuationProposal): PendingContinu
 
 /** Only positive observations invalidate authority; unavailable reads supply none. */
 export type ContinuationInputObservation =
-  | { kind: "candidate" | "settings" | "permissions"; digest: string }
+  | { kind: "candidate" | "shared_documents" | "settings" | "permissions"; digest: string }
   | { kind: "provider_settings"; repository: string; digest: string }
   | { kind: "repository"; repository: string; identity: string | null }
   | { kind: "base"; repository: string; branch: string; revision: string }
   | { kind: "source"; repository: string; sourceRef: string; revision: string };
 export function changesContinuationScope(proposal: ContinuationProposal, observation: ContinuationInputObservation): boolean {
   switch (observation.kind) {
+    case "shared_documents": return proposal.sharedDigest !== undefined && proposal.sharedDigest !== observation.digest;
     case "candidate": return proposal.candidateDigest !== observation.digest;
     case "settings": return proposal.settingsDigest !== observation.digest;
     case "permissions": return proposal.permissionDigest !== observation.digest;

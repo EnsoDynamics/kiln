@@ -1,5 +1,7 @@
 # Phase 3b2: Connect Codex conversations to the phase and pull-request workflow
 
+**Superseded in part by:** [AC-WORK-04, workspace evidence recovery amendment of 2026-10-30](kiln-codex-support-prd.md#workspace-evidence-recovery-amendment--2026-10-30). Historical unknown-evidence confirmation restrictions below describe the original delivery; the amended PRD and technical design govern explicit acknowledgment now.
+
 **Closed:** 2026-10-23. Protected phase/final-PR execution, truthful saved/live output and same-conversation recovery are integrated. Native Codex interruption/restart/explicit repair retained the original pair and edit; fresh complete audits passed before completion. `npm run verify` passes: 483 unit tests, 14 classifier proofs, 429 integration tests with two existing skips; audit/lint/TypeScript/Svelte pass. Deliverable review and test hardening completed. See [workflow results](kiln-codex-support-workflow-results.md) for exact proof boundaries and the Phase 4 handoff. Product commits remain local; no push authorized.
 
 **Parent PRD:** [Codex support for Kiln](kiln-codex-support-prd.md)

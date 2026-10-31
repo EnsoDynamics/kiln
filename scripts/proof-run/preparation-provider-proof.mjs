@@ -16,7 +16,8 @@ import { writePrdRecord } from '../../dist/state/records.js';
 import { stateRoot, prdStateDirectory } from '../../dist/state/state-files.js';
 import { takeInstanceLock } from '../../dist/state/instance-lock.js';
 import { startLocalServer } from '../../dist/server/local-server.js';
-const reconciliation = process.argv[3] === 'reconciliation';
+const splitPrerequisite = process.argv[3] === 'split';
+const reconciliation = splitPrerequisite || process.argv[3] === 'reconciliation';
 const agentId = process.argv[2]; assert.ok(['claude_code', 'codex'].includes(agentId));
 const root = realpathSync(mkdtempSync(join(tmpdir(), `kiln-preparation-${agentId}-`)));
 const repository = join(root, 'comet'); mkdirSync(repository);
@@ -49,13 +50,17 @@ record.phases.pr = { sessionIds: [], doneAt: at, finishedByPerson: true, outside
 record.pullRequests = [{ repository: 'comet', number: 1, title: 'Earlier proof delivery', url: 'https://github.com/fictional/comet/pull/1', head: 'develop', base: 'develop', commits: 1, additions: 1, deletions: 0 }];
 writePrdRecord(stateDirectory, record);
 git('checkout', '-qb', 'wt/preparation-source');
-writeFileSync(join(repository, directory, 'phase-2-proof.md'), phase(2, true));
+const writePrerequisite = () => {
+  writeFileSync(join(repository, directory, 'phase-2-proof.md'), splitPrerequisite ? '# Phase 2: Split preparation prerequisite\n\n## Split into\n| Phase | Work |\n|---|---|\n| [2a](phase-2a-proof.md) | First prepared work |\n| [2b](phase-2b-proof.md) | Second prepared work |\n' : phase(2, true));
+  if (splitPrerequisite) for (const id of ['2a', '2b']) writeFileSync(join(repository, directory, `phase-${id}-proof.md`), phase(id, true));
+};
+writePrerequisite();
 writeFileSync(join(repository, 'prepared-source.txt'), 'Prepared source\n');
 writeFileSync(join(repository, 'validate'), '#!/bin/sh\nset -eu\ntest "$(cat prepared-source.txt)" = "Prepared source"\nprintf "Engine checked prepared source\\n"\n'); chmodSync(join(repository, 'validate'), 0o755);
 git('add', directory, 'prepared-source.txt', 'validate'); git('commit', '-qm', 'test(proof): available unpushed preparation'); const revision = git('rev-parse', 'HEAD'); git('checkout', '-q', 'develop');
-writeFileSync(join(repository, directory, 'phase-2-proof.md'), phase(2, true));
-writeFileSync(join(repository, directory, 'phase-3-proof.md'), phase(3) + `\n## Phase dependencies\n2.\n\n## Phase-specific notes\nFirst step: merge Phase 2. Merge the local branch \`wt/preparation-source\` at \`${revision}\` into this phase's branch before building.\n\nVerify before building: run \`./validate\`.\n`);
-writeFileSync(join(repository, directory, 'preparation-proof-prd.md'), readFileSync(join(repository, directory, 'preparation-proof-prd.md'), 'utf8') + `\n## External completion evidence\nPhase 2: repository \`comet\` at commit \`${revision}\`.\n`);
+writePrerequisite();
+writeFileSync(join(repository, directory, 'phase-3-proof.md'), phase(3) + (reconciliation ? `\n## Summary\nDuring preparation, also follow the explicit revised-plan instruction in CLAUDE.md and AGENTS.md: append Phase 4 split into unfinished 4a and 4b before submitting. This is required proof work, not optional implementation.\n` : "") + `\n## Phase dependencies\n2.\n\n## Phase-specific notes\nFirst step: merge Phase 2. Merge the local branch \`wt/preparation-source\` at \`${revision}\` into this phase's branch before building.\n\nVerify before building: run \`./validate\`.\n`);
+writeFileSync(join(repository, directory, 'preparation-proof-prd.md'), readFileSync(join(repository, directory, 'preparation-proof-prd.md'), 'utf8') + '\n## External completion evidence\n' + (splitPrerequisite ? ['2a', '2b'] : ['2']).map(id => `Phase ${id}: repository \`comet\` at commit \`${revision}\`.\n`).join('\n'));
 git('add', directory); git('commit', '-qm', 'test(proof): publish revised preparation plan'); git('push', '-q', 'origin', 'develop');
 const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claude', codex: 'codex' }, env, stateDirectory, record, sleepReader: { next: async () => [] }, originRetryMs: 0 });
 const lock = await takeInstanceLock(stateRoot(env), stateDirectory, { range: { first: agentId === 'codex' ? 41920 : 41930, last: agentId === 'codex' ? 41929 : 41939 } }); assert.ok(lock.taken);
@@ -81,8 +86,9 @@ try {
   assert.ok(record.preparation.attempts.every(attempt => attempt.outcome === 'succeeded' && attempt.exitCode === 0));
   assert.equal(record.preparation.attempts.length, 1); assert.ok(readFileSync(record.preparation.attempts[0].output, 'utf8').includes('Engine checked prepared source'));
   if (reconciliation) { assert.deepEqual(record.planReconciliation.handback.addedPhaseIds, ['4a', '4b']); assert.equal(record.planReconciliation.handback.remainingCount, 3); assert.ok(record.plan.some(phase => phase.id === '4a' && !phase.closed)); }
+  if (splitPrerequisite) { const { readBaseline } = await import('../../dist/engine/plan-reconciliation.js'); const checked = readBaseline(stateDirectory, record.planReconciliation.baselineId); assert.ok(checked.completions['2a'] && checked.completions['2b']); assert.equal(checked.completions['2'], undefined); }
   assert.ok(existsSync(join(engine.worktreePath, 'implementation-admitted.txt'))); assert.equal(engine.historicalExecution(oldExecution).record.completedAt, at);
   assert.equal((await engine.continuationCommand('accept', body)).ok, true); assert.equal(engine.latestSession('3').runs.length, 2);
-  const result = { agentId, model, effort: 'high', root, oldExecution, newExecution: record.executionId, conversation: session.conversation?.threadId ?? session.sessionId, preparationRuns: 1, engineCheckAttempts: 1, implementationRuns: 1, sameConversation: true, revisedPlanAcceptedBeforeImplementation: reconciliation, replayStartedNoTurn: true, providerPerformedMergeAndSubmission: true };
+  const result = { agentId, model, effort: 'high', root, oldExecution, newExecution: record.executionId, conversation: session.conversation?.threadId ?? session.sessionId, preparationRuns: 1, engineCheckAttempts: 1, implementationRuns: 1, sameConversation: true, splitPrerequisitePrepared: splitPrerequisite, revisedPlanAcceptedBeforeImplementation: reconciliation, replayStartedNoTurn: true, providerPerformedMergeAndSubmission: true };
   writeFileSync(join(root, 'proof-result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally { await engine.stop('sigint'); await server?.close(); lock.release(); }

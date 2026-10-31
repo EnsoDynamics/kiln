@@ -5,7 +5,7 @@ import type { PrdRecord } from "../state/records.js";
 import { judgedPhase, recordedPlan } from "./plan-reading.js";
 import type { GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 import type { ContinuationInputObservation } from "./continuation-authority.js";
@@ -69,7 +69,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   for (const [id, completion] of Object.entries(completions)) {
     const workRevision = completion.repositories?.[record.repository.name]?.revision ?? completion.revision!;
     const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision);
-    if (!historical.plan.phases.some(phase => phase.id === id && phase.closed && !phase.splitInto) || historical.scopes[id] !== source.scopes[id]) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
+    if (!historical.plan.phases.some(phase => phase.id === id && phase.closed && !phase.splitInto) || !completedPhaseScopeUnchanged(historical, source, id)) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
     completion.scopeRepositories = phaseRepositories(historical, id);
   }
   return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
@@ -100,7 +100,7 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   try { baseline = await completedBaseline(context); }
   catch (error) { failed(error); }
   // A changed local candidate is known even if another required source failed.
-  if (local && baseline && semantic(local) !== semantic(baseline.active)) context.observeInput?.({ kind: "candidate", digest: local.digest });
+  if (local) context.observeInput?.({ kind: "shared_documents", digest: local.digest });
   if (check.errors.length || !local || !remote || !baseline || !revision) return check;
   try {
     const old = baseline.active;
@@ -114,11 +114,11 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const unintegratedDocuments = [...new Set([...Object.keys(selected.documents), ...Object.keys(remote.documents)])].filter(file => selected.documents[file] !== remote.documents[file]);
     if (unintegratedDocuments.length) problems.push(`Revised documents are not together in origin/${branch}: ${unintegratedDocuments.join(", ")}. Commit/integrate the coherent document set, then check again.`);
     const accounting = await accountCompletedLeaves({ record, baseline, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.readProvenance ? { readProvenance: context.readProvenance } : {}), ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
-    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
+    const proposal = await evaluateContinuationReadiness({ record, baseline, candidate: selected, accounting, git, shared, directory, problems, sharedDigest: local.digest, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     problems.splice(0, problems.length, ...proposal.problems);
     // Recheck before publishing: slow Git reads must not bless a moving shared checkout/base.
     const currentLocal = observePlan(shared, record.prdDirectory);
-    if (semantic(currentLocal) !== semantic(old)) context.observeInput?.({ kind: "candidate", digest: currentLocal.digest });
+    context.observeInput?.({ kind: "shared_documents", digest: currentLocal.digest });
     const currentRevision = await remoteBase(git, shared, branch, false);
     context.observeInput?.({ kind: "base", repository: record.repository.name, branch, revision: currentRevision });
     if (currentLocal.digest !== local.digest || currentRevision !== revision) throw new Error("source_changed: The shared documents or delivery base changed during this check. Check for new phases again.");
