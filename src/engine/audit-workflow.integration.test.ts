@@ -14,7 +14,7 @@ import { writePrdRecord } from "../state/records.js";
 import { ownerDocuments, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 import { AuditStore } from "../audit/storage.js";
-import type { AuditResult } from "../audit/contracts.js";
+import { AuditRefusal, type AuditResult } from "../audit/contracts.js";
 import { auditKey } from "../audit/workflow.js";
 import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
 import type { EngineOptions } from "./engine.js";
@@ -41,6 +41,45 @@ const auditSession = (behavior: Record<string, unknown> = {}) => ({ actions: [{ 
 // Multi-cycle scenarios below run several real provider/Git/audit boundaries. Their
 // two-minute budgets cover that complete workflow, not an individual operation.
 describe("automatic completion activities", () => {
+  it("keeps the controller alive and the same audit stopped when completion evidence is unavailable", async () => {
+    const current = await fixture([auditSession({ noReport: true })]);
+    const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Broken Codex compaction window chain.", 503));
+    try {
+      await current.engine.start({ refinementConfirmed: true });
+      await expect(current.engine.settled()).resolves.toBeUndefined();
+      const activity = current.engine.record.completionAudits!.activities.at(-1)!;
+      const key = auditKey(activity);
+      const sessionIds = [...activity.sessionIds];
+      expect(buildSnapshot(current.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { phaseId: key, checks: [{ name: "Audit completion evidence", passed: false, facts: ["Broken Codex compaction window chain."] }] } });
+      const response = await fetch(new URL("api/snapshot", server!.address), { headers: { "X-Kiln-Token": current.engine.record.token } });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ feature: { state: "needs_you" } });
+      const saved = JSON.parse(readFileSync(join(current.stateDirectory, "prd.json"), "utf8"));
+      expect(saved.phases[key].stop.checks[0].facts).toEqual(["Broken Codex compaction window chain."]);
+      expect(current.claudeCalls()).toHaveLength(1);
+      expect(current.engine.record.completedAt).toBeUndefined();
+      expect(activity.acceptedResult).toBeUndefined();
+      await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
+      expect(current.claudeCalls()).toHaveLength(1);
+      const billing = current.engine.record.billing!;
+      billing.hold = { phaseKey: key, action: "resume", sessionId: sessionIds[0]!, reason: "Fixture billing requires review.", observed: structuredClone(billing.lastLaunch!), at: new Date().toISOString() };
+      await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
+      expect(current.claudeCalls()).toHaveLength(1);
+      expect(current.engine.record.billing!.hold).toBeDefined();
+      delete current.engine.record.billing!.hold;
+      writePrdRecord(current.stateDirectory, current.engine.record);
+      current.reopenFromDisk(); await current.engine.agents.refresh();
+      await current.engine.decide(); await current.engine.settled();
+      expect(current.engine.record.phases[key]!.stop).toBeDefined();
+      expect(current.engine.record.completionAudits!.activities.at(-1)!.sessionIds).toEqual(sessionIds);
+      expect(current.claudeCalls()).toHaveLength(1);
+      submit.mockRestore();
+      await current.engine.checkAgain();
+      expect(current.engine.record.phases[key]!.stop!.checks[0]!.name).toBe("missing_evidence");
+      expect(current.engine.record.completedAt).toBeUndefined();
+      expect(current.claudeCalls()).toHaveLength(1);
+    } finally { submit.mockRestore(); }
+  });
   it("retains a failed handback observation when an audit completion read is unavailable", async () => {
     const current = await fixture([auditSession({ noReport: true })]);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
@@ -55,6 +94,60 @@ describe("automatic completion activities", () => {
     expect(current.engine.record.planReconciliation!.baselineId).toBe(baseline);
     expect(current.engine.record.phases[key]).toEqual(stop);
     expect(current.engine.record.completedAt).toBeUndefined();
+  });
+  it.each(["automatic", "Resume now"])("stops usage recovery on unavailable audit evidence without dispatching another turn (%s)", async mode => {
+    const started = Date.now();
+    const now = () => new Date(Date.parse("2026-10-26T09:30:00Z") + Date.now() - started);
+    const claude = new ScriptedClaude(now);
+    const full = signedIn([usageRow("weekly_all", 100, "2026-10-28T12:00:00Z")]);
+    claude.queue(full, full);
+    const current = await fixture([{ actions: [{ skill: "delivery-audit" }, { replay: "usage-limit/weekly-refusal-with-subagents.jsonl" }, { exit: 1 }] }, auditSession()], [pullRequestSession()], files, { claude, now });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const activity = current.engine.record.completionAudits!.activities[0]!;
+    const key = auditKey(activity);
+    expect(current.engine.waitingPhaseKey()).toBe(key);
+    const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Broken Codex compaction window chain.", 503));
+    try {
+      const fresh = signedIn([usageRow("weekly_all", 5)], { email: "fresh@example.test", orgId: "org-fresh" });
+      if (mode === "automatic") { claude.queue(...Array.from({ length: 8 }, () => fresh)); await claude.refreshAccount(); }
+      else expect(await current.engine.resume({})).toMatchObject({ ok: true });
+      await waitFor(() => !!current.engine.record.phases[key]?.stop); await current.engine.settled();
+      expect(buildSnapshot(current.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { phaseId: key, checks: [{ name: "Audit completion evidence", passed: false }] } });
+      expect(current.engine.waitingPhaseKey()).toBeUndefined();
+      expect(current.engine.latestSession(key)!.runs).toHaveLength(1);
+      expect(current.claudeCalls()).toHaveLength(1);
+      expect(current.engine.record.completedAt).toBeUndefined();
+    } finally { submit.mockRestore(); }
+  });
+  it("does not enter a usage wait when the first refused audit has unavailable evidence", async () => {
+    const current = await fixture([{ actions: [{ skill: "delivery-audit" }, { refuse: { rateLimitType: "five_hour" } }] }]);
+    const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Unavailable original audit history.", 503));
+    try {
+      await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+      const key = auditKey(current.engine.record.completionAudits!.activities[0]!);
+      expect(current.engine.latestSession(key)!.runs[0]!.limitRefusal).toBeDefined();
+      expect(current.engine.waitingPhaseKey()).toBeUndefined();
+      expect(current.engine.record.phases[key]!.stop!.checks[0]!.facts).toEqual(["Unavailable original audit history."]);
+      expect(current.claudeCalls()).toHaveLength(1);
+    } finally { submit.mockRestore(); }
+  });
+  it("keeps a resumable interrupted audit stopped when its completion evidence is unavailable", async () => {
+    const current = await fixture();
+    const marker = join(current.sandbox.root, "interrupted-audit-working");
+    writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [], auditSessions: [{ actions: [{ touch: marker }, { work: "audit verification" }] }] }));
+    await current.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
+    await current.engine.stop("sigint");
+    current.reopenFromDisk(); await current.engine.agents.refresh();
+    const key = auditKey(current.engine.record.completionAudits!.activities[0]!);
+    const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Unavailable original audit history.", 503));
+    try {
+      expect(await current.engine.decide()).toMatchObject({ kind: "needs_you", phaseKey: key });
+      await current.engine.settled();
+      expect(current.engine.record.phases[key]!.stop!.checks[0]!.facts).toEqual(["Unavailable original audit history."]);
+      expect(current.engine.latestSession(key)!.runs).toHaveLength(1);
+      expect(current.claudeCalls()).toHaveLength(1);
+      expect(current.engine.record.completedAt).toBeUndefined();
+    } finally { submit.mockRestore(); }
   });
   it.each([
     { entry: "completed", stopping: true },

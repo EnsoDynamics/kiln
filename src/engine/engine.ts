@@ -2377,7 +2377,12 @@ export class Engine {
     const latest = stopped === undefined && doneFirst === undefined ? this.latestSessionOverall() : undefined;
     if (stopped !== undefined) {
       const kind = record.phases[stopped]!.stop!.kind;
-      const verdict = await this.recheckStop(stopped);
+      let verdict: Awaited<ReturnType<Engine["recheckStop"]>>;
+      try { verdict = await this.recheckStop(stopped); }
+      catch (error) {
+        if (!(error instanceof CompletionCheckUnavailable)) throw error;
+        return { kind: "needs_you", phaseKey: stopped, again: true };
+      }
       if (verdict === "still_stopped") return kind === "plan" ? { kind: "plan_stop", phaseKey: stopped } : { kind: "needs_you", phaseKey: stopped, again: true };
       if (verdict === "complete") return { kind: "complete" };
       if (verdict === "done") doneFirst = { phaseId: this.judgedId(stopped), byPerson: true };
@@ -3493,7 +3498,7 @@ export class Engine {
         await this.recordDone(phaseKey, outcome, byPerson);
         return { kind: "done", judgedId: outcome.judgedLeafId };
       }
-      if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks);
+      if (!outcome.unavailable && !notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
       this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
@@ -3521,7 +3526,7 @@ export class Engine {
     }
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping" || this.stopping) return { kind: "stopping" };
-    if (!outcome.passed) return !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
+    if (!outcome.passed) return !outcome.unavailable && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(phaseKey, "done_check", outcome.checks);
     await this.recordDone(phaseKey, outcome, false);
     return { kind: "done", judgedId: outcome.judgedLeafId };
   }
@@ -3553,6 +3558,10 @@ export class Engine {
     if (hold?.phaseKey === phaseKey) {
       if (this.latestSession(phaseKey)?.runs.length) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
+        if (outcome !== "stopping" && "unavailable" in outcome && outcome.unavailable) {
+          if (facts.stop) this.updateStop(phaseKey, outcome.checks); else this.recordStop(phaseKey, "done_check", outcome.checks);
+          throw new CompletionCheckUnavailable(outcome.unavailable);
+        }
         if (outcome !== "stopping" && outcome.passed) {
           delete this.record.billing!.hold;
           if (phaseKey === PR_PHASE_KEY) { const final = outcome as Awaited<ReturnType<Engine["pullRequestCheck"]>>; this.complete(final.pullRequests!, true, final.mergedBranches); return "complete"; }
@@ -3620,6 +3629,7 @@ export class Engine {
     }
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping" || this.stopping) return "still_stopped";
+    if (outcome.unavailable) { this.updateStop(phaseKey, outcome.checks); throw new CompletionCheckUnavailable(outcome.unavailable); }
     if (!outcome.passed) {
       this.updateStop(phaseKey, outcome.checks);
       return "still_stopped";
@@ -3697,7 +3707,9 @@ export class Engine {
         // Every entry point uses this boundary: normal completion, interruption,
         // Check again and usage recovery all abandon only explicitly stopped reads.
         if (this.stopping) return "stopping";
-        throw error;
+        if (!(error instanceof CompletionCheckUnavailable)) throw error;
+        const problem = error.message;
+        return this.withCodexSafety<DoneCheckOutcome>(phaseKey, { passed: false, unavailable: problem, checks: [{ name: "Audit completion evidence", passed: false, facts: [problem] }], plan: { ok: false, problem, unavailable: true }, judgedLeafId: phaseKey });
       }
     }
     this.activeCheck = phaseKey;
@@ -4109,6 +4121,7 @@ export class Engine {
         this.updateKeepAwake();
         return "done";
       }
+      if (outcome.unavailable) { this.waitToStop(phaseKey, outcome.checks); return "stopped"; }
       checks = outcome.checks;
     }
     const session = this.latestSession(phaseKey);

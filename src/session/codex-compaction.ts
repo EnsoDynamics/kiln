@@ -13,7 +13,7 @@ const array = (value: unknown): unknown[] => {
   return value;
 };
 
-/** Qualified retained-rollout form observed with the 0.165.0 history reader. */
+/** Qualified retained-rollout forms observed with the 0.165.0 and 0.166.0 readers. */
 export function retainedCompaction(value: unknown, chain: WindowChain | undefined, threadId: string, recordedTurn: (id: string) => boolean): WindowChain {
   const payload = object(value);
   const keys = ["message", "replacement_history", "replacement_history_metadata", "retained_context", "window_number", "first_window_id", "previous_window_id", "window_id", "compaction_response_id", "latest_token_usage_record", "resume_metadata"];
@@ -42,6 +42,11 @@ export function retainedCompaction(value: unknown, chain: WindowChain | undefine
     if (item.internal_chat_message_metadata_passthrough !== undefined) turn(object(item.internal_chat_message_metadata_passthrough).turn_id);
     if (item.type === "message" && ["developer", "user"].includes(String(item.role)) && Array.isArray(item.content)) continue;
     if (item.type === "additional_tools" && item.role === "developer" && Array.isArray(item.tools)) continue;
+    // Retained delegation text is context only, never a command or assessment receipt.
+    if (item.type === "agent_message" && Object.keys(item).every(key => ["type", "id", "author", "recipient", "content", "internal_chat_message_metadata_passthrough"].includes(key)) && typeof item.author === "string" && item.author.startsWith("/root") && typeof item.recipient === "string" && item.recipient.startsWith("/root") && Array.isArray(item.content) && item.content.length && item.content.every(value => {
+      const block = object(value);
+      return Object.keys(block).length === 2 && (block.type === "input_text" && typeof block.text === "string" || block.type === "encrypted_content" && typeof block.encrypted_content === "string" && block.encrypted_content.length > 0);
+    })) continue;
     if (item.type === "compaction" && typeof item.encrypted_content === "string" && item.encrypted_content) { summaries++; continue; }
     throw new Error("Executable or unsupported item in Codex compaction snapshot.");
   }

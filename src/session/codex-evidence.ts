@@ -47,6 +47,7 @@ interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
   started_at_ms?: number; completed_at_ms?: number;
   reason?: string;
+  window_id?: string; latest_token_usage_record?: { thread_id?: string; turn_id?: string };
   type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string; context_window?: { window_id?: string };
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
@@ -196,7 +197,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         }
         if (["event_msg", "response_item"].includes(record.type) && (typeof payload.type !== "string" || !payload.type)) throw new Error(`${id}: missing raw event/item type.`);
         if (record.type === "response_item" && ["compaction", "compacted"].includes(payload.type ?? "")) problem(`${id}: compacted raw response history.`);
-        if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; first = false; }
+        if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; index.put("sessionMetadata", id, digest(payload)); first = false; }
+        if (record.type === "compacted" && payload.latest_token_usage_record?.thread_id === id) index.unique(`compaction:${id}`, requireText(payload.window_id, "compaction window"), digest(payload));
         if (record.type === "turn_context") rawTurn = payload.turn_id;
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocationValue:${id}`, requireText(payload.call_id, "raw call ID"), { payload, at: record.timestamp, turnId: payload.internal_chat_message_metadata_passthrough?.turn_id ?? rawTurn });
         if (record.type === "turn_context") index.unique(`context:${id}`, requireText(payload.turn_id, "context turn"), payload);
@@ -278,10 +280,28 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       }
       let currentTurn: string | undefined; let shell: string | undefined;
       let windows: Parameters<typeof retainedCompaction>[1];
+      let metadataPrefix = true;
       for await (const { value } of rawLines(frontier.path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
-        if (record.type === "session_meta" && payload.context_window?.window_id && windows === undefined) windows = { first: payload.context_window.window_id, current: payload.context_window.window_id, number: 0 };
-        if (record.type === "compacted") windows = retainedCompaction(payload, windows, id, turnId => !!index.get(`context:${id}`, turnId) && !!index.get(`task_started:${id}`, turnId));
+        if (record.type === "session_meta") {
+          if (!metadataPrefix) throw new Error(`${id}: session metadata appears after original history.`);
+          const source = requireText(payload.id, "session metadata owner");
+          let ancestor: string | undefined = id;
+          while (ancestor && ancestor !== source) ancestor = byId.get(ancestor)?.parentThreadId;
+          if (!ancestor || index.get("sessionMetadata", source) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited session metadata.`);
+          // Forks prepend their own file identity, followed by the copied history's
+          // original window seed. Compaction continues that inherited lineage.
+          const window = payload.context_window?.window_id;
+          if (window) windows = { first: window, current: window, number: 0 };
+        } else metadataPrefix = false;
+        if (record.type === "compacted") {
+          const origin = owner(id, requireText(payload.latest_token_usage_record?.turn_id, "compaction turn"));
+          if (index.get(`compaction:${origin}`, requireText(payload.window_id, "compaction window")) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited compaction.`);
+          windows = retainedCompaction(payload, windows, origin, turnId => {
+            const source = owner(id, turnId);
+            return !!index.get(`context:${source}`, turnId) && !!index.get(`task_started:${source}`, turnId);
+          });
+        }
         if (record.type === "world_state") { const env = payload.state?.environments?.environments?.local; if (env || payload.full) shell = env?.shell; }
         if (record.type === "turn_context") currentTurn = payload.turn_id;
         if (record.type === "turn_context" || record.type === "event_msg" && payload.type === "task_started") {
