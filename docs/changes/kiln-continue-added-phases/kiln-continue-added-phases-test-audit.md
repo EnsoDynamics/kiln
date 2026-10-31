@@ -1,16 +1,16 @@
 # Test audit: Kiln Continue Added Phases
 
-**Status:** 14 to fix (AC-CONTINUE-08, AC-CONTINUE-09, AC-CONTINUE-06, AC-OFFER-03, AC-OFFER-02, AC-HANDBACK-02, AC-HANDBACK-03, AC-CONTINUE-01, AC-CONTINUE-03, AC-FIND-04, AC-OFFER-01, AC-FIND-01, AC-FIND-02, AC-HANDBACK-01); 0 red checks pending; 1 waiting on delivery (AC-CONTINUE-07, Phase 9); 0 accepted. Three criteria are Adequate. Two bounded preparation-evidence batches complete; AC-CONTINUE-07 reached stuck after its second below-target remediation regrade; Doug then authorized the revised approach below. That direction remains in force. A confirmed preparation-recovery delivery gap now takes precedence in Phase 9; no third partial regrade or attempt reset occurred.
+**Status:** Audit/remediation chain stopped by Doug on 2026-10-31 UTC. Remaining evidence gaps and the recovery-message limitation are retained below. No further phases, audits or successor chats are planned. Grades, denominators, both prior attempts and all collected evidence are unchanged; this is a user-directed closeout, not a claim that the audit target was met.
 **Last audit:** 2026-10-31 UTC, whole PRD; current chat `01a18fba-5b8a-7642-8124-37692cfad927` confirmed a delivery gap at `feb514a` without regrading partial remediation; AC-CONTINUE-07 independently regraded against test-only changes at `f149f48`. Initial unchanged rows retain `b46e7fb`.
 **PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md).
 **Requirements:** [single technical design](kiln-continue-added-phases-technical-design.md), [assumptions](kiln-continue-added-phases-assumptions.md), every closed leaf in the [phase plan](kiln-continue-added-phases-phase-plan.md).
-**Delivery assessment:** [historical clean whole-PRD delivery audit after Phase 8](kiln-whole-prd-delivery-audit-after-phase-8.md), implementation `c21e655`; the newly confirmed Phase 9 gap prevents relying on it as current clean closeout. Phase 9 requires a fresh whole-PRD delivery audit before affected test reassessment.
+**Delivery assessment:** [Historical whole-PRD delivery audit after Phase 8](kiln-whole-prd-delivery-audit-after-phase-8.md), implementation `c21e655`; the diagnostic limitation discovered later remains documented. Doug ended further implementation/audit work and authorized development integration and local installation with these limits.
 
-This is the governing test-audit record for this PRD. Its descriptive filename follows the user's documentation naming instruction. Successor test-audit chats update this file in place rather than creating a second `test-audit.md`.
+This is the governing test-audit record for this PRD. Its descriptive filename follows the user's documentation naming instruction. No successor audit is scheduled; this file retains the evidence and limitations at closeout.
 
 ## Scope and evidence rules
 
-The original assessment covered all 18 active criteria as built. The current recovery-diagnostic discovery leaves AC-CONTINUE-07 waiting on Phase 9 delivery; its earlier grade/count remain historical evidence. AC-CONTINUE-02 is retired into AC-CONTINUE-06/07; AC-CONTINUE-04 is retired into AC-CONTINUE-08/09. Neither retired label is graded. No active criterion is excluded as person-checked, superseded, not built, or accepted. CONTINUE-001/002 retain their declared proposed status; no product assumption changed.
+The original assessment covered all 18 active criteria as built. The recovery-diagnostic discovery remains a known AC-CONTINUE-07 limitation; proposed Phase 9 was cancelled by Doug, and its earlier grade/count remain historical evidence. AC-CONTINUE-02 is retired into AC-CONTINUE-06/07; AC-CONTINUE-04 is retired into AC-CONTINUE-08/09. Neither retired label is graded. No active criterion is excluded as person-checked, superseded, not built, or accepted. CONTINUE-001/002 retain their declared proposed status; no product assumption changed.
 
 Three independent fresh readers assessed groups of at most four related criteria, deriving required parts from the PRD/design/assumptions and applicable original/completion leaves before opening tests. The complex preparation criterion had its own assessment. The primary reader confirmed collection, representative assertions, source paths and red-check safety. Counts below use stated observable groups: a group is uncovered if one of its stated variants remains unproved. Implied edges do not reduce Adequate to Weak. No criterion is Strong because every stated part has not been seen to fail under a safe discriminating mutation.
 
@@ -39,7 +39,7 @@ Test aliases resolve to exact collected names in the next section. Checked entri
 | AC-CONTINUE-03 — Ambiguous earlier changes (high risk) | Weak | 9/10 | D6, N2–N4, S4 | `plan-reconciliation.ts` scope comparison | `b46e7fb` |
 | AC-CONTINUE-05 — Normal audits and delivery (high risk) | Adequate | 6/6 | C1/C8, P26, A3 | `engine.ts` audit routing/finalization; `continuation-state.ts` | `b46e7fb` |
 | AC-CONTINUE-06 — Current delivery base (high risk) | Weak | 9/12 | C1–C3/C6/C7, D5, R3, K4/K9 | continuation readiness/sources/setup; engine activation | `b46e7fb` |
-| AC-CONTINUE-07 — Prepare prerequisites first (high risk) | Waiting on delivery — Phase 9; prior Weak | prior 36/42 | V1–V5, E1–E11, Q1–Q4, R1/R4, M1, P1–P23, C3 | preparation documents/state/permissions/verifier; readiness and engine | `f149f48` |
+| AC-CONTINUE-07 — Prepare prerequisites first (high risk) | Weak; diagnostic limitation retained | 36/42 | V1–V5, E1–E11, Q1–Q4, R1/R4, M1, P1–P23, C3 | preparation documents/state/permissions/verifier; readiness and engine | `f149f48` |
 | AC-CONTINUE-08 — Existing controls govern work (high risk) | Weak | 8/14 | C1/C3/C9/C10, R1, P1/P4/P14/P24/P27–P30 | engine activation/admission; setup; preparation permissions; billing/adapters | `b46e7fb` |
 | AC-CONTINUE-09 — Separate early-merge choice (high risk) | Weak | 22/27 | R1, P25/P30–P35, C1/C5, F7 | continuation authority/readiness; engine grant; browser panel | `b46e7fb` |
 
@@ -240,7 +240,7 @@ Each numbered item is a stated group from the PRD/design/3b and completion leave
 12. **C** configured delivery destination needs exact current grant and verified integration — R1/P22.
 13. **C** unknown named destination refuses — Q1 pins the exact target/replacement, blocked prerequisite, unchanged Git state and zero provider work.
 14. **C** dependency/preparation/linked-row/amendment destination agreement — E8 tests matching explicit destinations and each contradictory location with exact span/recovery; E5 retains fenced-row exclusion.
-15. **U — waiting on Phase 9 delivery** complete malformed/missing/contradictory blocker facts, exact spans and recoverable replacement instructions. E8/E10/E11 now pin destination/verification errors, exact spans and ordinary-prose recovery. Still missing complete malformed First-step opening, unsupported merge operands and missing/ambiguous repository/fact diagnostics; E2/E5 cover subsets.
+15. **U — diagnostic limitation retained; Phase 9 cancelled** complete malformed/missing/contradictory blocker facts, exact spans and recoverable replacement instructions. E8/E10/E11 now pin destination/verification errors, exact spans and ordinary-prose recovery. Still missing complete malformed First-step opening, unsupported merge operands and missing/ambiguous repository/fact diagnostics; E2/E5 cover subsets.
 16. **C** direct quoted argv preserved without expansion — E1/E3.
 17. **C** shell operators/redirection/substitution/assignment/inline evaluation rejected — E4.
 18. **C** explicit/default check directories and physical symlink-escape refusal — V1 pins the actual physical cwd through retained `pwd -P` output and invocation metadata; V2 commits a real escaping directory symlink during preparation after valid-source acceptance, then pins native checkpoint refusal, zero attempts and no implementation dispatch. E9 retains parsed definitions.
@@ -346,7 +346,7 @@ The entire six-case V1–V5 file passed together after restoration. New checks d
 
 The initial outer-sandbox test run could not read process inventory and was stopped; it is not evidence. The first symlink fixture was already unsafe in the identified source, so discovery correctly blocked it before native verification. The final fixture starts from valid source, then commits the physical escape during preparation to reach the intended native checkpoint; no product code or assertion was weakened.
 
-## To fix, in order
+## Retained coverage gaps at closeout
 
 ### Missing
 
@@ -358,11 +358,11 @@ Six exploratory recovery-diagnostic cases confirmed missing implementation and w
 
 ### Red checks still to run
 
-None. The explicit guard/configuration prohibitions above are safety exceptions, not deferred mutation tasks. The only other Adequate row, FIND-03, received RC-01. All remaining rows are Weak and go to remediation before additional mutation coverage.
+None. The explicit guard/configuration prohibitions above are safety exceptions, not deferred mutation tasks. The only other Adequate row, FIND-03, received RC-01. The remaining Weak rows are retained as coverage limits; no additional mutation or remediation work is planned.
 
 ### Weak
 
-Order: high risk, most uncovered stated groups, then shared setup; ordinary reporting rows follow. This is a test-remediation queue, not an implementation phase plan. Each successor takes one coherent bounded batch; unchanged grades stand until affected evidence changes.
+This historical ordering records the uncovered groups. Doug ended the remediation queue; these are limitations, with no scheduled work or successors. Their evidence grades remain unchanged.
 
 1. **AC-CONTINUE-08 (8/14, high risk):** assert nondefault per-provider selections at fresh launch; Codex billing/pause; native current policy/sandbox; changed policy after a successful check and before implementation admission. Real provider/policy boundary evidence must accompany deterministic control fixtures.
 2. **AC-CONTINUE-09 (22/27, high risk):** pin panel CI/CD disclosure; real HTTP continuation-specific invalid/stale/wrong/environment/incomplete-scope and denied-permission refusals; conflicting grant command ID; two independent required targets retained across restart and adopted together under the exact reserved execution. Assert unchanged settings/workspaces and zero work until separate Continue.
@@ -378,15 +378,15 @@ Order: high risk, most uncovered stated groups, then shared setup; ordinary repo
 12. **AC-FIND-01 (8/10):** hold actual browser response, assert pending feedback/disabled action; count requests during idle/clock/SSE reconnection without adding arbitrary sleeps.
 13. **AC-FIND-02 (13/15):** unrelated divergent branch must not be read/selected; move real origin revision mid-read, assert source_changed/earlier-result and no offer. Share movement setup with FIND-04.
 14. **AC-HANDBACK-01 (8/10):** collect both actual-provider manual-return append/split/remaining-count proof; share with HANDBACK-02.
-Only AC-CONTINUE-07 has remediation attempts (two), preserved under Waiting below. All other rows retain the initial assessment and have no remediation attempt. Do not count the initial assessment or an unchanged grade carried forward as a failed attempt.
+Only AC-CONTINUE-07 has remediation attempts (two), preserved in the implementation-limitation history below. All other rows retain the initial assessment and have no remediation attempt. Do not count the initial assessment or an unchanged grade carried forward as a failed attempt.
 
 ### Strong, if asked
 
-High-risk AC-HANDBACK-04 and AC-CONTINUE-05 are Adequate. More exhaustive implied-state combinations and safe value-only mutations can strengthen their evidence, but forbidden admission/permission guard mutations must never be used. This is optional strengthening after mandatory Weak rows, not current remediation work.
+High-risk AC-HANDBACK-04 and AC-CONTINUE-05 are Adequate. More exhaustive implied-state combinations and safe value-only mutations can strengthen their evidence, but forbidden admission/permission guard mutations must never be used. This was optional strengthening under the former audit plan; no strengthening work is scheduled.
 
-## Waiting
+## Retained implementation limitation
 
-- **AC-CONTINUE-07 — waiting on delivery:** [Phase 9: Complete preparation recovery diagnostics](phase-9-preparation-recovery-diagnostics.md). Known facts and usable replacement examples are missing from required preparation blockers. This is implemented behavior missing from the criterion, not an accepted coverage gap. After delivery, require fresh whole-PRD delivery audit, then affected test reassessment and the coherent preparation/control boundary pass. Actual-provider normal collection and the other five uncovered groups remain audit work; they were not moved into Phase 9. No missing non-production environment was found.
+**AC-CONTINUE-07:** some malformed or contradictory preparation instructions show generic replacement values or no usable replacement example. Existing refusals and exact error locations remain in place. [The cancelled Phase 9 record](phase-9-preparation-recovery-diagnostics.md) preserves reproduction details; this wording gap is not scheduled for implementation. The separate provider/source/configuration/permissions evidence gaps also remain documented, without claiming a demonstrated unsafe-launch defect.
 
 ### Preserved preparation remediation history
 
@@ -394,15 +394,23 @@ High-risk AC-HANDBACK-04 and AC-CONTINUE-05 are Adequate. More exhaustive implie
 
 The current discovery adds no remediation attempt: the coherent pass was interrupted by confirmed missing implementation before regrade. AC-CONTINUE-08 remains unchanged at 8/14 with no remediation attempt.
 
-## Accepted
+## User-directed closeout
 
-None. No user acceptance of a Weak/high-risk row was given or inferred.
+Doug ended the audit/remediation chain in this chat, `01a18fba-5b8a-7642-8124-37692cfad927`, on 2026-10-31 UTC:
 
-## Next bounded batch and completion chain
+> Okay, so let's stop doing the audits at this point then. If there are any remaining gaps that are anything that's even worth documenting, then I guess let's document them and let's not launch any more phases or audits. So let's wrap the whole thing up and commit, push, and merge to develop and then install the thing so that I can use it locally.
 
-**Current next action:** resolve the publication enforcement stop below, then directly launch implementation of [Phase 9: Complete preparation recovery diagnostics](phase-9-preparation-recovery-diagnostics.md) in a fresh chat, then fresh whole-PRD delivery audit, then affected test reassessment and the coherent AC-CONTINUE-07/08 pass below. The current chat made documentation-only final changes after removing its exploratory code/tests. The former clean delivery assessment is historical until Phase 9 and reassessment complete.
+This later instruction supersedes every earlier next-phase, audit, regrade and successor-launch directive below and in linked records. Phase 9 is cancelled without being implemented; leaves through Phase 8 retain their original Closed lines. Remaining Weak evidence and the diagnostic limitation are documented rather than upgraded or silently treated as proven. The track has no remaining planned implementation/audit child. Scoped documentation publication to develop and local packaged installation are authorized in this chat; main/release, public npm publication and unrelated work remain outside scope.
 
-The second bounded native-contract batch is complete, with AC-CONTINUE-07 independently regraded **Weak, 36/42**. The first below-target regrade at `04ed1e5` remains the first attempt; this is the second and triggered stuck before Doug's subsequent direction. Both exact attempts and the corrected first-attempt group-29 overcount remain history, not a reset. After the newly required Phase 9/fresh-delivery-audit chain, resume **test-audit on this whole PRD**, a coherent preparation/control boundary pass for **AC-CONTINUE-07 and AC-CONTINUE-08** under the revised approach below. Other criteria/grades remain unchanged. All leaves through Phase 8 remain closed; newly added Phase 9 is open. Do not split test remediation into implementation phase documents.
+The material limits are: actual Claude/Codex workflows have historical disposable proof but are not all collected in the regular provider tier; preparation source/configuration/permission and continuation authority/replay variants are not exhaustively pinned; some known-source/dependency and discovery/offer UI/limit variants remain unproved; and malformed preparation recovery messages can omit known facts. Exact criterion/test details and both prior attempts remain above/below. No further acceptance, review or audit gate is requested.
+
+### Local installation verification at closeout
+
+`npm run build` passed with unchanged implementation. The exact archive built by `scripts/pack-release.mjs` is `/private/tmp/kiln-closeout-local-install/ensodynamics-kiln-1.0.0.tgz`, SHA-256 `7eeace5efff78890795b674799bc1779fa9888fc241e0c3a66320acf060fa9a3`. `KILN_PACKAGE_TARBALL=<that archive> npm run test:package` passed all eight installed-package cases in 29.33 seconds. Logs: `/private/tmp/kiln-closeout-local-build.log` and `/private/tmp/kiln-closeout-package.log`. This verifies the local installation candidate; it is not another audit or a new claim about the remaining coverage gaps. All closeout repo edits are documentation-only; the prior full verification evidence remains above/in the historical record.
+
+## Historical diagnostic discovery and revised approach
+
+The sections below preserve what the audit established and previously planned. Their implementation/audit/successor instructions were superseded by Doug's closeout above.
 
 ### Confirmed recovery-diagnostic delivery gap (2026-10-31 UTC)
 
@@ -412,11 +420,11 @@ Six exploratory parser cases, named and reproduced in Phase 9, failed their exac
 
 The complete recovery contract needs one bounded implementation/review pass across extraction, verification and readiness presentation rather than continued test-only remediation over known missing behavior. Phase 9 owns only that existing requirement. Independent document review confirmed the bounded existing scope, preserved attempts and unchanged rows; local Markdown links and conflict-marker checks passed. All 17 other criterion rows were compared byte-for-byte with HEAD. Its fresh delivery audit must establish current clean coverage before the preparation/control audit resumes; unchanged criterion grades and both exact attempts remain intact.
 
-### Publication enforcement stop (2026-10-31 UTC)
+### Historical publication enforcement stop (2026-10-31 UTC)
 
 Scoped documentation was committed in `4010e74`. Automatic approval review rejected `git push origin HEAD:develop`, first because it found no trusted exact authorization and then, after direct `read_thread` verification of Doug's actual source-chat approvals, because it treated those transcript/tool approvals as untrusted. The verified messages were `01a18e5e-c173-7a03-b218-ad132fed7594` in `01a18e16-9c76-7633-a756-e9da8eb564f8` and `01a18e84-8a35-7c72-8b3a-f82ca5300fd3` in `01a18e5f-d4b8-7840-940f-0eaceee86860`. Read-only checks confirmed origin is `https://github.com/EnsoDynamics/kiln.git`, remote develop is `feb514a`, and the proposed publication is a fast-forward containing only this chat's scoped documentation.
 
-No alternate push or indirect execution is permitted. This is a real enforcement stop, not a voluntary publication hold or an audit acceptance. Doug must explicitly approve the scoped `git push origin HEAD:develop` in the current chat before another attempt. Preserve all existing continuing authorization; do not expand its scope. The Phase 9 successor prompt is prepared, but no successor has been launched while publication is held. After approval, publish this chat's documentation commits and directly launch Phase 9 using GPT 6.1 Sol/high; then continue the recorded completion chain. No product/test edits remain, and the shared checkout's unpublished `d86331f` is untouched.
+No alternate push or indirect execution was attempted. This is a real enforcement stop, not a voluntary publication hold or an audit acceptance. Doug subsequently gave explicit current-chat authorization to commit/push/integrate to develop and install locally in the closeout quote above, resolving the missing-authorization condition for another normal push attempt. His later direction also cancelled the prepared Phase 9 successor; it must never be launched. The shared checkout's unrelated unpublished `d86331f` remains outside this scope.
 
 ### Doug's revised direction after the second regrade
 
@@ -439,4 +447,4 @@ The temporary gate helper's extra post-package assertion initially rejected a br
 
 If a new required test exposes a delivery defect, confirm it and use test-audit's conflict/shipped-behavior check. Small authorized implementation fixes get deliverable review, independent regrade and a fresh clean whole-PRD delivery audit before affected test reassessment; larger missing implementation gets a completion leaf and its own implementation chat, then fresh delivery audit, then affected test reassessment. Requirements changes also require fresh delivery assessment. One implementation leaf per chat. Test-only and audit-record-only edits retain the existing clean delivery assessment.
 
-Continue scoped commits/publication and direct successor launches under the carried user authorization until Done: every active criterion at least Adequate or explicitly accepted by Doug, no pending required red check, no delivery wait, every planned implementation leaf closed and a current clean whole-PRD delivery audit. No acceptance is currently available for automatic inference, and high-risk rows require explicit named acceptance if Doug chooses that route.
+Historical pre-closeout target (superseded by the user-directed closeout): every active criterion at least Adequate or explicitly accepted by Doug, no pending required red check, no delivery wait, every planned implementation leaf closed and a current clean whole-PRD delivery audit. The recorded evidence is unchanged; no claim that this historical target was reached is made.

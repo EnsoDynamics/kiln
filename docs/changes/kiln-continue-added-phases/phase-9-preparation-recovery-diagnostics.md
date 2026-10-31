@@ -1,12 +1,14 @@
-# Phase 9: Complete preparation recovery diagnostics
+# Phase 9: Preparation recovery diagnostics — cancelled
+
+**Cancelled:** 2026-10-31 UTC by Doug in chat `01a18fba-5b8a-7642-8124-37692cfad927`. Retained as a known limitation and reproduction record only. No implementation, successor or audit is planned.
 
 **Added by test audit:** 2026-10-31, after all original and completion leaves through Phase 8 closed. This completes an existing diagnostic requirement; it adds no new preparation grammar or authority.
 **Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
 **Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Readiness and Planned Preparation: Preparation document contract, Preparation authority and Verification of the prepared work.
 
-## Summary
+## Historical proposed scope
 
-Give the writing session a usable preparation correction that retains known facts and identifies facts still missing, while keeping malformed or contradictory instructions blocked.
+The cancelled proposal would give the writing session a usable preparation correction that retains known facts and identifies facts still missing, while keeping malformed or contradictory instructions blocked.
 
 ## Acceptance criteria covered
 
@@ -34,12 +36,8 @@ Verify before building: run `npm test`.
 
 Vary the opening from `merge` to `integrate`; add unsupported `and push` before `before building`; omit `at` and its revision; omit the source branch value; supply affected repositories `comet` and `lending-api` without naming one; and name `unknown-api` instead. Assert refusal, exact `docs/catalog/phase-9-lending.md:10–10`, retained known branch/revision/destination in the correction, explicit unresolved facts, and reconcile/commit/recheck recovery. Derive the final wording from the requirements; the temporary test's sentence formatting is not a new product requirement.
 
-Walk all extraction failure paths together, including parsed-dependency mismatch, linked-row/amendment destination contradiction, unsupported subordinate instructions and malformed/missing verification. Keep valid known command, argv, directory and timeout facts where applicable. A correction must be valid ordinary prose with the required paragraph structure; do not accidentally combine separate instructions into an unparseable paragraph, infer a missing source or authority, or choose between conflicting destination assertions. Explicitly label unknown facts. Preserve the original parser recognition and rejection decisions, quoted/fenced exclusion, shell/path/timeout restrictions, exact spans and existing authority gates.
+The original proposal also covered the common extraction error paths: parsed-dependency mismatch, linked destination contradiction, unsupported subordinate instructions and malformed/missing verification. These remain documented limitations. No parser recognition, rejection, source/permission guard or provider profile was changed by the audit.
 
-Strengthen normally collected parser tests and one actual real-Git discovery/readiness assertion showing the usable blocker reaches the offer without setup/provider launch. Existing extraction/offer fixtures provide this boundary. Every new test needs a discriminating red result or documented safety exception; do not disable safety guards. Review the whole criterion against existing qualified evidence, but leave the unfinished preparation/control test-audit batch to the audit chain; do not pursue Strong or implied permutations here.
+## Final disposition
 
-## Delivery and audit tail
-
-Implementation requires independent deliverable review, applicable test hardening, `npm run verify` and `npm run test:package`. Freeze sources/build output throughout broad integration, retain existing macOS/provider qualifications, and use generated fictional disposable repositories only. No production effects or wider permission profile is authorized.
-
-After the scoped implementation commit and authorized development-base publication, directly launch a fresh whole-PRD delivery audit using GPT 6.1 Sol/high. A clean assessment then directly resumes test-audit on affected evidence and the coherent AC-CONTINUE-07/08 preparation/control boundary pass. The [canonical test-audit record](kiln-continue-added-phases-test-audit.md) owns both exact prior attempts, Doug's revised direction, remaining groups and unchanged grades. This discovery is not a third partial remediation regrade or an attempt reset. Continue the authorized chain until Done or a genuine user-only stop; one implementation leaf per chat.
+Doug directed the agent to stop audits and phases, retain worthwhile gaps, publish the scoped work to develop and install locally. See the exact quote and remaining evidence in the [canonical test-audit record](kiln-continue-added-phases-test-audit.md#user-directed-closeout). This phase was cancelled, not implemented. No fresh delivery audit, test regrade or successor launch is owed.

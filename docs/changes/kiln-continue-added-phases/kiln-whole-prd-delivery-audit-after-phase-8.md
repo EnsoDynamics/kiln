@@ -1,6 +1,6 @@
 # Kiln Continue Added Phases — whole-PRD delivery audit after Phase 8
 
-**Currentness update (2026-10-31 UTC):** This assessment remains the historical Phase 8 result. The subsequent [test audit](kiln-continue-added-phases-test-audit.md) confirmed missing preparation recovery diagnostics and added [Phase 9](phase-9-preparation-recovery-diagnostics.md). It cannot serve as current clean closeout while that gap is open. Require a fresh whole-PRD delivery audit after Phase 9, then affected test reassessment. Original findings and evidence below are preserved.
+**Closeout update (2026-10-31 UTC):** This remains the historical Phase 8 assessment. The later [test audit](kiln-continue-added-phases-test-audit.md#user-directed-closeout) documented a preparation recovery-message limitation and remaining coverage gaps. Doug stopped further phases/audits and authorized development integration and local installation with those limits. Proposed Phase 9 is cancelled. No new assessment is scheduled; original findings and evidence below are preserved.
 
 **Assessment begun:** 2026-10-30 UTC; completed 2026-10-31 UTC
 
