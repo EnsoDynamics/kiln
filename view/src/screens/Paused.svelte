@@ -55,10 +55,10 @@
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
-      <BillingPanel {snapshot} {connected} />
       {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       <KilnPanel {connected} text="Kiln is waiting in your terminal. Keep it open; Ctrl+C there closes Kiln, and kiln run picks up where it left off." />
+      <BillingPanel {snapshot} {connected} />
     </div>
   </div>
 </main>

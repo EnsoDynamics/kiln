@@ -106,7 +106,6 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
-  <BillingPanel {snapshot} />
   <div class="columns-main">
     <div class="column-wide">
       <section class="card ended">
@@ -280,6 +279,7 @@
     </div>
   </div>
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
+  <BillingPanel {snapshot} />
 </main>
 
 <style>

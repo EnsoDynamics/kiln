@@ -272,7 +272,6 @@
       {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
 
 
-      <BillingPanel {snapshot} {connected} />
       <label for="awake" class="awake">
         <input id="awake" type="checkbox" checked={settings.keepAwake} disabled={!connected} onchange={(event) => save({ keepAwake: event.currentTarget.checked })} />
         <span class="awake-text"
@@ -291,6 +290,7 @@
         <dt>Ends at</dt><dd>{settings.developmentDeployments?.enabled ? "Confirmed development deliveries and any remaining review PRs" : multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
       <DevelopmentDelivery {snapshot} {config} {connected} editable />
+      <BillingPanel {snapshot} {connected} />
     </section>
   </div>
 

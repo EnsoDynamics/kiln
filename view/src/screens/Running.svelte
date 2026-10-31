@@ -37,11 +37,11 @@
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
-      <BillingPanel {snapshot} {connected} />
       {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused={false} pullRequest={isPr} {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       {#if connected && snapshot.current && !isPr}<PausePanel {snapshot} />{/if}
       <KilnPanel {connected} text={kilnText} />
+      <BillingPanel {snapshot} {connected} />
     </div>
   </div>
 </main>
