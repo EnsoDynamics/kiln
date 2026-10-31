@@ -16,6 +16,7 @@ function fixture(agent: "Claude Code" | "Codex") {
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: stop.phaseId, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt }, completion: "incomplete", attemptStartedAt: "2026-10-17T14:58:00Z" };
   stop.freshSessionCommand = `cd '/saved worktree' && ${agent === "Codex" ? "codex" : "claude"}`;
   stop.finalMessage = "Should I keep <optional> exactly as written?\n\nNo changes yet.";
+  stop.resumePrompt = "Retired saved-conversation recovery instructions.";
   stop.resumeCommand = agent === "Codex" ? "cd '/saved worktree' && codex resume 'saved-thread'" : "cd '/saved worktree' && claude --resume 'saved-session'";
   snapshot.settings.agentId = stop.agentId;
   snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
@@ -42,6 +43,14 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     await page.evaluate("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedCommand = text; } } })");
     await click(page, "Copy resume command"); expect(server.commands).toHaveLength(0);
     expect(await page.evaluate("window.copiedCommand")).toBe(stop.resumeCommand);
+    const terminal = await page.evaluate<string>("document.querySelector('.handoff details').parentElement.textContent");
+    expect(terminal).not.toContain(stop.resumePrompt);
+    expect(terminal).not.toMatch(/Send this recovery prompt|Copy recovery prompt/);
+    await page.evaluate("document.querySelector('.handoff details').open = true");
+    await click(page, "Copy fresh-session prompt");
+    expect(await page.evaluate("window.copiedCommand")).toBe(stop.freshSessionPrompt);
+    expect(server.commands).toHaveLength(0);
+    await page.evaluate("document.querySelector('.handoff details').open = false");
     const output = await page.evaluate<string>("[...document.querySelectorAll('a')].find(e => e.textContent.includes('Full session output')).textContent");
     await click(page, output.trim()); await words(page, "Session output");
     await page.evaluate("history.back()"); await words(page, "Reply here and let Kiln finish");
@@ -180,6 +189,27 @@ it("advances without creating a persistent verification success notice", async (
     expect(server.commands).toHaveLength(1);
     expect(await page.evaluate("document.body.innerText")).not.toContain("verified and accepted");
     expect(await page.evaluate("document.querySelector('.command-notice')?.textContent ?? ''")).not.toContain("Dismiss");
+    expect(page.problems).toEqual([]);
+  } finally { await page.close(); await server.close(); }
+});
+
+
+it.each(["Claude Code", "Codex"] as const)("opens legacy %s terminal recovery without a second prompt and preserves fresh-session setup", async agent => {
+  const snapshot = fixture(agent); const stop = snapshot.needsYou!;
+  delete stop.phaseRecovery;
+  const server = await serveViewFixture({ port: agent === "Codex" ? 41987 : 41986, folder: "customer-returns", snapshot });
+  const page = await chrome.open(server.address);
+  try {
+    await words(page, `Open the same ${agent} session in a terminal`);
+    const terminal = await page.evaluate<string>("document.querySelector('.pick').textContent");
+    expect(terminal).not.toContain(stop.resumePrompt);
+    expect(terminal).not.toMatch(/Send this recovery prompt|Copy recovery prompt/);
+    await page.evaluate("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedCommand = text; } } })");
+    await page.evaluate("document.querySelector('.pick .block button').click()");
+    expect(await page.evaluate("window.copiedCommand")).toBe(stop.resumeCommand);
+    await page.evaluate("document.querySelector('.fresh-link').click()");
+    expect(await page.evaluate("window.copiedCommand")).toBe(stop.freshSessionPrompt);
+    expect(server.commands).toHaveLength(0);
     expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });

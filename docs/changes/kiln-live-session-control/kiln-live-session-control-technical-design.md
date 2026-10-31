@@ -139,7 +139,7 @@ Browser, bot and automatic hand-back actions share the controller admission boun
 
 This admission contract implements AC-TAKE-04's Kiln-controlled action boundary and the instruction to exit the terminal first. It does not claim to serialize a later independent direct CLI launch outside Kiln. The ordinary approved command remains unchanged. The [Q1 investigation](kiln-live-session-control-investigation.md#joint-refinement-terminal-ownership-q1) records ordinary-terminal discovery/refusal, clean exit, different-cwd discovery, pending-startup argv and exact-self exclusion, plus the negative evidence against claiming provider-wide mutual exclusion. No persistent workspace/global guard or terminal launcher is required.
 
-Once release is proved, show the actual cwd and platform-correct quoted `cd <folder> && claude --resume <provider-session-id>`, plus existing recovery instructions. Copy does not launch. With unavailable history, display existing recovery guidance and no enabled same-conversation copy/resume promise.
+Once release is proved, show the actual cwd and platform-correct quoted `cd <folder> && claude --resume <provider-session-id>`, without an additional recovery prompt to copy or paste. Copy does not launch. With unavailable history, display existing recovery guidance and no enabled same-conversation copy/resume promise.
 
 ### Activity-specific evaluate, then act
 

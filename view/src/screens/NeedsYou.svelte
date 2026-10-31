@@ -194,10 +194,6 @@
                 {#if step === "first" && copy.firstStep === "resume" && stop.resumeCommand}
                   <span class="step-title">Open the same {stop.agent ?? snapshot.settings.agent} session in a terminal</span>
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
-                  {#if stop.resumePrompt}
-                    <p>Send this recovery prompt in the reopened session before continuing. It supplies the execution’s current authority and remaining task.</p>
-                    <div class="block"><pre class="prompt">{stop.resumePrompt}</pre><div class="actions"><CopyButton text={stop.resumePrompt} label="Copy recovery prompt" /></div></div>
-                  {/if}
                 {:else if step === "first"}
                   <span class="step-title">Start a fresh {stop.agent ?? snapshot.settings.agent} session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
                   {#if stop.limit}<p>{stop.limit.agentId === "codex" ? "Check usage in Codex before starting, or switch accounts." : "Start it after the reset, or after switching accounts."}</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}

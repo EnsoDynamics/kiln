@@ -88,6 +88,9 @@ describe("current PRD targets and grant browser controls", () => {
     expect(handoff).toContain("replaces earlier blanket restrictions");
     expect(handoff).toContain("repository and baseBranch");
     expect(handoff).toContain("Never bypass protections");
+    // Changed permissions retain fresh-session setup without adding a paste step to Resume.
+    expect(await page.evaluate(`document.querySelector('.handoff details').parentElement.querySelectorAll('pre').length`)).toBe(2);
+    expect(await page.evaluate(`[...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Copy recovery prompt')`)).toBe(false);
     expect(page.problems).toEqual([]);
   });
 });

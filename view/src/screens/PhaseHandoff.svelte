@@ -147,7 +147,6 @@
           <h2>Open the conversation in your terminal</h2>
           <p>For a back-and-forth with {agent}, or to finish the activity yourself. The full conversation comes with you.</p>
           <pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy resume command" />
-          {#if stop.resumePrompt}<p>Send this recovery prompt before continuing. It supplies the current authority and remaining task.</p><pre>{stop.resumePrompt}</pre><CopyButton text={stop.resumePrompt} label="Copy recovery prompt" />{/if}
         {:else}
           <h2>Start a fresh session in your terminal</h2>
           <p>The saved conversation cannot be opened. Start {agent} in the recorded workspace and supply the recovery prompt.</p>
