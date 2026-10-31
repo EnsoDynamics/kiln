@@ -582,31 +582,19 @@ nativeIt.each([false, true])("reconciles append/split during preparation return 
   expect(h.engine.judgedId("9")).toBe(split ? "9a" : "9");
 }, 120_000);
 
-nativeIt("holds preparation return on a changed known source and accepts the reconciled plan after recovery", async () => {
+nativeIt("continues preparation using its assigned plan when the original checkout adds work", async () => {
   const f = await fixture(); await f.accept();
   f.write("phase-16-catalog.md", cometPhase(16));
   await f.submit();
-  expect(h.engine.record.preparation?.reason).toContain("Plan discrepancy");
-  expect(h.engine.record.preparation?.reason).toContain("Reconcile those documents into the active workspace");
-  expect(h.engine.record.preparation?.attempts).toEqual([]); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
-  const active = h.engine.worktreePath;
-  writeFileSync(join(active, COMET_DIRECTORY, "phase-16-catalog.md"), cometPhase(16));
-  git(h.sandbox, active, "add", COMET_DIRECTORY); git(h.sandbox, active, "commit", "-qm", "test: reconcile known source"); git(h.sandbox, active, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
-  const releaseAgain = join(h.sandbox.root, "release-recovered-preparation");
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: releaseAgain }, { result: "Reconciled preparation returned." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase needs work." }, { exit: 0 }] }] }));
-  h.engine.close(); h.engine = f.make(); await h.engine.prepare();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
-  expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
-  await waitFor(() => h.engine.latestSession("9")!.runs.length === 2 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
-  const state = h.engine.record.preparation!;
-  for (const binding of state.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
-  writeFileSync(releaseAgain, "release"); await h.engine.settled();
   expect(h.engine.record.preparation?.stage).toBe("implementation"); expect(h.engine.record.preparation?.attempts.map(row => row.outcome)).toEqual(["succeeded"]);
-  expect(h.engine.latestSession("9")!.runs).toHaveLength(3);
-  expect(h.engine.record.planReconciliation?.handback?.addedPhaseIds).toEqual(["16"]);
+  expect(h.engine.latestSession("9")!.runs).toHaveLength(2);
+  expect(h.engine.record.planReconciliation?.check?.status).toBe("accepted");
+  expect(h.engine.record.plan?.some(phase => phase.id === "16")).toBe(false);
+  expect(existsSync(join(h.engine.worktreePath, COMET_DIRECTORY, "phase-16-catalog.md"))).toBe(false);
+  expect(readFileSync(join(h.repository, COMET_DIRECTORY, "phase-16-catalog.md"), "utf8")).toBe(cometPhase(16));
 }, 120_000);
 
-nativeIt("rechecks known sources after verification at the final preparation admission hook", async () => {
+nativeIt("ignores original-checkout edits made during native preparation verification", async () => {
   const f = await fixture(); await f.accept();
   const native = await import("./preparation-verifier.js");
   const verify = native.verifyPreparation;
@@ -619,10 +607,12 @@ nativeIt("rechecks known sources after verification at the final preparation adm
   try {
     await f.submit();
     expect(h.engine.record.preparation?.verifiedCheckpoint).toBeDefined();
-    expect(h.engine.record.planReconciliation?.check?.status).toBe("failed");
-    expect(h.engine.record.planReconciliation?.check?.problem).toContain("Plan discrepancy");
-    expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
-    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.engine.record.planReconciliation?.check?.status).toBe("accepted");
+    expect(h.engine.record.plan?.some(phase => phase.id === "16")).toBe(false);
+    expect(h.engine.record.preparation?.stage).toBe("implementation");
+    expect(h.engine.latestSession("9")!.runs).toHaveLength(2);
+    expect(h.claudeCalls()).toHaveLength(3);
+    expect(h.claudeCalls().at(-1)?.prompt).toContain("phase-10-catalog.md");
   } finally { spy.mockRestore(); }
 }, 120_000);
 

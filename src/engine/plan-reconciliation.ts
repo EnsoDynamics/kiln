@@ -198,20 +198,6 @@ export function completedScopeProblems(previous: PlanSource, current: PlanSource
   });
 }
 
-/** Only new changes in known sources matter; an unchanged older shared copy is expected. */
-export function sourceDiscrepancies(active: PlanSource, source: PlanSource, previous?: PlanSource): string[] {
-  const problems: string[] = [];
-  for (const phase of source.plan.phases) {
-    const earlier = previous?.plan.phases.find(p => p.id === phase.id);
-    const changed = !earlier || previous!.scopes[phase.id] !== source.scopes[phase.id] || earlier.closed !== phase.closed;
-    const assigned = active.plan.phases.find(p => p.id === phase.id);
-    if (changed && (!assigned || source.scopes[phase.id] !== active.scopes[phase.id] || (earlier ? assigned.closed !== phase.closed : phase.closed && !assigned.closed))) problems.push(phase.id);
-  }
-  for (const old of previous?.plan.phases ?? []) if (!source.plan.phases.some(p => p.id === old.id) && active.plan.phases.some(p => p.id === old.id)) problems.push(old.id);
-  if ((!previous || previous.requirements !== source.requirements) && active.requirements !== source.requirements) problems.push("requirements");
-  return problems;
-}
-
 export function retainBaseline(directory: string, baseline: Omit<PlanBaseline, "id">): PlanBaseline {
   if (baseline.normalizerVersion === PLAN_NORMALIZER_VERSION && Object.values(baseline.completions).some(receipt => !Array.isArray(receipt.scopeRepositories))) throw new Error("baseline_unavailable: Restore the immutable completed repository scope before retaining this plan.");
   const value: PlanBaseline = { ...baseline, id: digest(baseline) };

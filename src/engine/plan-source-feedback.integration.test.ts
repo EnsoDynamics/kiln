@@ -26,7 +26,7 @@ async function httpCheck() {
   return fetch(`${new URL(server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
 }
 
-it("reconciles the explicitly supplied registered worktree through the CLI restart path", async () => {
+it("reopens the assigned plan without comparing an explicitly supplied other worktree", async () => {
   h = await createHarness({ sessions: [{ actions: [{ result: "Awaiting review." }] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const directory = "docs/prds/customer-returns";
@@ -39,11 +39,10 @@ it("reconciles the explicitly supplied registered worktree through the CLI resta
     await waitFor(() => !!address, 40_000);
     const saved = readPrdRecord(h.stateDirectory)!;
     expect(stdout).toContain("needs you");
-    expect(saved.planReconciliation?.check).toMatchObject({ status: "failed", problem: expect.stringContaining(known) });
-    expect(saved.planReconciliation?.check?.problem).toContain("Phase 4");
-    expect(saved.planReconciliation?.check?.problem).toContain("without overwriting work");
+    expect(saved.planReconciliation?.check).toMatchObject({ status: "accepted" });
     expect(saved.plan?.some(row => row.id === "4")).toBe(false);
     expect(h.claudeCalls()).toHaveLength(1);
+    expect(saved.repositories[0]!.worktreePath).toBe(h.engine.worktreePath);
     expect(readFileSync(join(known, directory, "phase-4-lending.md"), "utf8")).toContain("Lending");
   } finally { signals.emit("SIGINT"); await done; }
 });

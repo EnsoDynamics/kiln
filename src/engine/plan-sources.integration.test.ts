@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, symlinkSync,
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, it, expect } from "vitest";
-import { observePlan, retainBaseline, readBaseline, completedScopeProblems, sourceDiscrepancies } from "./plan-reconciliation.js";
+import { observePlan, retainBaseline, readBaseline, completedScopeProblems } from "./plan-reconciliation.js";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -24,21 +24,12 @@ it("retains bytes independently of the checkout, verifies sidecar identity and r
   writeFileSync(path, readFileSync(path, "utf8").replace("Catalog", "Changed"));
   expect(() => readBaseline(join(root, "state"), baseline.id)).toThrow("damaged");
 });
-it("distinguishes a stale shared closure from new shared work, removal and requirement changes", () => {
+it("rejects reopening a completed leaf in the active plan", () => {
   const root = fixture(); const accepted = observePlan(root, "plan");
   const file = join(root, "plan/phase-1-catalog.md"); const original = readFileSync(file, "utf8");
   writeFileSync(file, original.replace("**Closed:** 2026-10-01", ""));
   const reopened = observePlan(root, "plan");
-  expect(sourceDiscrepancies(accepted, reopened, reopened)).toEqual([]);
-  expect(sourceDiscrepancies(accepted, reopened, accepted)).toEqual(["1"]);
   expect(completedScopeProblems(accepted, reopened)).toEqual([expect.stringContaining("Phase 1")]);
-  writeFileSync(file, original);
-  writeFileSync(join(root, "plan/phase-7-lending.md"), "# Phase 7: Lending\n\n## Acceptance criteria covered\nAC-COMET-01\n");
-  const addition = observePlan(root, "plan");
-  expect(sourceDiscrepancies(accepted, addition, accepted)).toEqual(["7"]);
-  expect(sourceDiscrepancies(addition, accepted, addition)).toEqual(["7"]);
-  writeFileSync(join(root, "plan/comet-technical-design.md"), "# Technical design\nA changed catalog.\n");
-  expect(sourceDiscrepancies(accepted, observePlan(root, "plan"), accepted)).toContain("requirements");
 });
 it("rejects missing linked files, escaping links, symlinks, oversized sources and structural errors", () => {
   const root = fixture(); const file = join(root, "plan/comet-technical-design.md");

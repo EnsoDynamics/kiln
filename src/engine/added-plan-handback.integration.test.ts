@@ -37,14 +37,19 @@ it("accepts an append on Verify, keeps the completed-phase choice, and automatic
   expect(h.engine.record.phases["2b"]?.stop?.kind).toBe("done_check");
   expect(buildSnapshot(h.engine).continuation?.handback).toMatchObject({ addedPhaseIds: ["4"], remainingCount: 3, source: h.engine.worktreePath });
 });
-it("blocks a shared-checkout addition until documents are reconciled into the active workspace", async () => {
-  h = await createHarness({ sessions: [asking, landingSession("src/comet.txt")] });
+it("ignores shared-checkout additions until deliberately copied into the active workspace", async () => {
+  h = await createHarness({ sessions: [asking, asking, asking] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   writeFileSync(join(h.repository, directory, extra), extraText);
-  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, code: "check_unavailable" });
-  expect(h.claudeCalls()).toHaveLength(1);
+  const originalPrd = join(h.repository, directory, "customer-returns-prd.md");
+  writeFileSync(originalPrd, readFileSync(originalPrd, "utf8") + "\nRequirements amended in the original checkout only.\n");
+  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true, outcome: "resume_requested" });
+  await h.engine.settled();
+  expect(h.claudeCalls()).toHaveLength(2);
   expect(h.engine.record.plan?.some(p => p.id === "4")).toBe(false);
-  expect(buildSnapshot(h.engine).continuation?.planCheck?.problem).toContain("Phase 4");
+  expect(h.engine.record.planReconciliation?.check).toMatchObject({ status: "accepted" });
+  expect(buildSnapshot(h.engine).continuation?.planCheck).toBeUndefined();
+  expect(existsSync(join(h.engine.worktreePath, directory, extra))).toBe(false);
   copyFileSync(join(h.repository, directory, extra), join(h.engine.worktreePath, directory, extra)); finish();
   expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "advanced" });
   await h.engine.settled();
@@ -171,12 +176,19 @@ it.each(["changed", "removed", "reopened", "split", "unchanged"])("recovers lega
   expect(h.claudeCalls()).toHaveLength(2);
 });
 
-it("preserves stopped facts and refuses Resume when a required shared source is incomplete", async () => {
+it.each(["original", "worktree"] as const)("requires readable documents only in the active worktree when %s documents are missing", async checkout => {
   h = await createHarness({ sessions: [asking, asking] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const previousStop = structuredClone(h.engine.record.phases["1"]!.stop);
   const previousBaseline = h.engine.record.planReconciliation!.baselineId;
-  rmSync(join(h.repository, directory, "technical-design.md"));
+  rmSync(join(checkout === "original" ? h.repository : h.engine.worktreePath, directory, "technical-design.md"));
+  if (checkout === "original") {
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true, outcome: "resume_requested" });
+    await h.engine.settled();
+    expect(h.engine.record.planReconciliation?.check).toMatchObject({ status: "accepted" });
+    expect(h.claudeCalls()).toHaveLength(2);
+    return;
+  }
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Do not dispatch this reply" })).toMatchObject({ ok: false, code: "check_unavailable" });
   expect(h.engine.record.phases["1"]!.stop).toEqual(previousStop);
   expect(h.engine.record.planReconciliation!.baselineId).toBe(previousBaseline);
@@ -266,18 +278,20 @@ it("freezes the just-completed child's checked repository scope before a later p
   expect(h.engine.record.phases["1b"]?.stop).toBeDefined(); expect(h.claudeCalls()).toHaveLength(2);
 }, 120_000);
 
-it("holds a newly closed known-source phase, then advances automatically after safe reconciliation", async () => {
-  h = await createHarness({ sessions: [asking, asking] });
+it("ignores outside closure changes across restart and accepts deliberate worktree integration", async () => {
+  h = await createHarness({ sessions: [asking, asking, asking] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const file = `${directory}/phase-1-return-intake.md`;
   const shared = join(h.repository, file);
   writeFileSync(shared, readFileSync(shared, "utf8").replace("\n", "\n\n**Closed:** 2026-10-30\n"));
-  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, code: "check_unavailable" });
-  expect(h.engine.record.planReconciliation?.check?.problem).toContain("Phase 1"); expect(h.claudeCalls()).toHaveLength(1);
+  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true, outcome: "resume_requested" });
+  await h.engine.settled();
+  expect(h.engine.record.planReconciliation?.check?.status).toBe("accepted"); expect(h.claudeCalls()).toHaveLength(2);
+  expect(h.engine.record.plan?.find(phase => phase.id === "1")?.closed).toBe(false);
   const again = h.reopenFromDisk(); await again.prepare();
-  expect(again.record.planReconciliation?.check?.status).toBe("failed");
+  expect(again.record.planReconciliation?.check?.status).toBe("accepted");
   copyFileSync(shared, join(again.worktreePath, file));
   git(h.sandbox, again.worktreePath, "add", file); git(h.sandbox, again.worktreePath, "commit", "-qm", "test: reconcile closed catalog"); git(h.sandbox, again.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
   expect(await again.checkAgain(recoveryRequest(again, "advance"))).toMatchObject({ ok: true, outcome: "advanced" }); await again.settled();
-  expect(again.record.phases["1"]?.doneAt).toBeDefined(); expect(h.claudeCalls()).toHaveLength(2);
+  expect(again.record.phases["1"]?.doneAt).toBeDefined(); expect(h.claudeCalls()).toHaveLength(3);
 });

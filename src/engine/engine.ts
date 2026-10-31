@@ -124,7 +124,7 @@ import { stayedInWorkspace, STAYED_CHECK_NAME, type StayedOutcome } from "../ses
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, sourceDiscrepancies, type PlanBaseline } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -4945,11 +4945,8 @@ export class Engine {
     try {
       const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision) }) : undefined;
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
-      const sourcePaths = [...new Set([this.paths.mainCheckoutPath, this.record.repository.mainCheckoutPath,
-        ...this.record.repositories.filter(r => r.kind === "prd").map(r => r.mainCheckoutPath),
-        ...(this.paths.suppliedCheckoutPath ? [this.paths.suppliedCheckoutPath] : []),
-        ...(previous?.sources.map(source => source.path) ?? [])].map(path => expandHome(path)))];
-      const sources = sourcePaths.filter(path => path !== active.path).map(path => observePlan(path, this.paths.prdDirectoryFromRoot));
+      // Once set up, the assigned worktree owns this execution's documents.
+      // Other checkouts are considered only by completed-run discovery.
       if (!previous) for (const [key, facts] of Object.entries(this.record.phases)) {
         if (!facts.doneAt || !facts.sessionIds.length || key === PR_PHASE_KEY || this.auditActivity(key)) continue;
         const recorded = judgedPhase(this.record.plan ?? [], key);
@@ -4960,10 +4957,6 @@ export class Engine {
         const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))]);
         const problems = completedScopeProblems({ ...previous.active, plan: { ...previous.active.plan, phases: previous.active.plan.phases.map(p => ({ ...p, closed: p.closed && completed.has(p.id) })) } }, active, previous.completions);
         if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
-      }
-      for (const source of sources) {
-        const changed = sourceDiscrepancies(active, source, previous?.sources.find(old => old.path === source.path));
-        if (changed.length) throw new Error(`Plan discrepancy in ${source.path} (saved documents ${source.digest.slice(0, 12)}): ${changed.map(id => id === "requirements" ? id : `Phase ${id}`).join(", ")} differ from the active workspace ${active.path}. Reconcile those documents into the active workspace without overwriting work, commit/push under the normal execution rules, then use Verify or Resume in Kiln.`);
       }
       const completions = { ...previous?.completions };
       for (const phase of active.plan.phases.filter(p => p.closed && !p.splitInto)) {
@@ -5018,11 +5011,11 @@ export class Engine {
         completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: outcome.pushedShas![this.paths.repositoryName]!, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: outcome.pushedShas![entry.name]! }])) };
       }
       signal.throwIfAborted();
-      // Remote/provenance checks can take time. Recheck all candidate membership and bytes.
-      for (const source of [active, ...sources]) if (observePlan(source.path, this.paths.prdDirectoryFromRoot).digest !== source.digest) throw new Error(`source_changed: ${source.path} changed during plan reconciliation. Retry the handback.`);
+      // Remote/provenance checks can take time. Recheck the assigned document set.
+      if (observePlan(active.path, this.paths.prdDirectoryFromRoot).digest !== active.digest) throw new Error(`source_changed: ${active.path} changed during plan reconciliation. Retry the handback.`);
       added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
       // Publish sidecar before its record pointer; never roll back an uncertain durable write.
-      baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources, completions };
+      baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources: [], completions };
       if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
     } catch (error) {
       if (error instanceof PlanBaselineWriteFailure) { this.commands.fault = error.message; throw error; }

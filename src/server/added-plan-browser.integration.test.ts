@@ -6,7 +6,7 @@ import { launchChrome, type HeadlessChrome } from "../test-support/headless-chro
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
 afterAll(async () => { await chrome?.close(); });
-it("shows accepted additions and a recoverable source discrepancy without launching work", async () => {
+it("shows accepted additions and an active-plan integrity failure without launching work", async () => {
   const snapshot = needsYouMessageSnapshot();
   snapshot.continuation = { handback: { source: "/fictional/comet-library/.worktrees/catalog/comet-library", addedPhaseIds: ["9", "10"], remainingCount: 2, acceptedAt: "2026-10-27T15:00:00Z" } };
   const server = await serveViewFixture({ port: 41987, folder: "customer-returns", snapshot });
@@ -19,7 +19,7 @@ it("shows accepted additions and a recoverable source discrepancy without launch
         expect(await page.evaluate("document.body.innerText")).toContain("Phases 9, 10 added · 2 unfinished phases remain.");
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
         writeFileSync(`/tmp/kiln-added-plan-${width}.png`, await page.screenshot());
-        snapshot.continuation.planCheck = { status: "failed", attemptedAt: "2026-10-27T15:01:00Z", problem: "Plan discrepancy in /fictional/comet-library: Phase 11 differs from the active workspace. Reconcile the documents into the active workspace, commit/push, then use Verify or Resume." };
+        snapshot.continuation.planCheck = { status: "failed", attemptedAt: "2026-10-27T15:01:00Z", problem: "Phase 11: previously completed scope was removed, reopened, split or materially changed. Reconcile earlier completed work before returning control." };
         server.send("snapshot", snapshot);
         await page.waitFor("document.body.innerText.includes('Plan needs reconciliation')");
         expect(await page.evaluate("document.body.innerText")).not.toContain("Added work accepted");
