@@ -1,0 +1,7 @@
+This is a disposable Kiln subprocess integration proof. Work only in the current directory. Use exec_command with yield_time_ms 1000 to start this exact command:
+{{COMMAND}}
+
+It deliberately takes four seconds. If the tool returns a running process handle, use write_stdin to wait for its exit and read WORKER_DONE. Only after its successful exit, run this exact finalization command (do not write the parent marker yourself):
+{{FINISH_COMMAND}}
+
+Do not detach the process, poll its marker instead of waiting, commit, push, create branches, deploy, modify instructions or start another task. Finish with a short report only after both the worker and parent markers exist.

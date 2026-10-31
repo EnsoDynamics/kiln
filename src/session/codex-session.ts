@@ -14,7 +14,7 @@ import { CodexHistoryRpc, type HistoryRpc } from "./codex-history-rpc.js";
 import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-processes.js";
 import { readCodexTurnExecutions } from "./codex-turn-provenance.js";
 import { CODEX_NATIVE_CLEANUP_WARNING, stopCodexBackgroundTerminals } from "./codex-background-terminals.js";
-import { codexSessionPrompt } from "./prompts.js";
+import { codexSessionPrompt, requiredBackgroundWorkPrompt } from "./prompts.js";
 import { CodexUsageRecoveryUnavailable, codexUsageRefusal, codexUsageRelease, consumeCodexUsage, recordCodexUsageProgress } from "./codex-usage.js";
 
 interface Turn { id: string; status: string; error?: unknown; items?: { type: string; phase?: string; text?: string }[] }
@@ -85,12 +85,14 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const save = () => { writeSessionRecord(options.stateDirectory, record); options.onRecordChange?.(); };
   record.workingDirectory ??= prepared.profile.cwd;
   record.codex ??= { launchIntent: prepared.profile, originalAccount: prepared.account };
+  const task = requiredBackgroundWorkPrompt(options.prompt);
+  const prompt = options.cause === "launch" && ["phase", "delivery_audit", "test_audit"].includes(record.kind) ? codexSessionPrompt(task, prepared.profile.skills, record.kind === "delivery_audit" ? "delivery-audit" : record.kind === "test_audit" ? "test-audit" : "implement-from-requirements") : task;
   const now = () => new Date().toISOString();
   const facts: CodexRunFacts = { intentAt: now(), requested: prepared.choice, account: prepared.account, profile: prepared.profile, humanRequests: [], modelActivityAt: [], processOwner: randomUUID(), cleanupWarning: CODEX_NATIVE_CLEANUP_WARNING };
   if (automaticRelease) facts.automaticUsageEvidence = consumeCodexUsage(record, automaticRelease);
   const billing = codexBillingSummary(prepared.usage);
   options.onBilling?.(billing); // PRD history must be durable before any work process exists.
-  const run: SessionRun = { ...(options.control ? { control: { ...options.control } } : {}), billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
+  const run: SessionRun = { ...(options.control ? { control: { ...options.control, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}), billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
   record.runs.push(run); save(); // No child exists until this durable intent succeeds.
   const terminals = new Map<string, Turn>();
   const terminalTimes = new Map<string, string>();
@@ -201,7 +203,6 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     if (prior.some(turn => !TERMINAL.has(turn.status))) throw new Error("Codex conversation still has unsettled work. Check it before resuming.");
     if (stopping) throw new Error("Codex stopped before dispatch.");
     facts.dispatch = { at: now(), previousTurnIds: prior.map(turn => turn.id) }; save();
-    const prompt = options.cause === "launch" && ["phase", "delivery_audit", "test_audit"].includes(record.kind) ? codexSessionPrompt(options.prompt, prepared.profile.skills, record.kind === "delivery_audit" ? "delivery-audit" : record.kind === "test_audit" ? "test-audit" : "implement-from-requirements") : options.prompt;
     const started = await rpc.call<{ turn: Turn }>("turn/start", { threadId: parentId, model: record.model, ...(record.effort ? { effort: record.effort } : {}), input: [{ type: "text", text: prompt }], clientUserMessageId: createHash("sha256").update(`${record.sessionId}:${record.runs.length}:${facts.dispatch.at}`).digest("hex") });
     if (!started.turn.id) throw new Error("Codex did not return a dispatched turn identity.");
     facts.turnId = started.turn.id; if (run.control) run.control.submitted = true; save();

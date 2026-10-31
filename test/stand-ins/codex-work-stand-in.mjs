@@ -71,8 +71,14 @@ createInterface({ input: process.stdin }).on('line', async line => {
       if (fixture.omitRoots) result.sandbox.writableRoots = [];
       break;
     }
-    case 'thread/turns/list': threadId = params.threadId; if (history().length) result = { data: history(), nextCursor: null }; break;
-    case 'thread/list': result = { data: [], nextCursor: null }; break;
+    case 'thread/turns/list':
+      if (fixture.pendingChild && params.threadId === 'required-reviewer') {
+        writeFileSync(fixture.pendingChild + '.observed', 'child inventory read');
+        result = { data: [{ id: 'review-turn', status: existsSync(fixture.pendingChild) ? 'completed' : 'inProgress', items: [] }], nextCursor: null };
+        break;
+      }
+      threadId = params.threadId; if (history().length) result = { data: history(), nextCursor: null }; break;
+    case 'thread/list': result = { data: fixture.pendingChild && !params.archived ? [{ id: 'required-reviewer' }] : [], nextCursor: null }; break;
     case 'thread/loaded/list': result = { data: fixture.loadedThreads ?? [threadId], nextCursor: fixture.loadedCursor ?? null }; break;
     case 'thread/backgroundTerminals/list':
       if (fixture.backgroundListHang) return;

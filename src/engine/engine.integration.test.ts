@@ -98,6 +98,8 @@ describe("the engine from Start to the pull request", () => {
         "Nobody is watching this session and nobody can answer a question. If you need a decision you can't make, stop and put the question in your final message.",
         "",
         "You're finished when `docs/prds/customer-returns/phase-1-return-intake.md` has its `**Closed:**` line and everything is committed and pushed to `origin/feature/customer-returns`.",
+        "",
+        readFileSync(new URL("../../prompts/required-background-work.txt", import.meta.url), "utf8").trimEnd(),
       ].join("\n"),
     );
     expect(calls[1]!.prompt).toContain("implement `docs/prds/customer-returns/phase-2b-store-credit.md`");

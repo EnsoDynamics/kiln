@@ -19,6 +19,8 @@ import type { Engine, EngineOptions } from "./engine.js";
 import { readFileSync } from "node:fs";
 import { buildSnapshot } from "./snapshot.js";
 
+const REQUIRED_WORK = readFileSync(new URL("../../prompts/required-background-work.txt", import.meta.url), "utf8").trimEnd();
+
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
 
@@ -230,7 +232,7 @@ describe("waiting out a usage limit (AC-AUTO-01, AC-AUTO-02)", () => {
     const session = h.engine.latestSession("1")!;
     const calls = h.claudeCalls();
     expect(calls[1]!.args).toEqual(expect.arrayContaining(["--resume", session.sessionId, "--model", "claude-opus-5-5"]));
-    expect(calls[1]!.prompt).toBe(`${limitOpening(session.runs[0]!.endedAt!)} ${CARRY_ON}`);
+    expect(calls[1]!.prompt).toBe(`${limitOpening(session.runs[0]!.endedAt!)} ${CARRY_ON}\n\n${REQUIRED_WORK}`);
     expect(session.runs[1]).toMatchObject({ cause: "limit_resume", account: { email: "alex@acme-shop.dev", orgId: "org-alex" } });
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: false });
     expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
@@ -520,7 +522,7 @@ describe("Resume now (AC-LIMIT-02, AC-RESUME-02)", () => {
     const runs = h.engine.latestSession("1")!.runs;
     expect(runs[1]).toMatchObject({ cause: "person_resume", account: { email: "alex@acme-shop.dev" } });
     expect(runs[1]!.note).toBeUndefined();
-    expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}`);
+    expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}\n\n${REQUIRED_WORK}`);
     // A Resume now refused again starts a new wait, not Needs you.
     expect(h.engine.record.phases["1"]!.wait).toMatchObject({ run: 1 });
   });
@@ -622,7 +624,7 @@ describe("the setting (AC-AUTO-04)", () => {
     expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
     await h.engine.settled();
     const runs = h.engine.latestSession("1")!.runs;
-    expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}`);
+    expect(h.claudeCalls()[1]!.prompt).toBe(`${limitOpening(runs[0]!.endedAt!)} ${CARRY_ON}\n\n${REQUIRED_WORK}`);
   });
 
   it("switched off during a wait, turns it into Needs you and lets keep-awake go", async () => {

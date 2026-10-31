@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
@@ -8,6 +9,7 @@ import { runCodexSession, reconcileCodexAttempt } from "./codex-session.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 import { stopCodexOwnedProcesses } from "./codex-owned-processes.js";
+import { waitFor } from "../test-support/engine-harness.js";
 
 const fixtures: ReturnType<typeof codexWorkFixture>[] = [];
 function fixture() { const f = codexWorkFixture(); fixtures.push(f); return f; }
@@ -15,8 +17,28 @@ afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.
 
 // Real CLI pipes, records and processes. Live inference/protection is proved separately.
 describe("durable protected Codex attempts", () => {
+  it("waits for a required child after the parent's final turn instead of ending the attempt", async () => {
+    const f = fixture(); const release = join(f.root, "review-finished");
+    f.set({ pendingChild: release });
+    const controller = new AbortController();
+    const running = runCodexSession({ ...f.options, signal: controller.signal });
+    try {
+      await waitFor(() => existsSync(release + ".observed"));
+      expect(f.record.runs[0]?.endedAt).toBeUndefined();
+      expect(f.record.runs[0]?.codex?.terminal?.status).toBe("completed");
+      expect(f.calls().some(call => call.method === "thread/backgroundTerminals/clean")).toBe(false);
+      writeFileSync(release, "review complete");
+      const run = await running;
+      expect(run.codex?.failure).toBeUndefined();
+      expect(run.codex?.cleanup).toBe("tracked_processes_stopped");
+      expect(f.record.conversation?.knownThreadIds).toContain("required-reviewer");
+      expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+    } finally { controller.abort(); await running; }
+  });
+
   it.each(["delivery_audit", "test_audit"] as const)("dispatches the pinned %s skill and task with the selected protected profile (AC-TEST-01, AC-RUN-04)", async kind => {
     const f = fixture();
+    f.options.control = { operationId: "operation", attemptId: "attempt", promptDigest: "unexpanded-prompt" };
     const skillName = kind === "delivery_audit" ? "delivery-audit" : "test-audit";
     f.record.kind = kind; f.record.activityId = "assigned-audit"; f.record.phaseId = "";
     const key = sessionStorageKey(f.record);
@@ -31,7 +53,9 @@ describe("durable protected Codex attempts", () => {
     const input = dispatches[0]!.params!.input as { type: string; text: string }[];
     expect(input).toHaveLength(1); expect(input[0]!.type).toBe("text");
     expect(input[0]!.text.startsWith(`Read and use the installed ${skillName} skill at \`${skillPath}\` for the assigned audit below.`)).toBe(true);
-    expect(input[0]!.text.endsWith(task)).toBe(true);
+    expect(input[0]!.text).toContain(`${task}\n\nIf a subprocess, test run or delegated reviewer`);
+    expect(input[0]!.text).toContain("wait for its outcome and then continue the remaining work in this same session");
+    expect(run.control?.promptDigest).toBe(createHash("sha256").update(input[0]!.text).digest("hex"));
     expect(dispatches[0]!.params).toMatchObject({ threadId: f.record.conversation!.threadId, model: "gpt-6.1-sol" });
     expect(f.calls().find(call => call.method === "thread/start")!.params).toMatchObject({ cwd: f.root, model: "gpt-6.1-sol", approvalPolicy: "on-request", approvalsReviewer: "auto_review", config: { model_reasoning_effort: "high", sandbox_workspace_write: { writable_roots: [f.root] } } });
     const saved = readSessionRecord(f.options.stateDirectory, key, f.record.sessionId)!;

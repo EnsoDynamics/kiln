@@ -13,7 +13,7 @@ export interface GateState {
   inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
   operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown }>;
-  tasks: Record<string, { toolId?: string; settled: boolean }>;
+  tasks: Record<string, { toolId?: string; settled: boolean; ambient?: boolean }>;
   tracked: { pid: number; startTime: string }[];
   /** Observed descendant PIDs awaiting identity or conclusive disappearance. */
   processObservations?: number[];
@@ -89,7 +89,7 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
   }
 }
 export function unsettled(state: GateState): string[] {
-  return [...Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id, o]) => `${o.name} ${id}`), ...Object.entries(state.tasks).filter(([, t]) => !t.settled).map(([id]) => `task ${id}`)];
+  return [...Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id, o]) => `${o.name} ${id}`), ...Object.entries(state.tasks).filter(([, t]) => !t.settled && !t.ambient).map(([id]) => `task ${id}`)];
 }
 /** Provider evidence complements hooks: result echo alone never proves process release.
  * Replay supplies the original time; undated evidence repairs accounting without inventing activity. */
@@ -97,9 +97,22 @@ export async function observeGate(directory: string, event: Record<string, unkno
   await withGate(directory, state => {
     if (observedAt && Date.parse(observedAt) > Date.parse(state.observedAt)) state.observedAt = observedAt;
     if (event.type === "result" && event.session_id === state.target.providerSessionId) for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
+    // Ambient housekeeping/live-update watchers are explicitly not activity.
+    // Preserve terminal settlement and use snapshots to track ambient changes;
+    // snapshots and task-start bookends may arrive in either order.
+    if (event.type === "system" && event.subtype === "background_tasks_changed" && Array.isArray(event.tasks)) {
+      for (const task of event.tasks as { task_id?: string; run_id?: string; ambient?: boolean }[]) {
+        if (!task || typeof task.task_id !== "string" || typeof task.run_id !== "string") continue;
+        const key = `${task.task_id}:${task.run_id}`;
+        state.tasks[key] = { ...state.tasks[key], settled: state.tasks[key]?.settled ?? false, ambient: task.ambient === true };
+      }
+    }
     if (event.type === "system" && typeof event.task_id === "string" && typeof event.run_id === "string") {
       const key = `${event.task_id}:${event.run_id}`;
-      if (event.subtype === "task_started") state.tasks[key] ??= { ...(typeof event.tool_use_id === "string" ? { toolId: event.tool_use_id } : {}), settled: false };
+      if (event.subtype === "task_started") {
+        state.tasks[key] ??= { settled: false, ...(event.ambient === true ? { ambient: true } : {}) };
+        if (typeof event.tool_use_id === "string") state.tasks[key].toolId = event.tool_use_id;
+      }
       if (event.subtype === "task_notification" && ["completed", "failed", "stopped"].includes(String(event.status))) {
         state.tasks[key] = { ...state.tasks[key], settled: true };
         const id = typeof event.tool_use_id === "string" ? event.tool_use_id : state.tasks[key].toolId;

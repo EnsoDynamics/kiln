@@ -13,6 +13,8 @@ import { git } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
 
+const REQUIRED_WORK = readFileSync(new URL("../../prompts/required-background-work.txt", import.meta.url), "utf8").trimEnd();
+
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
 
@@ -126,7 +128,7 @@ describe("Resume at Needs you (AC-RESUME-01 to 03)", () => {
     expect(working.current?.phaseId).toBe("1");
     expect(working.phases.find((phase) => phase.id === "1")!.state).toBe("implementing");
     expect(h.engine.checking).toBe(false);
-    expect(h.claudeCalls()[1]!.prompt).toBe(`${stoppedOpening(endedAt)} ${CARRY_ON}`);
+    expect(h.claudeCalls()[1]!.prompt).toBe(`${stoppedOpening(endedAt)} ${CARRY_ON}\n\n${REQUIRED_WORK}`);
     expect(h.engine.latestSession("1")!.runs[1]!.note).toBeUndefined();
 
     writeFileSync(release, "");
@@ -244,7 +246,7 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     const call = h.claudeCalls()[4]!;
     expect(call.args).toEqual(expect.arrayContaining(["--resume", session.sessionId]));
     expect(call.prompt).toBe(
-      `${stoppedOpening(session.runs[0]!.endedAt!)} Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.`,
+      `${stoppedOpening(session.runs[0]!.endedAt!)} Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.\n\n${REQUIRED_WORK}`,
     );
     expect(h.engine.record.completedAt).toBeDefined();
     const completed = buildSnapshot(h.engine);
