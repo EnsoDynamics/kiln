@@ -163,8 +163,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             if (!SETTLED_ITEM.has(item.status ?? "")) { if (options.commandProjection) continue; problem(`${id}: unfinished command ${item.id}.`, true); }
             index.put(`expectedCommand:${id}`, item.id, { ...item, turnId: turn.id });
           } else if (item.type === "fileChange") {
+            if (!SETTLED_ITEM.has(item.status ?? "") || !Array.isArray(item.changes)) { if (options.commandProjection) continue; throw new Error(`${id}: incomplete native write.`); }
+            if (options.commandProjection && item.changes.some(change => !change?.kind || !["add", "update", "delete"].includes(change.kind.type) || typeof change.path !== "string" || !change.path || change.kind.move_path !== undefined && typeof change.kind.move_path !== "string")) continue;
             index.put(`expectedFileChange:${id}`, item.id, { ...item, turnId: turn.id });
-            if (!SETTLED_ITEM.has(item.status ?? "") || !Array.isArray(item.changes)) throw new Error(`${id}: incomplete native write.`);
             for (const change of item.changes) {
               if (!["add", "update", "delete"].includes(change.kind.type)) problem(`${id}: unknown native file change.`);
               for (const path of [change.path, ...(change.kind.move_path ? [change.kind.move_path] : [])]) index.put(`expectedWrite:${id}`, `${turn.id}:${path}`, { turnId: turn.id, path });
@@ -207,7 +208,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           else index.unique(`turn_aborted:${id}`, requireText(payload.turn_id, "raw aborted turn"), digest(payload));
         }
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, requireText(payload.call_id, "raw call ID"), digest(payload));
-        if (record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
+        if (!options.commandProjection && record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
         if (record.type === "event_msg" && payload.type === "item_completed") {
           const item = payload.item;
           if (item?.type === "CommandExecution") {
@@ -219,7 +220,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             else index.unique(`foreignCommand:${id}`, item.id, { id: item.id, turnId, threadId: payload.thread_id, sha256: digest(payload) });
             index.unique(`commandEvent:${id}`, item.id, digest(payload));
           }
-          if (item?.type === "FileChange" && payload.thread_id === id && item.changes && typeof payload.started_at_ms === "number") index.put(`nativeWrite:${id}`, item.id, { id: item.id, turnId: payload.turn_id, startedAtMs: payload.started_at_ms, endedAt: record.timestamp, status: item.status, paths: Object.entries(item.changes).flatMap(([path, value]) => [physical(path), ...(value.move_path ? [physical(value.move_path)] : [])]) });
+          if (item?.type === "FileChange" && payload.thread_id === id && item.changes && typeof payload.started_at_ms === "number") {
+            const changes = Object.entries(item.changes);
+            if (!options.commandProjection || !Array.isArray(item.changes) && changes.every(([path, value]) => path && value && typeof value === "object" && !Array.isArray(value) && (value.move_path === undefined || typeof value.move_path === "string"))) index.put(`nativeWrite:${id}`, item.id, { id: item.id, turnId: payload.turn_id, startedAtMs: payload.started_at_ms, endedAt: record.timestamp, status: item.status, paths: changes.flatMap(([path, value]) => [physical(path), ...(value.move_path ? [physical(value.move_path)] : [])]) });
+          }
           if (item?.type === "SubAgentActivity" && item.agent_thread_id) add(item.agent_thread_id);
         }
       }
@@ -301,14 +305,20 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           if (operation.name === "exec_command") {
             const input = operation.input as Record<string, unknown>;
             const known = ["cmd", "workdir", "shell", "login", "tty", "yield_time_ms", "max_output_tokens", "sandbox_permissions", "justification", "prefix_rule"];
-            if (!input || Object.keys(input).some(key => !known.includes(key))) throw new Error("Unrecognized exec parameters.");
+            if (!input || Object.keys(input).some(key => !known.includes(key))) { if (options.commandProjection) continue; throw new Error("Unrecognized exec parameters."); }
+            // Unsupported calls supply no receipt; they do not invalidate other authenticated calls.
+            if (options.commandProjection && (typeof input.cmd !== "string" || !input.cmd || input.workdir !== undefined && (typeof input.workdir !== "string" || !input.workdir))) continue;
             const command = requireText(input.cmd, "recorded command");
             const cwd = physical(resolve(context.cwd, input.workdir === undefined ? "." : requireText(input.workdir, "command directory")));
             let matched = false; let handledPowerShell = false;
             for await (const native of index.values<NativeCommand>(`nativeCommand:${id}:${turnId}`)) {
               const argv = native.argv;
-              if (!Array.isArray(argv) || !argv.length || !SETTLED_ITEM.has(native.status)) throw new Error(`${id}: unsettled or unsupported native command.`);
-              const nativeCwd = native.cwd.startsWith("file:") ? fileURLToPath(native.cwd) : native.cwd;
+              if (!Array.isArray(argv) || !argv.length || argv.some(arg => typeof arg !== "string") || typeof native.cwd !== "string" || !native.cwd || !SETTLED_ITEM.has(native.status)) { if (options.commandProjection) continue; throw new Error(`${id}: unsettled or unsupported native command.`); }
+              let nativeCwd = native.cwd;
+              if (nativeCwd.startsWith("file:")) {
+                try { nativeCwd = fileURLToPath(nativeCwd); }
+                catch (error) { if (options.commandProjection) continue; throw error; }
+              }
               if (physical(nativeCwd) !== cwd || (input.shell !== undefined && argv[0] !== input.shell)) continue;
               const posix = argv.length === 3 && ["/bin/zsh", "/bin/bash", "/bin/sh"].includes(argv[0]!) && ["-c", "-lc"].includes(argv[1]!) && argv[2] === command;
               const powerShell = argv.length === 6 && /(?:^|[/\\])(?:pwsh|powershell)(?:\.exe)?$/i.test(argv[0]!) && argv.slice(1, 5).map(arg => arg.toLowerCase()).join(" ") === "-nologo -noprofile -noninteractive -command" && argv[5] === command;
@@ -320,7 +330,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
                   if (candidate.turnId !== turnId || native.startedAtMs !== undefined && Date.parse(candidate.at) > native.startedAtMs) continue;
                   const decodedCandidate = decodeRawCall(candidate.payload);
                   if (decodedCandidate.coverage !== "complete") continue;
-                  if ((decodedCandidate.operations as { name: string; input: Record<string, unknown> }[]).some(one => one.name === "exec_command" && one.input.cmd === command && physical(resolve(context.cwd, typeof one.input.workdir === "string" ? one.input.workdir : ".")) === cwd)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
+                  if ((decodedCandidate.operations as { name: string; input: Record<string, unknown> }[]).some(one => one.name === "exec_command" && one.input?.cmd === command && physical(resolve(context.cwd, typeof one.input.workdir === "string" ? one.input.workdir : ".")) === cwd)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
                 }
                 const latest = candidates.map(one => one.at).sort().at(-1);
                 const owners = native.startedAtMs === undefined ? candidates : candidates.filter(one => one.at === latest);
@@ -349,9 +359,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             }
           } else if (operation.name === "apply_patch") {
             const patch = operation.input;
-            if (typeof patch !== "string" || !patch.startsWith("*** Begin Patch\n") || !patch.trimEnd().endsWith("*** End Patch")) throw new Error("Malformed raw patch.");
+            if (typeof patch !== "string" || !patch.startsWith("*** Begin Patch\n") || !patch.trimEnd().endsWith("*** End Patch")) { if (options.commandProjection) continue; throw new Error("Malformed raw patch."); }
             const paths = [...patch.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm)].map(match => resolve(context.cwd, match[1]!));
-            if (!paths.length) throw new Error("Patch has no recorded paths.");
+            if (!paths.length) { if (options.commandProjection) continue; throw new Error("Patch has no recorded paths."); }
             if (options.commandProjection) {
               for await (const native of index.values<{ id: string; turnId: string; startedAtMs: number; endedAt: string; status: string; paths: string[] }>(`nativeWrite:${id}`)) {
                 if (native.turnId !== turnId || native.status !== "completed" || native.startedAtMs < Date.parse(at) || digest([...native.paths].sort()) !== digest(paths.map(physical).sort())) continue;

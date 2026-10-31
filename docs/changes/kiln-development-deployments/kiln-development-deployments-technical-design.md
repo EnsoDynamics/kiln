@@ -1,5 +1,7 @@
 # Technical Design: Kiln development deployments
 
+**Document-wide supersession:** [Kiln completion checks](../kiln-completion-checks/kiln-completion-checks-technical-design.md) supersedes workspace-confinement auditing, outside-change warnings, related repair prompts and acceptance controls, and persistent phase-verification success notices wherever they appear below. Independent Git, required receipt authentication, launch permission, conversation availability and runtime ownership/cleanup requirements remain in force.
+
 **PRD:** [Kiln development deployments](kiln-development-deployments-prd.md) · **Assumptions:** [AUTH-001 and AUTH-002 settled](kiln-development-deployments-assumptions.md)
 
 ## Overview

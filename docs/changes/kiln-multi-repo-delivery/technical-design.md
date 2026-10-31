@@ -1,5 +1,7 @@
 # Technical Design: Kiln multi-repo delivery
 
+**Document-wide supersession:** [Kiln completion checks](../kiln-completion-checks/kiln-completion-checks-technical-design.md) supersedes workspace-confinement auditing, outside-change warnings, related repair prompts and acceptance controls, and persistent phase-verification success notices wherever they appear below. Independent Git, required receipt authentication, launch permission, conversation availability and runtime ownership/cleanup requirements remain in force.
+
 **PRD:** [Kiln multi-repo delivery](kiln-multi-repo-delivery-prd.md) · **Assumptions:** [assumptions.md](assumptions.md) · **Screens:** [mockups](mockups/), the design of record for the four screens drawn · **Changes:** [Kiln v1 technical design](../../prds/kiln-v1/technical-design.md), and the seams [Kiln usage-limit recovery](../kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md) will need (that PRD has no design yet)
 
 ## Overview

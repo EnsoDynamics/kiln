@@ -1,5 +1,7 @@
 # Technical Design: Control a live Kiln session
 
+**Document-wide supersession:** [Kiln completion checks](../kiln-completion-checks/kiln-completion-checks-technical-design.md) supersedes workspace-confinement auditing, outside-change warnings, related repair prompts and acceptance controls, and persistent phase-verification success notices wherever they appear below. Independent Git, required receipt authentication, launch permission, conversation availability and runtime ownership/cleanup requirements remain in force.
+
 **PRD:** [Control a live Kiln session](kiln-live-session-control-prd.md) · **Business assumption:** [SCOPE-001](kiln-live-session-control-assumptions.md) · **Evidence:** [runtime investigation](kiln-live-session-control-investigation.md) · **UI contract:** [approved mockup](mockups/kiln-live-session-control.html).
 
 **Status:** All eleven implementation leaves are closed and published. The clean whole-PRD delivery audit remains current, and the affected-row [test-audit reassessment](kiln-live-session-control-test-audit.md) is complete at `33161aa`: all 20 active criteria Adequate, with 13 rows reassessed and seven unchanged rows retained. The complete integration invocation remains non-green with named compatibility diagnostics; every historical proof qualification is preserved. No planned successor remains in this bounded PRD. Doug has authorized publication of this test audit to `develop`; the authorization is recorded in the canonical audit.

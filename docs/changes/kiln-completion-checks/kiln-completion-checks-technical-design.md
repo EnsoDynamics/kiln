@@ -38,3 +38,11 @@ The full integration run completed with 1,327 passing tests, seven failures and 
 One unrelated baseline failure remains in `src/engine/audit-workflow.integration.test.ts`, “retains a failed handback observation when an audit completion read is unavailable.” It deletes the technical design in the original shared checkout while the assigned worktree still has it, then expects the active execution to reject that absence. The same failure was reproduced in a temporary archive of the unchanged source baseline; this change does not alter that behavior.
 
 Final `npm run verify:development` passed: dependency audit, ESLint, TypeScript/Svelte checks, 711 unit tests, 14 release tests, build and 18 Codex proof tests.
+
+## Deliverable recheck — 2026-10-31
+
+Doug requested a fresh deliverable review before pushing and updating the local installation. The review found two remaining gaps: some unsupported unrelated provider records could still invalidate authentic required receipts, and several historical design sections lacked an applicable supersession notice. Receipt projection now omits unsupported per-call inputs/native records without weakening source identity, delegation, stability or command/result correlation. All seven affected historical technical designs carry a document-wide scoped supersession notice. Installed-package expectations no longer advertise the retired command, and the installed CLI explicitly omits/refuses it.
+
+Fourteen additional real-history cases reproduced the projection gaps before the fix and pass afterwards; the receipt matrix now has 21 passing tests. The complete focused provider-evidence set passes 82 tests. A fresh independent full deliverable review and its fix check found no remaining findings; separate reviewer runs passed 33 unit tests and 36 engine/receipt integration tests. Final `npm run verify:development` passes again. The earlier unrelated full-suite baseline limitation above remains unchanged.
+
+The final archive passes all nine installed-package tests, including actual CLI refusal/help and browser/assets/fonts startup. Archive SHA-256: `c91706ed41a76e1cf01eea400db8e6ff06c6345b1c09a736d07224db782303ea`.

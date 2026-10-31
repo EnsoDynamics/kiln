@@ -1,5 +1,7 @@
 # Technical Design: Codex support for Kiln
 
+**Document-wide supersession:** [Kiln completion checks](../../changes/kiln-completion-checks/kiln-completion-checks-technical-design.md) supersedes workspace-confinement auditing, outside-change warnings, related repair prompts and acceptance controls, and persistent phase-verification success notices wherever they appear below. Independent Git, required receipt authentication, launch permission, conversation availability and runtime ownership/cleanup requirements remain in force.
+
 **PRD:** [Codex support for Kiln](kiln-codex-support-prd.md) · **Decisions:** [validated assumptions](kiln-codex-support-assumptions.md) · **Starting evidence:** [research](kiln-codex-support-research.md)
 
 ## Overview

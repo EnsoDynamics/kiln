@@ -1,5 +1,7 @@
 # Technical Design: Clear handoffs on Kiln’s Needs you page
 
+**Document-wide supersession:** [Kiln completion checks](../kiln-completion-checks/kiln-completion-checks-technical-design.md) supersedes workspace-confinement auditing, outside-change warnings, related repair prompts and acceptance controls, and persistent phase-verification success notices wherever they appear below. Independent Git, required receipt authentication, launch permission, conversation availability and runtime ownership/cleanup requirements remain in force.
+
 **PRD:** [Clear handoffs on Kiln’s Needs you page](kiln-needs-you-handoff-prd.md) · **Arrangement and wording:** [interactive mockup](mockups/kiln-needs-you-handoff.html), [editable source](mockups/kiln-needs-you-handoff-fragment.html).
 
 **Status:** Whole-PRD implementation and validation complete. No phase split or additional design refinement. See [implementation validation](kiln-needs-you-handoff-validation.md).
