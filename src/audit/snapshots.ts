@@ -171,8 +171,7 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
     for (const id of test.runEvidenceIds) requireAudit(context.evidence.some(e => e.evidenceId === id && e.command?.outcome === "success" && insideRepository(repositoryFor(record, test.repository), e.command.cwd) && assessment.assessment?.verificationEvidenceIds?.includes(id) && [test, ...test.configuration].every(ref => Date.parse(e.command!.startedAt) >= snapshot.repositories.find(r => r.repository === ref.repository)!.files[ref.path]!.changedAtMs) && test.selectors.some(selector => e.command!.invocation.includes(selector) || e.command!.output.includes(selector))), `Missing observed collection/run for ${test.path}`, "missing_evidence");
   }
   for (const path of evidencePaths) requireAudit(fileInSnapshot(snapshot, path) && path.path.endsWith(".md"), `Invalid method evidence document ${path.path}`);
-  const records = new Set((record.completionAudits?.activities ?? []).map(a => `${prdRepo.name}:${a.reportPath}`));
-  records.add(`${prdRepo.name}:${record.prdDirectory}/test-audit.md`);
+  const records = auditRecordPaths(record);
   const delivery: unknown[] = []; const tests: unknown[] = [];
   for (const repo of repositories) {
     delivery.push([repo.repository, repo.identity, repo.branch]); tests.push([repo.repository, repo.identity, repo.branch]);
@@ -194,4 +193,34 @@ function assignedPathDirectory(repo: RepositoryEntry, path: string): string {
 export function compareSnapshots(checked: WorkSnapshot, current: WorkSnapshot): { deliveryCurrent: boolean; testsCurrent: boolean } {
   const deliveryCurrent = checked.deliveryFingerprint === current.deliveryFingerprint && checked.requirements.id === current.requirements.id;
   return { deliveryCurrent, testsCurrent: deliveryCurrent && checked.testFingerprint === current.testFingerprint };
+}
+
+function auditRecordPaths(record: PrdRecord): Set<string> {
+  return new Set([...(record.completionAudits?.activities ?? []).map(a => `${record.repository.name}:${a.reportPath}`), `${record.repository.name}:${record.prdDirectory}/test-audit.md`]);
+}
+
+/** Explain the same material content comparison that gates audit admission. */
+export function staleSnapshotReason(record: PrdRecord, checked: WorkSnapshot, current: WorkSnapshot, includeTests: boolean): string {
+  const changes: string[] = [];
+  const ignored = auditRecordPaths(record);
+  const tests = new Set(checked.testPaths.map(file => `${file.repository}:${file.path}`));
+  const oldRepositories = new Map(checked.repositories.map(repo => [repo.repository, repo]));
+  const newRepositories = new Map(current.repositories.map(repo => [repo.repository, repo]));
+  for (const name of new Set([...oldRepositories.keys(), ...newRepositories.keys()])) {
+    const before = oldRepositories.get(name), after = newRepositories.get(name);
+    if (!before || !after) { changes.push(`${before ? "Removed" : "Added"} assigned repository ${name}`); continue; }
+    if (before.identity !== after.identity) changes.push(`Changed repository identity: ${name}`);
+    if (before.branch !== after.branch) changes.push(`Changed branch: ${name} (${before.branch} → ${after.branch})`);
+    for (const path of new Set([...Object.keys(before.files), ...Object.keys(after.files)])) {
+      const key = `${name}:${path}`;
+      if (ignored.has(key) || !includeTests && tests.has(key)) continue;
+      const oldFile = before.files[path], newFile = after.files[path];
+      if (oldFile?.digest === newFile?.digest && oldFile?.mode === newFile?.mode) continue;
+      changes.push(`${!oldFile ? "Added" : !newFile ? "Removed" : oldFile.mode !== newFile.mode ? "Changed file mode" : "Changed"}: ${name}/${path}`);
+    }
+  }
+  if (checked.requirements.id !== current.requirements.id) changes.push("Changed governing acceptance criteria");
+  const details = changes.slice(0, 12).map(change => change.slice(0, 600));
+  if (changes.length > details.length) details.push(`${changes.length - details.length} additional changes`);
+  return `Requirements, implementation or checked test content changed after the audit snapshot.${details.length ? ` ${details.join("; ")}.` : " The material content fingerprint differs."} Resume the assigned audit to capture a current snapshot, reassess the changed work and resubmit its report.`;
 }

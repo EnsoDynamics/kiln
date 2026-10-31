@@ -59,6 +59,8 @@ Require ChatGPT authentication and the OpenAI provider (AUTH-001). Do not read o
 
 Metadata calls have a 30-second deadline including initialization; pagination has a per-call deadline and an overall bounded scan as specified below. Session turns have no arbitrary duration limit. Transport corruption, unexpected process exit and disconnected pipes end the attempt visibly; they never mean success. Failed persistence stops further turns. Existing platform process-tree controls supervise the app-server and its descendants.
 
+The existing private ownership helper owns the five-second deadline on its OS process query, so synchronous controller work cannot falsely time out a query that has already completed. One query returns the numeric process-parent inventory and marked process IDs without exposing command lines or environment values. The controller supervises helper startup/transport with the ordinary bounded helper deadline; real query failures and incomplete inventories still stop work visibly.
+
 ### Selection and readiness
 
 `kiln run` performs the common document/Git/GitHub checks before opening Documents found. It discovers agent executables without requiring either one, so a Codex-only installation reaches the chooser. A new PRD initially selects Claude Code; a missing initial Claude installation is a selection-specific readiness message with Start disabled, not a terminal startup failure.

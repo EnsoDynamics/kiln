@@ -86,6 +86,34 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
 function commit(sandbox: Sandbox, root: string, paths: string[]) { git(sandbox, root, "add", "--", ...paths); git(sandbox, root, "commit", "--allow-empty", "-qm", "test(audit): fixture work"); git(sandbox, root, "push", "-qu", "origin", "develop"); }
 
 describe("audit evidence admission", () => {
+  it.skipIf(process.platform === "win32")("names a mode-only change without reporting normalized phase-status edits", async () => {
+    const f = await fixture();
+    const phase = f.checked.plan[0]!.file;
+    const original = readFileSync(join(f.root, phase), "utf8");
+    expect(original).toContain("**Closed:**");
+    writeFileSync(join(f.root, phase), original.replace(/^\*\*Closed:\*\*.*$/m, "**Closed:** 2026-10-25"));
+    chmodSync(join(f.root, "value.mjs"), 0o755);
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe("unresolved"); expect(result.refusal?.code).toBe("stale_snapshot");
+    expect(result.refusal?.reason).toContain("Changed file mode: proof/value.mjs");
+    expect(result.refusal?.reason).not.toContain(phase);
+    expect(f.activity.acceptedResult).toBeUndefined();
+  });
+  it.each(["implementation", "completion phase"])("names changed assigned files when refusing a stale %s snapshot", async mode => {
+    const f = await fixture();
+    const path = mode === "implementation" ? "value.mjs" : `${directory}/phase-2-repair.md`;
+    writeFileSync(join(f.root, path), mode === "implementation" ? "export const value = () => 43;\n" : "# Phase 2: Repair\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n");
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe("unresolved");
+    expect(result.refusal?.code).toBe("stale_snapshot");
+    expect(result.refusal?.reason).toContain(`${mode === "implementation" ? "Changed" : "Added"}: proof/${path}`);
+    expect(result.refusal?.reason).not.toContain(f.activity.reportPath);
+    expect(result.refusal?.reason).toContain("capture a current snapshot, reassess the changed work and resubmit");
+    expect(result.checks[0]!.facts[0]).toBe(result.refusal?.reason);
+    expect(f.activity.acceptedResult).toBeUndefined();
+  });
   it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
     const f = await fixture();
     const source = f.store.putBytes("Shared retained transcript\n".repeat(40_000));
