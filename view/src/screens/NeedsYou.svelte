@@ -35,6 +35,7 @@
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
+  import { outputTail } from "../lib/session-view.js";
   import { clockTime, earlier } from "../lib/time.js";
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
   import { viewContext } from "../lib/view-context.js";
@@ -45,6 +46,8 @@
   const nowDate = $derived(new Date(now));
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled));
   const ending = $derived(endingFact(stop));
+  const output = $derived(outputTail(stop.lastLines ?? []));
+  const failure = $derived(stop.cleanupFailure ?? stop.failure);
   const accountAgent = $derived((stop.agent ?? snapshot.settings.agent) === "Codex" ? "Codex" : "Claude");
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
   const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, stop.agent ?? snapshot.settings.agent) : undefined);
@@ -108,6 +111,7 @@
             <p class="line">{copy.line}</p>
           {/if}
         </div>
+        {#if failure}<p class="failure">{failure}</p>{/if}
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
         {/if}
@@ -116,8 +120,9 @@
             <span class="eyebrow">Last message from {stop.agent ?? snapshot.settings.agent}</span>
             <div class="final">{@html finalMessageHtml(stop.finalMessage)}</div>
           </div>
-        {:else if stop.lastLines && stop.lastLines.length > 0}
-          <div class="lines mono">{#each stop.lastLines as line (line.line)}<OutputRow {line} now={nowDate} />{/each}</div>
+        {:else if output.lines.length > 0}
+          <div class="lines mono">{#each output.lines as line (line.line)}<OutputRow {line} now={nowDate} />{/each}</div>
+          {#if output.hidden}<p class="excerpt-note">Excerpt shortened; full output is available below.</p>{/if}
         {/if}
         {#if stop.sessionId && stop.outputLineCount !== undefined && (stop.kind !== "billing" || stop.sessionStartedAt)}
           <a class="arrow-link" href={outputLink} onclick={(event) => routedClick(event, router, outputLink)}>Full session output · {stop.outputLineCount.toLocaleString("en-US")} {stop.outputLineCount === 1 ? "line" : "lines"}<Icon name="arrow" /></a>
@@ -259,6 +264,8 @@
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
   .line { margin: 0; font-size: 15.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
   .line strong { color: var(--text); font-weight: 600; }
+  .failure { margin: 0; color: var(--amber); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+  .excerpt-note { margin: 0; color: var(--dim); font-size: 12.5px; }
   .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--dim); }
   .message-block { display: flex; flex-direction: column; gap: 10px; }
   /* The mockup's 72ch, as Inter's "0" measures it; with the bundled subset fonts `ch` falls back to 0.5em. */

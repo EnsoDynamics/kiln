@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { readSessionRecord, sessionDirectory, sessionStorageKey, writeSessionRecord } from "../state/records.js";
 import { runCodexSession, reconcileCodexAttempt } from "./codex-session.js";
@@ -11,10 +11,39 @@ import { stopCodexOwnedProcesses } from "./codex-owned-processes.js";
 
 const fixtures: ReturnType<typeof codexWorkFixture>[] = [];
 function fixture() { const f = codexWorkFixture(); fixtures.push(f); return f; }
-afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 
 // Real CLI pipes, records and processes. Live inference/protection is proved separately.
 describe("durable protected Codex attempts", () => {
+  it.skipIf(process.platform === "win32").each([
+    { program: 'process.stdout.write("PRIVATE_ENVIRONMENT_CANARY"); process.stderr.write("ps: synthetic ownership denial " + "x".repeat(10000) + "DIAGNOSTIC_TAIL_CANARY", () => process.exit(17))', detail: "ps: synthetic ownership denial", status: "exit 17" },
+    { program: 'process.kill(process.pid, "SIGTERM")', detail: "Process ownership query failed", status: "SIGTERM" },
+    { program: 'process.stderr.write("ps: synthetic stalled query"); setInterval(() => {}, 1000)', detail: "ps: synthetic stalled query", status: "timed out after 5 seconds" },
+  ])("persists the ownership probe's $status failure without retaining its process-environment output", async ({ program, detail, status }) => {
+    const f = fixture();
+    const preload = join(f.root, "ownership-failure.mjs");
+    // Inject only the unreliable ps failure. The real ownership helper, child pipes,
+    // session persistence and OS termination run normally; live ps succeeds in other cases.
+    writeFileSync(preload, `import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const spawn = cp.spawn;
+cp.spawn = (file, args, options) => file === '/bin/ps' && args[0] === 'eww'
+  ? spawn(process.execPath, ['-e', ${JSON.stringify(program)}], options)
+  : spawn(file, args, options);
+syncBuiltinESMExports();\n`);
+    vi.stubEnv("NODE_OPTIONS", `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(preload)}`.trim());
+    const run = await runCodexSession(f.options);
+    const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(run.codex?.failure).toContain(detail);
+    expect(run.codex?.failure).toContain(status);
+    expect(run.codex!.failure!.length).toBeLessThan(2300);
+    expect(saved.runs.at(-1)?.codex).toMatchObject({ cleanup: "unknown", cleanupFailure: run.codex?.failure });
+    expect(JSON.stringify(saved)).not.toContain("PRIVATE_ENVIRONMENT_CANARY");
+    expect(JSON.stringify(saved)).not.toContain("DIAGNOSTIC_TAIL_CANARY");
+    expect(f.calls().some(call => call.method === "turn/start")).toBe(false);
+    expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
+  });
+
   it.each(["delivery_audit", "test_audit"] as const)("dispatches the pinned %s skill and task with the selected protected profile (AC-TEST-01, AC-RUN-04)", async kind => {
     const f = fixture();
     const skillName = kind === "delivery_audit" ? "delivery-audit" : "test-audit";

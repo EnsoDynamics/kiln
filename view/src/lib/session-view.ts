@@ -22,3 +22,20 @@ export function outputPreview(text: string, maxLines: number, maxCharacters: num
   const preview = rows.slice(0, maxLines).join("\n").slice(0, maxCharacters);
   return { text: preview, hidden: preview.length < text.length, extraLines: Math.max(0, rows.length - preview.split("\n").length) };
 }
+
+/** The stop page needs a small tail, even when one saved record contains a whole file. */
+export function outputTail(lines: OutputLine[]): { lines: OutputLine[]; hidden: boolean } {
+  const preview: OutputLine[] = [];
+  let remainingLines = 10, remainingCharacters = 2400, hidden = false;
+  for (let index = lines.length - 1; index >= 0; index--) {
+    if (remainingLines === 0 || remainingCharacters === 0) { hidden = true; break; }
+    const line = lines[index]!;
+    const rows = line.text.slice(-remainingCharacters).split(/\r\n|\r|\n/).slice(-remainingLines);
+    const text = rows.map(row => row.length > 240 ? `…${row.slice(-239)}` : row).join("\n");
+    preview.unshift({ ...line, text });
+    remainingLines -= rows.length;
+    remainingCharacters -= text.length;
+    hidden ||= text !== line.text;
+  }
+  return { lines: preview, hidden };
+}
