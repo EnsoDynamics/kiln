@@ -1,7 +1,7 @@
 # Test audit: Kiln Continue Added Phases
 
-**Status:** 15 to fix (AC-CONTINUE-07, AC-CONTINUE-08, AC-CONTINUE-09, AC-CONTINUE-06, AC-OFFER-03, AC-OFFER-02, AC-HANDBACK-02, AC-HANDBACK-03, AC-CONTINUE-01, AC-CONTINUE-03, AC-FIND-04, AC-OFFER-01, AC-FIND-01, AC-FIND-02, AC-HANDBACK-01); 0 red checks pending; 0 waiting on delivery; 0 accepted. Three criteria are Adequate. Initial assessment and one bounded preparation-evidence batch complete; remediation continues.
-**Last audit:** 2026-10-31 UTC, whole PRD; AC-CONTINUE-07 independently regraded against test-only changes at `04ed1e5`. Initial unchanged rows retain `b46e7fb`.
+**Status:** 15 to fix (AC-CONTINUE-07, AC-CONTINUE-08, AC-CONTINUE-09, AC-CONTINUE-06, AC-OFFER-03, AC-OFFER-02, AC-HANDBACK-02, AC-HANDBACK-03, AC-CONTINUE-01, AC-CONTINUE-03, AC-FIND-04, AC-OFFER-01, AC-FIND-01, AC-FIND-02, AC-HANDBACK-01); 0 red checks pending; 0 waiting on delivery; 0 accepted. Three criteria are Adequate. Two bounded preparation-evidence batches complete; AC-CONTINUE-07 reached stuck after its second below-target remediation regrade; Doug then authorized the revised approach below. Remediation continues with that direction, not an attempt reset.
+**Last audit:** 2026-10-31 UTC, whole PRD; AC-CONTINUE-07 independently regraded against test-only changes at `f149f48`. Initial unchanged rows retain `b46e7fb`.
 **PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md).
 **Requirements:** [single technical design](kiln-continue-added-phases-technical-design.md), [assumptions](kiln-continue-added-phases-assumptions.md), every closed leaf in the [phase plan](kiln-continue-added-phases-phase-plan.md).
 **Delivery assessment:** [clean whole-PRD delivery audit after Phase 8](kiln-whole-prd-delivery-audit-after-phase-8.md), implementation `c21e655`.
@@ -16,7 +16,7 @@ Three independent fresh readers assessed groups of at most four related criteria
 
 `npm test` collects non-integration `src/**/*.test.ts` and `view/src/**/*.test.ts`. `npm run verify` also builds and collects `src/**/*.integration.test.ts`, plus release and Codex contract checks. `npm run test:package` collects installed-package tests. Native preparation cases are enabled on this macOS checkout and macOS validation, skipped on unsupported platforms; those skips do not certify other profiles. Historical actual-provider proof runs remain valuable delivery evidence, but their opt-in scripts are not collected by these test commands or CI and therefore do not establish a current test-audit grade. In particular, `added-plan-provider-proof.mjs`, `continuation-provider-proof.mjs` and `preparation-provider-proof.mjs` under `scripts/proof-run/` are not invoked by the normal commands, including `test:live-proof`. Deterministic peers prove engine scheduling/storage contracts; they cannot alone prove actual providers obey preparation-only turns or start fresh native conversations.
 
-All Git writes in mapped integration fixtures target generated disposable repositories and local bare origins. HTTP/browser coverage uses the actual local server and Chrome. Native checks execute real project commands under qualified local controls. No production check or actual-provider launch was performed by this audit. The initial assessment changed no implementation, requirements or tests. The first remediation batch adds only two collected test files; implementation, shared fixtures, runner configuration and governing requirements remain unchanged. The clean delivery assessment at `c21e655` therefore remains current. One fresh independent reader regraded AC-CONTINUE-07 after deriving its parts from requirements; other grades stand unchanged.
+All Git writes in mapped integration fixtures target generated disposable repositories and local bare origins. HTTP/browser coverage uses the actual local server and Chrome. Native checks execute real project commands under qualified local controls. No production check or actual-provider launch was performed by this audit. The initial assessment changed no implementation, requirements or tests. The first remediation batch adds only two collected test files; implementation, shared fixtures, runner configuration and governing requirements remain unchanged. The clean delivery assessment at `c21e655` therefore remains current. One fresh independent reader per remediation batch regraded AC-CONTINUE-07 after deriving its parts from requirements; other grades stand unchanged. The second batch adds one normally collected native-contract integration file only; no shared fixture, implementation, runner, requirements or provider profile changed.
 
 ## By criterion
 
@@ -39,7 +39,7 @@ Test aliases resolve to exact collected names in the next section. Checked entri
 | AC-CONTINUE-03 — Ambiguous earlier changes (high risk) | Weak | 9/10 | D6, N2–N4, S4 | `plan-reconciliation.ts` scope comparison | `b46e7fb` |
 | AC-CONTINUE-05 — Normal audits and delivery (high risk) | Adequate | 6/6 | C1/C8, P26, A3 | `engine.ts` audit routing/finalization; `continuation-state.ts` | `b46e7fb` |
 | AC-CONTINUE-06 — Current delivery base (high risk) | Weak | 9/12 | C1–C3/C6/C7, D5, R3, K4/K9 | continuation readiness/sources/setup; engine activation | `b46e7fb` |
-| AC-CONTINUE-07 — Prepare prerequisites first (high risk) | Weak | 33/42 | E1–E11, Q1–Q4, R1/R4, M1, P1–P23, C3 | preparation documents/state/permissions/verifier; readiness and engine | `04ed1e5` |
+| AC-CONTINUE-07 — Prepare prerequisites first (high risk) | Weak | 36/42 | V1–V5, E1–E11, Q1–Q4, R1/R4, M1, P1–P23, C3 | preparation documents/state/permissions/verifier; readiness and engine | `f149f48` |
 | AC-CONTINUE-08 — Existing controls govern work (high risk) | Weak | 8/14 | C1/C3/C9/C10, R1, P1/P4/P14/P24/P27–P30 | engine activation/admission; setup; preparation permissions; billing/adapters | `b46e7fb` |
 | AC-CONTINUE-09 — Separate early-merge choice (high risk) | Weak | 22/27 | R1, P25/P30–P35, C1/C5, F7 | continuation authority/readiness; engine grant; browser panel | `b46e7fb` |
 
@@ -183,6 +183,16 @@ All **P** aliases below are in `src/engine/preparation-execution.integration.tes
 - **P34** `faults supersession publication and reconciles durable authority on restart (written=%s)`.
 - **P35** `retains pending-grant ownership across pointer publication (written=%s)`.
 
+### Native preparation contract evidence (second remediation batch)
+
+All **V** aliases are normally collected in `src/engine/preparation-native-contract.integration.test.ts` on macOS; deterministic provider peers are scheduling evidence only.
+
+- **V1** `runs a native check in its physical %s directory and retains that cwd` (default, explicit).
+- **V2** `refuses a check directory escaping through a real symlink without native or implementation dispatch`.
+- **V3** `runs two checks in one preparation item in written order at the same committed checkpoint`.
+- **V4** `holds a real signalled project check and retains its incomplete output without implementation`.
+- **V5** `holds a missing successful output record across restart without repeating checks or implementation`.
+
 ## Required-part assessment
 
 The numbered groups below fix each denominator independently of the implementation. Covered groups map to the aliases above; uncovered groups are carried into To fix. High risk means a silent regression could spend money, lose/history-rewrite work, expand authority or authorize incorrect delivery. It does not assert a current production defect.
@@ -214,7 +224,7 @@ The numbered groups below fix each denominator independently of the implementati
 
 ### AC-CONTINUE-07: preparation part map
 
-Each numbered item is a stated group from the PRD/design/3b and completion leaves 5/6/8. **C** is covered, **U** uncovered. A mixed group is U. The count is 33 C of 42 groups after the first bounded remediation batch.
+Each numbered item is a stated group from the PRD/design/3b and completion leaves 5/6/8. **C** is covered, **U** uncovered. A mixed group is U. The count is 36 C of 42 groups after the second bounded remediation batch; the first regrade was 33/42.
 
 1. **C** ordinary normalized merge tuple, wrapping/emphasis and exact source spans — E1.
 2. **C** quoted preparation ignored — E2.
@@ -233,7 +243,7 @@ Each numbered item is a stated group from the PRD/design/3b and completion leave
 15. **U** complete malformed/missing/contradictory blocker facts, exact spans and recoverable replacement instructions. E8/E10/E11 now pin destination/verification errors, exact spans and ordinary-prose recovery. Still missing complete malformed First-step opening, unsupported merge operands and missing/ambiguous repository/fact diagnostics; E2/E5 cover subsets.
 16. **C** direct quoted argv preserved without expansion — E1/E3.
 17. **C** shell operators/redirection/substitution/assignment/inline evaluation rejected — E4.
-18. **U** explicit/default check directories and physical symlink-escape refusal. E9 proves parsed defaults/explicit directory only; supplied native cwd and physical/symlink containment still need real boundary cases.
+18. **C** explicit/default check directories and physical symlink-escape refusal — V1 pins the actual physical cwd through retained `pwd -P` output and invocation metadata; V2 commits a real escaping directory symlink during preparation after valid-source acceptance, then pins native checkpoint refusal, zero attempts and no implementation dispatch. E9 retains parsed definitions.
 19. **C** default timeout 1800, minimum 1/0, maximum 86400/86401 — E9/E10 pin all five values, retained argv/span and exact rejection/recovery.
 20. **C** missing/unsupported verification prose — E11 pins missing, unsupported Verify syntax and unsupported subordinate instructions with empty checks and supported replacement/recovery; R1 separately proves missing executable.
 21. **C** preparation/verification instruction movement invalidates bound offer — Q4 changes each instruction in committed/published real Git after discovery, then asserts refreshed offer, stale-accept 409, unchanged completed identity/time and zero launch.
@@ -244,10 +254,10 @@ Each numbered item is a stated group from the PRD/design/3b and completion leave
 26. **C** submission while provider runs cannot start native check/extra turn — P1/P3/P6 fixture assertions.
 27. **C** ordinary/takeover Claude owned work settles before check and final dispatch — P4/P21.
 28. **C** unknown Codex background inventory holds and same-thread recovery — P5; no actual native Codex verifier inferred.
-29. **U** all repositories integrated; sequential real checks at one checkpoint; provider claim insufficient — P1/P3/P6/P15 cover these existing paths. Fresh regrade corrected the initial overcount: every item has one check, so dropping/reversing additional checks within one item could remain green. The design explicitly requires checks ordered as written. Add one item with two real native checks and retained output proving first completion before second start. No implementation defect is inferred from this evidence gap.
+29. **C** all repositories integrated; sequential real checks at one checkpoint; provider claim insufficient — P1/P3/P6/P15 retain the existing paths. V3 closes the first regrade's corrected ordering gap: one item has two real native checks, an external fixture-owned dependency marker requires first completion before the second starts, both exact outputs/check indices are retained, receipt times do not overlap and both receipts name the verified committed checkpoint.
 30. **U** complete prepared-source eligibility: clean/committed/no conflicts, correct branch/HEAD/index, tracked/nonignored fingerprint.
 31. **U** complete movement variants for executable bytes/environment/settings before and after checks/admission; P23 and source-ref movement test prove subsets.
-32. **U** all unsuccessful native outcomes: signal and missing-output-record variants unproved despite P2/P7/P9/P13 failure coverage.
+32. **C** unsuccessful native outcomes — P2/P7/P9/P13 retain failure/timeout/spawn/ambiguous/damaged-output coverage. V4 adds an actual project SIGTERM, retained partial output and failed native result with no implementation. V5 deletes a successful output file during a pause, restarts, and pins unresolved recovery with the same single attempt and no repeat or implementation.
 33. **C** durable intent/attempt precedes process; replay duplicates neither check nor turn — P7/P8.
 34. **C** ambiguous launch/legacy unknown ownership holds through Verify/Resume — P8/P11.
 35. **C** positively known no-launch failure recovers through ordinary controls — P9.
@@ -320,6 +330,22 @@ RC-01 logs: `/private/tmp/kiln-continuep-redcheck-find03-{1,2}.log`; restore pas
 
 No green mutation, widening, unexplained failing mapped test or unrestored source remains. One passing restoration run is required evidence; the many tests excluded by `-t` in this targeted run are intentional selection, not permanently skipped evidence.
 
+### Second remediation batch (2026-10-31 UTC)
+
+| Check | Safe intentional break | Exact mapped evidence and result | Restoration |
+|---|---|---|---|
+| RC-07 | Replace only completed attempts' retained directory metadata after native checks finish; actual invocation/cwd and containment guards unchanged. | Each V1 default/explicit case fails its exact retained-directory assertion twice alone. Actual `pwd -P` output still supplies an independent physical-cwd oracle. | Original copied outside repository; last mutated SHA-256 matched before byte-identical restore. |
+| RC-08 | Reverse only the settled receipt array after both native checks finish, leaving actual execution, checks and admission unchanged. | V3 fails its exact ordered receipt assertion twice alone. Both real checks still complete. An earlier check-index increment was too broad: schema validation rejected the record before an assertion, so it was not counted; it was restored before this narrower check. | Checksum-checked byte-identical restore. |
+| RC-09 | Replace only the symlink-containment refusal's diagnostic prefix; physical containment refusal unchanged. | V2 fails the exact blocker assertion twice alone. | Checksum-checked byte-identical restore. |
+| RC-10 | Replace only the failed native result's reason wording; signal, exit status and unsuccessful outcome unchanged. | V4 fails its exact failed-receipt assertion twice alone after actual project SIGTERM. | Checksum-checked byte-identical restore. |
+| RC-11 | Replace only the missing-output recovery reason; output validity/reuse refusal and no-repeat behavior unchanged. | V5 fails its exact unresolved-receipt/recovery assertion twice alone. | Checksum-checked byte-identical restore. |
+
+The entire six-case V1–V5 file passed together after restoration. New checks do not consume the existing-evidence red-check cap. Logs: `/private/tmp/kiln-native-redcheck-{cwd,order,escape,signal,missing-output}-*.log`; checksum/backups/RESTORED entries are in `.agent-sessions/2026-10-31-codex-continuep-native-test-audit.log` in the shared checkout. The verifier has no permanent diff.
+
+**red check not possible: safety exceptions.** Physical directory selection/containment, whether required checks run before implementation, signal-failure admission and output-validity/reuse guards decide where/whether native/provider work writes. Step 3 prohibits disabling those guards. RC-07/08 prove retained result specificity; RC-09–11 prove blocker/recovery specificity. They do not claim to disable those safety decisions or establish Strong. The real successful/negative boundary cases and independent read support the covered groups.
+
+The initial outer-sandbox test run could not read process inventory and was stopped; it is not evidence. The first symlink fixture was already unsafe in the identified source, so discovery correctly blocked it before native verification. The final fixture starts from valid source, then commits the physical escape during preparation to reach the intended native checkpoint; no product code or assertion was weakened.
+
 ## To fix, in order
 
 ### Missing
@@ -328,7 +354,7 @@ None. Every active criterion has some collected evidence.
 
 ### Failing mapped tests
 
-None confirmed. Deliberate RC-01–RC-06 assertion failures were restored; the exact mapped tests passed afterward. The initial dependency-destination fixture used unsupported dependency grammar; changing it to the documented parenthetical annotation resolved that test-input error without changing implementation or assertions.
+None confirmed. Deliberate RC-01–RC-11 assertion failures were restored; the exact mapped tests passed afterward. The initial dependency-destination fixture used unsupported dependency grammar; changing it to the documented parenthetical annotation resolved that test-input error without changing implementation or assertions.
 
 ### Red checks still to run
 
@@ -338,7 +364,7 @@ None. The explicit guard/configuration prohibitions above are safety exceptions,
 
 Order: high risk, most uncovered stated groups, then shared setup; ordinary reporting rows follow. This is a test-remediation queue, not an implementation phase plan. Each successor takes one coherent bounded batch; unchanged grades stand until affected evidence changes.
 
-1. **AC-CONTINUE-07 (33/42, high risk):** nine U groups remain: **15, 18, 24, 25, 29, 30, 31, 32, 39**. Complete the extraction diagnostic matrix; real directory/symlink, multiple checks ordered within one item, and native checkpoint/process/permission cases; and normally collected supported actual Claude/Codex preparation proof. Reuse generated disposable repositories, qualified versions and existing scripts. A manually rerun opt-in script does not close its normal-collection gap. **tried 2026-10-31:** eight groups closed by E6–E11/Q1–Q4; independent fresh assessor still found the nine named groups incomplete, including the corrected prior ordering overcount in group 29. This is the first below-target remediation regrade, not stuck. A second below-target regrade must mark the row stuck and stop further work on it until Doug gives direction, per the skill.
+1. **AC-CONTINUE-07 (36/42, high risk; second-attempt stuck state followed by new direction):** six U groups remain: **15, 24, 25, 30, 31, 39**. Remaining work is the complete extraction diagnostic matrix, source eligibility and movement matrix, native permission variants, and normally collected supported actual Claude/Codex preparation proof; this work reached the stuck rule and is now authorized only under Doug's revised approach below. Reuse generated disposable repositories, qualified versions and existing scripts. A manually rerun opt-in script does not close its normal-collection gap. **tried 2026-10-31:** eight groups closed by E6–E11/Q1–Q4; independent fresh assessor still found the nine named groups incomplete, including the corrected prior ordering overcount in group 29. This is the first below-target remediation regrade, not stuck. **tried 2026-10-31 (second):** V1–V5 close native directory/symlink, within-item sequential-check and signal/missing-output groups 18/29/32. Independent fresh regrade remains Weak, 36/42; complete diagnostics, actual Claude/Codex paths, complete source eligibility, movement and permissions remain unproved. **stuck:** the second below-target remediation regrade triggers the skill's stop rule. No successor works this row until Doug directs a different approach, clarifies its requirement or explicitly accepts this named high-risk row. No acceptance has been given. Doug subsequently directed the revised approach below, authorizing further work under that approach without erasing either attempt.
 2. **AC-CONTINUE-08 (8/14, high risk):** assert nondefault per-provider selections at fresh launch; Codex billing/pause; native current policy/sandbox; changed policy after a successful check and before implementation admission. Real provider/policy boundary evidence must accompany deterministic control fixtures.
 3. **AC-CONTINUE-09 (22/27, high risk):** pin panel CI/CD disclosure; real HTTP continuation-specific invalid/stale/wrong/environment/incomplete-scope and denied-permission refusals; conflicting grant command ID; two independent required targets retained across restart and adopted together under the exact reserved execution. Assert unchanged settings/workspaces and zero work until separate Continue.
 4. **AC-CONTINUE-06 (9/12, high risk):** independently advance secondary origin, pin proposal and prepared HEAD to captured external SHA; collect both actual-provider fresh admissions. Share setup with CONTINUE-01 where practical.
@@ -353,7 +379,7 @@ Order: high risk, most uncovered stated groups, then shared setup; ordinary repo
 13. **AC-FIND-01 (8/10):** hold actual browser response, assert pending feedback/disabled action; count requests during idle/clock/SSE reconnection without adding arbitrary sleeps.
 14. **AC-FIND-02 (13/15):** unrelated divergent branch must not be read/selected; move real origin revision mid-read, assert source_changed/earlier-result and no offer. Share movement setup with FIND-04.
 15. **AC-HANDBACK-01 (8/10):** collect both actual-provider manual-return append/split/remaining-count proof; share with HANDBACK-02.
-Only AC-CONTINUE-07 has a remediation attempt, recorded above. All other rows retain the initial assessment and have no remediation attempt. Do not count the initial assessment or an unchanged grade carried forward as a failed attempt.
+Only AC-CONTINUE-07 has remediation attempts (two), recorded above. All other rows retain the initial assessment and have no remediation attempt. Do not count the initial assessment or an unchanged grade carried forward as a failed attempt.
 
 ### Strong, if asked
 
@@ -369,11 +395,26 @@ None. No user acceptance of a Weak/high-risk row was given or inferred.
 
 ## Next bounded batch and completion chain
 
-The first bounded extraction/readiness batch is complete, with AC-CONTINUE-07 independently regraded **Weak, 33/42**. Required successor: **test-audit on this whole PRD**, continuing **AC-CONTINUE-07 preparation evidence** from the nine remaining U groups. Derive a coherent batch from that exact map; account for the existing first below-target regrade and the skill's second-regrade stuck rule rather than silently resetting attempts. Do not split test remediation into implementation phase documents. All implementation leaves remain closed, and test-only work retains the clean whole-PRD delivery assessment. Other criteria/grades remain unchanged. The worked row's count corrects one initial overcount in group 29 while closing eight previous U groups; this clarification belongs to the same first remediation regrade, not a second attempt.
+The second bounded native-contract batch is complete, with AC-CONTINUE-07 independently regraded **Weak, 36/42**. The first below-target regrade at `04ed1e5` remains the first attempt; this is the second and triggered stuck before Doug's subsequent direction. Both exact attempts and the corrected first-attempt group-29 overcount remain history, not a reset. Required successor: **test-audit on this whole PRD**, a coherent preparation/control boundary pass for **AC-CONTINUE-07 and AC-CONTINUE-08** under the revised approach below. Other criteria/grades remain unchanged. All implementation leaves remain closed and test-only changes retain the clean whole-PRD delivery assessment. Do not split test remediation into implementation phase documents.
+
+### Doug's revised direction after the second regrade
+
+On 2026-10-31 UTC in source chat `01a18f8e-e1b4-7701-8938-59a51eceaa15`, Doug answered the stuck-row question:
+
+> I don't really understand the options well enough to advise you. So I would say that you should rethink the entire situation, try to zoom out and come up with the best plan. And whatever you think is the plan that you are the most highly confident in, please proceed with that. Ultimately, we just want to be able to ensure that we can test this stuff to the best of our ability, but we don't need to get crazy with it. If you're really spinning your wheels on just test coverage here, then maybe what we've done is good enough.
+
+This is direction to use a different approach, not explicit acceptance of this named high-risk row. It releases the stuck hold for the approach below; it does not reset either regrade or let the audit silently count unproved parts as covered.
+
+**Revised approach:** stop the repeated tiny preparation batches. Take the remaining six preparation groups together with overlapping existing-controls evidence as one coherent boundary pass. Reuse the already implemented disposable proof flows, prioritize unsafe-launch/authority and lost-evidence regressions, and cover the stated cases without expanding implied permutations or pursuing Strong. In particular, `preparation-provider-proof.mjs` already performs actual Claude/Codex preparation, native verification and same-conversation implementation, with selected model/effort assertions. Collect those flows through the existing regular authenticated provider test tier (`test:live-proof`), keeping its current qualified profile and core `verify` free of authenticated provider calls; a fresh manual script run alone remains insufficient collected-test evidence. Add targeted normal native tests for the remaining source/configuration/permission boundaries and document-parser blockers using existing isolated fixtures. Do not regrade AC-CONTINUE-07 after another deliberately partial micro-batch; complete the coherent pass, independently regrade the worked criteria, and report any material evidence limit plainly. Preserve existing denominators and unchanged grades. Any further below-target result retains its history and needs honest disposition under the skill; Doug has not accepted gaps.
 
 Each new/strengthened test must first fail for the requirement it pins, without breaking forbidden safety guards; restore all changes made for red checks. A fresh assessor regrades the worked row. Test/code edits require full `npm run verify` and `npm run test:package` with implementation/build output frozen throughout broad integration. Keep current provider/profile limits; this audit certifies no new platform or detached/remote-effect containment.
 
 No redundant baseline suite was run before remediation. The first batch added 14 extraction cases and five real-Git offer cases, all passing after restoration. Full commit gates: `npm run verify` passed: zero blocking high/critical dependency findings; lint and TypeScript/Svelte checks passed with zero errors/warnings; 705 unit/component cases, 14 release cases and 18 Codex contract cases passed; all 109 integration files passed (1329 cases, three inherited/platform skips) in 2020.86 seconds. `npm run test:package` then passed all eight installed-package cases in 30.88 seconds. Logs: `/private/tmp/kiln-continuep-verify.log` and `/private/tmp/kiln-continuep-test-package.log`. Source freeze manifest `/private/tmp/kiln-continuep-source-freeze.json` covers implementation, tests, scripts, prompts, view and package/runner inputs; all 464 source and 266 build hashes matched after broad integration; all source hashes also matched after package prepack rebuilt the output. No mutation or build edit overlapped broad integration. Test-only output retains the clean delivery assessment.
+
+Second-batch full commit gates at `f149f48`: the restored V1–V5 file passed all six cases together in 59.51 seconds. `npm run verify` passed: zero blocking high/critical dependency findings; lint and TypeScript/Svelte checks passed with zero errors/warnings; 705 unit/component cases, 14 release cases, 18 Codex contract cases; all 110 integration files passed (1335 cases, three inherited/platform skips) in 2137.58 seconds. Overall verify took 2165.97 seconds. `npm run test:package` passed all eight installed-package cases in 31.47 seconds (31.84-second command wall time). Logs: `/private/tmp/kiln-native-restored.log`, `/private/tmp/kiln-native-verify.log`, `/private/tmp/kiln-native-package.log`. All 530 source hashes and 266 build hashes matched after broad integration; no mutation or source/build edit overlapped that run. Source/build manifests: `/private/tmp/kiln-native-{source,build}-freeze.json`.
+
+The temporary gate helper's extra post-package assertion initially rejected a browser asset hash/name and index change. Both test commands had already passed. This was a cross-environment comparison: local Vitest code sets `NODE_ENV=test`, and package `npm pack` inherits it into prepack. A controlled `NODE_ENV=test npm run build` reproduced all 266 package-prepack hashes exactly; an ordinary build with NODE_ENV unset restored all 266 integration-build hashes exactly. All 530 source hashes still matched. Logs: `/private/tmp/kiln-native-{test-env,production}-build.log`; package-build manifest `/private/tmp/kiln-native-package-build.json`. The helper's overstrict comparison was explained, not treated as a product/test failure or silently suppressed. No implementation, governing requirement or shared test setup changed; the clean delivery assessment remains current.
+
 
 If a new required test exposes a delivery defect, confirm it and use test-audit's conflict/shipped-behavior check. Small authorized implementation fixes get deliverable review, independent regrade and a fresh clean whole-PRD delivery audit before affected test reassessment; larger missing implementation gets a completion leaf and its own implementation chat, then fresh delivery audit, then affected test reassessment. Requirements changes also require fresh delivery assessment. One implementation leaf per chat. Test-only and audit-record-only edits retain the existing clean delivery assessment.
 
