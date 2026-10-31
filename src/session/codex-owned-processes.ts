@@ -1,7 +1,7 @@
 // Remember descendant identities while the parent exists, including detached tool groups.
 import { fileURLToPath } from "node:url";
 import { spawnDetached } from "../platform/helper-process.js";
-import { endProcessTree, runHelper } from "../platform/helper-process.js";
+import { endProcessTree, runHelper, type HelperResult } from "../platform/helper-process.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 import type { SessionRun } from "../state/records.js";
 
@@ -26,7 +26,7 @@ export class CodexOwnedProcesses {
     // would add no ownership and can otherwise outlive the interruption grace.
     if (process.platform === "win32") return;
     const result = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
-    if (result.exitCode !== 0) throw new Error("Could not inventory Codex's owned tool processes.");
+    if (result.exitCode !== 0) throw processCheckFailure("Could not inventory Codex's owned tool processes.", "/bin/ps", result);
     const processes = result.stdout.trim().split(/\r?\n/).map(line => line.trim().split(/\s+/).map(Number)).filter(row => row.length === 2 && row.every(Number.isInteger));
     const owned = this.run.codex.ownedProcesses ??= [];
     const livePids = new Set(processes.map(row => row[0]));
@@ -86,15 +86,23 @@ async function markedProcesses(run: SessionRun): Promise<{ pid: number; startTim
   if (!run.codex?.processOwner || process.platform === "win32") return [];
   const child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/codex-process-owners.mjs", import.meta.url))], { cwd: process.cwd(), env: process.env, stdin: "pipe" });
   const pids = await new Promise<number[]>((resolve, reject) => {
-    let stdout = "";
-    const timer = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); reject(new Error("Codex ownership query timed out.")); }, 5000);
-    child.stdout!.setEncoding("utf8"); child.stderr!.resume();
+    let stdout = "", stderr = "";
+    const timer = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); reject(processCheckFailure("Codex ownership query timed out after 5 seconds.", "Ownership helper", { exitCode: null, failure: "timeout", stderr })); }, 5000);
+    child.stdout!.setEncoding("utf8"); child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (text: string) => { stderr = (stderr + text).slice(0, 2048); });
     child.stdout!.on("data", (text: string) => { stdout += text; if (stdout.length > 128 * 1024) { void endProcessTree(child.pid, "SIGKILL"); reject(new Error("Codex ownership query exceeds its bound.")); } });
     child.on("error", reject); child.stdin!.on("error", reject);
-    child.on("close", code => { clearTimeout(timer); if (code !== 0) reject(new Error("Could not establish Codex process ownership.")); else { try { const ids: unknown = JSON.parse(stdout); if (!Array.isArray(ids) || !ids.every(id => Number.isInteger(id) && id > 0)) throw new Error("Invalid process ownership result."); resolve(ids as number[]); } catch (error) { reject(error); } } });
+    child.on("close", (code, signal) => { clearTimeout(timer); if (code !== 0) reject(processCheckFailure("Could not establish Codex process ownership.", "Ownership helper", { exitCode: code, stderr, ...(signal ? { failure: `ended by ${signal}` } : {}) })); else { try { const ids: unknown = JSON.parse(stdout); if (!Array.isArray(ids) || !ids.every(id => Number.isInteger(id) && id > 0)) throw new Error("Invalid process ownership result."); resolve(ids as number[]); } catch (error) { reject(error); } } });
     child.stdin!.end(JSON.stringify({ owner: run.codex!.processOwner }));
   });
   const result: { pid: number; startTime: string }[] = [];
   for (const pid of pids) { const startTime = await processStartTime(pid); if (startTime) result.push({ pid, startTime }); }
   return result;
+}
+
+/** Never include ps stdout: the ownership query reads other processes' environments. */
+function processCheckFailure(message: string, command: string, result: Pick<HelperResult, "exitCode" | "failure" | "stderr">): Error {
+  const status = result.exitCode === null ? result.failure ?? "no exit status" : `exit ${result.exitCode}`;
+  const stderr = result.stderr.slice(0, 2048).replace(/\p{Cc}/gu, " ").trim();
+  return new Error(`${message} ${command}: ${status}${stderr ? `; ${stderr}` : "."}`);
 }

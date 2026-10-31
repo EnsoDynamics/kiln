@@ -193,6 +193,38 @@ async function openScreen(snapshot: Snapshot, path = "", clock = RUNNING_NOW, ou
   return { server, page };
 }
 
+it("keeps huge audit output compact, puts the recorded failure first and preserves full output", async () => {
+  const snapshot = needsYouCrashedSnapshot();
+  const stop = snapshot.needsYou!;
+  const failure = "Could not establish Codex process ownership. Ownership helper: exit 1; /bin/ps exit 17; ps: synthetic denial";
+  stop.agentId = "codex"; stop.agent = "Codex"; stop.cleanupFailure = failure;
+  stop.lastLines = [
+    { line: 1, at: stop.stoppedAt, source: "subagent", threadId: "synthetic-child", text: "source-code-canary\n".repeat(5000) },
+    { line: 2, at: stop.stoppedAt, source: "stderr", text: failure },
+  ];
+  const { server, page } = await openScreen(snapshot, "", RUNNING_NOW, stop.lastLines);
+  try {
+    const facts = await page.evaluate<{ length: number; height: number; failureAbove: boolean; shortened: boolean }>(`(() => {
+      const excerpt = document.querySelector('.ended .lines');
+      const failure = document.querySelector('.ended .failure');
+      return { length: excerpt.innerText.length, height: excerpt.getBoundingClientRect().height,
+        failureAbove: failure.getBoundingClientRect().bottom <= excerpt.getBoundingClientRect().top,
+        shortened: document.querySelector('.excerpt-note').innerText.includes('Excerpt shortened') };
+    })()`);
+    expect(facts.length).toBeLessThan(3000);
+    expect(facts.height).toBeLessThan(650);
+    expect(facts.failureAbove).toBe(true);
+    expect(facts.shortened).toBe(true);
+    const folder = process.env.KILN_SCREENSHOTS;
+    if (folder) { mkdirSync(folder, { recursive: true }); writeFileSync(join(folder, "bounded-audit-failure.png"), await page.screenshot()); }
+    await page.evaluate(`document.querySelector('.ended .arrow-link').click()`);
+    await page.waitFor(`document.body.innerText.includes('source-code-canary')`);
+    // The output endpoint retains the exact saved record, not the shortened stop excerpt.
+    const saved = await page.evaluate<string>(`fetch('/api/sessions/${stop.sessionId}').then(r => r.json()).then(v => v.lines[0].text)`);
+    expect(saved).toBe(stop.lastLines[0]!.text);
+  } finally { await page.close(); await server.close(); }
+});
+
 async function saveScreenshots(name: string, page: BrowserPage, mockup: string, clock: number) {
   const folder = process.env.KILN_SCREENSHOTS;
   if (!folder) return;

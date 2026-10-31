@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OutputLine } from "../../../src/session/session-output.js";
-import { mergeOutput, outputCall, outputPreview } from "./session-view.js";
+import { mergeOutput, outputCall, outputPreview, outputTail } from "./session-view.js";
 
 const entry = (line: number): OutputLine => ({ line, at: "2026-10-23T17:00:00Z", source: "out", text: `entry ${line}` });
 
@@ -31,5 +31,29 @@ describe("live session output", () => {
     expect(outputPreview("one\ntwo\nthree\nfour", 2, 240)).toEqual({ text: "one\ntwo", hidden: true, extraLines: 2 });
     expect(outputPreview("x".repeat(500), 3, 240)).toEqual({ text: "x".repeat(240), hidden: true, extraLines: 0 });
     expect(outputPreview("short", 4, 600)).toEqual({ text: "short", hidden: false, extraLines: 0 });
+  });
+
+  it("bounds the stopped excerpt by physical lines and characters, retaining the newest errors and source identities", () => {
+    const lines: OutputLine[] = [
+      { ...entry(1), source: "subagent", threadId: "child", text: "old source\r\n".repeat(5000) + "x".repeat(40_000) },
+      { ...entry(2), source: "stderr", text: "Could not establish Codex process ownership (exit 17)." },
+      { ...entry(3), source: "stderr", text: "Cleanup failed: ownership query failed." },
+    ];
+    const original = structuredClone(lines);
+    const preview = outputTail(lines);
+    expect(preview.hidden).toBe(true);
+    expect(preview.lines.flatMap(line => line.text.split("\n")).length).toBeLessThanOrEqual(10);
+    expect(preview.lines.reduce((count, line) => count + line.text.length, 0)).toBeLessThanOrEqual(2400);
+    expect(preview.lines[0]).toMatchObject({ line: 1, threadId: "child", source: "subagent" });
+    expect(preview.lines[0]!.text.length).toBeLessThanOrEqual(240);
+    expect(preview.lines.slice(-2)).toEqual(lines.slice(-2));
+    expect(lines).toEqual(original);
+  });
+
+  it("takes the newest physical lines across records and leaves short excerpts intact", () => {
+    const lines = [entry(1), { ...entry(2), text: Array.from({ length: 20 }, (_, n) => `row ${n}`).join("\n") }];
+    expect(outputTail(lines)).toEqual({ lines: [{ ...entry(2), text: Array.from({ length: 10 }, (_, n) => `row ${n + 10}`).join("\n") }], hidden: true });
+    expect(outputTail([entry(1)])).toEqual({ lines: [entry(1)], hidden: false });
+    expect(outputTail([])).toEqual({ lines: [], hidden: false });
   });
 });

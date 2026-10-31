@@ -43,6 +43,22 @@ function stopped(change: Partial<NonNullable<Snapshot["needsYou"]>>, drop: (keyo
 }
 
 describe("Needs you, for the stops nobody drew (UI-007)", () => {
+  it("puts a recorded cleanup failure before a bounded source-code excerpt and retains the full-output link", () => {
+    const failure = "Could not establish Codex process ownership (exit 17).";
+    const page = needsYou(stopped({
+      agentId: "codex", agent: "Codex", failure, cleanupFailure: failure,
+      lastLines: [
+        { line: 1, at: "2026-10-31T17:24:05Z", source: "subagent", text: "source-code-canary\n".repeat(5000) },
+        { line: 2, at: "2026-10-31T17:24:15Z", source: "stderr", text: failure },
+      ],
+    }, ["finalMessage"]));
+    expect(page.indexOf(failure)).toBeLessThan(page.indexOf('class="lines mono'));
+    const excerpt = page.slice(page.indexOf('class="lines mono'), page.indexOf("Full session output"));
+    expect(excerpt.length).toBeLessThan(5000);
+    expect(text(page)).toContain("Excerpt shortened; full output is available below.");
+    expect(text(page)).toContain("Full session output");
+  });
+
   it("offers a fresh session in step 1, with no resume command, facts row or link, when the session can't be resumed (item 2, AC-KEEP-05)", () => {
     const page = needsYou(
       stopped({ kind: "not_resumable", resumeOffered: false, stoppedAt: "2026-10-17T15:30:00Z", lastLines: [{ line: 9, at: "2026-10-17T15:29:58Z", source: "claude", text: "Writing the store-credit tests." }] }, ["finalMessage", "exitCode", "lastSkill", "resumeCommand"]),
