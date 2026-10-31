@@ -7,6 +7,11 @@ import { AGENT_NAMES, type AgentId } from "../state/records.js";
 // src/session/ and dist/session/ both sit two levels under the package root, beside prompts/.
 const PROMPTS = new URL("../../prompts/", import.meta.url);
 
+/** Required subprocesses and reviewers finish inside the current provider session. */
+export function requiredBackgroundWorkPrompt(prompt: string): string {
+  return `${prompt}\n\n${template("required-background-work.txt")}`;
+}
+
 /** Invoke the discovered installed Codex skill without changing its published content. */
 export function codexSessionPrompt(prompt: string, skills: { name: string; path: string }[], name = "implement-from-requirements"): string {
   const skill = skills.find(skill => [name, `enso-method:${name}`].includes(skill.name));

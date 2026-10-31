@@ -7,7 +7,7 @@ import type { BillingSummary } from "../billing/inspection.js";
 // and the run's end recorded (technical design, "Starting a phase's session", "Output and
 // progress").
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
@@ -17,6 +17,8 @@ import { appendJsonLine, readJsonLines } from "../state/state-files.js";
 import { isPartialDelta, SessionOutputReader, type OutputLine, type PartialText, type StreamEvent } from "./session-output.js";
 import { isModelResponse, sleepInterruption, type SavedEvent } from "./run-verdict.js";
 import { usageLimitRefusal } from "./usage-limit.js";
+import { ClaudeBackgroundWork } from "./claude-background-work.js";
+import { requiredBackgroundWorkPrompt } from "./prompts.js";
 
 /**
  * The flags every session gets (technical design, "Starting a phase's session"), plus an
@@ -187,6 +189,7 @@ export function runReportedInit(stateDirectory: string, record: SessionRecord, r
 export async function runSessionProcess(options: SessionProcessOptions): Promise<SessionRun> {
   const now = options.now ?? (() => new Date());
   const { record } = options;
+  const prompt = requiredBackgroundWorkPrompt(options.prompt);
   const files = sessionFiles(options.stateDirectory, record);
   mkdirSync(files.directory, { recursive: true, mode: 0o700 });
 
@@ -205,11 +208,13 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   };
 
   const startedAt = now().toISOString();
-  const run: SessionRun = { ...(options.live ? { live: options.live } : {}), startedAt, cause: options.cause, ...(options.control ? { control: { ...options.control } } : {}),
+  const run: SessionRun = { ...(options.live ? { live: options.live } : {}), startedAt, cause: options.cause, ...(options.control ? { control: { ...options.control, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
     ...(options.billing ? { billing: options.billing } : {}), ...(options.note === undefined ? {} : { note: options.note }), ...(options.account === undefined ? {} : { account: options.account }) };
   // Persist the correlated attempt before spawn or stdin can have an effect.
   record.runs.push(run); saveRecord();
-  const child = spawnDetached(options.claude, options.args, { cwd: options.cwd, env: options.env, stdin: "pipe" });
+  // A quiet parent can still own an actively working reviewer. Claude's default
+  // ten-minute background ceiling kills it; explicit stop and tool timeouts remain.
+  const child = spawnDetached(options.claude, options.args, { cwd: options.cwd, env: { ...options.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" }, stdin: "pipe" });
   if (child.pid === undefined) {
     const error = await new Promise<NodeJS.ErrnoException>((resolve) => child.once("error", resolve));
     run.endedAt = startedAt; run.spawnError = { code: error.code ?? "ERROR", message: error.message }; saveRecord();
@@ -254,10 +259,17 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
 
   let observations = Promise.resolve();
   let observationFailure: unknown;
-  const retainObservationFailure = (error: unknown) => { observationFailure ??= error; };
+  const retainObservationFailure = (error: unknown) => {
+    observationFailure ??= error;
+    // A failed task/input observation must surface after provider drain instead
+    // of leaving a completed provider waiting forever for more input.
+    child.stdin!.end();
+  };
   let resultSeen = false;
+  const background = new ClaudeBackgroundWork();
   const maybeDrain = async () => {
-    if (!options.live || !resultSeen || child.stdin!.writableEnded) return;
+    if (!resultSeen || background.pending || child.stdin!.writableEnded) return;
+    if (!options.live) { child.stdin!.end(); return; }
     await withGate(options.live.gateDirectory, gate => {
       const accounted = Object.values(gate.inputs ?? {}).every(input => input.terminal);
       if ((gate.held || accounted) && unsettled(gate).length === 0 && !writing) {
@@ -293,7 +305,17 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       run.claudeResults = { count: resultAccounting.index, ...(cumulative === undefined ? previous?.cumulativeCostUsd === undefined ? {} : { cumulativeCostUsd: previous.cumulativeCostUsd } : { cumulativeCostUsd: cumulative }) };
     }
     appendJsonLine(files.events, { at, event, ...(resultAccounting ? { resultAccounting } : {}) });
-    if (options.live) observations = observations.then(async () => { options.onLiveEvent?.(event, at); await observeGate(options.live!.gateDirectory, event, at); if (event.type === "result") resultSeen = true; }).then(maybeDrain).catch(retainObservationFailure);
+    if (options.live) observations = observations.then(async () => {
+      background.observe(event);
+      options.onLiveEvent?.(event, at);
+      await observeGate(options.live!.gateDirectory, event, at);
+      if (event.type === "result") resultSeen = true;
+    }).then(maybeDrain).catch(retainObservationFailure);
+    else {
+      background.observe(event);
+      if (event.type === "result") resultSeen = true;
+      void maybeDrain();
+    }
     if (isModelResponse(event)) modelResponses.push(at);
     if (event.type === "rate_limit_event" || event.type === "assistant") limitEvents.push({ at, event });
 
@@ -318,8 +340,6 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       run.result = { subtype: String(event.subtype ?? ""), isError: run.result?.isError === true || event.is_error === true };
       if (typeof event.result === "string") run.result.text = event.result;
       changed = true;
-      // Closing stdin ends the session once its turn is over.
-      if (!options.live) child.stdin!.end();
     }
     if (changed) saveRecord();
   };
@@ -366,7 +386,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       if (!startTime) throw new Error("New dispatch PID/start identity cannot be established.");
       await options.beforePrompt({ pid, startTime });
     }
-  child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: options.prompt } })}\n`);
+  child.stdin!.write(`${JSON.stringify({ type: "user", message: { role: "user", content: prompt } })}\n`);
   openingSubmitted = true;
   if (run.control) {
     run.control.submitted = true;

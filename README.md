@@ -2,6 +2,8 @@
 
 Kiln runs an [Enso Method](https://github.com/EnsoDynamics/enso-method) phase plan end to end. Given an already-written PRD, technical design and phase plan, it starts a fresh Claude Code or Codex session for each phase, checks in Git that each phase landed, and shows progress in a local web view. The sessions do the implementation, quality gates and Git delivery through the Enso Method skills, unchanged; Kiln owns the order and the visibility. When a phase doesn't land, Kiln hands it back to you with the command to resume that exact session.
 
+If a subprocess, test run or reviewer is still needed to finish the task, the session waits for it and then carries on. A progress message saying “waiting” does not itself mean Kiln needs you. Claude sessions disable the provider’s default ten-minute background cutoff; Codex sessions retain their child-agent settlement checks. Both receive the same instruction to finish required background work before ending the task. See the [subprocess completion validation](docs/design/kiln-required-subprocess-completion-validation.md) for the checks and their limits.
+
 The Enso Method works without Kiln. Kiln automates the loop a person otherwise runs by hand.
 
 ## Install

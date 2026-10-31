@@ -192,6 +192,29 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Codex Authority and Conversation Lifecycle (Codex protected conversations, immutable session settings and recovery; Claude behavior retained).
 
+### Required subprocesses and reviews
+
+When a subprocess, test run or delegated reviewer is needed to finish the assigned task,
+the session waits for its outcome and continues the remaining work. Saying that it is
+waiting is a progress update, not a completed activity or a request for the person.
+Both providers receive this instruction on launch and resume. It adds no authority and
+does not retry a stopped activity, answer a human question or bypass completion checks.
+Intentionally persistent services are different: the session verifies readiness and ends
+services it no longer needs rather than waiting forever for them to exit.
+
+For Claude, set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` in the work process's environment.
+The default ten-minute idle-parent ceiling kills even an actively working background
+reviewer; the session's own stderr and Claude Code 2.1.316 contract confirmed this on
+2026-10-31. This changes only that background-wait ceiling; tool/API timeouts, usage and
+permission handling, explicit interruption and process-tree shutdown still apply.
+Keep stdin open after an intermediate result while reported background tasks remain.
+Exclude provider-labelled `ambient: true` housekeeping/live-update watchers from required
+work, including the live-input gate. Use the provider's complete `background_tasks_changed` membership when available; older
+streams use paired task-start/terminal notifications scoped to their run IDs. Live input
+also retains its existing accepted-input and safe-checkpoint settlement requirements.
+After background work settles, close stdin through the ordinary drain path and let the
+provider finish queued outcome-processing turns before judging the process exit.
+
 ### Starting a phase's session
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Approval and Dispatch (Claude billing safeguards and additive private billing state only).
@@ -208,7 +231,7 @@ claude -p --input-format stream-json
   --permission-mode auto --permission-prompts none
 working directory: the worktree · stdin: piped · stdout, stderr: piped · own process group
 stdin carries the launch prompt as the first user message, {"type":"user","message":{"role":"user","content":<prompt>}},
-and later any interrupt (Stopping a session); Kiln closes it when the result event arrives, and the process then exits
+and later any interrupt (Stopping a session); Kiln closes it after a result only when reported background work has settled (and live input, when enabled, is accounted for), and the process then exits
 ```
 
 Before spawning, Kiln writes the session record (ID, phase, model, the effort it passes, `createdAt`) and, for the phase's first session, the branch tip as the phase's `startCommit`. Once the process is spawned it adds the run (PID, [process start time](#ports-and-one-kiln-per-prd), start time), so from then on a crash leaves a run with no end time, which the next `kiln run` treats as interrupted. A crash between the two leaves a session with no run, which never started and is launched as planned ([What `kiln run` does](#where-a-feature-stands-what-kiln-run-does)).

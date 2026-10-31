@@ -1,0 +1,7 @@
+This is a disposable Kiln subprocess/reviewer integration proof. Work only in the current directory. Invoke Agent once with subagent_type proof-reviewer and run_in_background true. Tell it to run this exact Bash command, wait for it to finish and report its outcome:
+{{COMMAND}}
+
+Read the reviewer's completion notification and outcome, then use Bash to run this exact finalization command (do not write the parent marker yourself):
+{{FINISH_COMMAND}}
+
+Do not run the reviewer's command yourself. Do not commit, push, create branches, deploy, modify instructions or start another task. Finish with a short report only after both the worker and parent markers exist.

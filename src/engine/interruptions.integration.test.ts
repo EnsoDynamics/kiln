@@ -17,6 +17,8 @@ import { git } from "../test-support/git-repositories.js";
 import type { Sleep } from "../platform/sleep-readings.js";
 import { buildSnapshot } from "./snapshot.js";
 
+const REQUIRED_WORK = readFileSync(new URL("../../prompts/required-background-work.txt", import.meta.url), "utf8").trimEnd();
+
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
 
@@ -87,7 +89,7 @@ describe("Ctrl+C while a session works", () => {
     expect(resumed.args[resumed.args.indexOf("--effort") + 1]).toBe(session.effort);
     expect(resumed.prompt).toBe(
       `Kiln was interrupted at \`${run!.interruptedAt!.replace(/\.\d+Z$/, "Z")}\` (Ctrl+C) while this session was working, and has resumed it. ` +
-        "Carry on with `docs/prds/customer-returns/phase-1-return-intake.md` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies.",
+        "Carry on with `docs/prds/customer-returns/phase-1-return-intake.md` from where you stopped; check the worktree first, because work may have stopped partway through a step. Everything in the first message still applies." + `\n\n${REQUIRED_WORK}`,
     );
     expect(engine.record.phases["1"]).toMatchObject({ sessionIds: [session.sessionId], doneAt: expect.any(String), finishedByPerson: false });
     expect(sessionOf(h, "1").runs.map((r) => r.cause)).toEqual(["launch", "resume"]);
