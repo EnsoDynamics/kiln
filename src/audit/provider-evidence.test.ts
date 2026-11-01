@@ -19,10 +19,19 @@ describe("Codex assessment receiver provenance", () => {
     const rows = mode === "later spawn" ? [follow,output("follow",""),spawn,spawnOutput] : [spawn,...(mode === "missing spawn output" ? [] : [spawnOutput]),follow,...(mode === "missing acknowledgement" ? [] : [output("follow","")])];
     expect(codexDelegationReceiver(rows,follow,new Set(["owned"]))).toBeUndefined();
   });
-  it("rejects ambiguous aliases and malformed nonempty acknowledgements", () => {
+  it("resolves no receiver for a collaboration call Codex refused, and skips a refused spawn", () => {
+    const refusal = "collab tool failed: agent thread limit reached";
+    const follow = invocation("follow", "followup_task", { target: "assessment" });
+    for (const text of [refusal, "collab spawn failed: agent thread limit reached", "agent with id 01a1 not found", "agent with id 01a1 is closed"]) expect(codexDelegationReceiver([follow, output("follow", text)], follow, new Set(["owned"]))).toBeUndefined();
+    const refusedSpawn = invocation("refused", "spawn_agent", { task_name: "assessment" }), spawn = invocation("spawn", "spawn_agent", { task_name: "assessment" });
+    const rows = [refusedSpawn, output("refused", "collab spawn failed: agent thread limit reached"), spawn, output("spawn", '{"task_name":"/root/assessment"}'), follow, output("follow", "")];
+    expect(codexDelegationReceiver(rows, follow, new Set(["owned"]))).toBe("/root/assessment");
+  });
+  it("rejects ambiguous aliases and resolves no receiver from plain-text results", () => {
     const first=invocation("one","spawn_agent",{task_name:"assessment"}),second=invocation("two","spawn_agent",{task_name:"assessment"}),follow=invocation("follow","followup_task",{target:"assessment"});
     const rows=[first,output("one",'{"task_name":"/root/assessment"}'),second,output("two",'{"task_name":"/root/other"}'),follow,output("follow","")];
     expect(()=>codexDelegationReceiver(rows,follow,new Set(["owned"]))).toThrow(/Ambiguous/);
-    expect(()=>codexDelegationReceiver([follow,output("follow","not-json")],follow,new Set(["owned"]))).toThrow();
+    // Plain-text results are Codex refusals (they delegated nothing), never a receiver.
+    expect(codexDelegationReceiver([follow,output("follow","not-json")],follow,new Set(["owned"]))).toBeUndefined();
   });
 });

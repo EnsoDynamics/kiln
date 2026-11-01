@@ -612,7 +612,11 @@ export class Engine {
       case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
       case "outside-confirmation": answer = refuse("Workspace confirmations have been retired; recheck the remaining completion requirements."); break;
       case "continue": answer = await this.start(); break;
-      case "check-again": answer = await this.checkAgain(); break;
+      case "check-again":
+        // A check that could not read its evidence reports why (check_unavailable), never a lost interruption.
+        try { answer = await this.checkAgain(); }
+        catch (error) { if (!(error instanceof CompletionCheckUnavailable)) throw error; return { ok: false, code: "check_unavailable", reason: error.message, status: 503 }; }
+        break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
       case "reply": case "resume":
         this.controlDispatch = receipt;

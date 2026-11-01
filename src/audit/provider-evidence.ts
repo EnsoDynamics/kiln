@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { comparable, expandHome, realPathOfNearestAncestor } from "../engine/worktree-setup.js";
-import { auditCodexConversation } from "../session/codex-evidence.js";
+import { auditCodexConversation, collaborationToolFailed } from "../session/codex-evidence.js";
 import { claudeConfigFolder, findTranscripts, readTranscript } from "../session/transcripts.js";
 import { simpleCommands } from "../session/bash-command.js";
 import type { PrdRecord, SessionRecord } from "../state/records.js";
@@ -39,7 +39,7 @@ export function codexDelegationReceiver(rows: { type: string; payload: Json }[],
   if (!output) return undefined;
   const raw = output.payload.output;
   if (raw !== "") {
-    if (typeof raw !== "string") return undefined;
+    if (typeof raw !== "string" || collaborationToolFailed(raw)) return undefined;
     const receiver = object(strictJson(raw))?.task_name;
     return typeof receiver === "string" ? receiver : undefined;
   }
@@ -51,7 +51,7 @@ export function codexDelegationReceiver(rows: { type: string; payload: Json }[],
     if (prior.type !== "response_item" || prior.payload.type !== "function_call" || prior.payload.namespace !== "collaboration" || prior.payload.name !== "spawn_agent" || !ownedTurns.has(String(object(prior.payload.internal_chat_message_metadata_passthrough)?.turn_id))) continue;
     const args = object(strictJson(String(prior.payload.arguments)));
     const result = rows.slice(0, index).find(o => o.type === "response_item" && o.payload.type === "function_call_output" && o.payload.call_id === prior.payload.call_id);
-    if (!result || typeof result.payload.output !== "string" || !result.payload.output) continue;
+    if (!result || typeof result.payload.output !== "string" || !result.payload.output || collaborationToolFailed(result.payload.output)) continue;
     const receiver = object(strictJson(result.payload.output))?.task_name;
     if (typeof receiver === "string" && (args?.task_name === target || receiver === target)) receivers.add(receiver);
   }

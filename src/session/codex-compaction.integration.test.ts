@@ -9,7 +9,7 @@ const captured = JSON.parse(readFileSync(new URL("../../test/fixtures/codex-audi
 
 // Real history files and CLI pipes; the retained compaction shape is provider-recorded.
 describe("Codex full-history fork compaction", () => {
-  it.each(["fork", "copied compaction", "nested fork", "changed metadata", "unrelated metadata", "changed copied compaction", "broken child window", "missing parent", "missing original turn", "wrong compaction owner", "executable delegated content", "missing delegated turn", "client-authored delegated context"])("authenticates inherited window lineage: %s", async mode => {
+  it.each(["fork", "copied compaction", "nested fork", "child's own window", "copied mid-chain compaction", "broken ancestor mid-chain", "changed metadata", "unrelated metadata", "changed copied compaction", "broken child window", "missing parent", "missing original turn", "wrong compaction owner", "executable delegated content", "missing delegated turn", "client-authored delegated context"])("authenticates inherited window lineage: %s", async mode => {
     const f = historyFixture(); fixtures.push(f);
     const raw = (id: string) => readFileSync(f.state.threads[id]!.metadata.path, "utf8");
     const seed = (id: string, window: string) => {
@@ -17,9 +17,9 @@ describe("Codex full-history fork compaction", () => {
       const first = JSON.parse(lines[0]!); first.payload.context_window = { window_id: window };
       lines[0] = JSON.stringify(first); writeFileSync(f.state.threads[id]!.metadata.path, lines.join("\n") + "\n");
     };
-    const compact = (id: string, previous: string, number: number) => {
+    const compact = (id: string, previous: string, number: number, first = captured.initialWindow) => {
       const payload = structuredClone(captured.payload);
-      Object.assign(payload, { first_window_id: captured.initialWindow, previous_window_id: previous, window_id: `${id}-window-${number}`, window_number: number });
+      Object.assign(payload, { first_window_id: first, previous_window_id: previous, window_id: `${id}-window-${number}`, window_number: number });
       Object.assign(payload.latest_token_usage_record as object, { thread_id: id, turn_id: `${id}-turn-0` });
       const resume = payload.resume_metadata as Record<string, unknown>;
       resume.last_started_turn_id = `${id}-turn-0`; (resume.turn_attribution as Record<string, unknown>).turn_id = `${id}-turn-0`;
@@ -42,10 +42,17 @@ describe("Codex full-history fork compaction", () => {
     Object.assign(parent.turns[0]!.items[0]!, { exitCode: 0, aggregatedOutput: "original command succeeded" });
     writeFileSync(parent.metadata.path, parentRows.map(row => JSON.stringify(row)).join("\n") + "\n"); f.save();
     seed("parent", captured.initialWindow);
-    const copied = ["copied compaction", "nested fork", "changed copied compaction"].includes(mode);
+    const copied = ["copied compaction", "nested fork", "changed copied compaction", "copied mid-chain compaction", "broken ancestor mid-chain"].includes(mode);
     if (copied) f.append("parent", f.record("compacted", compact("parent", captured.initialWindow, 1)));
+    // Observed with 0.166.0: a fork's copy can start at the ancestor's latest compaction.
+    const midChain = ["copied mid-chain compaction", "broken ancestor mid-chain"].includes(mode);
+    // The copy is trusted only because the ancestor's own source must chain; break it there.
+    if (midChain) f.append("parent", f.record("compacted", compact("parent", mode === "broken ancestor mid-chain" ? "unrelated-window" : "parent-window-1", 2)));
     fork("child", "parent");
-    const child = compact("child", copied ? "parent-window-1" : captured.initialWindow, copied ? 2 : 1);
+    if (midChain) writeFileSync(f.state.threads.child!.metadata.path, raw("child").split("\n").filter(line => !line.includes('"window_id":"parent-window-1"')).join("\n"));
+    // Observed with 0.166.0: a fork's own compaction can start its own lineage from its new file window.
+    const child = mode === "child's own window" ? compact("child", "child-new-file-window", 1, "child-new-file-window")
+      : compact("child", midChain ? "parent-window-2" : copied ? "parent-window-1" : captured.initialWindow, midChain ? 3 : copied ? 2 : 1);
     const delegated = (child.replacement_history as Record<string, unknown>[]).find(item => item.type === "agent_message")!;
     if (mode === "executable delegated content") delegated.content = [{ type: "function_call", name: "exec_command", arguments: '{"cmd":"git push"}' }];
     if (mode === "missing delegated turn") (delegated.internal_chat_message_metadata_passthrough as Record<string, unknown>).turn_id = "missing-turn";
@@ -71,13 +78,14 @@ describe("Codex full-history fork compaction", () => {
     f.options.knownThreadIds = mode === "nested fork" ? ["child", "grandchild"] : ["child"];
     for (const commandProjection of [false, true]) {
       const result = await auditCodexConversation({ ...f.options, commandProjection });
-      const valid = ["fork", "copied compaction", "nested fork"].includes(mode);
+      const valid = ["fork", "copied compaction", "nested fork", "child's own window", "copied mid-chain compaction"].includes(mode);
       expect(result.coverage, result.problems.join(" ")).toBe(valid ? "complete" : "inconclusive");
       if (valid) {
         expect(result.problems).toEqual([]); expect(result.frontiers).toHaveLength(mode === "nested fork" ? 3 : 2);
         if (commandProjection) expect(result.commands).toEqual([expect.objectContaining({ source: "parent/parent-turn-0", callId: "parent-turn-0-native", command, outcome: "success", exitCode: 0, output: "original command succeeded", cwd: f.root })]);
       }
       else expect(result.problems.length).toBeGreaterThan(0);
+      if (["broken ancestor mid-chain", "broken child window"].includes(mode)) expect(result.problems).toContain("Broken Codex compaction window chain.");
     }
   });
 });

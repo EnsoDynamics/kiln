@@ -47,7 +47,7 @@ interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
   started_at_ms?: number; completed_at_ms?: number;
   reason?: string;
-  window_id?: string; latest_token_usage_record?: { thread_id?: string; turn_id?: string };
+  window_id?: string; first_window_id?: string; previous_window_id?: string; window_number?: number; output?: unknown; latest_token_usage_record?: { thread_id?: string; turn_id?: string };
   type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string; context_window?: { window_id?: string };
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
@@ -209,6 +209,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           if (payload.reason !== "interrupted") problem(`${id}: unqualified raw abort reason.`);
           else index.unique(`turn_aborted:${id}`, requireText(payload.turn_id, "raw aborted turn"), digest(payload));
         }
+        // A collaboration call the tool itself refused started and reached no child: nothing was delegated.
+        if (record.type === "response_item" && payload.type === "function_call_output" && collaborationToolFailed(payload.output)) index.put(`failedCollaboration:${id}`, requireText(payload.call_id, "raw call ID"), true);
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, requireText(payload.call_id, "raw call ID"), digest(payload));
         if (!options.commandProjection && record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
         if (record.type === "event_msg" && payload.type === "item_completed") {
@@ -279,7 +281,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (index.get<string>(`commandEvent:${origin}`, command.id) !== command.sha256) problem(`${id}: changed inherited native command.`);
       }
       let currentTurn: string | undefined; let shell: string | undefined;
-      let windows: Parameters<typeof retainedCompaction>[1];
+      // Window lineages this file may continue: each seed in its metadata prefix (a fork's
+      // own window and its copied ancestor's) and every window a compaction produced.
+      const windows = new Map<string, NonNullable<Parameters<typeof retainedCompaction>[1]>>();
       let metadataPrefix = true;
       for await (const { value } of rawLines(frontier.path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
@@ -289,18 +293,23 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           let ancestor: string | undefined = id;
           while (ancestor && ancestor !== source) ancestor = byId.get(ancestor)?.parentThreadId;
           if (!ancestor || index.get("sessionMetadata", source) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited session metadata.`);
-          // Forks prepend their own file identity, followed by the copied history's
-          // original window seed. Compaction continues that inherited lineage.
+          // Forks prepend their own file identity, followed by the copied history's original
+          // window seed. A child's compaction may continue either lineage.
           const window = payload.context_window?.window_id;
-          if (window) windows = { first: window, current: window, number: 0 };
+          if (window) windows.set(window, { first: window, current: window, number: 0 });
         } else metadataPrefix = false;
         if (record.type === "compacted") {
           const origin = owner(id, requireText(payload.latest_token_usage_record?.turn_id, "compaction turn"));
           if (index.get(`compaction:${origin}`, requireText(payload.window_id, "compaction window")) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited compaction.`);
-          windows = retainedCompaction(payload, windows, origin, turnId => {
+          const previous = windows.get(payload.previous_window_id ?? "")
+            // A copied ancestor compaction can begin mid-chain; its transition was validated in the
+            // ancestor's own source, which the digest above matches exactly.
+            ?? (origin !== id ? { first: payload.first_window_id ?? "", current: payload.previous_window_id ?? "", number: (payload.window_number ?? 0) - 1 } : undefined);
+          const next = retainedCompaction(payload, previous, origin, turnId => {
             const source = owner(id, turnId);
             return !!index.get(`context:${source}`, turnId) && !!index.get(`task_started:${source}`, turnId);
           });
+          windows.set(next.current, next);
         }
         if (record.type === "world_state") { const env = payload.state?.environments?.environments?.local; if (env || payload.full) shell = env?.shell; }
         if (record.type === "turn_context") currentTurn = payload.turn_id;
@@ -403,7 +412,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           else if (["spawn_agent", "send_message", "followup_task"].includes(operation.name)) {
             let found = false;
             for await (const delegation of index.values<{ callId: string; threadId: string; kind: string }>(`delegation:${id}:${turnId}`)) if (delegation.callId === payload.call_id && byId.has(delegation.threadId) && ["started", "interacted"].includes(delegation.kind)) found = true;
-            if (!found || decoded.operations.filter(op => ["spawn_agent", "send_message", "followup_task"].includes(op.name)).length !== 1) problem(`${id}: unresolved delegated work.`, true);
+            if (!found && !index.get(`failedCollaboration:${id}`, payload.call_id!) || decoded.operations.filter(op => ["spawn_agent", "send_message", "followup_task"].includes(op.name)).length !== 1) problem(`${id}: unresolved delegated work.`, true);
           }
         }
       }
@@ -433,6 +442,18 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   report.frontiers.sort((a, b) => a.threadId.localeCompare(b.threadId));
   report.fingerprint = digest({ profile: report.profile, roots: checkedRoots, frontiers: report.frontiers, findings: report.findings });
   return report;
+}
+
+/**
+ * A collaboration call Codex itself refused reached no child. Acknowledgements are empty or a JSON
+ * object; refusals are plain text, e.g. "collab spawn failed: agent thread limit reached",
+ * "collab tool failed: …" or "agent with id … not found" (observed 0.166.0 shapes). A call
+ * whose child really ran still has its recorded child activity.
+ */
+export function collaborationToolFailed(output: unknown): boolean {
+  if (typeof output !== "string" || !output) return false;
+  try { const value: unknown = JSON.parse(output); return !value || typeof value !== "object" || Array.isArray(value); }
+  catch { return true; }
 }
 
 /** An explicit uncertainty acknowledgment requires a readable, stable, terminal tree. */

@@ -80,6 +80,21 @@ describe("automatic completion activities", () => {
       expect(current.claudeCalls()).toHaveLength(1);
     } finally { submit.mockRestore(); }
   });
+  it("reports a Check again whose audit evidence is unavailable with its reason, not as an interruption", async () => {
+    const current = await fixture([auditSession({ noReport: true })]);
+    const reason = "01a19661: unresolved delegated work.";
+    const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", reason, 503));
+    try {
+      await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+      const key = auditKey(current.engine.record.completionAudits!.activities.at(-1)!);
+      const body = { command_id: "unavailable-check", execution_id: current.engine.record.executionId!, status_token: current.engine.controlView().token, action: "check-again", inputs: {} };
+      expect(current.engine.commands.submit(body).ok).toBe(true); await current.engine.commands.settled();
+      expect(current.engine.commands.lookup(body.command_id).operation).toMatchObject({ state: "failed", stage: "settled", outcome: "check_unavailable", reason, effects: { session: "not_started" } });
+      expect(current.engine.commands.busy).toBe(false);
+      expect(current.engine.record.phases[key]!.stop!.checks[0]).toMatchObject({ name: "Audit completion evidence", passed: false, facts: [reason] });
+      expect(current.claudeCalls()).toHaveLength(1);
+    } finally { submit.mockRestore(); }
+  });
   it("retains a failed handback observation when an audit completion read is unavailable", async () => {
     const current = await fixture([auditSession({ noReport: true })]);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();

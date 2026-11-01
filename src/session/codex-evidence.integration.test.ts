@@ -100,6 +100,20 @@ describe("authoritative Codex conversation audit", () => {
     f.append("parent",f.record("response_item",{type:"function_call",name:"exec_command",call_id:"hidden",arguments:JSON.stringify({cmd:"git status",unqualifiedCommand:"hidden"}),internal_chat_message_metadata_passthrough:{turn_id:"parent-turn-0"}}));
     expect((await auditCodexConversation(f.options)).coverage).toBe("inconclusive");
   });
+  // Observed with 0.166.0: a refused collaboration call records this output and no subagent activity.
+  it.each([true, false])("treats a collaboration call Codex refused as delegating nothing, but not an unanswered one (commandProjection %s)", async commandProjection => {
+    const f = fixture();
+    const follow = (id: string) => f.record("response_item", { type: "function_call", namespace: "collaboration", name: "followup_task", call_id: id, arguments: JSON.stringify({ target: "assessment", message: "opaque" }), internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } });
+    f.append("parent", follow("refused"));
+    f.append("parent", f.record("response_item", { type: "function_call_output", call_id: "refused", output: "collab tool failed: agent thread limit reached", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    f.append("parent", follow("closed"));
+    f.append("parent", f.record("response_item", { type: "function_call_output", call_id: "closed", output: "agent with id 01a1 is closed", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    const refused = await auditCodexConversation({ ...f.options, commandProjection });
+    expect(refused.problems).toEqual([]); expect(refused.coverage).toBe("complete");
+    f.append("parent", follow("unanswered"));
+    const unanswered = await auditCodexConversation({ ...f.options, commandProjection });
+    expect(unanswered.coverage).toBe("inconclusive"); expect(unanswered.problems).toContain("parent: unresolved delegated work.");
+  });
   it("exhausts full 100-turn pages through real pipes and binds confirmation to stable source content", async () => {
     const f = fixture(); f.addThread("parent", { count: 205 });
     const result = await auditCodexConversation(f.options);
