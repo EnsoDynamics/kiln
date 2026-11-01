@@ -145,7 +145,8 @@ export class AgentInfo {
       this.claude.refreshModels?.(),
       Promise.all([...new Set([cwd, ...this.contexts])].map(async directory => ({ directory, result: await readSkillList({ claude: this.options.executable.claude, cwd: directory, env: this.options.env, signal }) }))),
     ]);
-    if (state !== this.state || signal.aborted) return { error: "Claude readiness check was cancelled." };
+    // A switch to another agent before or during this read leaves that agent's catalogue and account alone.
+    if (state !== this.state || signal.aborted || state.agentId !== "claude_code") return { error: "Claude readiness check was cancelled." };
     state.models = this.claude.models;
     state.modelListError = this.claude.modelListError;
     state.blockers = auth.error ? [auth.error] : [];

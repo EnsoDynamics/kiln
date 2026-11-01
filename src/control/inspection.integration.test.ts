@@ -111,7 +111,8 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const session=h.engine.latestSession('1')!;
     delete h.engine.record.phases['1']!.stop;
     h.engine.current=undefined;
-    const transition='2026-11-01T12:00:00.000Z';
+    // Both observations follow everything the real run recorded, whatever the wall clock reads.
+    const transition=new Date(Date.now()+60_000).toISOString();
     if(state==='paused') h.engine.record.pause.activeSince=transition;
     else h.engine.record.completedAt=transition;
     writePrdRecord(h.stateDirectory,h.engine.record);
@@ -124,7 +125,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(inventory.counts).toEqual({live_controllers:1,working:0,waiting:0,needs_you:0,paused:state==='paused'?1:0,stopped_unfinished:0,unknown:0});
     expect(inventory.runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:path,last_activity:expect.objectContaining(expected)})]));
     // Later saved output remains the latest observation, even without a current view.
-    const outputAt='2026-11-01T12:01:00.000Z';
+    const outputAt=new Date(Date.parse(transition)+60_000).toISOString();
     appendFileSync(join(h.stateDirectory,'1',session.sessionId,'output.jsonl'),JSON.stringify({line:999,at:outputAt,source:'assistant',text:'Later saved observation 🐦'})+'\n');
     const later={observed_at:outputAt,description:'Later saved observation 🐦'};
     expect((await command(['status',path,'--json'],h.env)).json().last_activity).toMatchObject(later);

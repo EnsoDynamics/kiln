@@ -102,12 +102,15 @@ describe("automatic completion activities", () => {
     const key = auditKey(activity);
     const stop = structuredClone(current.engine.record.phases[key]);
     const baseline = current.engine.record.planReconciliation!.baselineId;
-    rmSync(join(current.repository, "docs/prds/proof/technical-design.md"));
+    rmSync(join(current.engine.worktreePath, "docs/prds/proof/technical-design.md"));
     await expect(current.engine.checkAgain()).rejects.toThrow("Missing technical design");
     expect(current.engine.record.planReconciliation!.check).toMatchObject({ status: "failed", problem: expect.stringContaining("Missing technical design") });
     expect(buildSnapshot(current.engine).continuation!.planCheck!.problem).toContain("Missing technical design");
     expect(current.engine.record.planReconciliation!.baselineId).toBe(baseline);
-    expect(current.engine.record.phases[key]).toEqual(stop);
+    // The same stop stays in place and reports the unavailable read as its reason.
+    const after = current.engine.record.phases[key]!;
+    expect({ ...after, stop: { ...after.stop!, checkedAt: stop!.stop!.checkedAt, checks: stop!.stop!.checks } }).toEqual(stop);
+    expect(after.stop!.checks).toEqual([{ name: "Audit completion evidence", passed: false, facts: [expect.stringContaining("Missing technical design")] }]);
     expect(current.engine.record.completedAt).toBeUndefined();
   });
   it.each(["automatic", "Resume now"])("stops usage recovery on unavailable audit evidence without dispatching another turn (%s)", async mode => {

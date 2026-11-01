@@ -2,6 +2,7 @@
 // stand-in; actual provider conversation evidence is recorded separately in the PRD.
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { request } from "node:http";
 import { afterEach, expect, it, vi } from "vitest";
 import * as records from "../state/records.js";
 import { buildSnapshot } from "../engine/snapshot.js";
@@ -23,9 +24,18 @@ async function setup() {
   }
 }
 const target = () => buildSnapshot(h.engine).needsYou!.phaseRecovery!.target;
-async function post(path: string, body: unknown, raw = false) {
-  const response = await fetch(`${origin}/api/${path}`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: raw ? String(body) : JSON.stringify(body) });
-  return { status: response.status, body: await response.json() as Record<string, unknown> };
+/** Each request opens its own connection: a pooled keep-alive socket must not outlive the controller restart below. */
+function post(path: string, body: unknown, raw = false): Promise<{ status: number; body: Record<string, unknown> }> {
+  const payload = raw ? String(body) : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const sent = request(`${origin}/api/${path}`, { method: "POST", agent: false, headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, response => {
+      let text = ""; response.setEncoding("utf8");
+      response.on("data", chunk => { text += chunk; });
+      response.on("end", () => { try { resolve({ status: response.statusCode!, body: JSON.parse(text) as Record<string, unknown> }); } catch (error) { reject(error as Error); } });
+      response.on("error", reject);
+    });
+    sent.on("error", reject); sent.end(payload);
+  });
 }
 function finish() {
   const file = join(h.engine.worktreePath, "docs/prds/customer-returns/phase-1-return-intake.md");

@@ -2,6 +2,7 @@
 import { EventEmitter } from "node:events";
 import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
 import { Engine } from "./engine.js";
 import * as repositoryReads from "./repositories.js";
@@ -137,7 +138,7 @@ it.each([1200, 390])("holds stale offers after browser-local failures and recove
       expect(await page.evaluate("[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('Continue with')).every(b=>b.disabled)")).toBe(true);
       expect(await page.evaluate("document.body.innerText")).not.toContain("No new phases found");
       expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
-      writeFileSync(`/private/tmp/kiln-ph7-browser-failure-${width}.png`, await page.screenshot());
+      writeFileSync(join(tmpdir(), `kiln-ph7-browser-failure-${width}.png`), await page.screenshot());
       await page.evaluate("window.fetch = window.realFetch; [...document.querySelectorAll('button')].find(b=>b.textContent.includes('Check for new phases')).click()");
       await page.waitFor("!document.body.innerText.includes('Showing earlier results.') && ![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Continue with 7')).disabled");
     }

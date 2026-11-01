@@ -293,6 +293,11 @@ type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kin
 /** A resume Kiln does on someone's word: the person's Resume or Resume now, or the end of a wait. */
 type ResumeRequest = { phaseKey: string; cause: "person_resume" | "limit_resume"; note?: string };
 
+/** Writes refused because an earlier durable control write failed; the controller does no more work until restart. */
+class ControllerFrozen extends Error {}
+class FrozenStateWrite extends RecoveryStateWriteFailed {}
+const refusedWhileFrozen = (error: unknown) => error instanceof ControllerFrozen || error instanceof FrozenStateWrite;
+
 export class Engine {
   readonly commands: CommandJournal;
   private controlEpoch = randomUUID();
@@ -2041,7 +2046,7 @@ export class Engine {
   }
 
   private writeContinuationMetadata<T>(write: () => T): T {
-    if (this.commands?.fault) throw new Error(this.commands.fault);
+    if (this.commands?.fault) throw new ControllerFrozen(this.commands.fault);
     try { return write(); }
     catch (error) { if (error instanceof PlanCapacityError) throw error; this.commands.fault = "Continuation metadata could not be durably saved. Restart to reconcile before changing work."; throw error; }
   }
@@ -2470,7 +2475,8 @@ export class Engine {
   private kick(): void {
     if (this.driving) return;
     if (this.commands?.busy && !(this.controlDispatch && this.requestedResume)) { this.controlKickPending = true; return; }
-    this.driving = this.drive().finally(() => {
+    // A write refused after a durable control write failed mid-drive ends it as a blocked controller does; restart reconciles.
+    this.driving = this.drive().catch((error: unknown) => { if (!refusedWhileFrozen(error)) throw error; }).finally(() => {
       this.driving = undefined;
       this.changed();
     });
@@ -3854,12 +3860,14 @@ export class Engine {
     }
     if (this.stopping) throw new CompletionCheckUnavailable("Completion acceptance was interrupted.");
     await finalTakeoverCheck();
+    // A refused or failed save leaves no completion in memory that the saved record lacks.
+    const before = structuredClone(this.record);
     facts.repositories = repositories;
     facts.doneAt ??= this.now().toISOString();
     facts.finishedByPerson = byPerson;
     if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
     clearManualStop();
-    this.save();
+    try { this.save(); } catch (error) { Object.assign(this.record, before); throw error; }
     const prdSha = shas[this.paths.repositoryName]!;
     // The done line lists the code repositories in list order, then the PRD's repository.
     const ordered = [...pushes.filter((push) => push.name !== this.paths.repositoryName), ...pushes.filter((push) => push.name === this.paths.repositoryName)];
@@ -4889,7 +4897,7 @@ export class Engine {
   private save(): void {
     // Once a stop begins, nothing is judged: the next `kiln run` judges from the record.
     if (this.stopping) return;
-    if (this.commands?.fault) throw new RecoveryStateWriteFailed(this.commands.fault);
+    if (this.commands?.fault) throw new FrozenStateWrite(this.commands.fault);
     const previousControl = { controlRevision: this.record.controlRevision, controlFingerprint: this.record.controlFingerprint, controlApplied: this.record.controlApplied };
     const fingerprint = createHash("sha256").update(JSON.stringify({
       execution: this.record.executionId, pause: this.record.pause, settings: this.record.settings, completed: this.record.completedAt,

@@ -116,6 +116,39 @@ it("reconciles a settlement-write failure from the correlated effect without a s
   expect(h.engine.commands.submit(body).operation).toEqual(expect.objectContaining({ state: "completed", outcome: "session_resumed" }));
   expect(h.claudeCalls()).toHaveLength(2);
 });
+// On slow runners the reply's settlement write can fail while the resumed session is being judged.
+it.each(["before its plan read", "after a passing check, before its done record"])("ends the drive when a durable control write fails %s, then reconciles on restart", async moment => {
+  await setup();
+  let failing = false;
+  const write = durable.writeDurableMetadata;
+  const failure = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
+    if (failing && (value as { receipt?: Receipt }).receipt?.command_id === "fails-while-judged") throw new Error("control write interrupted");
+    write(path, value);
+  });
+  const failControlWrite = () => {
+    failing = true;
+    expect(() => h.engine.commands.checkpoint(h.engine.commands.lookup("fails-while-judged").operation as Receipt)).toThrow();
+    expect(h.engine.commands.fault).toBeDefined();
+  };
+  // A private seam: spyOn throws if doneCheck is renamed, and `failing` proves the window was reached.
+  const engine = h.engine as unknown as { doneCheck: (key: string) => Promise<{ passed: boolean }> };
+  const doneCheck = engine.doneCheck.bind(h.engine);
+  const judged = vi.spyOn(engine, "doneCheck").mockImplementation(async key => {
+    // Resume checks the stop before the session runs; only the ended session's judgment comes after the second turn.
+    if (h.claudeCalls().length < 2) return doneCheck(key);
+    if (moment === "before its plan read") { failControlWrite(); return doneCheck(key); }
+    finish(); const outcome = await doneCheck(key); expect(outcome.passed).toBe(true); failControlWrite(); return outcome;
+  });
+  const body = instruction("reply", "fails-while-judged", { message: "Exactly once" });
+  h.engine.commands.submit(body); await h.engine.commands.settled(); await h.engine.settled();
+  expect(failing).toBe(true);
+  expect(h.claudeCalls()).toHaveLength(2); expect(h.engine.commands.blocked).toBe(true);
+  expect(h.engine.record.phases["1"]?.doneAt).toBeUndefined(); expect(records.readPrdRecord(h.stateDirectory)!.phases["1"]?.doneAt).toBeUndefined();
+  failure.mockRestore(); judged.mockRestore(); h.engine.close(); h.engine = h.reopenFromDisk();
+  expect(h.engine.record.phases["1"]?.doneAt).toBeUndefined();
+  expect(h.engine.commands.submit(body).operation).toEqual(expect.objectContaining({ state: "completed", outcome: "session_resumed" }));
+  expect(h.claudeCalls()).toHaveLength(2);
+});
 it("a failed completion acceptance preserves the stop and starts no following activity", async () => {
   await setup(); finish();
   const write = records.writePrdRecord;

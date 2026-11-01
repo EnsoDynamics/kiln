@@ -7,6 +7,7 @@ import { METHOD_SKILLS } from "./codex-metadata.js";
 import { AgentInfo } from "./metadata.js";
 import { createSandbox, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
 import { ScriptedClaude, signedIn } from "../test-support/scripted-claude.js";
+import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 
 let sandbox: Sandbox;
 let info: AgentInfo | undefined;
@@ -128,4 +129,22 @@ it('keeps launch authentication dated before independently delayed models and sk
   expect(Date.parse(info.state.account!.updatedAt)).toBeGreaterThanOrEqual(Date.parse(readFileSync(observed, 'utf8')));
   expect(Date.parse(info.state.account!.updatedAt)).toBeLessThan(modelsReleasedAt); expect(Date.parse(info.state.account!.updatedAt)).toBeLessThan(skillsReleasedAt);
   expect(info.state.account!.limitsObservedAt).toBeUndefined(); expect(info.state.blockers).toEqual([]);
+});
+
+it('keeps a Claude launch readiness read that ends after a switch to Codex out of the Codex catalogue and account', async () => {
+  sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, 'bin'));
+  const scenario = join(sandbox.root, 'scenario.json'); writeFileSync(scenario, JSON.stringify({ sessions: [] }));
+  const codex = codexWorkFixture();
+  try {
+    const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario }; codex.configureEnvironment(env);
+    info = new AgentInfo({ agentId: 'claude_code', executable: { claude, codex: codex.options.executable }, cwd: codex.root, claudeCwd: sandbox.root, env });
+    await info.refresh();
+    expect(info.state.models!.some(entry => entry.value === 'gpt-6.1-sol')).toBe(false);
+    // The engine's billing inspection reaches Claude readiness only after its own inventory read, by which time a person may have chosen Codex.
+    info.select('codex'); await info.refresh();
+    const catalogue = structuredClone(info.state.models); const account = structuredClone(info.state.account); const blockers = structuredClone(info.state.blockers);
+    expect(catalogue!.map(entry => entry.value)).toEqual(['gpt-6.1-sol']);
+    expect(await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000))).toEqual({ error: 'Claude readiness check was cancelled.' });
+    expect(info.state.agentId).toBe('codex'); expect(info.state.models).toEqual(catalogue); expect(info.state.account).toEqual(account); expect(info.state.blockers).toEqual(blockers);
+  } finally { await codex.sandbox.cleanup(); }
 });
