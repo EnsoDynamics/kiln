@@ -2127,7 +2127,7 @@
         "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
         "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
         "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent or governing/source/test content changed; obtain a new snapshot and repeat affected verification.",
+        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
         "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
         "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
         "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."
@@ -2220,7 +2220,7 @@
         "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
         "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
         "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent or governing/source/test content changed; obtain a new snapshot and repeat affected verification.",
+        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
         "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
         "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
         "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."
@@ -2343,7 +2343,7 @@
         "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
         "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
         "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent or governing/source/test content changed; obtain a new snapshot and repeat affected verification.",
+        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
         "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
         "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
         "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."

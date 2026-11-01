@@ -604,6 +604,7 @@ describe("automatic completion activities", () => {
       expect(calls[1]!.args).toContain(original.sessionIds[0]);
       expect(calls[1]!.prompt).toContain("the weekly usage limit");
       expect(calls[1]!.prompt).toContain("Carry on with the assigned Delivery audit");
+      expect(calls[1]!.prompt).toContain("the earlier checked snapshot cannot be reused: take a new one with `kiln audit snapshot`, set the report's `checkedSnapshotId` to it, redo every criterion's independent assessment and review");
       expect(h.engine.latestSession(key)!.runs[1]).toMatchObject({ cause: mode === "automatic" ? "limit_resume" : "person_resume", account: { email: "fresh@example.test" } });
       expect(h.engine.record.completionAudits!.activities.filter(a => a.kind === "delivery_audit")).toHaveLength(1);
       expect(page.problems).toEqual([]);

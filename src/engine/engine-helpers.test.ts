@@ -120,9 +120,9 @@ describe("the prompts", () => {
     expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
   });
 
-  it("tells an audit session which edits void a passing run and that the report and test-audit.md are exempt", () => {
+  it("tells an audit session which edits void a passing run and which records and requirements documents are exempt", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
-    expect(prompt).toContain("A passing run mapped to a test part, and each red check's restored passing run, is void once any repository file changes after it starts: an edit, a byte-identical restore, a checkout or a stash. Only the portable report and test-audit.md are exempt.");
+    expect(prompt).toContain("A passing run mapped to a test part, and each red check's restored passing run, is void once any repository file changes after it starts: an edit, a byte-identical restore, a checkout or a stash. Only the portable report, test-audit.md and Markdown beside a PRD that no acceptance criterion links to are exempt.");
     expect(prompt).toContain("Finish every red check and code or test change first, then rerun those passing runs, each red check's with its identical command.");
   });
 });

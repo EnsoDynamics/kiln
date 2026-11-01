@@ -2,7 +2,7 @@ import { dependencyIds } from "../plan/phase-plan.js";
 import { readFileSync } from "node:fs";
 import type { PrdRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReport, type AuditResult, type EvidenceEntry, type FileReference, type WorkSnapshot, type CriterionSource } from "./contracts.js";
-import { assignedPath, insideRepository, fileInSnapshot, repositoryFor, requirementManifest } from "./snapshots.js";
+import { assignedPath, insideRepository, fileInSnapshot, repositoryFor, requirementManifest, requirementsDocumentFilter } from "./snapshots.js";
 import { hashValue } from "./storage.js";
 
 const DELIVERY = ["implemented", "partly_implemented", "not_implemented", "waiting_human", "superseded", "changed_outside_requirements", "not_built_yet"];
@@ -36,6 +36,7 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
     requireAudit(found && activity.sessionIds.includes(found.sessionId) && (!kind || found.kind === kind), `Missing engine-observed ${kind ?? ""} evidence ${id}`, "missing_evidence"); return found;
   };
   const file = (ref: FileReference) => requireAudit(fileInSnapshot(checked, ref) && fileInSnapshot(current, ref), `Missing or changed referenced file ${ref?.repository}/${ref?.path}`, "missing_evidence");
+  const requirementsDocument = requirementsDocumentFilter(checked);
   const command = (id: string, success: boolean): EvidenceEntry => {
     const found = entry(id, "command"); const observed = found.command!;
     requireAudit(observed && observed.startedAt >= checked.createdAt && observed.endedAt >= observed.startedAt && observed.endedAt <= current.createdAt, `Command ${id} is not bound to the checked snapshot interval.`, "missing_evidence");
@@ -44,6 +45,7 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
     // ctime is observed independently; the final mapped run must start after restoration.
     if (success) for (const repository of current.repositories) for (const [path, actual] of Object.entries(repository.files)) {
       if (repository.repository === record.repository.name && ((record.completionAudits?.activities ?? []).some(a => a.reportPath === path) || path === `${record.prdDirectory}/test-audit.md`)) continue;
+      if (requirementsDocument(repository.repository, path)) continue;
       const original = checked.repositories.find(r => r.repository === repository.repository)?.files[path];
       requireAudit(original, `Material content ${repository.repository}/${path} is not in the checked snapshot; take a new snapshot, then rerun the passing runs the report cites.`, "stale_snapshot");
       requireAudit(actual.changedAtMs === original.changedAtMs || Date.parse(observed.startedAt) >= actual.changedAtMs, `Material content ${repository.repository}/${path} changed at ${new Date(actual.changedAtMs).toISOString()}, after passing verification ${id} started at ${observed.startedAt}. A byte-identical restore, checkout or stash still counts as a change. Finish every red check and code or test change, then rerun the passing runs mapped to test parts and each red check's restored passing run.`, "stale_snapshot");
@@ -137,11 +139,10 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
     requireAudit(nonempty(action.id) && nonempty(action.action) && typeof action.beyondDelivery === "boolean" && nonempty(action.requirementQuote) && checked.requirements.criteria.some(c => c.key === action.criterionKey && c.content.includes(action.requirementQuote)), "Human action needs its governing requirement pointer.");
   }
   const initial = context.initial ?? checked;
-  if (report.completionPhases.length) {
-    requireAudit(initial.plan.every((p, i) => { const actual = current.plan[i]; return actual && actual.id === p.id && actual.file === p.file && actual.closed === p.closed && actual.content === p.content; }), "Audit changed original plan ownership, scope, order or closures.", "inconsistent_plan");
-    const added = current.plan.slice(initial.plan.length);
-    requireAudit(hashValue(added.map(p => p.id).sort()) === hashValue(report.completionPhases.map(p => p.id).sort()), "Completion report must name exactly the appended plan entries.", "inconsistent_plan");
-  }
+  // Currentness admits appended phases without a new snapshot, so every outcome must account for them.
+  requireAudit(initial.plan.every((p, i) => { const actual = current.plan[i]; return actual && actual.id === p.id && actual.file === p.file && actual.closed === p.closed && actual.content === p.content; }), "Audit changed original plan ownership, scope, order or closures.", "inconsistent_plan");
+  const added = current.plan.slice(initial.plan.length);
+  requireAudit(hashValue(added.map(p => p.id).sort()) === hashValue(report.completionPhases.map(p => p.id).sort()), "Completion report must name exactly the appended plan entries.", "inconsistent_plan");
   for (const phase of report.completionPhases) {
     const found = current.plan.find(p => p.id === phase.id && p.file === phase.path && !p.closed);
     requireAudit(found && phase.originKind === activity.kind && phase.originActivityId === activity.activityId && nonempty(phase.missingBehavior) && strings(phase.criterionKeys) && phase.criterionKeys.length && phase.criterionKeys.every(k => keys.includes(k)) && strings(phase.dependencies), `Completion phase ${phase.id} disagrees with the plan.`, "inconsistent_plan");
