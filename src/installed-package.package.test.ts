@@ -237,7 +237,6 @@ describe("the installed package", () => {
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
     const fields: Record<string, string[]> = {
-      "audit snapshot": ["executionId", "activityId", "revision", "testPaths", "evidencePaths"],
       "audit submit": ["executionId", "activityId", "revision", "reportPath"],
       "delivery assess": ["executionId", "revision", "owner", "documentsDigest", "requirementManifestDigest", "required", "criteria", "reason", "checkpoints"],
       "delivery prepare": ["executionId", "revision", "owner", "checkpointId", "operation"],
@@ -261,10 +260,10 @@ describe("the installed package", () => {
       expect(c.exits).toMatchObject({ "0": expect.any(String), "1": expect.stringContaining("failure"), "2": expect.stringContaining("syntax") });
     }
     const snapshot = JSON.parse(help(["audit", "snapshot"], true)).command;
-    expect(snapshot.input_contract.types.TestPath).toHaveProperty("assessmentEvidenceId");
+    expect(snapshot.purpose).toContain("Retired"); expect(snapshot.errors).toEqual(["malformed_request"]); expect(snapshot.input_contract).toBeUndefined();
     const submit = JSON.parse(help(["audit", "submit"], true)).command;
-    expect(submit.input_contract.types.AuditReport).toHaveProperty("methodEvidence");
-    expect(submit.input_contract.types.MethodEvidence).toHaveProperty("redChecks");
+    for (const field of ["outcome", "summary", "completionPhases", "needsYou", "changedImplementation"]) expect(submit.input_contract.types.AuditReport).toHaveProperty(field);
+    expect(submit.input_contract.types).not.toHaveProperty("MethodEvidence");
     const assess = JSON.parse(help(["delivery", "assess"], true)).command;
     expect(assess.input_contract.types.Checkpoint).toHaveProperty("requirements");
     expect(assess.input_contract.types.EvidenceRequirement).toHaveProperty("match.command");

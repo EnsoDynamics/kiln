@@ -120,10 +120,13 @@ describe("the prompts", () => {
     expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
   });
 
-  it("tells an audit session which edits void a passing run and which records and requirements documents are exempt", () => {
+  it("states Kiln's version-2 report contract without the method's vocabulary (AC-NEUTRAL-01, AC-NEUTRAL-02)", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
-    expect(prompt).toContain("A passing run mapped to a test part, and each red check's restored passing run, is void once any repository file changes after it starts: an edit, a byte-identical restore, a checkout or a stash. Only the portable report, test-audit.md and Markdown beside a PRD that no acceptance criterion links to are exempt.");
-    expect(prompt).toContain("Finish every red check and code or test change first, then rerun those passing runs, each red check's with its identical command.");
+    expect(prompt).toContain("Follow that skill exactly as it is written");
+    for (const field of ['"schemaVersion": 2', '"outcome"', '"summary"', '"completionPhases"', '"needsYou"', '"changedImplementation"', '"afterDeliveryActions"']) expect(prompt).toContain(field);
+    expect(prompt).toContain("or when it ended normally but lists anything a person must still decide or do before delivery");
+    expect(prompt).toContain("Never write \"passed\" to finish");
+    for (const method of ["red check", "test-audit.md", "Added by", "kiln-assessment", "audit snapshot", "independent assessment"]) expect(prompt).not.toContain(method);
   });
 });
 

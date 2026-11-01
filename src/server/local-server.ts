@@ -29,6 +29,7 @@ import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/sna
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
 import { AuditRefusal } from "../audit/contracts.js";
+import { RESULT_CHECK } from "../audit/admission.js";
 import { strictJson, REPORT_LIMIT } from "../audit/storage.js";
 
 export interface LocalServerOptions {
@@ -136,10 +137,10 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   });
   const auditError = (c: Context, error: unknown) => {
     const refused = error instanceof AuditRefusal ? error : new AuditRefusal("evidence_unavailable", (error as Error).message, 503);
-    return c.json({ code: refused.code, reason: refused.message, criteria: refused.criteria, checks: [{ name: refused.code, passed: false, facts: [refused.message] }] }, refused.status);
+    return c.json({ code: refused.code, reason: refused.message, criteria: refused.criteria, checks: [{ name: RESULT_CHECK, passed: false, facts: [refused.message] }] }, refused.status);
   };
   app.get("/api/audit", async c => {
-    try { return c.json(await engine.auditCommand("status", {}, c.req.query("cursor"))); } catch (error) { return auditError(c, error); }
+    try { return c.json(await engine.auditCommand("status")); } catch (error) { return auditError(c, error); }
   });
   for (const action of ["snapshot", "result"] as const) app.post(`/api/audit/${action}`, async c => {
     try {

@@ -27,15 +27,15 @@ The audit prompt (`prompts/audit-session.txt`) states this contract and maps it 
 
 ## Admission
 
-`kiln audit submit` keeps idempotent retries, revision and activity checks, attempt retention and Needs you on refusal. Kiln captures the checked snapshot itself at submission; the session never issues one. Checks, in order:
+`kiln audit submit` keeps idempotent retries, revision and activity checks, attempt retention and Needs you on refusal. Every refusal is recorded as a failing **Audit result recorded** check whose fact is the reason; the refusal code stays in the attempt's `refusal` and the resume prompt. A missing report reads "No audit report at <path> yet." Kiln captures the checked snapshot itself at submission; the session never issues one. Checks, in order:
 
 1. Report readable, size, strict JSON, contract fields above.
 2. Plan: the plan reads; each phase in the activity's initial snapshot is still present in order with the same ID, file, scope and closure; appended phases equal `completionPhases` and are open.
 3. Routing: `passed` has no open leaf and no appended phase; `completion_phases` appends at least one; `continue_test` is a test audit with no open leaf, no appended phase and at least one assigned-repository file, other than its own report, changed since the initial snapshot, and for a continuation (index above 1) a file outside the requirements documents; `needs_you` has `needsYou` entries, and no other outcome has any.
 4. Everything committed and Pushed (`repositoryChecks`), then development-delivery checks. The submission snapshot is stored before these run.
+5. Re-read: heads and report bytes unchanged during admission.
 
 A `needs_you` report adds a failing **Audit work resolved** check listing `needsYou`, so its attempt stays unresolved and the activity stops at Needs you; it is never accepted.
-5. Re-read: heads and report bytes unchanged during admission.
 
 `nextAction`: `needs_you` → needs_you; `completion_phases` → implementation; `continue_test` → continue_test; test audit `passed` or `continue_test` with `changedImplementation` → delivery_audit; delivery `passed` → test_audit; test `passed` → final_delivery.
 

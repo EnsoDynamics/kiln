@@ -15,11 +15,11 @@ function page(activities?: PhaseView[], connected = true) {
 }
 
 describe("completion human actions (AC-TEST-04)", () => {
-  it.each([true, false])("lists the latest test audit's remaining actions without claiming completion, connected=%s", connected => {
+  it.each([true, false])("lists the latest delivery and test audits' remaining actions once, without claiming completion (AC-NEUTRAL-03), connected=%s", connected => {
     const html = page([
       audit("old-tests", "test_audit", ["Obsolete release action"]),
       audit("delivery", "delivery_audit", ["Earlier delivery action"]),
-      audit("current-tests", "test_audit", ["Approve the production release", "Announce availability"]),
+      audit("current-tests", "test_audit", ["Approve the production release", "Announce availability", "Earlier delivery action"]),
     ], connected);
     const section = /<section[^>]*aria-labelledby="human-actions-heading"[\s\S]*?<\/section>/.exec(html)![0];
     expect(section).toContain("Remaining human actions");
@@ -27,7 +27,7 @@ describe("completion human actions (AC-TEST-04)", () => {
     expect(section).toMatch(/<li[^>]*>Approve the production release<\/li>/);
     expect(section).toMatch(/<li[^>]*>Announce availability<\/li>/);
     expect(section).not.toContain("Obsolete release action");
-    expect(section).not.toContain("Earlier delivery action");
+    expect(section.match(/<li[^>]*>Earlier delivery action<\/li>/g)).toHaveLength(1);
     expect(html).toContain("PR ready for review");
   });
 

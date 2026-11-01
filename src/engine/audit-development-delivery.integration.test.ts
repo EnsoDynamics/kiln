@@ -38,7 +38,7 @@ async function fixture() {
   activity.reportPath = `${directory}/kiln-audit-${activity.activityId}.json`;
   record.completionAudits!.activities.push(activity);
   const store = new AuditStore(f.h.stateDirectory);
-  const snapshot = await captureSnapshot({ record, activity, git: f.context.git, evidence: [], now: new Date().toISOString() }, [], []);
+  const snapshot = await captureSnapshot({ record, activity, git: f.context.git, now: new Date().toISOString() });
   activity.snapshots.push(store.put(snapshot));
   const owner: DeliveryOwner = { kind: "audit", activityId: activity.activityId };
   const criteria = snapshot.requirements.criteria.map(one => one.key);
@@ -80,7 +80,7 @@ describe("audit development owners", () => {
     expect(f.record.developmentDelivery).toEqual(before);
     await expect(recordAssessment(f.context, f.assess({ checkpoints: [{ ...f.checkpoint, phaseId: "1" }] }))).rejects.toThrow();
     writeFileSync(join(f.h.engine.worktreePath, directory, "customer-returns-prd.md"), prd.replace("return value", "new return value"));
-    expect(ownerDeliveryCheck(f.context, f.owner)).toMatchObject({ passed: false, facts: [expect.stringContaining("manifest changed")] });
+    expect(ownerDeliveryCheck(f.context, f.owner)).toMatchObject({ passed: false, facts: [expect.stringContaining("needs a current development-delivery assessment")] });
   });
 
   it("migrates schema-6 phase origins without rewriting history and refuses ambiguous audit origins", async () => {
@@ -127,8 +127,8 @@ describe("audit development owners", () => {
     acceptRepair(f);
     const repair: DeliveryOwner = { kind: "phase", phaseId: "2" };
     const revision = f.record.developmentDelivery!.revision;
-    assignAuditObligations(f.context, f.activity.activityId, repair, [f.criteria[0]!]);
-    assignAuditObligations(f.context, f.activity.activityId, repair, [f.criteria[0]!]);
+    assignAuditObligations(f.context, f.activity.activityId, repair);
+    assignAuditObligations(f.context, f.activity.activityId, repair);
     expect(f.record.developmentDelivery!.revision).toBe(revision + 1);
     const entries = f.record.developmentDelivery!.assignments!;
     expect(entries).toHaveLength(3); expect(entries.map(one => one.requirementId).sort()).toEqual(["deploy", "requiredMerge", "verify"]);
@@ -137,7 +137,7 @@ describe("audit development owners", () => {
     await recordAssessment(context, { phaseId: "2", documentsDigest: documentsDigest(context, "2"), required: false, criteria: ["AC-RET-01"], reason: "Repair inherits existing obligations", checkpoints: [] });
     expect(phaseDeliveryCheck(context, "2").passed).toBe(false);
     await expect(prepareOperation({ ...f.context, owner: { kind: "audit", activityId: "unassigned" } }, { checkpointId: f.checkpoint.id, operation: { kind: "verify" } })).rejects.toThrow(/current unfinished audit/);
-    expect(() => assignAuditObligations(f.context, f.activity.activityId, { kind: "phase", phaseId: "1" }, [f.criteria[0]!])).toThrow(/matching open completion phase/);
+    expect(() => assignAuditObligations(f.context, f.activity.activityId, { kind: "phase", phaseId: "1" })).toThrow(/matching open completion phase/);
     const parent = join(f.h.engine.worktreePath, directory, "phase-2-repair.md");
     writeFileSync(parent, "# Phase 2: Repair — split\n\n## Split into\n| Phase | What |\n|---|---|\n| [2a](phase-2a-first.md) | First |\n| [2b](phase-2b-second.md) | Second |\n");
     for (const id of ["2a", "2b"]) writeFileSync(join(f.h.engine.worktreePath, directory, `phase-${id}-${id === "2a" ? "first" : "second"}.md`), `# Phase ${id}: Child\n\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\n1\n`);
@@ -149,6 +149,18 @@ describe("audit development owners", () => {
     expect(f.checkpoint.owner).toEqual(f.owner); expect(f.checkpoint.phaseId).toBeUndefined();
     const widened = structuredClone(split); widened.assignments[0]!.criteria.push(f.criteria[1]!);
     await expect(recordAssessment(child, { phaseId: "2a", documentsDigest: documentsDigest(child, "2a"), required: false, criteria: ["AC-RET-01"], reason: "Must not acquire the sibling criterion", checkpoints: [], split: widened })).rejects.toThrow(/invalid descendant or criterion assignment/);
+  });
+
+  it("gives a repair named by a version-2 report every criterion of its audit's obligations (AC-NEUTRAL-04)", async () => {
+    const f = await fixture(); f.checkpoint.criteria.push(f.criteria[1]!); await recordAssessment(f.context, f.assess());
+    acceptRepair(f);
+    const v2 = { schemaVersion: 2, executionId: f.record.executionId, activityId: f.activity.activityId, kind: "delivery_audit", outcome: "completion_phases", summary: "One gap.", completionPhases: ["2"], needsYou: [] };
+    f.activity.acceptedResult = f.store.put({ activityId: f.activity.activityId, disposition: "recorded", reportBytes: JSON.stringify(v2) });
+    assignAuditObligations(f.context, f.activity.activityId, { kind: "phase", phaseId: "2" });
+    const assigned = f.record.developmentDelivery!.assignments!;
+    expect(assigned.length).toBeGreaterThan(0);
+    expect(assigned.every(one => [...one.criteria].sort().join() === [...f.criteria].sort().join())).toBe(true);
+    expect(() => assignAuditObligations(f.context, f.activity.activityId, { kind: "phase", phaseId: "1" })).toThrow(/matching open completion phase/);
   });
 
   it("refuses checkpoint replacement by a partial owner and allows the full assigned owner without changing the original origin", async () => {
@@ -163,7 +175,7 @@ describe("audit development owners", () => {
     const body = { phaseId: "2", documentsDigest: documentsDigest(context, "2"), required: true, criteria: [f.criteria[0]!], reason: "Corrected development delivery", checkpoints: [checkpoint] };
     await expect(recordAssessment(context, body)).rejects.toThrow(/all retained merge\/evidence obligations and criteria/);
     expect(f.checkpoint.supersededBy).toBeUndefined(); expect(f.checkpoint.owner).toEqual(f.owner);
-    assignAuditObligations(f.context, f.activity.activityId, repair, [f.criteria[0]!]);
+    assignAuditObligations(f.context, f.activity.activityId, repair);
     await recordAssessment(context, body);
     expect(f.checkpoint.supersededBy).toBe(checkpoint.id);
     expect(f.record.developmentDelivery!.checkpoints.find(one => one.id === checkpoint.id)?.owner).toEqual(repair);
@@ -173,14 +185,14 @@ describe("audit development owners", () => {
   it("preserves a continuation's per-requirement criterion scope when assigning a later repair", async () => {
     const f = await fixture(); f.checkpoint.criteria.push(f.criteria[1]!); await recordAssessment(f.context, f.assess());
     f.activity.kind = "test_audit";
-    f.activity.acceptedResult = f.store.put({ activityId: f.activity.activityId, disposition: "recorded", reportBytes: JSON.stringify({ outcome: "continue_test", nextTestBatch: { criterionKeys: f.criteria }, completionPhases: [] }) });
+    f.activity.acceptedResult = f.store.put({ activityId: f.activity.activityId, disposition: "recorded", reportBytes: JSON.stringify({ outcome: "continue_test", nextTestBatch: { criterionKeys: [f.criteria[0]!] }, completionPhases: [] }) });
     const next: AuditActivity = { ...f.activity, activityId: randomUUID(), sequence: 2, continuationIndex: 2, snapshots: [], attempts: [] }; delete next.acceptedResult;
     next.reportPath = `${directory}/kiln-audit-${next.activityId}.json`; f.record.completionAudits!.activities.push(next);
-    const snapshot = await captureSnapshot({ record: f.record, activity: next, git: f.context.git, evidence: [], now: new Date().toISOString() }, [], []); next.snapshots.push(f.store.put(snapshot));
+    const snapshot = await captureSnapshot({ record: f.record, activity: next, git: f.context.git, now: new Date().toISOString() }); next.snapshots.push(f.store.put(snapshot));
     const owner: DeliveryOwner = { kind: "audit", activityId: next.activityId };
-    assignAuditObligations(f.context, f.activity.activityId, owner, [f.criteria[0]!]);
+    assignAuditObligations(f.context, f.activity.activityId, owner);
     acceptRepair({ ...f, activity: next }, f.criteria);
-    assignAuditObligations(f.context, next.activityId, { kind: "phase", phaseId: "2" }, f.criteria);
+    assignAuditObligations(f.context, next.activityId, { kind: "phase", phaseId: "2" });
     const assigned = f.record.developmentDelivery!.assignments!.filter(one => one.owner.kind === "phase");
     expect(assigned).toHaveLength(3); expect(assigned.every(one => one.criteria.length === 1 && one.criteria[0] === f.criteria[0])).toBe(true);
   });

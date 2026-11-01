@@ -23,8 +23,8 @@
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
   const mergedBranches = $derived(snapshot.mergedBranches ?? []);
-  // The latest whole-PRD test assessment owns the current actions; prior rounds are history.
-  const humanActions = $derived(snapshot.activities?.findLast(row => row.kind === "test_audit")?.audit?.remainingAfterDeliveryActions ?? []);
+  // The latest delivery and test audits own the current after-delivery actions; prior rounds are history.
+  const humanActions = $derived([...new Set(["delivery_audit", "test_audit"].flatMap(kind => snapshot.activities?.findLast(row => row.kind === kind)?.audit?.remainingAfterDeliveryActions ?? []))]);
   const histories = $derived(snapshot.deliveryHistory?.repositories.map(history => ({ ...history, ...deliveryGroups(history.events) })) ?? []);
   let expanded = $state<Record<string, boolean>>({});
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));

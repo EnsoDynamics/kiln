@@ -4,7 +4,7 @@ import { runGit, type GitContext } from "../engine/git-reads.js";
 import { readPlanAt } from "../engine/plan-reading.js";
 import { markdownLines } from "../plan/markdown-sections.js";
 import type { PrdRecord, RepositoryEntry } from "../state/records.js";
-import { AuditRefusal, requireAudit, type AuditActivity, type CriterionSource, type EvidenceEntry, type FileReference, type RequirementManifest, type TestPath, type WorkSnapshot } from "./contracts.js";
+import { AuditRefusal, requireAudit, type AuditActivity, type CriterionSource, type FileReference, type RequirementManifest, type TestPath, type WorkSnapshot } from "./contracts.js";
 import { hashBytes, hashValue } from "./storage.js";
 
 export function assignedPath(repository: RepositoryEntry, path: string): string {
@@ -67,13 +67,18 @@ export function phaseScope(content: string): string {
   }).map(line => !line.inCodeFence ? line.text.replace(/^(\s*[-*] \[)[xX ](\])/, "$1 $2") : line.text).join("\n");
 }
 
-export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; evidence: EvidenceEntry[]; now: string; retainedClassification?: boolean }
+/** `retainedClassification` re-reads a version-1 snapshot's test paths without re-checking their support. */
+export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; now: string; retainedClassification?: boolean }
 
 export function fileInSnapshot(snapshot: WorkSnapshot, reference: FileReference): boolean {
   return !!reference && snapshot.repositories.find(r => r.repository === reference.repository)?.files[reference.path]?.blob === reference.blob;
 }
 
-export async function captureSnapshot(context: SnapshotContext, testPaths: TestPath[], evidencePaths: FileReference[]): Promise<WorkSnapshot> {
+/**
+ * Kiln's own read of the assigned work. New snapshots declare no test paths; a version-1 snapshot's
+ * test paths are carried only to compare it on the rules it was accepted under.
+ */
+export async function captureSnapshot(context: SnapshotContext, testPaths: TestPath[] = []): Promise<WorkSnapshot> {
   const { record, activity, git } = context;
   requireAudit(record.executionId, "Execution identity is missing.");
   const prdRepo = repositoryFor(record, record.repository.name);
@@ -116,61 +121,16 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const source = repositories.find(r => r.repository === prdRepo.name)!.files[prdPath];
   requireAudit(source, `Governing PRD is missing: ${prdPath}`);
   const requirements = requirementManifest(prdRepo.name, prdPath, source.blob, readFileSync(assignedPath(prdRepo, prdPath), "utf8"));
-  const snapshot: WorkSnapshot = { id: "", executionId: record.executionId, activityId: activity.activityId, createdAt: context.now, requirements, documents: [], plan: normalizedPlan, repositories, testPaths, evidencePaths, deliveryFingerprint: "", testFingerprint: "" };
+  const snapshot: WorkSnapshot = { id: "", executionId: record.executionId, activityId: activity.activityId, createdAt: context.now, requirements, documents: [], plan: normalizedPlan, repositories, testPaths, evidencePaths: [], deliveryFingerprint: "", testFingerprint: "" };
+  // The governing documents Kiln itself reads; method documents are neither required nor traversed (AC-NEUTRAL-02).
   const required = new Set([prdPath, ...normalizedPlan.map(p => p.file)]);
   for (const name of readdirSync(folder)) if (/assumptions|technical-design/.test(name) && name.endsWith(".md")) required.add(`${record.prdDirectory}/${name}`);
-  requireAudit([...required].some(p => /technical-design/.test(p)), "The governing technical design is missing.", "missing_evidence");
-  // Only explicitly declared provenance edges are optional. Every other local document
-  // and every replacement pointer remains required, including outside the PRD folder.
-  const parents = new Map<string, string>();
-  const chain = (path: string): string => {
-    const paths = [path];
-    while (parents.has(paths[0]!)) paths.unshift(parents.get(paths[0]!)!);
-    return paths.join(" -> ");
-  };
-  const addRequired = (source: string, target: string) => {
-    if (required.has(target)) return;
-    parents.set(target, source);
-    try {
-      assignedPath(prdRepo, target);
-      requireAudit(repositories.find(r => r.repository === prdRepo.name)!.files[target], `Missing required document ${target}`, "missing_evidence");
-    } catch (error) {
-      if (!(error instanceof AuditRefusal)) throw error;
-      throw new AuditRefusal(error.code, `${error.message}. Required document chain: ${chain(target)}`, error.status, error.criteria);
-    }
-    required.add(target);
-  };
   for (const path of required) {
     const file = repositories.find(r => r.repository === prdRepo.name)!.files[path]; requireAudit(file, `Missing required document ${path}`, "missing_evidence");
     snapshot.documents.push({ repository: prdRepo.name, path, blob: file.blob });
-    const content = readFileSync(assignedPath(prdRepo, path), "utf8");
-    for (const link of content.matchAll(/\[[^\]]*\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/g)) {
-      const linePrefix = content.slice(content.lastIndexOf("\n", link.index) + 1, link.index);
-      const replacementPointer = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(linePrefix);
-      if (link[2] === "kiln:reference" && !replacementPointer) continue;
-      const href = link[1]!.split(/[?#]/)[0]!;
-      if (!href || /^[a-z]+:/i.test(href) || !href.endsWith(".md")) continue;
-      const target = posix.normalize(posix.join(posix.dirname(path), decodeURIComponent(href)));
-      addRequired(path, target);
-    }
-    for (const pointer of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) {
-      addRequired(path, pointer[1]!);
-    }
   }
-  requireAudit(Array.isArray(testPaths) && Array.isArray(evidencePaths), "Snapshot declarations must be arrays.");
-  const declared = new Set<string>();
-  for (const test of testPaths) {
-    if (context.retainedClassification) { declared.add(`${test.repository}:${test.path}`); continue; }
-    requireAudit(fileInSnapshot(snapshot, test), `Test path blob is not current: ${test.path}`);
-    const key = `${test.repository}:${test.path}`; requireAudit(!declared.has(key), `Duplicate test path ${key}`); declared.add(key);
-    requireAudit(!snapshot.documents.some(d => d.repository === test.repository && d.path === test.path) && !/(?:^|\/)(?:package(?:-lock)?\.json|[^/]*config\.[^/]+|[^/]*lock[^/]*|pyproject\.toml|requirements[^/]*\.txt)$/.test(test.path), `Configuration and requirements cannot be test-only: ${test.path}`);
-    requireAudit(typeof test.shared === "boolean" && test.selectors?.length && test.configuration?.length && test.runEvidenceIds?.length, `Test classification needs selectors, configuration and observed runs: ${test.path}`);
-    requireAudit(test.configuration.every(f => fileInSnapshot(snapshot, f)), `Changed test configuration: ${test.path}`);
-    const assessment = context.evidence.find(e => e.evidenceId === test.assessmentEvidenceId);
-    requireAudit(assessment?.kind === "assessment" && assessment.assessment?.purpose === "test_classification" && test.configuration.every(config => assessment.assessment!.configurationFiles?.some(f => hashValue(f) === hashValue(config))) && assessment.assessment.testPaths.some(f => hashValue(f) === hashValue({ repository: test.repository, path: test.path, blob: test.blob })), `Missing independent test-only assessment: ${test.path}`, "missing_evidence");
-    for (const id of test.runEvidenceIds) requireAudit(context.evidence.some(e => e.evidenceId === id && e.command?.outcome === "success" && insideRepository(repositoryFor(record, test.repository), e.command.cwd) && assessment.assessment?.verificationEvidenceIds?.includes(id) && [test, ...test.configuration].every(ref => Date.parse(e.command!.startedAt) >= snapshot.repositories.find(r => r.repository === ref.repository)!.files[ref.path]!.changedAtMs) && test.selectors.some(selector => e.command!.invocation.includes(selector) || e.command!.output.includes(selector))), `Missing observed collection/run for ${test.path}`, "missing_evidence");
-  }
-  for (const path of evidencePaths) requireAudit(fileInSnapshot(snapshot, path) && path.path.endsWith(".md"), `Invalid method evidence document ${path.path}`);
+  requireAudit(context.retainedClassification || !testPaths.length, "New audit snapshots declare no test paths.");
+  const declared = new Set(testPaths.map(test => `${test.repository}:${test.path}`));
   const records = auditRecordPaths(record);
   const delivery: unknown[] = []; const tests: unknown[] = [];
   for (const repo of repositories) {
@@ -246,7 +206,7 @@ export function compareSnapshots(record: PrdRecord, checked: WorkSnapshot, curre
 }
 
 function auditRecordPaths(record: PrdRecord): Set<string> {
-  return new Set([...(record.completionAudits?.activities ?? []).map(a => `${record.repository.name}:${a.reportPath}`), `${record.repository.name}:${record.prdDirectory}/test-audit.md`]);
+  return new Set((record.completionAudits?.activities ?? []).map(a => `${record.repository.name}:${a.reportPath}`));
 }
 
 /** Explain the same comparison that gates audit admission. */

@@ -27,6 +27,8 @@ This is an extension of the local TypeScript application; no new service, databa
 
 ### One completion decision
 
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (the test-audit baseline rule).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (reconcile active additions before finalization).
@@ -55,6 +57,8 @@ Keep the phase plan authoritative for implementation scope and ordering. Activit
 ## Audit Report and Local Interface
 
 ### Portable report
+
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (the version-2 report replaces the version-1 contract).
 
 Each audit activity writes `<prd-directory>/kiln-audit-<activityId>.json`. Its exact reserved path is assigned by Kiln, never taken from arbitrary agent input. The report is committed and pushed through normal scoped checks; a method-required empty audit commit remains permitted. Delivery audits always produce this record even when the method itself changes no document. Test audits also maintain the method's existing `test-audit.md`; its filename remains compatible with that installed skill.
 
@@ -91,6 +95,8 @@ Delivery rows use the installed method's Implemented, Partly implemented, Not im
 
 ### Commands and routes
 
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (snapshot requests are retired and status has no evidence page).
+
 Use the running Kiln executable pinned in the session's prompt, as for development delivery. The CLI discovers the execution from the assigned workspace and calls the authenticated loopback API. It reads JSON payloads from files, prints JSON results, and exits nonzero for refused or unresolved operations. No command grants permissions or launches arbitrary commands.
 
 | CLI / HTTP | Request | Response |
@@ -107,6 +113,8 @@ Errors: `400 malformed_request`, `403 outside_execution`, `413 report_too_large`
 
 ### Evidence contract and limits
 
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (audits no longer use an evidence catalog).
+
 Reports reference an engine-issued evidence catalog; they never supply authoritative command outcomes. Each entry has `evidenceId`, provider, owning session/run, child-conversation identity when relevant, turn/tool-call or transcript-record locator, capture time (UTC), raw-source digest and private retained-source reference. Command entries include the observed invocation, working directory, terminal outcome and available exit code/output. File entries name assigned repository, relative path and immutable blob/commit. Assessment/re-grade entries link the delegated task and its completed response, affected criterion/part IDs and assessed snapshot. Re-grading remediation requires a distinct assessor conversation from the writer. Skill-loading evidence points to the successful Claude Skill call/result or Codex read of the discovered source digest. Unsupported or missing provider provenance is unresolved.
 
 The status interface exposes available evidence IDs with their observed metadata, paged by opaque cursor (100 entries per page), so sessions need not guess identifiers. Artifact references bind test selectors, source/configuration and report parts to catalog entries; red checks name the mutation/restoration evidence, two failing mapped runs and restored passing run, or the skill-permitted impossibility reason. Baseline/final failures remain named, including pre-existing unrelated failures; a mapped failure cannot be hidden by a successful later unrelated command. The engine verifies command identity/outcome and references; the independent assessor judges test semantics. Preserve complete raw evidence privately and show summaries through the existing detail view; never copy credentials or full raw provider output into portable reports.
@@ -115,6 +123,8 @@ Bound a report to 8 MiB and 10,000 criterion rows; reject overflow as `413 repor
 
 ### Acceptance checks
 
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (admission checks the version-2 report, plan and Git only).
+
 Validate schema/identities, full criterion coverage, current snapshots, referenced files and provider evidence, plan consistency, and Committed/Pushed/Stayed-in-workspace facts across every assigned repository. Audit sessions have an **Audit result recorded** check instead of Phase doc closed. Required development obligations remain an additional check.
 
 A `completion_phases` result must match new open plan entries with method origin markers and affected labels, append identities without changing original ownership or closures, resolve dependencies, and contain only missing behavior for existing criteria. Validate these audit-added entries beyond the normal underway structural plan check. Record their IDs before dispatch. If a crash leaves phase files but no valid report, resume/recover the originating audit to reconcile those files; it must adopt the existing entries, not allocate duplicates. A report and plan disagreement stops at Needs you.
@@ -122,6 +132,8 @@ A `completion_phases` result must match new open plan entries with method origin
 A `continue_test` result requires committed updated test-audit records, nonempty remaining work and evidence of progress since the preceding continuation: changed evidence/grades, completed remediation, or newly identified actionable work. An identical unfinished batch without progress is a blocker, not an endless fresh-session loop. Blockers win over all routing outcomes. An audit cannot return `passed` while its report or current plan contains an implementation gap/open leaf. The engine independently derives the next action from these facts rather than executing report text.
 
 ## Current Work and Invalidation
+
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (test-path classification, the method record, the required design and link traversal).
 
 A snapshot stores canonical repository identities, assigned branches, HEADs, tree/blob digests, required-document manifest, normalized plan, criterion keys and provider-evidence references. Resolve governing PRD, assumptions, design, phase documents and referenced replacement requirements; missing/unreadable references stop. An inline Markdown link with the exact title `kiln:reference`, such as `[handoff](../../../source-material/handoff/index.md "kiln:reference")`, declares background/provenance only. Do not require or traverse that edge. Unmarked local Markdown links remain required recursively, regardless of directory; explicit `Superseded by:` and `Replaces:` pointers and the governing document seeds always remain required even if another link marks the same target as reference-only. Use the marker only for material that does not define requirements or required evidence. It does not exempt any file from the currentness comparison or permit missing report evidence. Requirements remain protected from test-only classification, and development assessments remain bound to all governing documents. Required-link failures include the originating document chain. Existing accepted snapshots and their immutable evidence are preserved; currentness compares them under the rules below.
 
@@ -147,6 +159,8 @@ Currentness compares the latest accepted result used for each gate; earlier atte
 Retained test grades need their original checked content and referenced tests/code still current under the method's re-audit rules. Conservative whole-test reassessment is valid where a precise affected set cannot be established. A new delivery audit after a direct test fix is followed by a fresh test-audit activity that validates the retained grades and reassesses affected rows. Final completion reruns currentness after finalization and in the same serialized decision as repository delivery checks; changed material routes back to audits, not Complete.
 
 ## Provider Sessions and Development Delivery
+
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (skill-load and command evidence for audits, and the manifest-changed refusal).
 
 Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
 
@@ -182,6 +196,8 @@ Use persisted schema 7 for audit-owned development obligations; schema 6 is the 
 Migrate existing implementation/finalization rows in recorded session order, with unstarted phase rows still in plan order. Preserve original timestamps, done facts and historical completion; do not invent session durations. Private state remains local and owner-retained with the execution; there is no new deletion command or retention policy, and removing an execution must remove its audit sidecars too; no automatic audit pruning. Portable committed reports remain with project history. Invalid schema or missing accepted evidence for a required/current gate surfaces Needs you with the exact path. No rollback by lowering a schema number.
 
 ## Progress and Detail Contract
+
+Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (version-2 rows show the summary and needsYou).
 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
 

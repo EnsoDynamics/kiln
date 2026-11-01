@@ -7,8 +7,9 @@ import { readSessionRecord } from "../state/records.js";
 import { claudeConfigFolder } from "../session/transcripts.js";
 import { readSkillList } from "../account/model-list.js";
 import { readCodexMetadata } from "../agents/codex-metadata.js";
-import { auditCurrentness, type AdmissionContext } from "./admission.js";
-import { AuditRefusal, type AuditActivity, type AuditKind, type AuditReport, type AuditResult } from "./contracts.js";
+import { acceptedSnapshot, auditCurrentness, type AdmissionContext } from "./admission.js";
+import { compareSnapshots } from "./snapshots.js";
+import { AuditRefusal, type AuditActivity, type AuditKind, type AuditReport, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { AuditStore, hashBytes } from "./storage.js";
 
 export interface ExecutionActivity {
@@ -54,16 +55,25 @@ export async function auditNext(context: AdmissionContext): Promise<AuditKind | 
   if (!delivery) return "delivery_audit";
   const accepted = acceptedAudit(context.stateDirectory, delivery);
   if (!accepted || accepted.report.outcome !== "passed" || !context.record.phases[auditKey(delivery)]?.doneAt) return "delivery_audit";
-  if (!(await auditCurrentness(context, delivery)).deliveryCurrent) return "delivery_audit";
-  const tests = state.activities.findLast(a => a.kind === "test_audit");
-  if (!tests || tests.sequence < delivery.sequence) return "test_audit";
-  const testAccepted = acceptedAudit(context.stateDirectory, tests);
-  if (!testAccepted || !context.record.phases[auditKey(tests)]?.doneAt) return "test_audit";
+  const tests = state.activities.findLast(a => a.kind === "test_audit" && a.sequence > delivery.sequence);
+  const testAccepted = tests && acceptedAudit(context.stateDirectory, tests);
+  const testSettled = !!testAccepted && !!context.record.phases[auditKey(tests)]?.doneAt;
+  // The test audit's own statement decides whether its changes need a fresh delivery audit (AC-NEUTRAL-06):
+  // one that says it changed only tests and records is judged from its own snapshot, not the delivery audit's.
+  if (testSettled && testAccepted.report.schemaVersion === 2 && testAccepted.report.changedImplementation) return "delivery_audit";
+  // Trusted only when nothing changed between one audit's acceptance and the next one's start, such as a person's edit during a stop.
+  const vouchedTests = testSettled && testAccepted.report.schemaVersion === 2 && untouchedBetweenAudits(context, [delivery, ...state.activities.filter(a => a.kind === "test_audit" && a.sequence > delivery.sequence && a.acceptedResult)]);
+  if (!vouchedTests && !(await auditCurrentness(context, delivery)).deliveryCurrent) return "delivery_audit";
+  if (!tests || !testSettled) return "test_audit";
   const current = await auditCurrentness(context, tests);
   if (!current.deliveryCurrent) return "delivery_audit";
   if (!current.testsCurrent) return "test_audit";
   if (testAccepted.report.outcome === "continue_test") return "continue_test";
   return testAccepted.report.outcome === "passed" ? "final_delivery" : "test_audit";
+}
+function untouchedBetweenAudits(context: AdmissionContext, chain: AuditActivity[]): boolean {
+  const store = new AuditStore(context.stateDirectory);
+  return chain.slice(1).every((next, index) => compareSnapshots(context.record, acceptedSnapshot(context.stateDirectory, chain[index]!), store.read<WorkSnapshot>(next.snapshots[0]!)).deliveryCurrent);
 }
 /** Discover enabled skills at the launch directory; ambiguity is a visible refusal. */
 export async function resolveAuditSkill(options: { kind: AuditKind; agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<AuditActivity["skill"]> {

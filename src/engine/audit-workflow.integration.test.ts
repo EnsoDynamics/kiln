@@ -75,7 +75,7 @@ describe("automatic completion activities", () => {
       expect(current.claudeCalls()).toHaveLength(1);
       submit.mockRestore();
       await current.engine.checkAgain();
-      expect(current.engine.record.phases[key]!.stop!.checks[0]!.name).toBe("missing_evidence");
+      expect(current.engine.record.phases[key]!.stop!.checks[0]!.name).toBe("Audit result recorded");
       expect(current.engine.record.completedAt).toBeUndefined();
       expect(current.claudeCalls()).toHaveLength(1);
     } finally { submit.mockRestore(); }
@@ -241,7 +241,8 @@ describe("automatic completion activities", () => {
   ])("keeps human work behind the completion boundary and discloses allowed actions in the browser (%j)", { timeout: 120_000 }, async ({ beyondDelivery, recordedHumanResult }) => {
     const action = "Approve and perform the separately authorized production release.";
     const documentFiles = { ...files, "proof-prd.md": files["proof-prd.md"] + "  - Production release is a separate human action after Kiln delivery.\n" };
-    const h = await fixture([auditSession({ humanAction: action, beyondDelivery }), auditSession({ humanAction: action, beyondDelivery, recordedHumanResult })], [pullRequestSession()], documentFiles);
+    // Both audits list the action, so Complete shows it once; with its result recorded neither lists it.
+    const h = await fixture([auditSession({ humanAction: action, beyondDelivery, recordedHumanResult }), auditSession({ humanAction: action, beyondDelivery, recordedHumanResult })], [pullRequestSession()], documentFiles);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const snapshot = buildSnapshot(h.engine);
     if (!beyondDelivery) {
@@ -254,7 +255,7 @@ describe("automatic completion activities", () => {
     expect(snapshot.feature.state, JSON.stringify(h.engine.record.phases)).toBe("complete");
     const remaining = recordedHumanResult ? [] : [action];
     const latest = snapshot.activities!.findLast(row => row.kind === "test_audit")!.audit!;
-    expect(latest.pendingActions).toEqual([action]);
+    expect(latest.pendingActions).toEqual([]);
     expect(latest.remainingAfterDeliveryActions).toEqual(remaining);
     const chrome = await launchChrome();
     try {
@@ -304,7 +305,7 @@ describe("automatic completion activities", () => {
     const snapshot = buildSnapshot(h.engine);
     expect(snapshot.feature.phasesTotal).toBe(1); expect(snapshot.feature.phasesDone).toBe(1);
     expect(snapshot.activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Test audit", "Final pull request"]);
-    expect(snapshot.activities!.filter(a => a.audit).every(a => a.audit!.criteria.length === 1)).toBe(true);
+    expect(snapshot.activities!.filter(a => a.audit).every(a => a.audit!.summary === "Fixture audit found nothing left.")).toBe(true);
     const audit = h.engine.record.completionAudits!.activities[0]!;
     const store = new AuditStore(h.stateDirectory); const original = store.read<AuditResult>(audit.acceptedResult!);
     expect(original.checks.some(check => check.name === "Stayed in the workspace")).toBe(false);
@@ -359,7 +360,7 @@ describe("automatic completion activities", () => {
     expect(activities.map(a => [a.kind, a.round, a.continuationIndex])).toEqual([["delivery_audit",1,1],["test_audit",1,1],["test_audit",1,2]]);
     expect(new Set(activities.flatMap(a => a.sessionIds)).size).toBe(3);
     expect(activities.every(a => a.acceptedResult && h.engine.record.phases[auditKey(a)]?.doneAt)).toBe(true);
-    expect(h.claudeCalls()[2]!.prompt).toContain('Add the remaining value edge assertion.');
+    expect(h.claudeCalls()[2]!.prompt).toContain('Test work remains for another session.');
     expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => a.file)).toEqual(["Round 1", "Round 1 · Continuation 2"]);
     expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
     const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
@@ -368,12 +369,12 @@ describe("automatic completion activities", () => {
   });
 
   it.each([undefined, "Reworded missing assertion, with no changed evidence."])("stops unfinished test work without substantive progress (%s)", async findingText => {
-    const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ continueTest: true, findingText })]);
+    const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ continueTest: true, testChange: false, findingText })]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const activities = h.engine.record.completionAudits!.activities; const last = activities.at(-1)!;
     expect(activities.map(a => a.continuationIndex)).toEqual([1,1,2]);
     expect(last.acceptedResult).toBeUndefined(); expect(h.engine.record.completedAt).toBeUndefined();
-    expect(h.engine.record.phases[auditKey(last)]!.stop!.checks.flatMap(c => c.facts).join(" ")).toContain("no recorded progress");
+    expect(h.engine.record.phases[auditKey(last)]!.stop!.checks.flatMap(c => c.facts).join(" ")).toContain("Test continuation made no progress");
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(3);
   });
 
@@ -419,7 +420,7 @@ describe("automatic completion activities", () => {
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
       writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
-      await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);await page.waitFor(`document.body.innerText.includes('Outcome: passed')`);
+      await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);await page.waitFor(`document.body.innerText.includes('Outcome: nothing left')`);
       expect(page.problems).toEqual([]);
     } finally {writeFileSync(marker,"continue");await chrome.close();}
   });
@@ -451,18 +452,18 @@ describe("automatic completion activities", () => {
     const h = await fixture([auditSession({ noReport: true })]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const activity = h.engine.record.completionAudits!.activities[0]!; const key = auditKey(activity);
-    expect(h.engine.stoppedPhaseKey()).toBe(key); expect(h.engine.record.phases[key]!.stop!.checks.some(c => c.name === "missing_evidence" && !c.passed)).toBe(true);
+    expect(h.engine.stoppedPhaseKey()).toBe(key); expect(h.engine.record.phases[key]!.stop!.checks.some(c => c.name === "Audit result recorded" && !c.passed && c.facts[0]!.startsWith("No audit report at "))).toBe(true);
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.completionAudits!.activities).toHaveLength(1); expect(h.engine.record.completedAt).toBeUndefined();
     // Resume must tell the agent what Check again found, since that session never saw the refusal.
-    expect(h.engine.auditRecoveryTask(key, h.engine.worktreePath)?.lastRefusal?.text).toMatch(/^missing_evidence: Cannot read /);
+    expect(h.engine.auditRecoveryTask(key, h.engine.worktreePath)?.lastRefusal?.text).toMatch(/^missing_evidence: No audit report at /);
   });
   it("resumes a refused audit with Kiln's latest check and no reply (AC-RUN-02)", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession({ noReport: true }), auditSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true }); await h.engine.settled();
     const prompt = h.claudeCalls()[1]!.prompt;
-    expect(prompt).toContain("did not accept it: missing_evidence: Cannot read ");
+    expect(prompt).toContain("did not accept it: missing_evidence: No audit report at ");
     expect(prompt).toContain("Carry on with the assigned Delivery audit");
   });
   it("recovers a committed report without submission and pauses at the audit boundary", { timeout: 120_000 }, async () => {
@@ -499,8 +500,8 @@ describe("automatic completion activities", () => {
       await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('No new phases found')`);
       expect(await page.evaluate(`document.querySelector('a[href="${h.engine.record.pullRequests![0]!.url}"]')?.href`)).toBe(h.engine.record.pullRequests![0]!.url);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Outcome: passed')`);
-      expect(await page.evaluate(`document.body.innerText`)).toContain("AC-PROOF-01");
+      await page.waitFor(`document.body.innerText.includes('Outcome: nothing left')`);
+      expect(await page.evaluate(`document.body.innerText`)).toContain("Fixture audit found nothing left.");
       expect(page.problems).toEqual([]);
     } finally { writeFileSync(marker, "continue"); await chrome.close(); }
   });
@@ -632,7 +633,7 @@ describe("automatic completion activities", () => {
       expect(calls[1]!.args).toContain(original.sessionIds[0]);
       expect(calls[1]!.prompt).toContain("the weekly usage limit");
       expect(calls[1]!.prompt).toContain("Carry on with the assigned Delivery audit");
-      expect(calls[1]!.prompt).toContain("the earlier checked snapshot cannot be reused: take a new one with `kiln audit snapshot`, set the report's `checkedSnapshotId` to it, redo every criterion's independent assessment and review");
+      expect(calls[1]!.prompt).toContain("commit and push everything, then resubmit");
       expect(h.engine.latestSession(key)!.runs[1]).toMatchObject({ cause: mode === "automatic" ? "limit_resume" : "person_resume", account: { email: "fresh@example.test" } });
       expect(h.engine.record.completionAudits!.activities.filter(a => a.kind === "delivery_audit")).toHaveLength(1);
       expect(page.problems).toEqual([]);
@@ -653,10 +654,10 @@ describe("automatic completion activities", () => {
     const h = await fixture([auditSession({ blocked: true })]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     const snapshot = buildSnapshot(h.engine); const activity = snapshot.activities!.find(row => row.kind === "delivery_audit")!;
-    expect(activity.state).toBe("needs_you"); expect(activity.audit!.outcome).toBe("blocked");
-    expect(activity.audit!.criteria.map(c => c.key)).toEqual([`acme-shop:${directory}/proof-prd.md#AC-PROOF-01`]);
+    expect(activity.state).toBe("needs_you"); expect(activity.audit!.outcome).toBe("needs_you");
+    expect(activity.audit!.criteria).toEqual([]);
     expect(activity.audit!.blockers).toEqual(["Required evidence is unavailable. Restore the named evidence."]);
-    expect(snapshot.needsYou!.checks.flatMap(c => c.facts).join(" ")).toContain("AC-PROOF-01");
+    expect(snapshot.needsYou!.checks.flatMap(c => c.facts).join(" ")).toContain("Restore the named evidence.");
     expect(h.claudeCalls()).toHaveLength(1);
   });
 

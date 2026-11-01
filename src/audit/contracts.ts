@@ -40,7 +40,8 @@ export interface CriterionRow {
   deliveryStatus?: "implemented" | "partly_implemented" | "not_implemented" | "waiting_human" | "superseded" | "changed_outside_requirements" | "not_built_yet";
   testAssessment?: { grade: "missing" | "weak" | "adequate" | "strong" } | { status: "not_implemented" | "person_checked" | "not_built_yet" | "superseded" | "changed_outside_requirements" };
 }
-export interface AuditReport {
+/** The version-1 report: retained accepted results only; new submissions use version 2. */
+export interface AuditReportV1 {
   schemaVersion: 1; executionId: string; activityId: string; kind: AuditKind; round: number; continuationIndex: number;
   scope: { repository: string; path: string; kind: "whole_prd"; manifestId: string; criterionKeys: string[] };
   checkedSnapshotId: string; criteria: CriterionRow[];
@@ -54,6 +55,25 @@ export interface AuditReport {
   pendingHumanActions: { id: string; criterionKey: string; action: string; requirementQuote: string; beyondDelivery: boolean; result?: FileReference }[];
   blockers: { id: string; criterionKeys: string[]; problem: string; requiredAction: string }[];
   outcome: "passed" | "completion_phases" | "continue_test" | "blocked";
+}
+/**
+ * The Kiln-owned report (method-neutral audits, AC-NEUTRAL-01): the outcome the audit reached, never how.
+ *
+ *   { "schemaVersion": 2, "executionId": "…", "activityId": "…", "kind": "test_audit", "outcome": "passed",
+ *     "summary": "Every criterion has adequate tests.", "completionPhases": [], "needsYou": [], "changedImplementation": false }
+ */
+export interface AuditReportV2 {
+  schemaVersion: 2; executionId: string; activityId: string; kind: AuditKind;
+  outcome: "passed" | "completion_phases" | "continue_test" | "needs_you";
+  summary: string; completionPhases: string[]; needsYou: { problem: string; action: string }[];
+  /** Test audits only: whether the audit changed anything other than tests and audit records. */
+  changedImplementation?: boolean;
+  afterDeliveryActions?: string[];
+}
+export type AuditReport = AuditReportV1 | AuditReportV2;
+/** The phase IDs an accepted report appended, for either report version. */
+export function completionPhaseIds(report: AuditReport): string[] {
+  return report.schemaVersion === 2 ? report.completionPhases : report.completionPhases.map(phase => phase.id);
 }
 export interface AuditActivity {
   activityId: string; sequence: number; kind: AuditKind; round: number; continuationIndex: number;

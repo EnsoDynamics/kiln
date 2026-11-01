@@ -1,43 +1,38 @@
-// Real Git, filesystem, HTTP and CLI; fabricated transcripts exercise refusal cases beside
-// the actual-provider proof in scripts/proof-run/completion-audit-proof.mjs.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, readFileSync, statSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
+// Real Git, filesystem, HTTP and CLI: Kiln admits the version-2 report on its own facts
+// (method-neutral audits, AC-NEUTRAL-01..10), never on how the audit was conducted.
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmdirSync, chmodSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createBareOrigin, createRepository, createSandbox, commitFiles, git, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
 import { newPrdRecord } from "../state/new-record.js";
-import { readPrdRecord, SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type SessionRecord } from "../state/records.js";
+import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import { prdStateDirectory, stateRoot } from "../state/state-files.js";
 import { ownerDeliveryCheck, ownerDocuments, recordAssessment, type DeliveryContext } from "../engine/development-delivery.js";
 import { Engine } from "../engine/engine.js";
 import { TOKEN_HEADER, type LocalServer } from "../server/local-server.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { runAudit } from "../audit-command.js";
-import { auditCurrentness, auditEvidence, auditStatus, issueSnapshot, latestAuditRefusal, refreshAuditEvidence, submitAudit, type AdmissionContext } from "./admission.js";
-import { validateReport } from "./validate-report.js";
+import { auditCurrentness, auditStatus, issueSnapshot, latestAuditRefusal, submitAudit, type AdmissionContext } from "./admission.js";
 import { AuditStore, hashBytes, strictJson } from "./storage.js";
-import { captureSnapshot, compareSnapshots, requirementManifest, phaseScope } from "./snapshots.js";
-import type { AuditActivity, AuditReport, EvidenceEntry, WorkSnapshot } from "./contracts.js";
+import { captureSnapshot, requirementManifest, phaseScope } from "./snapshots.js";
+import { AuditRefusal, type AuditActivity, type AuditReportV2 } from "./contracts.js";
 import { commandContracts } from "../control/help.js";
+import { auditNext } from "./workflow.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(f => f())); });
 const directory = "docs/prds/proof";
 const prd = "# PRD: Audit proof\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return the value.** The function returns 42.\n  - The exported function is reachable.\n";
-async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit", options: { source?: string; companion?: boolean; openPhase?: boolean } = {}) {
+const closedPhase = "# Phase 1: Return value\n\n**Closed:** 2026-10-24\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n";
+async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit", options: { openPhase?: boolean; companion?: boolean } = {}) {
   const sandbox = createSandbox(); cleanups.push(() => sandbox.cleanup());
   const origin = createBareOrigin(sandbox, "proof"); const root = createRepository(sandbox, "proof", origin);
-  commitFiles(sandbox, root, directory, { "proof-prd.md": options.source ?? prd, "technical-design.md": "# Design\nExport value from value.mjs.\n", "phase-1-value.md": "# Phase 1: Return value\n\n**Closed:** 2026-10-24\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\nNone.\n" });
-  if (options.openPhase) {
-    const path = join(root, directory, "phase-1-value.md");
-    writeFileSync(path, readFileSync(path, "utf8").replace("**Closed:** 2026-10-24\n", ""));
-    commit(sandbox, root, [`${directory}/phase-1-value.md`]);
-  }
+  // No technical design: method documents are neither required nor traversed (AC-NEUTRAL-02).
+  commitFiles(sandbox, root, directory, { "proof-prd.md": prd, "phase-1-value.md": options.openPhase ? closedPhase.replace("**Closed:** 2026-10-24\n\n", "") : closedPhase });
   writeFileSync(join(root, "value.mjs"), "export const value = () => 42;\n");
   writeFileSync(join(root, "value.test.mjs"), "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
-  writeFileSync(join(root, "package.json"), '{"type":"module","scripts":{"test":"node value.test.mjs"}}');
-  commit(sandbox, root, ["value.mjs", "value.test.mjs", "package.json"]);
+  commit(sandbox, root, ["value.mjs", "value.test.mjs"]);
   const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false } });
   const started = new Date(Date.now() - 60_000).toISOString(); record.startedAt = started; record.setupCompletedAt = started;
   record.repositories = [{ name: "proof", kind: "prd", mainCheckoutPath: root, github: "example/proof", baseBranch: "develop", worktreePath: root, setupCompletedAt: started }];
@@ -47,298 +42,217 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
     record.repositories.push({ name: "companion", kind: "named", mainCheckoutPath: other, github: "example/companion", baseBranch: "develop", worktreePath: other, setupCompletedAt: started });
   }
   const skillName = kind === "delivery_audit" ? "delivery-audit" : "test-audit";
-  const skillPath = join(sandbox.root, `${skillName}-SKILL.md`); const skillText = "# delivery-audit\nFixture skill source.\n"; writeFileSync(skillPath, skillText);
+  const skillPath = join(sandbox.root, `${skillName}-SKILL.md`); const skillText = `# ${skillName}\nFixture skill source.\n`; writeFileSync(skillPath, skillText);
   const activity: AuditActivity = { activityId: randomUUID(), sequence: 1, kind, round: 1, continuationIndex: 1, createdAt: started, sessionIds: [randomUUID()], reportPath: "", skill: { name: skillName, path: skillPath, digest: hashBytes(skillText) }, snapshots: [], attempts: [] };
   activity.reportPath = `${directory}/kiln-audit-${activity.activityId}.json`; record.completionAudits!.activities.push(activity);
-  const session: SessionRecord = { schemaVersion: SCHEMA_VERSION, agentId: "claude_code", sessionId: activity.sessionIds[0]!, activityId: activity.activityId, phaseId: "", kind: activity.kind, createdAt: started, model: "sonnet", modelDisplayName: "Sonnet", workingDirectory: root, runs: [{ cause: "launch", startedAt: started }], sleeps: [], steps: [] };
   const stateDirectory = prdStateDirectory(stateRoot(sandbox.env), root, "proof", directory);
-  writePrdRecord(stateDirectory, record); writeSessionRecord(stateDirectory, session);
-  const transcriptFolder = join(sandbox.env.CLAUDE_CONFIG_DIR!, "projects", "proof"); mkdirSync(transcriptFolder, { recursive: true });
-  const transcript = join(transcriptFolder, `${session.sessionId}.jsonl`);
-  const rows: unknown[] = [];
-  const call = (id: string, name: string, input: unknown, text: string, at = new Date().toISOString(), isError = false) => {
-    rows.push({ type: "assistant", timestamp: at, cwd: root, message: { content: [{ type: "tool_use", id, name, input }] } }, { type: "user", timestamp: at, message: { content: [{ type: "tool_result", tool_use_id: id, content: text, is_error: isError }] } });
-    writeFileSync(transcript, rows.map(r => JSON.stringify(r)).join("\n") + "\n");
-  };
-  call("skill", "Skill", { skill: `enso-method:${skillName}` }, "Skill loaded");
-  const context: AdmissionContext = { record, stateDirectory, git: { git: "git", env: sandbox.env }, env: sandbox.env, codex: "codex", signal: AbortSignal.timeout(120_000), session: () => session };
+  const context: AdmissionContext = { record, stateDirectory, git: { git: "git", env: sandbox.env }, signal: AbortSignal.timeout(120_000) };
+  // As allocation does: Kiln captures the work the audit starts from.
+  const store = new AuditStore(stateDirectory);
+  activity.snapshots.push(store.put(await captureSnapshot({ ...context, activity, now: started })));
+  writePrdRecord(stateDirectory, record);
   const body = () => ({ executionId: record.executionId, activityId: activity.activityId, revision: record.completionAudits!.revision });
-  const snapshotExample = commandContracts.find(c => c.path.join(" ") === "audit snapshot")!.examples[0]!;
-  const snapshotRequest = structuredClone(Object.values(snapshotExample.files!)[0]) as Record<string, unknown>;
-  Object.assign(snapshotRequest, body());
-  const snap = await issueSnapshot(context, snapshotRequest);
-  const store = new AuditStore(stateDirectory); const checked = store.read<WorkSnapshot>(activity.snapshots[0]!);
-  const criterion = checked.requirements.criteria[0]!;
-  const assess = (purpose: "assessment" | "review" | "regrade" | "test_classification", id: string, verificationEvidenceIds: string[] = [], extra: Partial<NonNullable<EvidenceEntry["assessment"]>> = {}) => {
-    const task = `Assess snapshot ${extra.snapshotId ?? snap.snapshotId} criteria ${(extra.criterionKeys ?? checked.requirements.criteria.map(c => c.key)).join(" ")} parts ${(extra.partIds ?? ["value"]).join(" ")}`;
-    const text = `<kiln-assessment>${JSON.stringify({ snapshotId: snap.snapshotId, criterionKeys: [criterion.key], partIds: ["value"], purpose, testPaths: [], verificationEvidenceIds, ...extra })}</kiln-assessment>`;
-    call(id, "Agent", { prompt: task }, `Completed agentId: ${id}`);
-    const childFolder = join(transcriptFolder, session.sessionId, "subagents"); mkdirSync(childFolder, { recursive: true });
-    writeFileSync(join(childFolder, `agent-${id}.jsonl`), JSON.stringify({ type: "assistant", timestamp: new Date().toISOString(), cwd: root, message: { content: [{ type: "text", text }] } }) + "\n");
-  };
-  assess("assessment", "assessor"); assess("review", "reviewer");
-  const evidence = await refreshAuditEvidence(context);
-  const observed = (kind: EvidenceEntry["kind"], purpose?: string) => evidence.find(e => e.kind === kind && (!purpose || e.assessment?.purpose === purpose))!.evidenceId;
-  const report: AuditReport = { schemaVersion: 1, executionId: record.executionId!, activityId: activity.activityId, kind: activity.kind, round: 1, continuationIndex: 1, scope: { repository: "proof", path: `${directory}/proof-prd.md`, kind: "whole_prd", manifestId: checked.requirements.id, criterionKeys: [criterion.key] }, checkedSnapshotId: checked.id, criteria: [{ criterionKey: criterion.key, parts: [{ id: "value", quote: criterion.content, startLine: criterion.startLine, endLine: criterion.endLine, applicability: "current", code: [{ repository: "proof", path: "value.mjs", blob: checked.repositories[0]!.files["value.mjs"]!.blob }], tests: [] }], assessmentEvidenceIds: [observed("assessment", "assessment")], findings: [], blockerIds: [], deliveryStatus: "implemented" }], methodEvidence: { skillEvidenceId: observed("skill"), assessmentEvidenceIds: [observed("assessment", "assessment")], reviewEvidenceIds: [observed("assessment", "review")] }, completionPhases: [], pendingHumanActions: [], blockers: [], outcome: "passed" };
+  const report: AuditReportV2 = { schemaVersion: 2, executionId: record.executionId!, activityId: activity.activityId, kind, outcome: "passed", summary: "Every criterion is delivered.", completionPhases: [], needsYou: [], ...(kind === "test_audit" ? { changedImplementation: false } : {}) };
   const saveReport = (bytes = JSON.stringify(report)) => { writeFileSync(join(root, activity.reportPath), bytes); commit(sandbox, root, [activity.reportPath]); };
-  return { sandbox, root, origin, record, activity, session, context, body, checked, report, saveReport, call, assess, transcript, store, stateDirectory };
+  const submit = () => submitAudit(context, { ...body(), reportPath: activity.reportPath });
+  return { sandbox, root, origin, record, activity, context, body, report, saveReport, submit, store, stateDirectory, skillPath };
 }
 function commit(sandbox: Sandbox, root: string, paths: string[]) { git(sandbox, root, "add", "--", ...paths); git(sandbox, root, "commit", "--allow-empty", "-qm", "test(audit): fixture work"); git(sandbox, root, "push", "-qu", "origin", "develop"); }
+function appendPhase(f: Awaited<ReturnType<typeof fixture>>, id: string, closed = false) {
+  const file = `${directory}/phase-${id}-completion.md`;
+  writeFileSync(join(f.root, file), `# Phase ${id}: Completion\n\n${closed ? "**Closed:** 2026-11-01\n\n" : ""}## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1.\n`);
+  commit(f.sandbox, f.root, [file]);
+}
 
-describe("audit evidence admission", () => {
-  it.skipIf(process.platform === "win32")("names a mode-only change without reporting normalized phase-status edits", async () => {
-    const f = await fixture();
-    const phase = f.checked.plan[0]!.file;
-    const original = readFileSync(join(f.root, phase), "utf8");
-    expect(original).toContain("**Closed:**");
-    writeFileSync(join(f.root, phase), original.replace(/^\*\*Closed:\*\*.*$/m, "**Closed:** 2026-10-25"));
-    chmodSync(join(f.root, "value.mjs"), 0o755);
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition).toBe("unresolved"); expect(result.refusal?.code).toBe("stale_snapshot");
-    expect(result.refusal?.reason).toContain("Changed file mode: proof/value.mjs");
-    expect(result.refusal?.reason).not.toContain(phase);
+describe("version-2 audit admission", () => {
+  it("routes each natural end and records Kiln's own snapshot (AC-NEUTRAL-01, AC-NEUTRAL-03)", async () => {
+    const delivery = await fixture(); delivery.saveReport();
+    const passed = await delivery.submit();
+    expect(passed.disposition).toBe("recorded"); expect(passed.nextAction).toBe("test_audit");
+    expect(passed.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Audit result recorded", passed: true, facts: ["Outcome passed: Every criterion is delivered."] }), expect.objectContaining({ name: "Everything committed", passed: true }), expect.objectContaining({ name: "Pushed", passed: true })]));
+    expect(delivery.activity.snapshots).toHaveLength(2); expect(passed.snapshotId).toBe(delivery.store.read<{ id: string }>(delivery.activity.snapshots[1]!).id);
+
+    const tests = await fixture("test_audit"); tests.saveReport();
+    expect((await tests.submit()).nextAction).toBe("final_delivery");
+
+    const fixed = await fixture("test_audit"); fixed.report.changedImplementation = true;
+    writeFileSync(join(fixed.root, "value.mjs"), "export const value = () => 42; // fixed\n"); commit(fixed.sandbox, fixed.root, ["value.mjs"]); fixed.saveReport();
+    expect((await fixed.submit())).toMatchObject({ disposition: "recorded", nextAction: "delivery_audit" });
+  });
+  it("adds completion phases only when the plan appends exactly the named open phases (AC-NEUTRAL-04)", async () => {
+    const f = await fixture(); appendPhase(f, "2");
+    f.report.outcome = "completion_phases"; f.report.completionPhases = []; f.saveReport();
+    expect((await f.submit()).refusal).toMatchObject({ code: "inconsistent_plan", reason: expect.stringContaining("exactly the phases this audit appended (2)") });
+    f.report.completionPhases = ["2"]; f.saveReport();
+    expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
+  });
+  it.each([
+    ["a passing report with an open phase", (f: Awaited<ReturnType<typeof fixture>>) => { appendPhase(f, "2"); f.report.completionPhases = ["2"]; }, "A passing audit leaves no open phase"],
+    ["a completion report that appends nothing", (f: Awaited<ReturnType<typeof fixture>>) => { f.report.outcome = "completion_phases"; }, "must append at least one phase"],
+    ["an appended phase already closed", (f: Awaited<ReturnType<typeof fixture>>) => { appendPhase(f, "2", true); f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; }, "already closed"],
+    ["a rewritten original phase", (f: Awaited<ReturnType<typeof fixture>>) => { const path = join(f.root, directory, "phase-1-value.md"); writeFileSync(path, readFileSync(path, "utf8") + "\nAlso export a second value.\n"); commit(f.sandbox, f.root, [`${directory}/phase-1-value.md`]); }, "changed an original phase"],
+    ["a reopened original phase", (f: Awaited<ReturnType<typeof fixture>>) => { const path = join(f.root, directory, "phase-1-value.md"); writeFileSync(path, readFileSync(path, "utf8").replace("**Closed:** 2026-10-24\n\n", "")); commit(f.sandbox, f.root, [`${directory}/phase-1-value.md`]); }, "changed an original phase"],
+  ])("refuses %s without advancing (AC-NEUTRAL-04)", async (_name, arrange, reason) => {
+    const f = await fixture(); arrange(f); f.saveReport();
+    const result = await f.submit();
+    expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you", refusal: { code: "inconsistent_plan", reason: expect.stringContaining(reason) } });
     expect(f.activity.acceptedResult).toBeUndefined();
   });
-  it.each(["implementation", "existing phase scope", "acceptance criterion"])("names what changed when refusing a stale %s snapshot", async mode => {
-    const f = await fixture();
-    const path = mode === "implementation" ? "value.mjs" : mode === "existing phase scope" ? `${directory}/phase-1-value.md` : `${directory}/proof-prd.md`;
-    const text = readFileSync(join(f.root, path), "utf8");
-    writeFileSync(join(f.root, path), mode === "implementation" ? "export const value = () => 43;\n" : mode === "existing phase scope" ? text.replace("AC-PROOF-01\n", "AC-PROOF-01\nAlso export a second value.\n") : text.replace("returns 42", "returns 43"));
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition).toBe("unresolved");
-    expect(result.refusal?.code).toBe("stale_snapshot");
-    expect(result.refusal?.reason).toContain(mode === "implementation" ? `Changed: proof/${path}` : mode === "existing phase scope" ? `Changed phase scope: proof/${path}` : "Changed governing acceptance criteria");
-    expect(result.refusal?.reason).not.toContain(f.activity.reportPath);
-    expect(result.refusal?.reason).toContain("capture a current snapshot, reassess the changed work and resubmit");
-    expect(result.checks[0]!.facts[0]).toBe(result.refusal?.reason);
+  it("needs a person when the audit says so, showing each problem and action (AC-NEUTRAL-03)", async () => {
+    const f = await fixture(); f.report.outcome = "needs_you"; f.report.needsYou = [{ problem: "AC-PROOF-01 needs a staging login.", action: "Grant the staging role." }]; f.saveReport();
+    const result = await f.submit();
+    expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
+    expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["AC-PROOF-01 needs a staging login. Grant the staging role."] });
+    expect(latestAuditRefusal(f.stateDirectory, f.activity)).toMatchObject({ code: "unresolved_checks", reason: expect.stringContaining("Grant the staging role.") });
+  });
+  it.each([
+    ["a version-1 report", (r: Record<string, unknown>) => { r.schemaVersion = 1; }, "Write the version-2 report"],
+    ["another activity", (r: Record<string, unknown>) => { r.activityId = "other"; }, "Report identity differs"],
+    ["an unknown outcome", (r: Record<string, unknown>) => { r.outcome = "blocked"; }, "Unknown audit outcome"],
+    ["an empty summary", (r: Record<string, unknown>) => { r.summary = " "; }, "non-empty summary"],
+    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "Only a needs_you report lists needsYou"],
+    ["needs_you without needsYou", (r: Record<string, unknown>) => { r.outcome = "needs_you"; }, "must say what a person must decide"],
+    ["changedImplementation on a delivery audit", (r: Record<string, unknown>) => { r.changedImplementation = false; }, "Only a test audit reports changedImplementation"],
+    ["a malformed needsYou entry", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ problem: "x" }]; }, "needsYou must be a list"],
+  ])("refuses %s with a reason the session can act on (AC-NEUTRAL-01, AC-NEUTRAL-10)", async (_name, change, reason) => {
+    const f = await fixture(); const raw = structuredClone(f.report) as unknown as Record<string, unknown>; change(raw); f.saveReport(JSON.stringify(raw));
+    const result = await f.submit();
+    expect(result.refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining(reason) });
     expect(f.activity.acceptedResult).toBeUndefined();
   });
-  it("admits completion phases and requirements notes an audit writes after its checked snapshot (AC-RUN-03)", async () => {
-    const f = await fixture();
-    const repair = `${directory}/phase-2-repair.md`;
-    writeFileSync(join(f.root, repair), `# Phase 2: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1\n`);
-    writeFileSync(join(f.root, directory, "technical-design.md"), readFileSync(join(f.root, directory, "technical-design.md"), "utf8") + "Phase 2 repairs the export.\n");
-    writeFileSync(join(f.root, directory, "proof-prd.md"), readFileSync(join(f.root, directory, "proof-prd.md"), "utf8") + "\n## Notes\nThe delivery audit added Phase 2.\n");
-    writeFileSync(join(f.root, directory, "proof-assumptions.md"), "# Assumptions\nA-1: the repair keeps the exported name.\n");
-    writeFileSync(join(f.root, directory, "proof-repair-continuation-prompt.md"), "Build Phase 2.\n");
-    commit(f.sandbox, f.root, [repair, `${directory}/technical-design.md`, `${directory}/proof-prd.md`, `${directory}/proof-assumptions.md`, `${directory}/proof-repair-continuation-prompt.md`]);
-    const row = f.report.criteria[0]!;
-    row.deliveryStatus = "partly_implemented";
-    row.findings = [{ partIds: ["value"], missing: "The existing required return value needs repair.", evidenceIds: [] }];
-    f.report.outcome = "completion_phases";
-    f.report.completionPhases = [{ id: "2", path: repair, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Restore the required return value.", dependencies: ["1"] }];
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition, result.refusal?.reason).toBe("recorded");
-    expect(result.snapshotId).toBe(f.checked.id);
-    expect(result.nextAction).toBe("implementation");
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
+  it("requires a test audit to say whether it changed implementation", async () => {
+    const f = await fixture("test_audit"); delete f.report.changedImplementation; f.saveReport();
+    expect((await f.submit()).refusal?.reason).toContain("needs changedImplementation");
   });
-  it("refuses a blocked report that leaves an unreported appended phase (AC-LOOP-01)", async () => {
-    const f = await fixture();
-    const repair = `${directory}/phase-2-repair.md`;
-    writeFileSync(join(f.root, repair), `# Phase 2: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1\n`);
-    commit(f.sandbox, f.root, [repair]);
-    f.report.outcome = "blocked"; f.report.blockers = [{ id: "decision", criterionKeys: f.report.scope.criterionKeys, problem: "A decision is missing", requiredAction: "Record it" }]; f.report.criteria[0]!.blockerIds = ["decision"];
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.refusal?.code).toBe("inconsistent_plan");
-    expect(result.refusal?.reason).toContain("exactly the appended plan entries");
+  it("accepts a test continuation only when the work changed (AC-NEUTRAL-05)", async () => {
+    const f = await fixture("test_audit"); f.report.outcome = "continue_test"; f.saveReport();
+    expect((await f.submit()).refusal?.reason).toContain("Test continuation made no progress");
+    writeFileSync(join(f.root, directory, "test-audit.md"), "# Test audit\nNext batch: AC-PROOF-01.\n"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
+    expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "continue_test" });
+    const delivery = await fixture(); delivery.report.outcome = "continue_test"; writeFileSync(join(delivery.root, "note.txt"), "x"); commit(delivery.sandbox, delivery.root, ["note.txt"]); delivery.saveReport();
+    expect((await delivery.submit()).refusal?.reason).toContain("Only a test audit");
   });
-  it("names an unknown part applicability instead of calling the row superseded (AC-AUDIT-03)", async () => {
-    const f = await fixture();
-    for (const part of f.report.criteria[0]!.parts) (part as unknown as Record<string, unknown>).applicability = "in scope: owning phase 1 closed";
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.refusal?.code).toBe("invalid_report");
-    expect(result.refusal?.reason).toContain('Part applicability must be "current" or "superseded"');
-    expect(result.refusal?.reason).toContain('"in scope: owning phase 1 closed"');
-    expect(result.refusal?.reason).not.toContain("needs the superseded status");
+  it("ignores a skill that changed while the audit ran (AC-NEUTRAL-08)", async () => {
+    const f = await fixture(); writeFileSync(f.skillPath, "# delivery-audit\nRewritten this afternoon.\n"); f.saveReport();
+    expect((await f.submit()).disposition).toBe("recorded");
   });
   it("tells a resumed audit why its last submission was refused until a result is recorded (AC-RUN-02)", async () => {
     const f = await fixture();
     expect(latestAuditRefusal(f.stateDirectory, f.activity)).toBeUndefined();
-    for (const part of f.report.criteria[0]!.parts) (part as unknown as Record<string, unknown>).applicability = "in scope";
-    f.saveReport();
-    await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    const status = await auditStatus(f.context);
-    expect(status.latestRefusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining('Part applicability must be "current" or "superseded"') });
-    expect(latestAuditRefusal(f.stateDirectory, f.activity)?.code).toBe("invalid_report");
-    for (const part of f.report.criteria[0]!.parts) part.applicability = "current";
-    f.saveReport();
-    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
-    expect((await auditStatus(f.context)).latestRefusal).toBeUndefined();
+    f.saveReport(JSON.stringify({ ...f.report, summary: "" }));
+    await f.submit();
+    expect(auditStatus(f.context)).toMatchObject({ latestRefusal: { code: "invalid_report", reason: expect.stringContaining("summary") }, reportContract: expect.stringContaining("needsYou") });
+    f.saveReport(); expect((await f.submit()).disposition).toBe("recorded");
+    expect(auditStatus(f.context).latestRefusal).toBeUndefined();
   });
-  it("reports failed delivery checks to a resumed audit when the report itself validated (AC-RUN-02)", async () => {
-    const f = await fixture();
-    writeFileSync(join(f.root, f.activity.reportPath), JSON.stringify(f.report));
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.refusal).toBeUndefined(); expect(result.disposition).toBe("unresolved");
-    const failed = result.checks.filter(check => !check.passed);
-    expect(failed.length).toBeGreaterThan(0);
-    const problem = latestAuditRefusal(f.stateDirectory, f.activity)!;
-    expect(problem.code).toBe("unresolved_checks");
-    for (const check of failed) expect(problem.reason).toContain(`${check.name}: `);
-    expect((await auditStatus(f.context)).latestRefusal).toMatchObject({ code: "unresolved_checks" });
-  });
-  it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
-    const f = await fixture();
-    const source = f.store.putBytes("Shared retained transcript\n".repeat(40_000));
-    const seed = auditEvidence(f.context)[0]!;
-    for (let index = 0; index < 32; index++) {
-      const entry: EvidenceEntry = { ...seed, evidenceId: `shared-${index}`, locator: `shared-${index}`, retainedSource: source, sourceDigest: source };
-      f.record.completionAudits!.evidence.push(f.store.put(entry));
-    }
-    const metadata = f.record.completionAudits!.evidence.at(-1)!;
-    f.saveReport();
-    let sourceReads = 0;
-    const original = AuditStore.prototype.bytes;
-    const spy = vi.spyOn(AuditStore.prototype, "bytes").mockImplementation(function(this: AuditStore, id: string) {
-      if (id === source) sourceReads++;
-      return original.call(this, id);
-    });
-    try {
-      expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
-      expect(sourceReads).toBe(1);
-      sourceReads = 0;
-      expect(await auditCurrentness(f.context, f.activity)).toMatchObject({ deliveryCurrent: true, testsCurrent: true });
-      expect(sourceReads).toBe(1);
-      writeFileSync(f.store.path(source), "corrupt retained transcript");
-      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
-      unlinkSync(f.store.path(source));
-      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
-      f.store.putBytes("Shared retained transcript\n".repeat(40_000));
-      writeFileSync(f.store.path(metadata), "corrupt catalog entry");
-      await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "missing_evidence" });
-    } finally { spy.mockRestore(); }
-  });
-
-  it("retains each transcript once per refresh however many calls it holds", async () => {
-    const f = await fixture();
-    for (let index = 0; index < 40; index++) f.call(`run-${index}`, "Bash", { command: `node value.test.mjs # ${index}` }, "ok");
-    f.call("edit-0", "Edit", { file_path: join(f.root, "value.mjs") }, "Edited");
-    const transcript = readFileSync(f.transcript, "utf8");
-    let retained = 0;
-    const original = AuditStore.prototype.putBytes;
-    const spy = vi.spyOn(AuditStore.prototype, "putBytes").mockImplementation(function(this: AuditStore, bytes: string) {
-      if (bytes === transcript) retained++;
-      return original.call(this, bytes);
-    });
-    try {
-      const evidence = await refreshAuditEvidence(f.context);
-      const commands = evidence.filter(e => e.kind === "command" && e.locator.startsWith("run-"));
-      expect(commands).toHaveLength(40);
-      expect(retained).toBe(1);
-      expect(new Set(commands.map(e => e.retainedSource))).toEqual(new Set([hashBytes(transcript)]));
-      expect(commands.every(e => e.sourceDigest === hashBytes(transcript))).toBe(true);
-      expect(evidence.find(e => e.locator === "edit-0")).toMatchObject({ kind: "mutation", retainedSource: hashBytes(transcript), sourceDigest: hashBytes(transcript) });
-      // Each delegated assessment keeps its own subagent transcript, never the main one.
-      const subagents = join(dirname(f.transcript), f.session.sessionId, "subagents");
-      for (const locator of ["assessor", "reviewer"]) {
-        const own = hashBytes(readFileSync(join(subagents, `agent-${locator}.jsonl`), "utf8"));
-        expect(own).not.toBe(hashBytes(transcript));
-        expect(evidence.find(e => e.kind === "assessment" && e.locator === locator)).toMatchObject({ retainedSource: own, sourceDigest: own });
-      }
-    } finally { spy.mockRestore(); }
-  });
-
-  it("retains authentic audit evidence through aliased roots and unrelated outside writes", async () => {
-    const f = await fixture();
-    const alias = join(f.sandbox.root, "worktree-alias");
-    symlinkSync(f.root, alias, "junction");
-    f.record.repositories[0]!.worktreePath = alias;
-    const inside = join(f.root, "value.mjs");
-    f.call("inside-write", "Write", { file_path: inside }, "Written");
-    const evidence = await refreshAuditEvidence(f.context);
-    expect(evidence.find(entry => entry.locator === "inside-write")?.mutation?.paths).toEqual([inside]);
-    const outside = createRepository(f.sandbox, "outside");
-    f.call("outside-write", "Write", { file_path: join(outside, "value.mjs") }, "Written");
-    const updated = await refreshAuditEvidence(f.context);
-    expect(updated.find(entry => entry.locator === "outside-write")?.mutation?.paths).toEqual([join(outside, "value.mjs")]);
-  });
-  it("accepts current whole-PRD evidence, survives a lost response, and preserves immutable result history", async () => {
-    const f = await fixture(); f.saveReport(); const request = { ...f.body(), reportPath: f.activity.reportPath };
-    const result = await submitAudit(f.context, request); expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Audit result recorded", passed: true })])); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("test_audit");
-    expect(result.checks.some(check => check.name === "Stayed in the workspace")).toBe(false);
+  it("survives a lost response, refuses a different report afterwards and preserves the accepted bytes", async () => {
+    const f = await fixture(); f.saveReport();
+    const result = await f.submit(); expect(result.disposition).toBe("recorded");
     writePrdRecord(f.stateDirectory, f.record); const recovered = readPrdRecord(f.stateDirectory)!;
-    expect(await submitAudit({ ...f.context, record: recovered }, request)).toEqual(result);
-    f.report.outcome = "blocked"; f.saveReport(); await expect(submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).rejects.toMatchObject({ code: "result_conflict" });
-    expect(f.store.read< { reportBytes: string }>(f.activity.acceptedResult!).reportBytes).toBe(result.reportBytes);
+    expect(await submitAudit({ ...f.context, record: recovered }, { ...f.body(), reportPath: f.activity.reportPath })).toEqual(result);
+    f.report.summary = "Changed after acceptance."; f.saveReport();
+    await expect(f.submit()).rejects.toMatchObject({ code: "result_conflict" });
+    expect(f.store.read<{ reportBytes: string }>(f.activity.acceptedResult!).reportBytes).toBe(result.reportBytes);
   });
-  it.each(["missing row", "wrong identity", "invented evidence", "wrong kind", "unknown status", "contradictory blocker", "duplicate keys", "stale source", "contradictory finding", "unreferenced human action", "old session evidence"])("refuses %s without advancing", async mode => {
-    const f = await fixture();
-    if (mode === "contradictory finding") f.report.criteria[0]!.findings = [{ partIds: ["value"], missing: "Required return value is absent", evidenceIds: [] }];
-    if (mode === "unreferenced human action") f.report.pendingHumanActions = [{ id: "human", criterionKey: f.report.scope.criterionKeys[0]!, action: "Verify delivery", requirementQuote: "returns 42", beyondDelivery: false }];
-    if (mode === "old session evidence") { const old = auditEvidence(f.context).find(e => e.kind === "skill")!; const changed = { ...old, evidenceId: "old-skill", sessionId: "other-session" }; f.record.completionAudits!.evidence.push(f.store.put(changed)); f.report.methodEvidence.skillEvidenceId = "old-skill"; }
-    if (mode === "missing row") f.report.criteria = [];
-    if (mode === "wrong identity") f.report.executionId = "other";
-    if (mode === "invented evidence") f.report.methodEvidence.skillEvidenceId = "invented";
-    if (mode === "wrong kind") f.report.criteria[0]!.testAssessment = { grade: "adequate" };
-    if (mode === "unknown status") (f.report.criteria[0] as unknown as Record<string, unknown>).deliveryStatus = "done";
-    if (mode === "contradictory blocker") { f.report.blockers = [{ id: "blocked", criterionKeys: f.report.scope.criterionKeys, problem: "No evidence", requiredAction: "Supply evidence" }]; f.report.criteria[0]!.blockerIds = ["blocked"]; }
-    if (mode === "stale source") { writeFileSync(join(f.root, "value.mjs"), "export const value = () => 0;\n"); commit(f.sandbox, f.root, ["value.mjs"]); }
-    f.saveReport(mode === "duplicate keys" ? '{"schemaVersion":1,"schemaVersion":1}' : undefined);
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition).toBe("unresolved"); expect(result.nextAction).toBe("needs_you"); expect(result.checks.some(c => !c.passed)).toBe(true); expect(f.activity.acceptedResult).toBeUndefined(); expect(f.activity.attempts).toHaveLength(1);
-  });
-  it("keeps a valid audit report correctable until its development owner assessment passes", async () => {
+  it("keeps a valid audit report correctable until its development owner assessment passes (AC-NEUTRAL-07)", async () => {
     const f = await fixture(); f.saveReport();
     const owner = { kind: "audit" as const, activityId: f.activity.activityId };
-    const delivery: DeliveryContext = { record: f.record, stateDirectory: f.stateDirectory, prdWorktree: f.root, prdDirectory: directory, git: f.context.git, env: f.context.env, gh: "unused", owner, now: () => new Date().toISOString(), commands: async () => [] };
+    const delivery: DeliveryContext = { record: f.record, stateDirectory: f.stateDirectory, prdWorktree: f.root, prdDirectory: directory, git: f.context.git, env: f.sandbox.env, gh: "unused", owner, now: () => new Date().toISOString(), commands: async () => [] };
     const context = { ...f.context, developmentChecks: () => [ownerDeliveryCheck(delivery, owner)] };
     const first = await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(first.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
+    expect(first.disposition).toBe("unresolved");
     expect(first.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", passed: false }));
-    await recordAssessment(delivery, { owner, ...ownerDocuments(delivery, owner), required: false, criteria: f.checked.requirements.criteria.map(one => one.key), reason: "No PRD criterion requires development delivery.", checkpoints: [] });
-    const next = await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(next.disposition).toBe("recorded"); expect(f.activity.attempts).toHaveLength(2);
+    const manifest = f.store.read<{ requirements: { criteria: { key: string }[] } }>(f.activity.snapshots[0]!).requirements;
+    await recordAssessment(delivery, { owner, ...ownerDocuments(delivery, owner), required: false, criteria: manifest.criteria.map(one => one.key), reason: "No PRD criterion requires development delivery.", checkpoints: [] });
+    expect((await submitAudit(context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
   });
-  it("retains an unavailable report read as a retryable source error instead of missing audit work", async () => {
+  it.skipIf(process.platform === "win32")("retains an unavailable report read as a retryable source error", async () => {
     const f = await fixture(); f.saveReport();
     const path = join(f.root, f.activity.reportPath); chmodSync(path, 0);
-    try {
-      const unavailable = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-      expect(unavailable.refusal).toMatchObject({ code: "evidence_unavailable", status: 503 });
-      expect(unavailable.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
-    } finally { chmodSync(path, 0o644); }
-    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
+    try { expect((await f.submit()).refusal).toMatchObject({ code: "evidence_unavailable", status: 503 }); }
+    finally { chmodSync(path, 0o644); }
+    expect((await f.submit()).disposition).toBe("recorded");
   });
-  it("retains missing reports and permits corrected blocked submissions in the same activity", async () => {
-    const f = await fixture(); const missing = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(missing.disposition).toBe("unresolved"); expect(missing.refusal?.code).toBe("missing_evidence");
-    f.report.outcome = "blocked"; f.report.blockers = [{ id: "decision", criterionKeys: f.report.scope.criterionKeys, problem: "A decision is missing", requiredAction: "Record it" }]; f.report.criteria[0]!.blockerIds = ["decision"]; f.saveReport();
-    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
-    f.report.outcome = "passed"; f.report.blockers = []; f.report.criteria[0]!.blockerIds = []; f.saveReport();
-    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded"); expect(f.activity.attempts).toHaveLength(3);
+  it("refuses a missing report, then accepts the corrected one in the same activity", async () => {
+    const f = await fixture();
+    expect((await f.submit()).refusal?.code).toBe("missing_evidence");
+    f.saveReport(); expect((await f.submit()).disposition).toBe("recorded"); expect(f.activity.attempts).toHaveLength(2);
   });
-  it("blocks dirty/unpushed work, stale revisions and report/symlink escapes", async () => {
-    const f = await fixture(); f.saveReport();
+  it("blocks dirty, unpushed and companion work, stale revisions and path escapes (AC-NEUTRAL-07)", async () => {
+    const f = await fixture("delivery_audit", { companion: true }); f.saveReport();
     writeFileSync(join(f.root, "untracked.txt"), "unknown implementation");
-    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("unresolved");
-    await expect(issueSnapshot(f.context, { ...f.body(), revision: -1, testPaths: [], evidencePaths: [] })).rejects.toMatchObject({ code: "stale_revision" });
+    expect((await f.submit()).checks).toContainEqual(expect.objectContaining({ name: "Everything committed", passed: false }));
+    git(f.sandbox, f.root, "add", "untracked.txt"); git(f.sandbox, f.root, "commit", "-qm", "local only");
+    expect((await f.submit()).checks).toContainEqual(expect.objectContaining({ name: "Pushed", passed: false }));
+    git(f.sandbox, f.root, "push", "-q", "origin", "develop");
+    const companion = f.record.repositories[1]!.worktreePath; writeFileSync(join(companion, "companion.mjs"), "export const value = 43;\n");
+    expect((await f.submit()).checks).toContainEqual(expect.objectContaining({ name: "Everything committed", passed: false, facts: expect.arrayContaining(["companion: uncommitted or untracked work remains."]) }));
+    await expect(submitAudit(f.context, { ...f.body(), revision: -1, reportPath: f.activity.reportPath })).rejects.toMatchObject({ code: "stale_revision" });
     await expect(submitAudit(f.context, { ...f.body(), reportPath: "../outside.json" })).rejects.toMatchObject({ code: "outside_execution" });
-    if (process.platform !== "win32") { symlinkSync(f.transcript, join(f.root, "escape.json")); await expect(captureSnapshot({ ...f.context, activity: f.activity, evidence: auditEvidence(f.context), now: new Date().toISOString() }, [], [])).rejects.toMatchObject({ code: "outside_execution" }); }
+    if (process.platform !== "win32") { symlinkSync(f.skillPath, join(f.root, "escape.json")); await expect(captureSnapshot({ ...f.context, activity: f.activity, now: new Date().toISOString() })).rejects.toMatchObject({ code: "outside_execution" }); }
   });
-  it("invalidates material content while record-only commits and parsed phase status terminate", async () => {
-    const f = await fixture(); f.saveReport(); expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
+  it("refuses a retired snapshot request without changing state (AC-NEUTRAL-10)", async () => {
+    const f = await fixture(); const before = JSON.stringify(f.record.completionAudits);
+    expect(() => issueSnapshot()).toThrow(expect.objectContaining({ code: "malformed_request", message: expect.stringContaining("retired") }));
+    expect(JSON.stringify(f.record.completionAudits)).toBe(before);
+  });
+  it("keeps an accepted audit current through record-only edits and invalidates it on material change", async () => {
+    const f = await fixture(); f.saveReport(); expect((await f.submit()).disposition).toBe("recorded");
     const phase = `${directory}/phase-1-value.md`; writeFileSync(join(f.root, phase), readFileSync(join(f.root, phase), "utf8").replace("2026-10-24", "2026-10-25")); commit(f.sandbox, f.root, [phase]);
+    writeFileSync(join(f.root, `${directory}/test-audit.md`), "# Test audit\nAny record the skill keeps\n"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
     expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
-    writeFileSync(join(f.root, `${directory}/test-audit.md`), "# Test audit\nNew independent record\n"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
-    writeFileSync(join(f.root, phase), readFileSync(join(f.root, phase), "utf8") + "\nRequire another behavior.\n"); commit(f.sandbox, f.root, [phase]);
-    expect((await auditCurrentness(f.context, f.activity)).deliveryCurrent).toBe(false);
+    writeFileSync(join(f.root, "value.test.mjs"), "// changed test\n"); commit(f.sandbox, f.root, ["value.test.mjs"]);
+    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: false, testsCurrent: false });
   });
-  it("does not exclude arbitrary evidence declarations or unsupported test-only helpers", async () => {
-    const f = await fixture(); const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence: auditEvidence(f.context), now: new Date().toISOString() }, [], []);
-    expect(compareSnapshots(f.record, f.checked, current).testsCurrent).toBe(true);
-    await expect(issueSnapshot(f.context, { ...f.body(), testPaths: [{ repository: "proof", path: "value.mjs", blob: f.checked.repositories[0]!.files["value.mjs"]!.blob }], evidencePaths: [] })).rejects.toMatchObject({ code: "invalid_report" });
+  it.each([false, true])("trusts a test audit's test-only changes only when nothing changed before it started (edited between audits: %s) (AC-NEUTRAL-06)", async editedBetween => {
+    const f = await fixture(); f.saveReport(); expect((await f.submit()).nextAction).toBe("test_audit");
+    f.record.phases[`audit-${f.activity.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
+    if (editedBetween) { writeFileSync(join(f.root, "value.mjs"), "export const value = () => 42; // a person's edit\n"); commit(f.sandbox, f.root, ["value.mjs"]); }
+    const tests: AuditActivity = { ...f.activity, activityId: randomUUID(), sequence: 2, kind: "test_audit", snapshots: [], attempts: [] }; delete tests.acceptedResult;
+    tests.reportPath = `${directory}/kiln-audit-${tests.activityId}.json`; f.record.completionAudits!.activities.push(tests);
+    tests.snapshots.push(f.store.put(await captureSnapshot({ ...f.context, activity: tests, now: new Date().toISOString() })));
+    writeFileSync(join(f.root, "value.test.mjs"), "// a test the audit strengthened\n");
+    const report: AuditReportV2 = { ...f.report, activityId: tests.activityId, kind: "test_audit", changedImplementation: false };
+    writeFileSync(join(f.root, tests.reportPath), JSON.stringify(report)); commit(f.sandbox, f.root, ["value.test.mjs", tests.reportPath]);
+    expect((await submitAudit(f.context, { ...f.body(), activityId: tests.activityId, reportPath: tests.reportPath })).disposition).toBe("recorded");
+    f.record.phases[`audit-${tests.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
+    expect(await auditNext(f.context)).toBe(editedBetween ? "delivery_audit" : "final_delivery");
+  });
+  it("keeps a version-1 result accepted before the upgrade as a valid gate (AC-NEUTRAL-10)", async () => {
+    const f = await fixture();
+    const accept = async (activity: AuditActivity, kind: "delivery_audit" | "test_audit") => {
+      const snapshot = await captureSnapshot({ ...f.context, activity, now: new Date().toISOString() }); activity.snapshots.push(f.store.put(snapshot));
+      const report = { schemaVersion: 1, executionId: f.record.executionId, activityId: activity.activityId, kind, outcome: "passed", criteria: [], completionPhases: [], pendingHumanActions: [], blockers: [] };
+      writeFileSync(join(f.root, activity.reportPath), JSON.stringify(report)); commit(f.sandbox, f.root, [activity.reportPath]);
+      const bytes = readFileSync(join(f.root, activity.reportPath), "utf8");
+      activity.acceptedResult = f.store.put({ id: randomUUID(), activityId: activity.activityId, reportDigest: hashBytes(bytes), reportBytes: bytes, snapshotId: snapshot.id, at: new Date().toISOString(), revision: 1, disposition: "recorded", checks: [], nextAction: kind === "delivery_audit" ? "test_audit" : "final_delivery" });
+      f.record.phases[`audit-${activity.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
+    };
+    await accept(f.activity, "delivery_audit");
+    const tests: AuditActivity = { ...f.activity, activityId: randomUUID(), sequence: 2, kind: "test_audit", snapshots: [], attempts: [] }; delete tests.acceptedResult;
+    tests.reportPath = `${directory}/kiln-audit-${tests.activityId}.json`; f.record.completionAudits!.activities.push(tests);
+    await accept(tests, "test_audit");
+    expect(await auditNext(f.context)).toBe("final_delivery");
+    // A version-1 test result keeps the earlier gate: a later change still reaches the delivery audit.
+    writeFileSync(join(f.root, "value.mjs"), "export const value = () => 43;\n"); commit(f.sandbox, f.root, ["value.mjs"]);
+    expect(await auditNext(f.context)).toBe("delivery_audit");
+  });
+  it("refuses a claimed implementation change that changed nothing outside its records (AC-NEUTRAL-06)", async () => {
+    const f = await fixture("test_audit"); f.report.changedImplementation = true;
+    writeFileSync(join(f.root, directory, "test-audit.md"), "# Test audit\n"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]); f.saveReport();
+    expect((await f.submit()).refusal?.reason).toContain("changedImplementation is true, but nothing outside Markdown");
+  });
+  it("titles every refusal with the unmet condition once, its reason beneath (AC-NEUTRAL-03)", async () => {
+    const f = await fixture();
+    const missing = await f.submit();
+    expect(missing.checks).toEqual([{ name: "Audit result recorded", passed: false, facts: [`No audit report at ${f.activity.reportPath} yet. The audit session writes, commits and pushes it when the audit ends.`] }]);
+    f.saveReport();
+    // A refusal raised after the report itself validated replaces the passing row rather than adding a second one.
+    const late = await submitAudit({ ...f.context, developmentChecks: () => { throw new AuditRefusal("evidence_unavailable", "Development ledger unreadable."); } }, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(late.checks.filter(check => check.name === "Audit result recorded")).toEqual([{ name: "Audit result recorded", passed: false, facts: ["Development ledger unreadable."] }]);
   });
   it("uses real authenticated HTTP and the CLI, with rollback when state persistence fails", async () => {
     const f = await fixture(); f.saveReport(); writePrdRecord(f.stateDirectory, f.record);
-    // Account/model discovery is outside this HTTP test; use the existing process fixture
-    // so an installed Claude process cannot keep writing after sandbox cleanup starts.
     const tools = { git: "git", ...installStandIns(join(f.sandbox.root, "bin")) };
     const engine = new Engine({ paths: { mainCheckoutPath: f.root, repositoryName: "proof", folderName: "proof", prdDirectoryFromRoot: directory, featureName: "Audit proof" }, tools, env: f.sandbox.env, stateDirectory: f.stateDirectory, record: f.record });
     await engine.agents.refresh();
@@ -349,8 +263,9 @@ describe("audit evidence admission", () => {
       const address = new URL(server.address).origin;
       expect((await fetch(`${address}/api/audit`)).status).toBe(403);
       expect((await fetch(`${address}/api/audit/result`, { method: "POST", headers: { [TOKEN_HEADER]: f.record.token, Origin: "http://evil.invalid" }, body: "{}" })).status).toBe(403);
-      // AC-ACT-01: the shipped example is a real request contract once its documented
-      // status-sourced values are bound; it must reach successful admission unchanged.
+      const retired = await fetch(`${address}/api/audit/snapshot`, { method: "POST", headers: { [TOKEN_HEADER]: f.record.token, Origin: address, "Content-Type": "application/json" }, body: JSON.stringify(f.body()) });
+      expect(retired.status).toBe(400); expect(await retired.json()).toMatchObject({ code: "malformed_request" });
+      // AC-ACT-01: the shipped example is a real request contract once its status-sourced values are bound.
       const example = commandContracts.find(c => c.path.join(" ") === "audit submit")!.examples[0]!;
       const request = structuredClone(Object.values(example.files!)[0]) as Record<string, unknown>;
       Object.assign(request, f.body(), { reportPath: f.activity.reportPath });
@@ -359,308 +274,11 @@ describe("audit evidence admission", () => {
       expect(await runAudit(["submit", requestFile], { cwd: f.root, env: f.sandbox.env, stdout: { write: s => out += s }, stderr: { write: s => err += s } })).toBe(0);
       expect(err).toBe(""); expect(JSON.parse(out).disposition).toBe("recorded");
       const before = JSON.stringify(f.record.completionAudits);
-      // A real filesystem failure, not a mocked save, must not advance in-memory state.
       const recordPath = join(f.stateDirectory, "prd.json"); const backupPath = join(f.stateDirectory, "prd-backup.json");
       renameSync(recordPath, backupPath); mkdirSync(recordPath);
       try { await expect(engine.auditCommand("status")).rejects.toThrow(); expect(JSON.stringify(f.record.completionAudits)).toBe(before); }
       finally { rmdirSync(recordPath); renameSync(backupPath, recordPath); }
     } finally { await server?.close(); release?.(); engine.close(); }
-  });
-});
-
-/** Actual Node executions support the deterministic transcript boundary fixture. */
-async function testAuditFixture(source?: string, openPhase = false) {
-  const f = await fixture("test_audit", { ...(source ? { source } : {}), openPhase });
-  writeFileSync(join(f.root, `${directory}/test-audit.md`), "# Test audit\nAC-PROOF-01: Strong; two assertion failures then restored pass.\n");
-  const run = async (id: string) => {
-    const at = new Date().toISOString(); let output: string; let failed = false;
-    try { output = execFileSync(process.execPath, ["value.test.mjs"], { cwd: f.root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
-    catch (error) { failed = true; output = String((error as { stderr: unknown }).stderr); }
-    f.call(id, "Bash", { command: "node value.test.mjs" }, output, at, failed);
-    return (await refreshAuditEvidence(f.context)).find(e => e.locator === id)!.evidenceId;
-  };
-  const baseline = await run("baseline");
-  writeFileSync(join(f.root, "value.mjs"), "export const value = () => 0;\n");
-  f.call("break", "Write", { file_path: join(f.root, "value.mjs") }, "Written");
-  const red1 = await run("red1"); const red2 = await run("red2");
-  writeFileSync(join(f.root, "value.mjs"), "export const value = () => 42;\n");
-  f.call("restore", "Write", { file_path: join(f.root, "value.mjs") }, "Written");
-  const green = await run("green");
-  f.assess("assessment", "test-assessor", [baseline, red1, red2, green]); f.assess("review", "test-reviewer", [baseline, red1, red2, green]); f.assess("regrade", "test-regrader", [green]);
-  const evidence = await refreshAuditEvidence(f.context);
-  const id = (locator: string) => evidence.find(e => e.locator === locator)!.evidenceId;
-  const report = f.report; const row = report.criteria[0]!;
-  delete row.deliveryStatus; row.testAssessment = { grade: "strong" }; row.assessmentEvidenceIds = [id("test-assessor")];
-  row.parts[0]!.tests = [{ file: { repository: "proof", path: "value.test.mjs", blob: f.checked.repositories[0]!.files["value.test.mjs"]!.blob }, selector: "value.test.mjs", runEvidenceIds: [green], runtime: { kind: "checkout" } }];
-  report.methodEvidence = { skillEvidenceId: id("skill"), assessmentEvidenceIds: [id("test-assessor")], reviewEvidenceIds: [id("test-reviewer")], regradeEvidenceIds: [id("test-regrader")], baselineRunEvidenceIds: [baseline], finalRunEvidenceIds: [green], redChecks: [{ partIds: ["value"], mutationEvidenceIds: [id("break")], restorationEvidenceIds: [id("restore")], failingRunEvidenceIds: [red1, red2], passingRunEvidenceId: green }] };
-  commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
-  return f;
-}
-describe("typed test-audit evidence", () => {
-  it.each(["missing", "weak", "unowned open phase", "owned open phase"])("refuses a passed test audit with unresolved work: %s (AC-TEST-04)", async mode => {
-    const f = await testAuditFixture(undefined, mode === "owned open phase");
-    const row = f.report.criteria[0]!;
-    if (mode === "missing" || mode === "weak") {
-      row.testAssessment = { grade: mode };
-      row.findings = [{ partIds: ["value"], missing: "Required assertion still absent.", evidenceIds: [] }];
-    } else {
-      row.testAssessment = { status: "not_built_yet" };
-      row.parts[0]!.openPhaseId = mode === "owned open phase" ? "1" : "99";
-    }
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition).toBe("unresolved");
-    expect(result.nextAction).toBe("needs_you");
-    expect(f.activity.acceptedResult).toBeUndefined();
-    expect(result.refusal?.reason).toContain(mode === "unowned open phase" ? "no owning open phase" : "passing audit still has unresolved work");
-  });
-
-  it.each(["parent regrader", "writer regrader", "missing affected part", "same reviewer"])("refuses non-independent or incomplete assessment: %s (AC-TEST-01)", async mode => {
-    const f = await testAuditFixture();
-    const evidence = await refreshAuditEvidence(f.context);
-    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
-    const context = { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence };
-    // Establish that the otherwise identical real-node red/restore evidence is admissible.
-    expect(validateReport(f.report, context).nextAction).toBe("final_delivery");
-    const regrade = evidence.find(entry => entry.evidenceId === f.report.methodEvidence.regradeEvidenceIds![0])!;
-    if (mode === "parent regrader") regrade.conversationId = evidence.find(entry => entry.kind === "skill")!.conversationId;
-    if (mode === "writer regrader") {
-      const writer = evidence.find(entry => entry.kind === "mutation")!;
-      writer.conversationId = "separate-writer"; regrade.conversationId = writer.conversationId;
-    }
-    if (mode === "missing affected part") regrade.assessment!.partIds = [];
-    if (mode === "same reviewer") evidence.find(entry => entry.evidenceId === f.report.methodEvidence.reviewEvidenceIds[0])!.conversationId = evidence.find(entry => entry.evidenceId === f.report.methodEvidence.assessmentEvidenceIds[0])!.conversationId;
-    expect(() => validateReport(f.report, context)).toThrow(mode === "missing affected part" ? "does not cover every potentially affected part" : mode === "same reviewer" ? "distinct assessor conversation" : "independent of its writer");
-  });
-
-  it("admits actual failing mapped runs followed by restoration, passing suite and independent regrade", async () => {
-    const f = await testAuditFixture(); f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.checks.filter(c => !c.passed)).toEqual([]); expect(result.disposition).toBe("recorded"); expect(result.nextAction).toBe("final_delivery");
-    writeFileSync(join(f.root, `${directory}/test-audit.md`), "Changed accepted method record"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
-    await expect(auditCurrentness(f.context, f.activity)).rejects.toMatchObject({ code: "stale_snapshot" });
-  });
-  it.each(["omitted", "duplicated", "complete"])("accounts for every remaining Weak criterion in a continuation (%s)", async mode => {
-    const f=await testAuditFixture(prd+"- [ ] **AC-PROOF-02 — Check another call.** The next function call also returns 42.\n");
-    const sources=f.checked.requirements.criteria;const keys=sources.map(c=>c.key);const row=f.report.criteria[0]!;
-    row.testAssessment={grade:"weak"};row.findings=[{partIds:["value"],missing:"An assertion is still needed.",evidenceIds:[]}];
-    const second=structuredClone(row);second.criterionKey=keys[1]!;second.parts[0]!.id="next-call";second.parts[0]!.quote=sources[1]!.content;second.parts[0]!.startLine=sources[1]!.startLine;second.parts[0]!.endLine=sources[1]!.endLine;second.findings[0]!.partIds=["next-call"];
-    f.report.criteria.push(second);f.report.scope.criterionKeys=keys;
-    const runs=f.report.methodEvidence.baselineRunEvidenceIds!.concat(f.report.methodEvidence.finalRunEvidenceIds!,f.report.methodEvidence.redChecks![0]!.failingRunEvidenceIds);
-    const scope={criterionKeys:keys,partIds:["value","next-call"]};
-    for(const purpose of ["assessment","review","regrade"] as const)f.assess(purpose,"batch-"+purpose,runs,scope);
-    const evidence=await refreshAuditEvidence(f.context);const id=(purpose:string)=>evidence.find(e=>e.locator==="batch-"+purpose)!.evidenceId;
-    f.report.methodEvidence.assessmentEvidenceIds=[id("assessment")];f.report.methodEvidence.reviewEvidenceIds=[id("review")];f.report.methodEvidence.regradeEvidenceIds=[id("regrade")];f.report.criteria.forEach(r=>r.assessmentEvidenceIds=[id("assessment")]);
-    const nextBatch="Add assertions for both remaining call cases.";f.report.outcome="continue_test";f.report.nextTestBatch={criterionKeys:mode==="omitted"?[keys[0]!]:mode==="duplicated"?[...keys,keys[0]!]:keys,recordPath:`${directory}/test-audit.md`,nextBatch};
-    writeFileSync(join(f.root,`${directory}/test-audit.md`),"# Test audit\n"+nextBatch+"\n");commit(f.sandbox,f.root,[`${directory}/test-audit.md`]);f.saveReport();
-    const result=await submitAudit(f.context,{...f.body(),reportPath:f.activity.reportPath});
-    expect(result.disposition,result.refusal?.reason).toBe(mode==="complete"?"recorded":"unresolved");
-    if(mode!=="complete")expect(result.refusal?.reason).toContain("Next batch must name remaining Missing/Weak criteria");
-  });
-  it.each([true, false])("permits a pending human action only beyond the delivery boundary (%s)", async beyondDelivery => {
-    const f = await testAuditFixture(prd + "  - Production release is a separate human action after Kiln delivery.\n"); const row = f.report.criteria[0]!;
-    row.testAssessment = { status: "person_checked" }; row.parts[0]!.humanActionId = "later-release";
-    f.report.pendingHumanActions = [{ id: "later-release", criterionKey: row.criterionKey, action: "Perform the separately authorized later release.", requirementQuote: "Production release is a separate human action after Kiln delivery.", beyondDelivery }];
-    f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition).toBe(beyondDelivery ? "recorded" : "unresolved");
-    if (beyondDelivery) expect(result.nextAction).toBe("final_delivery");
-    else expect(result.checks.some(c => !c.passed)).toBe(true);
-  });
-  it.each(["missing red checks", "missing regrade", "wrong runtime", "reused red run", "unrelated final command", "mutation after passing run"])("refuses %s", async mode => {
-    const f = await testAuditFixture();
-    if (mode === "mutation after passing run") { writeFileSync(join(f.root, "value.mjs"), "export const value = () => 0;\n"); writeFileSync(join(f.root, "value.mjs"), "export const value = () => 42;\n"); }
-    if (mode === "missing red checks") f.report.methodEvidence.redChecks = [];
-    if (mode === "missing regrade") delete f.report.methodEvidence.regradeEvidenceIds;
-    if (mode === "wrong runtime") f.report.criteria[0]!.parts[0]!.tests[0]!.runtime = { kind: "artifact", repository: "proof", revision: f.checked.repositories[0]!.head, checkpointId: "unobserved", requirementId: "unobserved" };
-    if (mode === "reused red run") f.report.methodEvidence.redChecks![0]!.failingRunEvidenceIds[1] = f.report.methodEvidence.redChecks![0]!.failingRunEvidenceIds[0]!;
-    if (mode === "unrelated final command") {
-      f.call("echo", "Bash", { command: "echo value.test.mjs" }, "value.test.mjs");
-      const evidence = await refreshAuditEvidence(f.context); const echo = evidence.find(e => e.locator === "echo")!.evidenceId;
-      f.report.methodEvidence.finalRunEvidenceIds = [echo];
-      f.assess("assessment", "echo-assessor", [...evidence.filter(e => e.kind === "command").map(e => e.evidenceId)]);
-      const updated = await refreshAuditEvidence(f.context); f.report.methodEvidence.assessmentEvidenceIds = [updated.find(e => e.locator === "echo-assessor")!.evidenceId];
-    }
-    f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath }); expect(result.disposition).toBe("unresolved"); expect(f.activity.acceptedResult).toBeUndefined();
-    if (mode === "unrelated final command") expect(result.refusal?.reason).toContain("Final suite must rerun each baseline command");
-    if (mode === "mutation after passing run") {
-      expect(result.refusal?.code).toBe("stale_snapshot");
-      const run = f.report.criteria[0]!.parts[0]!.tests[0]!.runEvidenceIds[0]!;
-      const startedAt = auditEvidence(f.context).find(e => e.evidenceId === run)!.command!.startedAt;
-      const changedAt = new Date(Math.floor(statSync(join(f.root, "value.mjs")).ctimeMs)).toISOString();
-      expect(result.refusal?.reason).toBe(`Material content proof/value.mjs changed at ${changedAt}, after passing verification ${run} started at ${startedAt}. A byte-identical restore, checkout or stash still counts as a change. Finish every red check and code or test change, then rerun the passing runs mapped to test parts and each red check's restored passing run.`);
-    }
-  });
-  it("keeps a passing run bound when only a requirements document appeared after it", async () => {
-    const f = await testAuditFixture();
-    writeFileSync(join(f.root, directory, "proof-test-continuation-prompt.md"), "Continue the test audit.\n");
-    const evidence = await refreshAuditEvidence(f.context);
-    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
-    expect(() => validateReport(f.report, { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence })).not.toThrow();
-  });
-  it("refuses a passing run when a file appeared after the checked snapshot", async () => {
-    const f = await testAuditFixture();
-    writeFileSync(join(f.root, "extra.mjs"), "export const extra = 1;\n");
-    const evidence = await refreshAuditEvidence(f.context);
-    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
-    expect(() => validateReport(f.report, { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence })).toThrow(expect.objectContaining({ code: "stale_snapshot", message: "Material content proof/extra.mjs is not in the checked snapshot; take a new snapshot, then rerun the passing runs the report cites." }));
-  });
-});
-
-describe("completion phase admission (AC-LOOP-01)", () => {
-  it.each(["valid", "original closure", "original scope", "foreign origin", "wrong audit kind", "missing origin marker", "missing criterion", "new criterion", "no implementation gap", "dependency mismatch", "forward dependency", "unreported phase"])("admits only matching append-only completion work: %s", async mode => {
-    const f = await fixture();
-    const phase = (id: string, dependencies: string) => `# Phase ${id}: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n${dependencies}\n`;
-    const second = `${directory}/phase-2-repair.md`; const third = `${directory}/phase-3-repair.md`;
-    writeFileSync(join(f.root, second), phase("2", "1")); writeFileSync(join(f.root, third), phase("3", "2"));
-    const paths = [second, third];
-    const row = f.report.criteria[0]!;
-    row.deliveryStatus = "partly_implemented";
-    row.findings = [{ partIds: ["value"], missing: "The existing required return value needs repair.", evidenceIds: [] }];
-    f.report.outcome = "completion_phases";
-    f.report.completionPhases = [{ id: "2", path: second, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Restore the required return value.", dependencies: ["1"] }, { id: "3", path: third, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Complete the same existing return-value requirement.", dependencies: ["2"] }];
-    let reason = "";
-    if (mode === "original closure" || mode === "original scope") {
-      const path = `${directory}/phase-1-value.md`; paths.push(path);
-      const text = readFileSync(join(f.root, path), "utf8");
-      writeFileSync(join(f.root, path), mode === "original closure" ? text.replace("**Closed:** 2026-10-24\n", "") : text.replace("AC-PROOF-01", "AC-PROOF-01\nAdded unrelated scope."));
-      reason = "changed original plan";
-    }
-    if (mode === "foreign origin") { f.report.completionPhases[0]!.originActivityId = "another-audit"; reason = "disagrees with the plan"; }
-    if (mode === "wrong audit kind") { f.report.completionPhases[0]!.originKind = "test_audit"; reason = "disagrees with the plan"; }
-    if (mode === "missing origin marker") { writeFileSync(join(f.root, second), phase("2", "1").replace("**Added by delivery audit:**", "Added by someone:")); reason = "lacks method origin"; }
-    if (mode === "missing criterion") { writeFileSync(join(f.root, second), phase("2", "1").replace("AC-PROOF-01", "No affected criterion named.")); reason = "lacks method origin"; }
-    if (mode === "new criterion") { f.report.completionPhases[0]!.criterionKeys = ["proof:new-scope#AC-NEW-01"]; reason = "disagrees with the plan"; }
-    if (mode === "no implementation gap") { row.deliveryStatus = "implemented"; row.findings = []; reason = "without implementation gaps"; }
-    if (mode === "dependency mismatch") { f.report.completionPhases[0]!.dependencies = []; reason = "dependencies disagree"; }
-    if (mode === "forward dependency") { f.report.completionPhases[0]!.dependencies = ["3"]; writeFileSync(join(f.root, second), phase("2", "3")); reason = "dependencies disagree"; }
-    if (mode === "unreported phase") { const path = `${directory}/phase-4-unreported.md`; paths.push(path); writeFileSync(join(f.root, path), phase("4", "3")); reason = "exactly the appended plan entries"; }
-    commit(f.sandbox, f.root, paths);
-    const snapshot = await issueSnapshot(f.context, { ...f.body(), testPaths: [], evidencePaths: [] });
-    f.report.checkedSnapshotId = snapshot.snapshotId;
-    f.assess("assessment", "repair-assessor", [], { snapshotId: snapshot.snapshotId });
-    f.assess("review", "repair-reviewer", [], { snapshotId: snapshot.snapshotId });
-    const evidence = await refreshAuditEvidence(f.context);
-    row.assessmentEvidenceIds = [evidence.find(entry => entry.locator === "repair-assessor")!.evidenceId];
-    f.report.methodEvidence.assessmentEvidenceIds = row.assessmentEvidenceIds;
-    f.report.methodEvidence.reviewEvidenceIds = [evidence.find(entry => entry.locator === "repair-reviewer")!.evidenceId];
-    f.saveReport();
-    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(result.disposition, result.refusal?.reason).toBe(mode === "valid" ? "recorded" : "unresolved");
-    expect(result.nextAction).toBe(mode === "valid" ? "implementation" : "needs_you");
-    if (mode !== "valid") { expect(result.refusal?.code).toBe("inconsistent_plan"); expect(result.refusal?.reason).toContain(reason); expect(f.activity.acceptedResult).toBeUndefined(); }
-    else expect(readFileSync(join(f.root, directory, "phase-1-value.md"), "utf8")).toContain("**Closed:** 2026-10-24");
-  });
-});
-
-describe("required documents and reference-only provenance", () => {
-  const capture = (f: Awaited<ReturnType<typeof fixture>>, testPaths: Parameters<typeof captureSnapshot>[1] = []) =>
-    captureSnapshot({ ...f.context, activity: f.activity, evidence: auditEvidence(f.context), now: new Date().toISOString() }, testPaths, []);
-  const put = (f: Awaited<ReturnType<typeof fixture>>, path: string, content: string) => {
-    mkdirSync(join(f.root, path, ".."), { recursive: true }); writeFileSync(join(f.root, path), content);
-  };
-  it("accepts provenance with missing targets and preserves accepted history and repository invalidation", async () => {
-    const f = await fixture("delivery_audit", { source: prd + '\n[handoff](../../../source-material/index.md "kiln:reference")\n' });
-    const code = f.report.criteria[0]!.parts[0]!.code;
-    f.report.criteria[0]!.parts[0]!.code = [{ repository: "proof", path: "source-material/index.md", blob: "0".repeat(40) }];
-    f.saveReport();
-    expect(await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).toMatchObject({ disposition: "unresolved", refusal: { code: "missing_evidence" } });
-    expect(f.activity.acceptedResult).toBeUndefined();
-    f.report.criteria[0]!.parts[0]!.code = code;
-    f.saveReport(); expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
-    const accepted = f.activity.acceptedResult;
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
-    put(f, "source-material/index.md", "# Archive\n[never captured](missing.md)\n");
-    const snapshot = await capture(f);
-    expect(snapshot.documents.some(d => d.path.startsWith("source-material/"))).toBe(false);
-    expect(snapshot.repositories[0]!.files["source-material/index.md"]).toBeDefined();
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: false, testsCurrent: false });
-    expect(f.activity.acceptedResult).toBe(accepted);
-    expect(f.store.read(accepted!)).toBeDefined();
-  });
-  it("retains transitive requirements outside the PRD folder, cycle handling, test-only protection and development bindings", async () => {
-    const f = await fixture();
-    put(f, "docs/roadmaps/contracts.md", '[design](../changes/shared/technical-design.md)\n');
-    put(f, "docs/changes/shared/technical-design.md", '[cycle](../../roadmaps/contracts.md)\n');
-    put(f, `${directory}/proof-prd.md`, prd + '\n[contracts](../../roadmaps/contracts.md)\n[background](../../../source-material/absent.md "kiln:reference")\n');
-    const snapshot = await capture(f);
-    expect(snapshot.documents.map(d => d.path)).toEqual(expect.arrayContaining(["docs/roadmaps/contracts.md", "docs/changes/shared/technical-design.md"]));
-    expect(new Set(snapshot.documents.map(d => d.path)).size).toBe(snapshot.documents.length);
-    const reference = snapshot.documents.find(d => d.path === "docs/roadmaps/contracts.md")!;
-    await expect(capture(f, [{ ...reference, configuration: [], selectors: [], runEvidenceIds: [], assessmentEvidenceId: "none", shared: false }])).rejects.toThrow("cannot be test-only");
-    f.activity.snapshots.push(f.store.put(snapshot));
-    const context = { ...f.context, owner: { kind: "audit" as const, activityId: f.activity.activityId } } as unknown as DeliveryContext;
-    const before = ownerDocuments(context, context.owner!);
-    put(f, "docs/changes/shared/technical-design.md", "# Changed governing design\n");
-    expect(ownerDocuments(context, context.owner!).documentsDigest).not.toBe(before.documentsDigest);
-    expect(compareSnapshots(f.record, snapshot, await capture(f))).toEqual({ deliveryCurrent: false, testsCurrent: false });
-  });
-  it.each(["unmarked", "unknown title", "replacement", "markdown replacement"])("refuses missing required evidence with its full chain: %s", async mode => {
-    const f = await fixture();
-    put(f, `${directory}/proof-prd.md`, prd + '\n[contracts](../../roadmaps/contracts.md)\n');
-    const title = mode === "unknown title" ? ' "background"' : '';
-    const content = mode === "markdown replacement"
-      ? 'Replaces in part: [replacement](missing.md "kiln:reference")\n'
-      : mode === "replacement"
-      ? '[background](missing.md "kiln:reference")\nSuperseded by: AC-NEXT-01 in `docs/roadmaps/missing.md`\n'
-      : `[required](missing.md${title})\n`;
-    put(f, "docs/roadmaps/contracts.md", content);
-    await expect(capture(f)).rejects.toMatchObject({ code: "missing_evidence", message: expect.stringContaining(`${directory}/proof-prd.md -> docs/roadmaps/contracts.md -> docs/roadmaps/missing.md`) });
-  });
-  it("keeps a reference-only target required when another dependency requires it", async () => {
-    const f = await fixture();
-    put(f, `${directory}/proof-prd.md`, prd + '\n[optional](missing.md "kiln:reference")\n[required](missing.md)\n');
-    await expect(capture(f)).rejects.toMatchObject({ code: "missing_evidence" });
-    put(f, `${directory}/proof-prd.md`, prd + '\n[optional design](technical-design.md "kiln:reference")\n');
-    expect((await capture(f)).documents.some(d => d.path === `${directory}/technical-design.md`)).toBe(true);
-  });
-});
-
-describe("current requirements and classified content", () => {
-  it("keeps delivery current for classified test edits and invalidates both when configuration changes", async () => {
-    const f = await fixture(); const files = f.checked.repositories[0]!.files;
-    const test = { repository: "proof", path: "value.test.mjs", blob: files["value.test.mjs"]!.blob };
-    const config = { repository: "proof", path: "package.json", blob: files["package.json"]!.blob };
-    const at = new Date().toISOString(); const output = execFileSync(process.execPath, ["value.test.mjs"], { cwd: f.root, encoding: "utf8" });
-    f.call("collection", "Bash", { command: "node value.test.mjs" }, output, at);
-    let evidence = await refreshAuditEvidence(f.context); const run = evidence.find(e => e.locator === "collection")!.evidenceId;
-    f.assess("test_classification", "classifier", [run], { testPaths: [test], configurationFiles: [config] });
-    evidence = await refreshAuditEvidence(f.context);
-    const declared = { ...test, configuration: [config], selectors: ["value.test.mjs"], runEvidenceIds: [run], assessmentEvidenceId: evidence.find(e => e.locator === "classifier")!.evidenceId, shared: false };
-    const snapshot = await issueSnapshot(f.context, { ...f.body(), testPaths: [declared], evidencePaths: [] });
-    f.assess("assessment", "classified-assessment", [], { snapshotId: snapshot.snapshotId }); f.assess("review", "classified-review", [], { snapshotId: snapshot.snapshotId });
-    evidence = await refreshAuditEvidence(f.context);
-    f.report.checkedSnapshotId = snapshot.snapshotId;
-    f.report.criteria[0]!.assessmentEvidenceIds = [evidence.find(e => e.locator === "classified-assessment")!.evidenceId];
-    f.report.methodEvidence.assessmentEvidenceIds = f.report.criteria[0]!.assessmentEvidenceIds;
-    f.report.methodEvidence.reviewEvidenceIds = [evidence.find(e => e.locator === "classified-review")!.evidenceId];
-    f.saveReport(); expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
-    writeFileSync(join(f.root, test.path), readFileSync(join(f.root, test.path), "utf8") + "\n// Additional test assertion\n"); commit(f.sandbox, f.root, [test.path]);
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: false });
-    writeFileSync(join(f.root, config.path), '{"type":"module","scripts":{"test":"node --test"}}'); commit(f.sandbox, f.root, [config.path]);
-    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: false, testsCurrent: false });
-  });
-  it.each([false, true])("admits supersession and post-delivery human work across repositories (partial=%s)", async partial => {
-    const source = `# PRD: Audit proof\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Earlier value.** ${partial ? "The function remains exported. " : ""}Old value behavior.\n  - Superseded${partial ? " in part" : ""} by: AC-PROOF-02 in \`docs/prds/proof/proof-prd.md\`.\n- [ ] **AC-PROOF-02 — Current value.** The function returns 42 across both repositories.\n- [ ] **AC-PROOF-03 — Announce later.** After delivery, a person announces the release.\n`;
-    const f = await fixture("delivery_audit", { source, companion: true });
-    const criteria = f.checked.requirements.criteria; const main = f.checked.repositories.find(r => r.repository === "proof")!; const other = f.checked.repositories.find(r => r.repository === "companion")!;
-    const code = [{ repository: "proof", path: "value.mjs", blob: main.files["value.mjs"]!.blob }, { repository: "companion", path: "companion.mjs", blob: other.files["companion.mjs"]!.blob }];
-    const part = (index: number, id: string) => ({ id, quote: criteria[index]!.content, startLine: criteria[index]!.startLine, endLine: criteria[index]!.endLine, applicability: "current" as const, code, tests: [] });
-    const retired = { ...part(0, "retired"), applicability: "superseded" as const, code: [], replacement: { repository: "proof", path: `${directory}/proof-prd.md`, criterion: "AC-PROOF-02" } };
-    const parts = ["retired", ...(partial ? ["remaining"] : []), "value", "announce"];
-    f.assess("assessment", "requirements-assessor", [], { criterionKeys: criteria.map(c => c.key), partIds: parts }); f.assess("review", "requirements-reviewer", [], { criterionKeys: criteria.map(c => c.key), partIds: parts });
-    const evidence = await refreshAuditEvidence(f.context); const assessId = evidence.find(e => e.locator === "requirements-assessor")!.evidenceId;
-    const common = { assessmentEvidenceIds: [assessId], findings: [], blockerIds: [] };
-    f.report.scope.criterionKeys = criteria.map(c => c.key);
-    f.report.criteria = [{ ...common, criterionKey: criteria[0]!.key, deliveryStatus: partial ? "implemented" : "superseded", parts: [retired, ...(partial ? [part(0, "remaining")] : [])] }, { ...common, criterionKey: criteria[1]!.key, deliveryStatus: "implemented", parts: [part(1, "value")] }, { ...common, criterionKey: criteria[2]!.key, deliveryStatus: "waiting_human", parts: [{ ...part(2, "announce"), code: [], humanActionId: "announcement" }] }];
-    f.report.pendingHumanActions = [{ id: "announcement", criterionKey: criteria[2]!.key, action: "Announce the release", requirementQuote: "After delivery, a person announces the release.", beyondDelivery: true }];
-    f.report.methodEvidence.assessmentEvidenceIds = [assessId]; f.report.methodEvidence.reviewEvidenceIds = [evidence.find(e => e.locator === "requirements-reviewer")!.evidenceId];
-    f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath }); expect(result.checks.filter(c => !c.passed)).toEqual([]); expect(result.disposition).toBe("recorded");
-    const input = { record: f.record, activity: f.activity, checked: f.checked, current: f.checked, evidence };
-    retired.replacement.criterion = "AC-MISSING-99"; expect(() => validateReport(f.report, input)).toThrow(`Replacement criterion AC-MISSING-99 for retired is not in proof/${directory}/proof-prd.md.`); retired.replacement.criterion = "AC-PROOF-02";
-    const replacement = retired.replacement; delete (retired as Partial<typeof retired>).replacement; expect(() => validateReport(f.report, input)).toThrow("Superseded part retired needs a replacement"); retired.replacement = replacement;
-    f.report.criteria[1]!.deliveryStatus = "changed_outside_requirements"; expect(() => validateReport(f.report, input)).toThrow("Changed behavior needs"); f.report.criteria[1]!.deliveryStatus = "implemented";
-    if (partial) { f.report.criteria[0]!.parts = [retired]; expect(() => validateReport(f.report, input)).toThrow("Fully superseded row"); }
-    writeFileSync(join(f.record.repositories.find(r => r.name === "companion")!.worktreePath, "companion.mjs"), "export const value = 0;\n");
-    expect((await auditCurrentness(f.context, f.activity)).deliveryCurrent).toBe(false);
   });
 });
 

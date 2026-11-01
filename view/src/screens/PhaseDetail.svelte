@@ -76,7 +76,8 @@
   {#if row?.audit}
     <section class="card">
       <h3>{row.title} · {row.file}</h3>
-      {#if row.audit.outcome}<p>Outcome: {row.audit.outcome}</p>{/if}
+      {#if row.audit.outcome}<p>Outcome: {({ passed: "nothing left", completion_phases: "added phases", continue_test: "more test work", needs_you: "needs you", blocked: "blocked" } as Record<string, string>)[row.audit.outcome] ?? row.audit.outcome}</p>{/if}
+      {#if row.audit.summary}<p>{row.audit.summary}</p>{/if}
       {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}
       {#each row.audit.criteria as criterion}<p>{criterion.key}: {criterion.status}</p>{#each criterion.findings as finding}<p>{finding}</p>{/each}{/each}
       {#each row.audit.checks.filter(c => !c.passed) as check}<p>{check.name}: {check.facts.join(" ")}</p>{/each}

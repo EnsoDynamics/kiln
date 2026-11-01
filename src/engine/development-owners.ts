@@ -3,7 +3,7 @@ import { isAncestorOf } from "../plan/phase-ids.js";
 import { readFileSync } from "node:fs";
 import { assignedPath, phaseScope, repositoryFor, requirementManifest } from "../audit/snapshots.js";
 import { AuditStore, hashValue } from "../audit/storage.js";
-import type { AuditReport, AuditResult, WorkSnapshot } from "../audit/contracts.js";
+import { completionPhaseIds, type AuditReport, type AuditResult, type WorkSnapshot } from "../audit/contracts.js";
 import { ownerKey, recoveryOwners, recoveryStopKey, sameOwner, type DeliveryCheckpoint, type DeliveryOwner, type DevelopmentLedger } from "../state/development-delivery.js";
 import type { DeliveryContext } from "./development-delivery.js";
 
@@ -19,8 +19,8 @@ export function auditDeliveryScope(context: DeliveryContext, owner: DeliveryOwne
   const snapshot = new AuditStore(context.stateDirectory).read<WorkSnapshot>(snapshotId);
   if (snapshot.executionId !== context.record.executionId || snapshot.activityId !== owner.activityId) throw new Error("Audit development snapshot belongs to other work.");
   const repo = repositoryFor(context.record, snapshot.requirements.repository);
+  // Read the criteria as they are now: an audit may write pointer lines under them, and sessions no longer issue snapshots.
   const manifest = requirementManifest(repo.name, snapshot.requirements.path, snapshot.requirements.criteria[0]?.blob ?? "", readFileSync(assignedPath(repo, snapshot.requirements.path), "utf8"));
-  if (manifest.id !== snapshot.requirements.id) throw new Error("Audit requirement manifest changed; request a current audit snapshot.");
   const documentsDigest = hashValue(snapshot.documents.map(reference => [reference.repository, reference.path, phaseScope(readFileSync(assignedPath(repositoryFor(context.record, reference.repository), reference.path), "utf8"))]));
   return { activity, manifest, documentsDigest, requirementManifestDigest: manifest.id };
 }
@@ -44,23 +44,30 @@ export function assignedObligations(state: DevelopmentLedger, checkpoint: Delive
   return ["requiredMerge", ...checkpoint.requirements.map(one => one.id)].filter(id => assignedObligationCriteria(state, checkpoint, owner, id).length > 0);
 }
 
-/** Called inside the allocator's single persisted decision; never a provider mutation API. */
-export function assignAuditObligations(context: DeliveryContext, sourceActivityId: string, target: DeliveryOwner, criterionKeys: string[]): void {
+/**
+ * Called inside the allocator's single persisted decision; never a provider mutation API. A version-1
+ * report names the criteria each repair phase or continuation inherits; a version-2 report names none,
+ * so the target inherits every criterion of the source audit's obligations.
+ */
+export function assignAuditObligations(context: DeliveryContext, sourceActivityId: string, target: DeliveryOwner): void {
   const source = { kind: "audit" as const, activityId: sourceActivityId };
   const { activity, manifest } = auditDeliveryScope(context, source);
   if (!activity.acceptedResult) throw new Error("Only an accepted audit can assign continuation/repair obligations.");
   const result = new AuditStore(context.stateDirectory).read<AuditResult>(activity.acceptedResult);
   if (result.activityId !== activity.activityId || result.disposition !== "recorded") throw new Error("Audit assignment result is unresolved or belongs to other work.");
   const report = JSON.parse(result.reportBytes) as AuditReport;
-  if (!criterionKeys.length || new Set(criterionKeys).size !== criterionKeys.length || criterionKeys.some(key => !manifest.criteria.some(one => one.key === key))) throw new Error("Assignments need exact current audit criterion keys.");
+  const allKeys = manifest.criteria.map(one => one.key);
+  let criterionKeys: string[];
   if (target.kind === "phase") {
-    const phase = report.completionPhases.find(one => one.id === target.phaseId);
     const planned = context.record.plan?.find(one => one.id === target.phaseId);
-    if (report.outcome !== "completion_phases" || !phase || !planned || planned.closed || criterionKeys.some(key => !phase.criterionKeys.includes(key))) throw new Error("Repair obligations require the accepted audit's matching open completion phase.");
+    if (report.outcome !== "completion_phases" || !completionPhaseIds(report).includes(target.phaseId) || !planned || planned.closed) throw new Error("Repair obligations require the accepted audit's matching open completion phase.");
+    criterionKeys = report.schemaVersion !== 2 ? report.completionPhases.find(one => one.id === target.phaseId)!.criterionKeys : allKeys;
   } else {
     const next = context.record.completionAudits?.activities.find(one => one.activityId === target.activityId);
-    if (report.outcome !== "continue_test" || !next || next.kind !== "test_audit" || activity.kind !== "test_audit" || next.round !== activity.round || next.continuationIndex !== activity.continuationIndex + 1 || criterionKeys.some(key => !report.nextTestBatch?.criterionKeys.includes(key))) throw new Error("Audit obligations require the immediate assigned test continuation.");
+    if (report.outcome !== "continue_test" || !next || next.kind !== "test_audit" || activity.kind !== "test_audit" || next.round !== activity.round || next.continuationIndex !== activity.continuationIndex + 1) throw new Error("Audit obligations require the immediate assigned test continuation.");
+    criterionKeys = report.schemaVersion !== 2 ? report.nextTestBatch?.criterionKeys ?? [] : allKeys;
   }
+  if (!criterionKeys.length || new Set(criterionKeys).size !== criterionKeys.length || criterionKeys.some(key => !allKeys.includes(key))) throw new Error("Assignments need exact current audit criterion keys.");
   const state = context.record.developmentDelivery;
   if (!state) throw new Error("Development ledger is missing.");
   const entries = state.checkpoints.flatMap(checkpoint => assignedObligations(state, checkpoint, source).flatMap(requirementId => {
@@ -87,7 +94,7 @@ export function orderedRecoveryOwners(record: import("../state/records.js").PrdR
   for (const audit of activities) if (audit.acceptedResult) {
     const result = store.read<AuditResult>(audit.acceptedResult);
     const report = JSON.parse(result.reportBytes) as AuditReport;
-    for (const phase of report.completionPhases) introduced.set(phase.id, { at: audit.createdAt, sequence: audit.sequence });
+    for (const id of completionPhaseIds(report)) introduced.set(id, { at: audit.createdAt, sequence: audit.sequence });
   }
   let previousAt = ""; let previousTie = -1;
   const phaseRows = phaseIds.map((phaseId, index) => {

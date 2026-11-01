@@ -2047,14 +2047,8 @@
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln audit status [cursor]",
-      "arguments": [
-        {
-          "name": "cursor",
-          "required": false,
-          "source": "Opaque cursor returned by audit status."
-        }
-      ],
+      "usage": "kiln audit status",
+      "arguments": [],
       "flags": {
         "json": {
           "value": null,
@@ -2075,10 +2069,9 @@
         "help_output": "--help --json returns versioned reference without controller/Git/provider access.",
         "executionId, activityId, revision": "Current request identity/revision.",
         "kind, round, continuationIndex, requiredReportPath": "Assigned audit kind/round and repository-relative report destination.",
-        "currentSnapshot": "Latest complete snapshot, including requirements manifest, plan, repositories/files, testPaths and evidencePaths; null/absent before snapshot.",
-        "evidence, nextCursor": "Up to 100 observed evidence records; copy nextCursor as optional positional cursor until absent. IDs must come from these real observations.",
         "acceptedResults, outstandingChecks": "Recorded outcomes and remaining admission checks.",
-        "latestRefusal": "While no result is accepted, what the latest check found {code, reason, criteria, at}: its refusal, or code unresolved_checks with the failed checks when the report validated but delivery checks did not pass. Includes checks Kiln made after the session ended. Correct exactly what it names before resubmitting."
+        "latestRefusal": "While no result is accepted, what the latest check found {code, reason, criteria, at}: its refusal, or code unresolved_checks with the failed checks when the report validated but delivery checks did not pass. Includes checks Kiln made after the session ended. Correct exactly what it names before resubmitting.",
+        "reportContract": "The version-2 report's fields, as a reminder; the session prompt states the full contract."
       },
       "errors": [
         "malformed_request",
@@ -2101,37 +2094,27 @@
       },
       "examples": [
         {
-          "request": "Read the current audit assignment and evidence.",
+          "request": "Read the current audit assignment and revision.",
           "argv": [
             "kiln",
             "audit",
             "status"
           ]
-        },
-        {
-          "request": "Read the next evidence page.",
-          "preparation": "Copy the opaque nextCursor returned by the preceding kiln audit status call; run inside the same assigned workspace.",
-          "argv": [
-            "kiln",
-            "audit",
-            "status",
-            "CURSOR_FROM_STATUS"
-          ]
         }
       ],
       "error_meanings": {
-        "malformed_request": "Missing executionId/activityId/integer revision, or invalid evidence cursor; read audit status and correct the JSON.",
-        "outside_execution": "Wrong execution, report path or a file outside the assigned repositories; use the assigned workspace and exact requiredReportPath.",
-        "stale_revision": "Another audit write changed revision; read audit status again before a new submission.",
-        "wrong_activity": "Request is for a different or finished audit; use the current activityId.",
-        "busy": "A state check/change is in progress; wait and reread audit status.",
-        "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
-        "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
-        "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
-        "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
-        "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
-        "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."
+        "malformed_request": "Missing executionId, activityId or integer revision; read kiln audit status and correct the request JSON.",
+        "outside_execution": "Wrong execution, a report path other than requiredReportPath, or a file outside the assigned repositories; use the assigned workspace and exact requiredReportPath.",
+        "stale_revision": "Another change advanced the audit revision; read kiln audit status and resubmit with its current revision.",
+        "wrong_activity": "The request names an activity that is not the current audit; read kiln audit status for the assigned activity.",
+        "busy": "Kiln is checking or changing execution state; wait briefly and retry once.",
+        "result_conflict": "A different report is already accepted for this activity; leave the accepted report unchanged.",
+        "invalid_report": "The report is not version 2 or a field is missing, malformed or contradicts the outcome; the reason names the field. Correct it, commit, push and resubmit.",
+        "report_too_large": "The report exceeds the 8 MiB limit; keep the summary and lists concise.",
+        "stale_snapshot": "The work or report changed while Kiln was checking it, or an accepted result is no longer current; commit and push everything, then resubmit.",
+        "inconsistent_plan": "The plan disagrees with the outcome: an original phase changed, completionPhases does not name exactly the appended open phases, or a passing or continuing report leaves an open phase.",
+        "missing_evidence": "The assigned report, a governing document Kiln reads, or an accepted result is missing; commit and push it, then resubmit.",
+        "evidence_unavailable": "Kiln could not read Git or a required file; retry when it is readable."
       }
     },
     {
@@ -2139,18 +2122,12 @@
         "audit",
         "snapshot"
       ],
-      "purpose": "Existing audit snapshot helper.",
+      "purpose": "Retired. Kiln captures the assigned work itself when a report is submitted.",
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln audit snapshot <JSON-file>",
-      "arguments": [
-        {
-          "name": "JSON-file",
-          "required": true,
-          "source": "Path to a UTF-8 JSON request file (relative to cwd or absolute), with the fields and example contents below. Cwd selects the running execution, not this file path."
-        }
-      ],
+      "usage": "kiln audit snapshot",
+      "arguments": [],
       "flags": {
         "json": {
           "value": null,
@@ -2163,28 +2140,14 @@
       },
       "required_exclusive_groups": [],
       "limits": [
-        "Requires cwd in the target running execution's assigned workspace.",
-        "Existing JSON execution result and exits 0 success / 1 failure / 2 usage; --json flag is help-only."
+        "Always refused with malformed_request; changes no state. Commit and push the report, then run kiln audit submit."
       ],
       "result_fields": {
         "execution_output": "Legacy JSON, not the bot-control schema. HTTP refusals return {code,reason,criteria,checks}; submit may return {disposition:\"unresolved\",refusal,checks,nextAction,code,reason} with a non-success HTTP status. Inspect checks/refusal and exit 1.",
-        "help_output": "--help --json returns versioned reference without controller/Git/provider access.",
-        "snapshotId, revision": "Issued snapshot identity and new revision.",
-        "requirements, plan, repositories": "Actual manifest keys/spans/content and checked file blobs/heads; value sources for the report and subsequent evidence."
+        "help_output": "--help --json returns versioned reference without controller/Git/provider access."
       },
       "errors": [
-        "malformed_request",
-        "outside_execution",
-        "stale_revision",
-        "wrong_activity",
-        "busy",
-        "result_conflict",
-        "invalid_report",
-        "report_too_large",
-        "stale_snapshot",
-        "inconsistent_plan",
-        "missing_evidence",
-        "evidence_unavailable"
+        "malformed_request"
       ],
       "exits": {
         "0": "Existing helper success; submit disposition=recorded.",
@@ -2193,68 +2156,16 @@
       },
       "examples": [
         {
-          "request": "Capture the current audit work without declaring test-only files.",
-          "preparation": "Run kiln audit status inside the assigned workspace. Replace executionId, activityId and numeric revision with its current values, then save this JSON file.",
+          "request": "Shows that the retired command changes nothing.",
           "argv": [
             "kiln",
             "audit",
-            "snapshot",
-            "/tmp/audit-snapshot.json"
-          ],
-          "files": {
-            "/tmp/audit-snapshot.json": {
-              "executionId": "EXECUTION_FROM_STATUS",
-              "activityId": "ACTIVITY_FROM_STATUS",
-              "revision": 1,
-              "testPaths": [],
-              "evidencePaths": []
-            }
-          }
+            "snapshot"
+          ]
         }
       ],
       "error_meanings": {
-        "malformed_request": "Missing executionId/activityId/integer revision, or invalid evidence cursor; read audit status and correct the JSON.",
-        "outside_execution": "Wrong execution, report path or a file outside the assigned repositories; use the assigned workspace and exact requiredReportPath.",
-        "stale_revision": "Another audit write changed revision; read audit status again before a new submission.",
-        "wrong_activity": "Request is for a different or finished audit; use the current activityId.",
-        "busy": "A state check/change is in progress; wait and reread audit status.",
-        "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
-        "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
-        "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
-        "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
-        "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
-        "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."
-      },
-      "input_contract": {
-        "fields": {
-          "executionId": "Required string; copy executionId from kiln audit status in this assigned workspace.",
-          "activityId": "Required string; copy current activityId from audit status.",
-          "revision": "Required safe integer; copy current revision from audit status. Reread after each write.",
-          "testPaths": "Required TestPath[]; [] is valid and conservatively treats every file as implementation content. Declare test-only files only with independent classification evidence.",
-          "evidencePaths": "Required FileReference[] of existing .md method-evidence documents; [] when none."
-        },
-        "types": {
-          "FileReference": {
-            "repository": "Assigned repository name from currentSnapshot.repositories/requirements; not a directory or GitHub URL.",
-            "path": "Repository-relative existing regular file; no absolute paths, dot segments, backslashes or symlink escapes.",
-            "blob": "Exact Git blob SHA for this file from current snapshot or git hash-object of its actual bytes."
-          },
-          "TestPath": {
-            "repository": "Assigned repository name from currentSnapshot.repositories/requirements; not a directory or GitHub URL.",
-            "path": "Repository-relative existing regular file; no absolute paths, dot segments, backslashes or symlink escapes.",
-            "blob": "Exact Git blob SHA for this file from current snapshot or git hash-object of its actual bytes.",
-            "configuration": "Required nonempty FileReference[] identifying actual test configuration, with blobs current in snapshot.",
-            "selectors": "Required nonempty string[] of exact collected/executed test selectors.",
-            "runEvidenceIds": "Required nonempty successful command evidence IDs from audit status, bound to current file/configuration bytes and selectors.",
-            "assessmentEvidenceId": "Independent assessment evidence ID with purpose=test_classification, matching testPaths, configurationFiles and verificationEvidenceIds.",
-            "shared": "Required boolean: whether the test path is shared. Requirements/configuration cannot be declared test-only."
-          }
-        },
-        "rules": [
-          "Requires the current unfinished audit. Snapshot records actual assigned files/Git identity and increments revision. Copy snapshotId into the report checkedSnapshotId; use the returned requirements manifest to cover every criterion.",
-          "No report, source or test mutation after a checked snapshot can be disguised by equal hashes: repeat the affected verification and obtain a new snapshot when required."
-        ]
+        "malformed_request": "The command is retired; use kiln audit submit."
       }
     },
     {
@@ -2294,7 +2205,7 @@
         "help_output": "--help --json returns versioned reference without controller/Git/provider access.",
         "id, activityId, revision, disposition": "Recorded attempt identity/revision; disposition recorded or unresolved.",
         "checks, refusal, nextAction": "Detailed evidence/completion failures, optional {code,status,reason,criteria}, and next activity.",
-        "snapshotId, reportDigest": "Bound checked snapshot and exact report bytes digest when available."
+        "snapshotId, reportDigest": "Kiln's own snapshot of the work at submission and the report's digest."
       },
       "errors": [
         "malformed_request",
@@ -2336,18 +2247,18 @@
         }
       ],
       "error_meanings": {
-        "malformed_request": "Missing executionId/activityId/integer revision, or invalid evidence cursor; read audit status and correct the JSON.",
-        "outside_execution": "Wrong execution, report path or a file outside the assigned repositories; use the assigned workspace and exact requiredReportPath.",
-        "stale_revision": "Another audit write changed revision; read audit status again before a new submission.",
-        "wrong_activity": "Request is for a different or finished audit; use the current activityId.",
-        "busy": "A state check/change is in progress; wait and reread audit status.",
-        "result_conflict": "This activity already accepted different report bytes; do not replace accepted evidence.",
-        "invalid_report": "Malformed JSON, duplicate keys, unsupported report shape or inconsistent criterion coverage; correct the reported validation reason.",
-        "report_too_large": "JSON/report exceeds 8 MiB or report exceeds 10,000 criterion rows; reduce the report.",
-        "stale_snapshot": "The checked snapshot is absent, or acceptance criteria, an existing phase's scope, or implementation/test content changed; obtain a new snapshot, then redo the assessments, reviews and verification runs the report cites against it.",
-        "inconsistent_plan": "Completion phases, dependencies or closures disagree with the governing plan; repair the report/plan without reopening original phases.",
-        "missing_evidence": "Required file, observed command/skill/independent assessment or referenced source is absent or changed; collect real evidence, never invent IDs.",
-        "evidence_unavailable": "Git/provider/history or retained evidence cannot be read; restore access and reread status. No success is implied."
+        "malformed_request": "Missing executionId, activityId or integer revision; read kiln audit status and correct the request JSON.",
+        "outside_execution": "Wrong execution, a report path other than requiredReportPath, or a file outside the assigned repositories; use the assigned workspace and exact requiredReportPath.",
+        "stale_revision": "Another change advanced the audit revision; read kiln audit status and resubmit with its current revision.",
+        "wrong_activity": "The request names an activity that is not the current audit; read kiln audit status for the assigned activity.",
+        "busy": "Kiln is checking or changing execution state; wait briefly and retry once.",
+        "result_conflict": "A different report is already accepted for this activity; leave the accepted report unchanged.",
+        "invalid_report": "The report is not version 2 or a field is missing, malformed or contradicts the outcome; the reason names the field. Correct it, commit, push and resubmit.",
+        "report_too_large": "The report exceeds the 8 MiB limit; keep the summary and lists concise.",
+        "stale_snapshot": "The work or report changed while Kiln was checking it, or an accepted result is no longer current; commit and push everything, then resubmit.",
+        "inconsistent_plan": "The plan disagrees with the outcome: an original phase changed, completionPhases does not name exactly the appended open phases, or a passing or continuing report leaves an open phase.",
+        "missing_evidence": "The assigned report, a governing document Kiln reads, or an accepted result is missing; commit and push it, then resubmit.",
+        "evidence_unavailable": "Kiln could not read Git or a required file; retry when it is readable."
       },
       "input_contract": {
         "fields": {
@@ -2357,63 +2268,22 @@
           "reportPath": "Required string exactly equal to requiredReportPath from audit status. This is a repository-relative JSON report inside the assigned PRD repository, separate from the request JSON file."
         },
         "types": {
-          "FileReference": {
-            "repository": "Assigned repository name from currentSnapshot.repositories/requirements; not a directory or GitHub URL.",
-            "path": "Repository-relative existing regular file; no absolute paths, dot segments, backslashes or symlink escapes.",
-            "blob": "Exact Git blob SHA for this file from current snapshot or git hash-object of its actual bytes."
-          },
           "AuditReport": {
-            "schemaVersion": "Required literal 1.",
-            "executionId, activityId, kind, round, continuationIndex": "Required exact values from audit status; kind delivery_audit or test_audit.",
-            "scope": "Required {repository,path,kind:\"whole_prd\",manifestId,criterionKeys:string[]}; copy repository/path/id and ALL criterion keys from the issued snapshot requirements.",
-            "checkedSnapshotId": "Required issued snapshotId for this activity.",
-            "criteria": "Required CriterionRow[]; exactly one for every manifest criterion including superseded criteria; maximum 10,000.",
-            "methodEvidence": "Required MethodEvidence object with real observed IDs, never caller-invented proof.",
-            "completionPhases": "Required CompletionPhase[]; [] for no gaps.",
-            "pendingHumanActions": "Required HumanAction[]; [] when none.",
-            "blockers": "Required Blocker[]; [] when none.",
-            "outcome": "Required passed | completion_phases | continue_test | blocked, consistent with rows and open work.",
-            "nextTestBatch": "Only for continue_test: {criterionKeys:string[],recordPath:string,nextBatch:string}; path is PRD directory + /test-audit.md, which must contain nextBatch; keys exactly match remaining missing/weak rows."
-          },
-          "CriterionRow": {
-            "criterionKey": "Exact manifest key.",
-            "parts": "Nonempty Part[] covering every required piece of criterion.",
-            "assessmentEvidenceIds": "Nonempty real independent assessment evidence IDs covering this criterion and parts.",
-            "findings": "Required {partIds:string[],missing:string,evidenceIds:string[]}[]; nonempty for implementation gaps or missing/weak tests, empty for passing/excluded rows.",
-            "blockerIds": "Required string[] matching report blockers.",
-            "deliveryStatus": "Delivery audit only: implemented | partly_implemented | not_implemented | waiting_human | superseded | changed_outside_requirements | not_built_yet.",
-            "testAssessment": "Test audit only: {grade:\"missing\"|\"weak\"|\"adequate\"|\"strong\"} OR {status:\"not_implemented\"|\"person_checked\"|\"not_built_yet\"|\"superseded\"|\"changed_outside_requirements\"}. Do not supply deliveryStatus too."
-          },
-          "Part": {
-            "id, quote, startLine, endLine": "Globally unique nonempty ID, exact governing quote, and inclusive integer source span within manifest criterion.",
-            "applicability": "current | superseded.",
-            "replacement": "Required when superseded: {repository,path,criterion}; governing source needs matching Superseded by pointer without cycles.",
-            "code": "Required FileReference[]; nonempty for implemented current parts, all files unchanged in checked/current snapshots.",
-            "tests": "Required {file:FileReference,selector:string,runEvidenceIds:string[],runtime:{kind:\"checkout\"}|{kind:\"artifact\",repository,revision,checkpointId,requirementId}}[]; passing test grades require successful runs and independent mappings for every current part. Artifact requires engine-observed development evidence.",
-            "humanActionId, openPhaseId": "Optional references; required for waiting/person_checked and not_built_yet respectively."
-          },
-          "MethodEvidence": {
-            "skillEvidenceId": "Required observed skill evidence matching assigned installed audit skill.",
-            "assessmentEvidenceIds, reviewEvidenceIds": "Required nonempty string[]; independent assessment and review must use distinct provider conversations and cover every criterion/part.",
-            "baselineRunEvidenceIds, finalRunEvidenceIds": "Required nonempty string[] for test audits; final reruns each baseline invocation/cwd after it.",
-            "unrelatedFailures": "Optional {evidenceId,reason,reviewEvidenceId}[]; final failing runs need independent unrelated-failure support.",
-            "regradeEvidenceIds": "Required after test remediation/restoration: independent regrade IDs covering every potentially affected part, distinct from writers.",
-            "redChecks": "Required array for test audits: {partIds,mutationEvidenceIds,failingRunEvidenceIds,restorationEvidenceIds,passingRunEvidenceId?,impossibilityReason?}; sampled passing grades need observed mutation, two identical failing runs, restoration and identical passing run, or independently supported impossibility. Strong needs real red checks for every current part."
-          },
-          "CompletionPhase": {
-            "id,path,originKind,originActivityId,criterionKeys,missingBehavior,dependencies": "Required; appended open phase must match plan, source audit kind/activity marker, covered missing criterion keys, dependency order and text. Original phases/closures remain unchanged."
-          },
-          "HumanAction": {
-            "id,criterionKey,action,requirementQuote,beyondDelivery,result?": "Required nonempty identity/action and exact governing quote; beyondDelivery boolean; optional result FileReference. Row/part must reference this action. Outstanding current delivery actions prevent passing."
-          },
-          "Blocker": {
-            "id,criterionKeys,problem,requiredAction": "Required nonempty values; criterionKeys string[] must match rows that reference this blocker."
+            "schemaVersion": "Required literal 2. A version-1 report is refused with invalid_report.",
+            "executionId, activityId, kind": "Required exact values from audit status; kind delivery_audit or test_audit.",
+            "outcome": "Required: passed (nothing left), completion_phases (phases appended for missing work), continue_test (test audit only; remaining test work saved for another session), needs_you (a person must decide or act).",
+            "summary": "Required non-empty plain text.",
+            "completionPhases": "Required string[] of the phase IDs this audit appended; [] when none. Must equal the phases appended to the plan.",
+            "needsYou": "Required {problem,action}[]; non-empty exactly when outcome is needs_you.",
+            "changedImplementation": "Test audits only, required boolean: true when the audit changed anything other than tests and audit records. Absent for delivery audits.",
+            "afterDeliveryActions": "Optional string[] of person actions the requirements place after delivery."
           }
         },
         "rules": [
-          "The assigned report is strict UTF-8 JSON, at most 8 MiB, with no duplicate keys. Use audit status evidence pages, issued snapshots, actual verifier output and independent assessments to populate it.",
-          "A passed report has no open executable phases, unresolved human actions, blockers or findings. Completion gaps append matching phases; never reopen original closed phases. Test audits require the saved test-audit.md method record.",
-          "Identical accepted report bytes replay the recorded outcome before revision checking; a different accepted report is refused. A submission may be recorded as unresolved with detailed refusal/checks and exit 1; reread status before correcting it."
+          "The report is committed and pushed in the assigned PRD repository before submission; every assigned worktree is clean, on its branch and pushed.",
+          "Original phases keep their identity, order, scope and closure; appended phases are open.",
+          "passed leaves no open phase; completion_phases appends at least one; continue_test appends none, leaves none open and changes some file other than the report since the audit started.",
+          "Kiln does not inspect how the audit was done; report the outcome the installed skill actually reached."
         ]
       }
     },

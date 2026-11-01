@@ -32,7 +32,7 @@ import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
 import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
-import { AuditRefusal } from "../audit/contracts.js";
+import { AuditRefusal, completionPhaseIds } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
 import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
@@ -1637,16 +1637,16 @@ export class Engine {
   }
 
   /** Uses the same serialization boundary as development mutations and done checks. */
-  async auditCommand(action: "status" | "snapshot" | "result", body: Record<string, unknown> = {}, cursor?: string): Promise<unknown> {
+  async auditCommand(action: "status" | "snapshot" | "result", body: Record<string, unknown> = {}): Promise<unknown> {
     if (this.deliveryBusy || this.checking || this.activeCheck || this.stopping || this.settingUp) throw new AuditRefusal("busy", "Kiln is checking or changing execution state.", 409);
     this.deliveryBusy = true;
     let release!: () => void; this.deliveryPending = new Promise<void>(resolve => { release = resolve; });
     const before = structuredClone(this.record.completionAudits); const beforeDelivery = structuredClone(this.record.developmentDelivery);
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     try {
-      const context: AdmissionContext = { ...(deliveryEnabled(this.record) ? { developmentChecks: () => [ownerDeliveryCheck(this.deliveryContext(), { kind: "audit", activityId: this.record.completionAudits!.activities.at(-1)!.activityId })] } : {}), record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(`audit-${activity.activityId}`, id) };
+      const context: AdmissionContext = { ...(deliveryEnabled(this.record) ? { developmentChecks: () => [ownerDeliveryCheck(this.deliveryContext(), { kind: "audit", activityId: this.record.completionAudits!.activities.at(-1)!.activityId })] } : {}), record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, signal };
       if (action === "result" && deliveryEnabled(this.record)) await reconcileDelivery(this.deliveryContext());
-      const result = action === "status" ? await auditStatus(context, cursor) : action === "snapshot" ? await issueSnapshot(context, body) : await submitAudit(context, body);
+      const result = action === "status" ? auditStatus(context) : action === "snapshot" ? issueSnapshot() : await submitAudit(context, body);
       signal.throwIfAborted();
       // Direct write: stop cannot silently turn persistence into a no-op.
       writePrdRecord(this.stateDirectory, this.record); this.changed(); return result;
@@ -2596,7 +2596,7 @@ export class Engine {
 
   private admissionContext(): AdmissionContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    return { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, env: this.options.env, codex: this.options.tools.codex ?? "codex", signal, session: (activity, id) => this.sessionRecord(auditKey(activity), id) };
+    return { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, signal };
   }
 
   private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
@@ -2637,9 +2637,9 @@ export class Engine {
       state.activities.push(activity); this.record.nextActivityKey = auditKey(activity);
       this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {} };
       const context = this.admissionContext();
-      const initial = await captureSnapshot({ ...context, activity, evidence: [], now: at }, [], []);
+      const initial = await captureSnapshot({ ...context, activity, now: at });
       activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial));
-      if (predecessor) assignAuditObligations(this.deliveryContext(auditKey(activity)), predecessor.activityId, { kind: "audit", activityId: activity.activityId }, acceptedAudit(this.stateDirectory, predecessor)!.report.nextTestBatch!.criterionKeys);
+      if (predecessor) assignAuditObligations(this.deliveryContext(auditKey(activity)), predecessor.activityId, { kind: "audit", activityId: activity.activityId });
       state.revision++;
       this.save(); return activity;
     } catch (error) { for (const key of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[key]; Object.assign(this.record, before); throw error; }
@@ -3830,7 +3830,7 @@ export class Engine {
       try {
         const accepted = acceptedAudit(this.stateDirectory, audit)!;
         if (outcome.plan.ok) this.record.plan = recordedPlan(outcome.plan.plan);
-        for (const phase of accepted.report.completionPhases) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId: phase.id }, phase.criterionKeys);
+        for (const phaseId of completionPhaseIds(accepted.report)) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
           if (!head) throw new Error(`Cannot record settled audit head for ${entry.name}.`);

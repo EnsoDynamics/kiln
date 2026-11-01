@@ -1,6 +1,7 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
+import { RESULT_CHECK } from "../audit/admission.js";
 import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
@@ -107,7 +108,7 @@ export interface PhaseView {
   kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[] };
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[] };
   outputLineCount?: number;
   id: string;
   title: string;
@@ -340,6 +341,12 @@ export interface SnapshotReads {
   auditStore?: Pick<AuditStore, "read">;
   output?: (session: SessionRecord) => OutputLine[];
 }
+const REFUSAL_CODES = new Set(["malformed_request", "outside_execution", "report_too_large", "stale_revision", "wrong_activity", "busy", "result_conflict", "invalid_report", "stale_snapshot", "inconsistent_plan", "missing_evidence", "evidence_unavailable"]);
+/** A stop saved before refusals were titled by their condition still shows the condition, not the code. */
+function auditCheckTitle(key: string, check: CheckResult): CheckResult {
+  return key.startsWith("audit-") && REFUSAL_CODES.has(check.name) ? { ...check, name: RESULT_CHECK } : check;
+}
+
 export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {
   const includeTiming = reads.includeTiming !== false;
   const { record } = engine;
@@ -523,7 +530,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const base = {
     phaseId: judged,
     kind: stop.kind,
-    checks: phaseRecovery ? retainedStop?.checks ?? [] : stop.checks,
+    checks: (phaseRecovery ? retainedStop?.checks ?? [] : stop.checks).map(check => auditCheckTitle(phaseKey, check)),
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
@@ -979,9 +986,15 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const attempt = accepted?.result ?? (audit.attempts.at(-1) ? store.read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
-      row.audit = { ...optional("outcome", report?.outcome), checks: (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace"), criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories: snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [], blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
-      if (accepted?.report.outcome === "passed" && facts?.doneAt) {
-        row.audit.remainingAfterDeliveryActions = accepted.report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
+      const checks = (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace").map(check => auditCheckTitle(activity.key, check));
+      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
+      if (report?.schemaVersion === 2) {
+        row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
+        if (report.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.afterDeliveryActions ?? [];
+      } else {
+        // A version-1 result keeps its history: criteria, findings, blockers and human actions.
+        row.audit = { ...optional("outcome", report?.outcome), checks, criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories, blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
+        if (report?.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     rows.push(row); started.add(row.id);
