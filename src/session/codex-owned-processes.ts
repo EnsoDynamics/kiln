@@ -1,7 +1,7 @@
 // Remember descendant identities while the parent exists, including detached tool groups.
 import { fileURLToPath } from "node:url";
 import { spawnDetached } from "../platform/helper-process.js";
-import { endProcessTree, runHelper, type HelperResult } from "../platform/helper-process.js";
+import { endProcessTree, HELPER_TIMEOUT_MS, type HelperResult } from "../platform/helper-process.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 import type { SessionRun } from "../state/records.js";
 
@@ -25,13 +25,12 @@ export class CodexOwnedProcesses {
     // Windows kernel Job Object membership survives reparenting; repeated CIM processes
     // would add no ownership and can otherwise outlive the interruption grace.
     if (process.platform === "win32") return;
-    const result = await runHelper("/bin/ps", ["-A", "-o", "pid=,ppid="], { cwd: process.cwd(), timeoutMs: 5000 });
-    if (result.exitCode !== 0) throw processCheckFailure("Could not inventory Codex's owned tool processes.", "/bin/ps", result);
-    const processes = result.stdout.trim().split(/\r?\n/).map(line => line.trim().split(/\s+/).map(Number)).filter(row => row.length === 2 && row.every(Number.isInteger));
+    const inventory = await processInventory(this.run);
+    const processes = inventory.processes;
     const owned = this.run.codex.ownedProcesses ??= [];
     const livePids = new Set(processes.map(row => row[0]));
     for (let i = owned.length - 1; i >= 0; i--) if (!livePids.has(owned[i]!.pid)) owned.splice(i, 1);
-    for (const entry of await markedProcesses(this.run)) if (!owned.some(process => process.pid === entry.pid && process.startTime === entry.startTime)) { owned.push(entry); this.save(); }
+    for (const entry of await markedProcesses(this.run, inventory.owned)) if (!owned.some(process => process.pid === entry.pid && process.startTime === entry.startTime)) { owned.push(entry); this.save(); }
     const parents = new Set<number>();
     if (await isProcessLive(this.run.pid, this.run.processStartTime)) parents.add(this.run.pid);
     for (const process of owned) if (await isProcessLive(process.pid, process.startTime)) parents.add(process.pid);
@@ -82,19 +81,29 @@ export async function stopCodexOwnedProcesses(run: SessionRun, graceMs = 5000): 
   if (ownershipError) throw ownershipError;
 }
 
-async function markedProcesses(run: SessionRun): Promise<{ pid: number; startTime: string }[]> {
-  if (!run.codex?.processOwner || process.platform === "win32") return [];
+interface ProcessInventory { processes: [number, number][]; owned: number[] }
+async function processInventory(run: SessionRun): Promise<ProcessInventory> {
+  if (!run.codex?.processOwner) throw new Error("Codex process owner is missing.");
   const child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/codex-process-owners.mjs", import.meta.url))], { cwd: process.cwd(), env: process.env, stdin: "pipe" });
-  const pids = await new Promise<number[]>((resolve, reject) => {
+  return new Promise<ProcessInventory>((resolve, reject) => {
     let stdout = "", stderr = "";
-    const timer = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); reject(processCheckFailure("Codex ownership query timed out after 5 seconds.", "Ownership helper", { exitCode: null, failure: "timeout", stderr })); }, 5000);
+    const timer = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); reject(processCheckFailure("Codex ownership helper did not respond within its startup/transport deadline.", "Ownership helper", { exitCode: null, failure: "timeout", stderr })); }, HELPER_TIMEOUT_MS);
     child.stdout!.setEncoding("utf8"); child.stderr!.setEncoding("utf8");
     child.stderr!.on("data", (text: string) => { stderr = (stderr + text).slice(0, 2048); });
-    child.stdout!.on("data", (text: string) => { stdout += text; if (stdout.length > 128 * 1024) { void endProcessTree(child.pid, "SIGKILL"); reject(new Error("Codex ownership query exceeds its bound.")); } });
+    child.stdout!.on("data", (text: string) => { stdout += text; if (stdout.length > 2 * 1024 * 1024) { void endProcessTree(child.pid, "SIGKILL"); reject(new Error("Codex ownership query exceeds its bound.")); } });
     child.on("error", reject); child.stdin!.on("error", reject);
-    child.on("close", (code, signal) => { clearTimeout(timer); if (code !== 0) reject(processCheckFailure("Could not establish Codex process ownership.", "Ownership helper", { exitCode: code, stderr, ...(signal ? { failure: `ended by ${signal}` } : {}) })); else { try { const ids: unknown = JSON.parse(stdout); if (!Array.isArray(ids) || !ids.every(id => Number.isInteger(id) && id > 0)) throw new Error("Invalid process ownership result."); resolve(ids as number[]); } catch (error) { reject(error); } } });
+    child.on("close", (code, signal) => { clearTimeout(timer); if (code !== 0) reject(processCheckFailure("Could not establish Codex process ownership.", "Ownership helper", { exitCode: code, stderr, ...(signal ? { failure: `ended by ${signal}` } : {}) })); else { try {
+      const value = JSON.parse(stdout) as ProcessInventory;
+      if (!value || Object.keys(value).length !== 2 || !Array.isArray(value.processes) || !value.processes.length || value.processes.length > 65536 || !value.processes.every(row => Array.isArray(row) && row.length === 2 && Number.isInteger(row[0]) && row[0] > 0 && Number.isInteger(row[1]) && row[1] >= 0) || new Set(value.processes.map(row => row[0])).size !== value.processes.length || !Array.isArray(value.owned) || value.owned.length > 4096 || new Set(value.owned).size !== value.owned.length || !value.owned.every(id => Number.isInteger(id) && id > 0 && value.processes.some(row => row[0] === id))) throw new Error("Invalid process ownership result.");
+      resolve(value);
+    } catch (error) { reject(error); } } });
     child.stdin!.end(JSON.stringify({ owner: run.codex!.processOwner }));
   });
+}
+
+async function markedProcesses(run: SessionRun, observed?: number[]): Promise<{ pid: number; startTime: string }[]> {
+  if (!run.codex?.processOwner || process.platform === "win32") return [];
+  const pids = observed ?? (await processInventory(run)).owned;
   const result: { pid: number; startTime: string }[] = [];
   for (const pid of pids) { const startTime = await processStartTime(pid); if (startTime) result.push({ pid, startTime }); }
   return result;

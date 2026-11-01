@@ -171,8 +171,7 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
     for (const id of test.runEvidenceIds) requireAudit(context.evidence.some(e => e.evidenceId === id && e.command?.outcome === "success" && insideRepository(repositoryFor(record, test.repository), e.command.cwd) && assessment.assessment?.verificationEvidenceIds?.includes(id) && [test, ...test.configuration].every(ref => Date.parse(e.command!.startedAt) >= snapshot.repositories.find(r => r.repository === ref.repository)!.files[ref.path]!.changedAtMs) && test.selectors.some(selector => e.command!.invocation.includes(selector) || e.command!.output.includes(selector))), `Missing observed collection/run for ${test.path}`, "missing_evidence");
   }
   for (const path of evidencePaths) requireAudit(fileInSnapshot(snapshot, path) && path.path.endsWith(".md"), `Invalid method evidence document ${path.path}`);
-  const records = new Set((record.completionAudits?.activities ?? []).map(a => `${prdRepo.name}:${a.reportPath}`));
-  records.add(`${prdRepo.name}:${record.prdDirectory}/test-audit.md`);
+  const records = auditRecordPaths(record);
   const delivery: unknown[] = []; const tests: unknown[] = [];
   for (const repo of repositories) {
     delivery.push([repo.repository, repo.identity, repo.branch]); tests.push([repo.repository, repo.identity, repo.branch]);
@@ -191,7 +190,69 @@ function assignedPathDirectory(repo: RepositoryEntry, path: string): string {
   requireAudit(relative(root, full) && !relative(root, full).startsWith("..") && full.startsWith(root + sep), "PRD directory escapes assigned repository.", "outside_execution"); return full;
 }
 
-export function compareSnapshots(checked: WorkSnapshot, current: WorkSnapshot): { deliveryCurrent: boolean; testsCurrent: boolean } {
-  const deliveryCurrent = checked.deliveryFingerprint === current.deliveryFingerprint && checked.requirements.id === current.requirements.id;
-  return { deliveryCurrent, testsCurrent: deliveryCurrent && checked.testFingerprint === current.testFingerprint };
+/**
+ * Markdown in a folder that held a PRD at the checked snapshot is current through the criteria manifest
+ * and phase scope, never its bytes: audits write completion phases, plan rows, assumptions and pointers
+ * there by design. A document an acceptance criterion links to is part of that criterion and stays material.
+ */
+export function requirementsDocumentFilter(checked: WorkSnapshot): (repository: string, path: string) => boolean {
+  const folders = new Map(checked.repositories.map(repo => [repo.repository, new Set(Object.keys(repo.files).filter(path => path.endsWith("-prd.md")).map(path => posix.dirname(path)))]));
+  const criterionLinks = new Set<string>();
+  for (const criterion of checked.requirements.criteria) for (const link of criterion.content.matchAll(/\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g)) {
+    const href = link[1]!.split(/[?#]/)[0]!;
+    if (href && !/^[a-z]+:/i.test(href)) criterionLinks.add(`${criterion.repository}:${posix.normalize(posix.join(posix.dirname(criterion.path), decodeURIComponent(href)))}`);
+  }
+  return (repository, path) => path.endsWith(".md") && !!folders.get(repository)?.has(posix.dirname(path)) && !criterionLinks.has(`${repository}:${path}`);
+}
+
+export interface SnapshotChange { affects: "delivery" | "tests"; description: string }
+
+/** Computed from stored per-file digests and plans, so accepted snapshots follow the current rules. */
+export function snapshotChanges(record: PrdRecord, checked: WorkSnapshot, current: WorkSnapshot): SnapshotChange[] {
+  const changes: SnapshotChange[] = [];
+  const delivery = (description: string) => changes.push({ affects: "delivery", description });
+  const ignored = auditRecordPaths(record);
+  const requirementsDocument = requirementsDocumentFilter(checked);
+  const tests = new Set(checked.testPaths.map(file => `${file.repository}:${file.path}`));
+  const oldRepositories = new Map(checked.repositories.map(repo => [repo.repository, repo]));
+  const newRepositories = new Map(current.repositories.map(repo => [repo.repository, repo]));
+  for (const name of new Set([...oldRepositories.keys(), ...newRepositories.keys()])) {
+    const before = oldRepositories.get(name), after = newRepositories.get(name);
+    if (!before || !after) { delivery(`${before ? "Removed" : "Added"} assigned repository ${name}`); continue; }
+    if (before.identity !== after.identity) delivery(`Changed repository identity: ${name}`);
+    if (before.branch !== after.branch) delivery(`Changed branch: ${name} (${before.branch} → ${after.branch})`);
+    for (const path of new Set([...Object.keys(before.files), ...Object.keys(after.files)])) {
+      const key = `${name}:${path}`;
+      if (ignored.has(key) || requirementsDocument(name, path)) continue;
+      const oldFile = before.files[path], newFile = after.files[path];
+      if (oldFile?.digest === newFile?.digest && oldFile?.mode === newFile?.mode) continue;
+      changes.push({ affects: tests.has(key) ? "tests" : "delivery", description: `${!oldFile ? "Added" : !newFile ? "Removed" : oldFile.mode !== newFile.mode ? "Changed file mode" : "Changed"}: ${name}/${path}` });
+    }
+  }
+  if (checked.requirements.id !== current.requirements.id) delivery("Changed governing acceptance criteria");
+  // Appended phases are admitted against the activity's first snapshot; existing phases must keep their scope.
+  checked.plan.forEach((phase, index) => {
+    const now = current.plan[index];
+    if (!now || now.id !== phase.id || now.file !== phase.file) delivery(`Removed or reordered phase ${phase.id}: ${record.repository.name}/${phase.file}`);
+    else if (now.content !== phase.content || hashValue(now.splitInto ?? []) !== hashValue(phase.splitInto ?? [])) delivery(`Changed phase scope: ${record.repository.name}/${phase.file}`);
+  });
+  return changes;
+}
+
+export function compareSnapshots(record: PrdRecord, checked: WorkSnapshot, current: WorkSnapshot): { deliveryCurrent: boolean; testsCurrent: boolean } {
+  const changes = snapshotChanges(record, checked, current);
+  const deliveryCurrent = !changes.some(change => change.affects === "delivery");
+  return { deliveryCurrent, testsCurrent: deliveryCurrent && !changes.some(change => change.affects === "tests") };
+}
+
+function auditRecordPaths(record: PrdRecord): Set<string> {
+  return new Set([...(record.completionAudits?.activities ?? []).map(a => `${record.repository.name}:${a.reportPath}`), `${record.repository.name}:${record.prdDirectory}/test-audit.md`]);
+}
+
+/** Explain the same comparison that gates audit admission. */
+export function staleSnapshotReason(record: PrdRecord, checked: WorkSnapshot, current: WorkSnapshot, includeTests: boolean): string {
+  const changes = snapshotChanges(record, checked, current).filter(change => includeTests || change.affects === "delivery").map(change => change.description);
+  const details = changes.slice(0, 12).map(change => change.slice(0, 600));
+  if (changes.length > details.length) details.push(`${changes.length - details.length} additional changes`);
+  return `Acceptance criteria, phase scope, implementation or checked test content changed after the audit snapshot.${details.length ? ` ${details.join("; ")}.` : ""} Resume the assigned audit to capture a current snapshot, reassess the changed work and resubmit its report.`;
 }

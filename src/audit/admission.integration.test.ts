@@ -86,6 +86,67 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
 function commit(sandbox: Sandbox, root: string, paths: string[]) { git(sandbox, root, "add", "--", ...paths); git(sandbox, root, "commit", "--allow-empty", "-qm", "test(audit): fixture work"); git(sandbox, root, "push", "-qu", "origin", "develop"); }
 
 describe("audit evidence admission", () => {
+  it.skipIf(process.platform === "win32")("names a mode-only change without reporting normalized phase-status edits", async () => {
+    const f = await fixture();
+    const phase = f.checked.plan[0]!.file;
+    const original = readFileSync(join(f.root, phase), "utf8");
+    expect(original).toContain("**Closed:**");
+    writeFileSync(join(f.root, phase), original.replace(/^\*\*Closed:\*\*.*$/m, "**Closed:** 2026-10-25"));
+    chmodSync(join(f.root, "value.mjs"), 0o755);
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe("unresolved"); expect(result.refusal?.code).toBe("stale_snapshot");
+    expect(result.refusal?.reason).toContain("Changed file mode: proof/value.mjs");
+    expect(result.refusal?.reason).not.toContain(phase);
+    expect(f.activity.acceptedResult).toBeUndefined();
+  });
+  it.each(["implementation", "existing phase scope", "acceptance criterion"])("names what changed when refusing a stale %s snapshot", async mode => {
+    const f = await fixture();
+    const path = mode === "implementation" ? "value.mjs" : mode === "existing phase scope" ? `${directory}/phase-1-value.md` : `${directory}/proof-prd.md`;
+    const text = readFileSync(join(f.root, path), "utf8");
+    writeFileSync(join(f.root, path), mode === "implementation" ? "export const value = () => 43;\n" : mode === "existing phase scope" ? text.replace("AC-PROOF-01\n", "AC-PROOF-01\nAlso export a second value.\n") : text.replace("returns 42", "returns 43"));
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition).toBe("unresolved");
+    expect(result.refusal?.code).toBe("stale_snapshot");
+    expect(result.refusal?.reason).toContain(mode === "implementation" ? `Changed: proof/${path}` : mode === "existing phase scope" ? `Changed phase scope: proof/${path}` : "Changed governing acceptance criteria");
+    expect(result.refusal?.reason).not.toContain(f.activity.reportPath);
+    expect(result.refusal?.reason).toContain("capture a current snapshot, reassess the changed work and resubmit");
+    expect(result.checks[0]!.facts[0]).toBe(result.refusal?.reason);
+    expect(f.activity.acceptedResult).toBeUndefined();
+  });
+  it("admits completion phases and requirements notes an audit writes after its checked snapshot (AC-RUN-03)", async () => {
+    const f = await fixture();
+    const repair = `${directory}/phase-2-repair.md`;
+    writeFileSync(join(f.root, repair), `# Phase 2: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1\n`);
+    writeFileSync(join(f.root, directory, "technical-design.md"), readFileSync(join(f.root, directory, "technical-design.md"), "utf8") + "Phase 2 repairs the export.\n");
+    writeFileSync(join(f.root, directory, "proof-prd.md"), readFileSync(join(f.root, directory, "proof-prd.md"), "utf8") + "\n## Notes\nThe delivery audit added Phase 2.\n");
+    writeFileSync(join(f.root, directory, "proof-assumptions.md"), "# Assumptions\nA-1: the repair keeps the exported name.\n");
+    writeFileSync(join(f.root, directory, "proof-repair-continuation-prompt.md"), "Build Phase 2.\n");
+    commit(f.sandbox, f.root, [repair, `${directory}/technical-design.md`, `${directory}/proof-prd.md`, `${directory}/proof-assumptions.md`, `${directory}/proof-repair-continuation-prompt.md`]);
+    const row = f.report.criteria[0]!;
+    row.deliveryStatus = "partly_implemented";
+    row.findings = [{ partIds: ["value"], missing: "The existing required return value needs repair.", evidenceIds: [] }];
+    f.report.outcome = "completion_phases";
+    f.report.completionPhases = [{ id: "2", path: repair, originKind: "delivery_audit", originActivityId: f.activity.activityId, criterionKeys: [row.criterionKey], missingBehavior: "Restore the required return value.", dependencies: ["1"] }];
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.disposition, result.refusal?.reason).toBe("recorded");
+    expect(result.snapshotId).toBe(f.checked.id);
+    expect(result.nextAction).toBe("implementation");
+    expect(await auditCurrentness(f.context, f.activity)).toEqual({ deliveryCurrent: true, testsCurrent: true });
+  });
+  it("refuses a blocked report that leaves an unreported appended phase (AC-LOOP-01)", async () => {
+    const f = await fixture();
+    const repair = `${directory}/phase-2-repair.md`;
+    writeFileSync(join(f.root, repair), `# Phase 2: Repair value\n\n**Added by delivery audit:** 2026-10-25 ${f.activity.activityId}\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1\n`);
+    commit(f.sandbox, f.root, [repair]);
+    f.report.outcome = "blocked"; f.report.blockers = [{ id: "decision", criterionKeys: f.report.scope.criterionKeys, problem: "A decision is missing", requiredAction: "Record it" }]; f.report.criteria[0]!.blockerIds = ["decision"];
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.refusal?.code).toBe("inconsistent_plan");
+    expect(result.refusal?.reason).toContain("exactly the appended plan entries");
+  });
   it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
     const f = await fixture();
     const source = f.store.putBytes("Shared retained transcript\n".repeat(40_000));
@@ -235,7 +296,7 @@ describe("audit evidence admission", () => {
   });
   it("does not exclude arbitrary evidence declarations or unsupported test-only helpers", async () => {
     const f = await fixture(); const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence: auditEvidence(f.context), now: new Date().toISOString() }, [], []);
-    expect(compareSnapshots(f.checked, current).testsCurrent).toBe(true);
+    expect(compareSnapshots(f.record, f.checked, current).testsCurrent).toBe(true);
     await expect(issueSnapshot(f.context, { ...f.body(), testPaths: [{ repository: "proof", path: "value.mjs", blob: f.checked.repositories[0]!.files["value.mjs"]!.blob }], evidencePaths: [] })).rejects.toMatchObject({ code: "invalid_report" });
   });
   it("uses real authenticated HTTP and the CLI, with rollback when state persistence fails", async () => {
@@ -392,6 +453,13 @@ describe("typed test-audit evidence", () => {
       expect(result.refusal?.reason).toBe(`Material content proof/value.mjs changed at ${changedAt}, after passing verification ${run} started at ${startedAt}. A byte-identical restore, checkout or stash still counts as a change. Finish every red check and code or test change, then rerun the passing runs mapped to test parts and each red check's restored passing run.`);
     }
   });
+  it("keeps a passing run bound when only a requirements document appeared after it", async () => {
+    const f = await testAuditFixture();
+    writeFileSync(join(f.root, directory, "proof-test-continuation-prompt.md"), "Continue the test audit.\n");
+    const evidence = await refreshAuditEvidence(f.context);
+    const current = await captureSnapshot({ ...f.context, activity: f.activity, evidence, now: new Date().toISOString() }, [], []);
+    expect(() => validateReport(f.report, { record: f.record, activity: f.activity, checked: f.checked, initial: f.checked, current, evidence })).not.toThrow();
+  });
   it("refuses a passing run when a file appeared after the checked snapshot", async () => {
     const f = await testAuditFixture();
     writeFileSync(join(f.root, "extra.mjs"), "export const extra = 1;\n");
@@ -487,7 +555,7 @@ describe("required documents and reference-only provenance", () => {
     const before = ownerDocuments(context, context.owner!);
     put(f, "docs/changes/shared/technical-design.md", "# Changed governing design\n");
     expect(ownerDocuments(context, context.owner!).documentsDigest).not.toBe(before.documentsDigest);
-    expect(compareSnapshots(snapshot, await capture(f))).toEqual({ deliveryCurrent: false, testsCurrent: false });
+    expect(compareSnapshots(f.record, snapshot, await capture(f))).toEqual({ deliveryCurrent: false, testsCurrent: false });
   });
   it.each(["unmarked", "unknown title", "replacement", "markdown replacement"])("refuses missing required evidence with its full chain: %s", async mode => {
     const f = await fixture();

@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { readSessionRecord, sessionDirectory, sessionStorageKey, writeSessionRecord } from "../state/records.js";
 import { runCodexSession, reconcileCodexAttempt } from "./codex-session.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
-import { stopCodexOwnedProcesses } from "./codex-owned-processes.js";
+import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-processes.js";
 import { waitFor } from "../test-support/engine-harness.js";
 
 const fixtures: ReturnType<typeof codexWorkFixture>[] = [];
@@ -17,6 +18,38 @@ afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(fixtures.splice(0)
 
 // Real CLI pipes, records and processes. Live inference/protection is proved separately.
 describe("durable protected Codex attempts", () => {
+  it.skipIf(process.platform === "win32")("ends a genuinely stalled ownership query within its five-second budget", async () => {
+    const f = fixture(); const pidFile = join(f.root, "stalled-query.pid");
+    const preload = join(f.root, "stalled-query-preload.mjs");
+    const program = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid)); process.stderr.write('synthetic stalled query'); setInterval(()=>{},1000);`;
+    writeFileSync(preload, `import cp from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module'; const spawn=cp.spawn; cp.spawn=(file,args,options)=>file==='/bin/ps'&&args[0]==='eww'?spawn(process.execPath,['-e',${JSON.stringify(program)}],options):spawn(file,args,options); syncBuiltinESMExports();`);
+    const started = Date.now();
+    const child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/codex-process-owners.mjs", import.meta.url))], { cwd: f.root, env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(preload)}`.trim() }, stdin: "pipe" });
+    let stderr = "", stdout = "", closed = false;
+    child.stderr!.on("data", value => { stderr += String(value); }); child.stdout!.on("data", value => { stdout += String(value); });
+    const completion = once(child, "close").then(([code]) => { closed = true; return code; });
+    const watchdog = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); }, 12_000);
+    child.stdin!.end(JSON.stringify({ owner: "00000000-0000-4000-8000-000000000000" }));
+    try {
+      expect(await completion).toBe(1);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(4500);
+      expect(Date.now() - started).toBeLessThan(8000);
+      expect(stderr).toContain("query timed out after 5 seconds"); expect(stdout).toBe("");
+      expect(await processStartTime(Number(readFileSync(pidFile, "utf8")))).toBeUndefined();
+    } finally { clearTimeout(watchdog); if (!closed) await endProcessTree(child.pid, "SIGKILL"); }
+  });
+  it.skipIf(process.platform === "win32")("accepts a completed ownership query after the controller event loop is busy longer than five seconds", async () => {
+    const run = { pid: process.pid, codex: { processOwner: "00000000-0000-4000-8000-000000000000" } } as Parameters<typeof stopCodexOwnedProcesses>[0];
+    const failures: Error[] = [];
+    const monitor = new CodexOwnedProcesses(run, () => undefined, error => failures.push(error));
+    try {
+      const started = monitor.start();
+      // OS query and its deadline run independently; the parent cannot drain pipes.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6500);
+      await expect(started).resolves.toBeUndefined();
+      expect(failures).toEqual([]); expect(monitor.failure).toBeUndefined();
+    } finally { await monitor.close(); }
+  });
   it("waits for a required child after the parent's final turn instead of ending the attempt", async () => {
     const f = fixture(); const release = join(f.root, "review-finished");
     f.set({ pendingChild: release });

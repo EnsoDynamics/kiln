@@ -4,7 +4,7 @@ import type { PrdRecord, SessionRecord, CheckResult } from "../state/records.js"
 import type { GitContext } from "../engine/git-reads.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReport, type AuditResult, type EvidenceEntry, type FileReference, type TestPath, type WorkSnapshot } from "./contracts.js";
 import { AuditStore, hashBytes, hashValue, REPORT_LIMIT, strictJson } from "./storage.js";
-import { assignedPath, captureSnapshot, compareSnapshots, gitText, repositoryFor, phaseScope } from "./snapshots.js";
+import { assignedPath, captureSnapshot, compareSnapshots, gitText, repositoryFor, phaseScope, staleSnapshotReason } from "./snapshots.js";
 import { collectProviderEvidence } from "./provider-evidence.js";
 import { validateReport } from "./validate-report.js";
 
@@ -144,8 +144,8 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     const evidence = await refreshAuditEvidence(context);
     for (const source of new Set(evidence.map(entry => entry.retainedSource))) store.bytes(source);
     const current = await captureSnapshot({ ...context, activity, evidence, now: new Date().toISOString() }, checked.testPaths, checked.evidencePaths);
-    const equality = compareSnapshots(checked, current);
-    requireAudit(equality.deliveryCurrent && (activity.kind !== "test_audit" || equality.testsCurrent), "Requirements, implementation or checked test content changed after the audit snapshot.", "stale_snapshot");
+    const equality = compareSnapshots(context.record, checked, current);
+    if (!equality.deliveryCurrent || activity.kind === "test_audit" && !equality.testsCurrent) throw new AuditRefusal("stale_snapshot", staleSnapshotReason(context.record, checked, current, activity.kind === "test_audit"));
     const validated = validateReport(raw, { record: context.record, activity, checked, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, evidence });
     artifactEvidence = await checkArtifacts(context, validated.report, checked);
     if (activity.kind === "test_audit") methodRecordDigest = store.putBytes(readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), `${context.record.prdDirectory}/test-audit.md`), "utf8"));
@@ -164,7 +164,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     }
     // Re-read after remote/history work: changes while admission runs cannot be accepted.
     const final = await captureSnapshot({ ...context, activity, evidence, now: new Date().toISOString() }, checked.testPaths, checked.evidencePaths);
-    requireAudit(compareSnapshots(current, final).testsCurrent && hashValue(current.repositories.map(r => r.head)) === hashValue(final.repositories.map(r => r.head)) && hashBytes(readFileSync(path, "utf8")) === reportDigest, "Work or report changed during admission.", "stale_snapshot");
+    requireAudit(compareSnapshots(context.record, current, final).testsCurrent && hashValue(current.repositories.map(r => r.head)) === hashValue(final.repositories.map(r => r.head)) && hashBytes(readFileSync(path, "utf8")) === reportDigest, "Work or report changed during admission.", "stale_snapshot");
   } catch (error) {
     if (!(error instanceof AuditRefusal)) throw error;
     refusal = { code: error.code, status: error.status, reason: error.message, criteria: error.criteria };
@@ -194,5 +194,5 @@ export async function auditCurrentness(context: AdmissionContext, activity: Audi
   }
   const evidence = auditEvidence(context); for (const source of new Set(evidence.map(entry => entry.retainedSource))) store.bytes(source);
   const current = await captureSnapshot({ ...context, activity, evidence, now: new Date().toISOString(), retainedClassification: true }, checked.testPaths, checked.evidencePaths);
-  return compareSnapshots(checked, current);
+  return compareSnapshots(context.record, checked, current);
 }

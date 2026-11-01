@@ -1,0 +1,41 @@
+{
+  "source": "Codex 0.166.0 retained rollout, observed 2026-10-31. Identifiers, task text and ciphertext sanitized; envelope preserved.",
+  "item": {
+    "type": "agent_message",
+    "id": "recorded-agent-message",
+    "author": "/root",
+    "recipient": "/root/reviewer",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "Retained task context."
+      },
+      {
+        "type": "encrypted_content",
+        "encrypted_content": "sanitized-ciphertext"
+      }
+    ],
+    "internal_chat_message_metadata_passthrough": {
+      "turn_id": "parent-turn-0",
+      "create_time": 1793475085.102097,
+      "content_item_metadata": [
+        {
+          "provenance": {
+            "type": "tool",
+            "namespace": "collaboration"
+          }
+        },
+        {
+          "provenance": {
+            "type": "tool",
+            "namespace": "collaboration"
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "client_authored": false,
+    "user_input_order": 0
+  }
+}
