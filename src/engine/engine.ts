@@ -31,7 +31,7 @@ import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
-import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, type AdmissionContext } from "../audit/admission.js";
+import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
@@ -1584,7 +1584,9 @@ export class Engine {
   /** Audits have activity storage keys, never synthetic implementation phase IDs. */
   auditRecoveryTask(key: string, folder: string): AuditRecoveryTask | undefined {
     const activity = this.record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
-    return activity ? { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path, instructions: this.auditPrompt(activity) } : undefined;
+    if (!activity) return undefined;
+    const refusal = latestAuditRefusal(this.stateDirectory, activity);
+    return { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path, instructions: this.auditPrompt(activity), ...(refusal ? { lastRefusal: { at: refusal.at, text: `${refusal.code}: ${refusal.reason}${refusal.criteria.length ? ` Criteria: ${refusal.criteria.join(", ")}.` : ""}` } } : {}) };
   }
 
   deliveryOwnerFor(key: string): DeliveryOwner {
@@ -3041,13 +3043,14 @@ export class Engine {
     const cwd = this.workingDirectoryOf(session);
     const multi = cwd !== this.worktreePath;
     const label = facts.stop?.limit?.label ?? refusal?.label;
+    const auditTask = this.auditRecoveryTask(phaseKey, cwd);
     const prompt = resumePrompt({
       deliveryAuthority: this.deliveryAuthority(),
       agentId: session.agentId ?? "claude_code",
       ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
-      ...(this.auditRecoveryTask(phaseKey, cwd) ? { auditTask: this.auditRecoveryTask(phaseKey, cwd)! } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
+      ...(auditTask ? { auditTask } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
     });

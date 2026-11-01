@@ -436,6 +436,16 @@ describe("automatic completion activities", () => {
     expect(h.engine.stoppedPhaseKey()).toBe(key); expect(h.engine.record.phases[key]!.stop!.checks.some(c => c.name === "missing_evidence" && !c.passed)).toBe(true);
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.completionAudits!.activities).toHaveLength(1); expect(h.engine.record.completedAt).toBeUndefined();
+    // Resume must tell the agent what Check again found, since that session never saw the refusal.
+    expect(h.engine.auditRecoveryTask(key, h.engine.worktreePath)?.lastRefusal?.text).toMatch(/^missing_evidence: Cannot read /);
+  });
+  it("resumes a refused audit with Kiln's latest check and no reply (AC-RUN-02)", { timeout: 120_000 }, async () => {
+    const h = await fixture([auditSession({ noReport: true }), auditSession()]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true }); await h.engine.settled();
+    const prompt = h.claudeCalls()[1]!.prompt;
+    expect(prompt).toContain("did not accept it: missing_evidence: Cannot read ");
+    expect(prompt).toContain("Carry on with the assigned Delivery audit");
   });
   it("recovers a committed report without submission and pauses at the audit boundary", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession({ skipSubmit: true })]);

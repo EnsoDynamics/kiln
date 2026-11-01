@@ -115,9 +115,10 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
 /** The cause in a resumed session's prompt, from the run's `interruptedBy`. */
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
-export interface AuditRecoveryTask { instructions?: string; label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string }
+export interface AuditRecoveryTask { instructions?: string; label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string; lastRefusal?: { at: string; text: string } }
 export function auditRecoveryPrompt(task: AuditRecoveryTask, deliveryAuthority?: string): string {
-  return [fill(template("resume-carry-on-audit.txt"), { ...task, round: String(task.round) }), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
+  const values = { label: task.label, prdFile: task.prdFile, activityId: task.activityId, round: String(task.round), reportPath: task.reportPath, skillPath: task.skillPath };
+  return [fill(template("resume-carry-on-audit.txt"), values), ...(task.lastRefusal ? [fill(template("resume-audit-refusal.txt"), { at: task.lastRefusal.at, refusal: task.lastRefusal.text })] : []), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
 }
 
 export interface ResumePromptValues {

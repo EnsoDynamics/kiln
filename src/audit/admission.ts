@@ -18,6 +18,19 @@ export function activeAudit(record: PrdRecord): AuditActivity {
   if (!activity) throw new AuditRefusal("wrong_activity", "No audit activity is assigned to this execution.", 409);
   return activity;
 }
+export interface AuditProblem { code: string; reason: string; criteria: string[]; at: string }
+/**
+ * What a resumed audit must correct: the latest attempt's refusal, or its failed checks when the report
+ * validated but delivery checks did not pass, while nothing has been accepted.
+ */
+export function latestAuditRefusal(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): AuditProblem | undefined {
+  const latest = activity.attempts.at(-1);
+  if (activity.acceptedResult || !latest) return undefined;
+  const result = store.read<AuditResult>(latest);
+  if (result.refusal) return { code: result.refusal.code, reason: result.refusal.reason, criteria: result.refusal.criteria ?? [], at: result.at };
+  const failed = result.checks.filter(check => !check.passed);
+  return failed.length ? { code: "unresolved_checks", reason: failed.map(check => `${check.name}: ${check.facts.join(" ")}`).join("; "), criteria: [], at: result.at } : undefined;
+}
 export function auditEvidence(context: AdmissionContext): EvidenceEntry[] {
   const store = new AuditStore(context.stateDirectory);
   return (context.record.completionAudits?.evidence ?? []).map(id => store.read<EvidenceEntry>(id));
@@ -53,7 +66,8 @@ export async function auditStatus(context: AdmissionContext, cursor?: string) {
     } catch { throw new AuditRefusal("malformed_request", "Invalid evidence cursor.", 400); }
   }
   const latest = activity.snapshots.at(-1); const snapshot = latest ? store.read<WorkSnapshot>(latest) : undefined;
-  return { executionId: context.record.executionId, activityId: activity.activityId, kind: activity.kind, round: activity.round, continuationIndex: activity.continuationIndex, revision: state.revision, requiredReportPath: activity.reportPath, currentSnapshot: snapshot, acceptedResults: state.activities.flatMap(a => a.acceptedResult ? [{ activityId: a.activityId, resultId: a.acceptedResult }] : []), outstandingChecks: activity.acceptedResult ? [] : ["Audit result recorded"], evidence: entries.slice(offset, offset + 100).map(({ command, assessment, ...entry }) => ({ ...entry, retainedSource: undefined, ...(command ? { command: { ...command, output: undefined } } : {}), ...(assessment ? { assessment: { ...assessment, task: undefined, response: undefined } } : {}) })), ...(offset + 100 < entries.length ? { nextCursor: Buffer.from(JSON.stringify({ activity: activity.activityId, offset: offset + 100 })).toString("base64url") } : {}) };
+  const latestRefusal = latestAuditRefusal(context.stateDirectory, activity, store);
+  return { executionId: context.record.executionId, activityId: activity.activityId, kind: activity.kind, round: activity.round, continuationIndex: activity.continuationIndex, revision: state.revision, requiredReportPath: activity.reportPath, currentSnapshot: snapshot, acceptedResults: state.activities.flatMap(a => a.acceptedResult ? [{ activityId: a.activityId, resultId: a.acceptedResult }] : []), outstandingChecks: activity.acceptedResult ? [] : ["Audit result recorded"], ...(latestRefusal ? { latestRefusal } : {}), evidence: entries.slice(offset, offset + 100).map(({ command, assessment, ...entry }) => ({ ...entry, retainedSource: undefined, ...(command ? { command: { ...command, output: undefined } } : {}), ...(assessment ? { assessment: { ...assessment, task: undefined, response: undefined } } : {}) })), ...(offset + 100 < entries.length ? { nextCursor: Buffer.from(JSON.stringify({ activity: activity.activityId, offset: offset + 100 })).toString("base64url") } : {}) };
 }
 
 export async function issueSnapshot(context: AdmissionContext, body: Record<string, unknown>) {

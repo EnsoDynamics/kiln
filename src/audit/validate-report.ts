@@ -69,7 +69,7 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
   let unresolved = false;
   // Check the enum across the whole report first: a free-text value would otherwise read as "fully superseded".
   const unknownApplicability = report.criteria.flatMap(row => (Array.isArray(row.parts) ? row.parts : []).filter(part => !["current", "superseded"].includes(part.applicability)).map(part => ({ row: row.criterionKey, part })));
-  requireAudit(!unknownApplicability.length, `Part applicability must be "current" or "superseded"; ${unknownApplicability.length} part(s) in ${new Set(unknownApplicability.map(u => u.row)).size} row(s) use another value, e.g. ${unknownApplicability[0]?.part.id}: ${JSON.stringify(String(unknownApplicability[0]?.part.applicability).slice(0, 80))}. Applicability says whether the requirement text is still in force, not whether its phase is closed.`);
+  requireAudit(!unknownApplicability.length, `Part applicability must be "current" or "superseded"; ${unknownApplicability.length} part(s) in ${new Set(unknownApplicability.map(u => u.row)).size} row(s) use another value, e.g. ${unknownApplicability[0]?.part.id ?? "(part without id)"}: ${unknownApplicability[0]?.part.applicability === undefined ? "(missing)" : JSON.stringify(String(unknownApplicability[0].part.applicability).slice(0, 80))}. Applicability says whether the requirement text is still in force, not whether its phase is closed.`);
   for (const row of report.criteria) {
     const source = checked.requirements.criteria.find(c => c.key === row.criterionKey)!;
     requireAudit(Array.isArray(row.parts) && row.parts.length && strings(row.assessmentEvidenceIds) && row.assessmentEvidenceIds.length && Array.isArray(row.findings) && strings(row.blockerIds), `Incomplete criterion row ${row.criterionKey}`);
@@ -92,12 +92,14 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
       requireAudit(Array.isArray(part.code) && Array.isArray(part.tests), `Part ${part.id} needs code/test references.`);
       part.code.forEach(file);
       if (part.applicability === "superseded") {
-        requireAudit(part.replacement && /Superseded(?: in part)? by:/.test(source.content), `Part ${part.id} has no source supersession pointer.`);
+        requireAudit(part.replacement, `Superseded part ${part.id} needs a replacement {repository, path, criterion}.`);
+        requireAudit(/Superseded(?: in part)? by:/.test(source.content), `Part ${part.id} is marked superseded, but its governing criterion has no "Superseded by:" pointer.`);
         const replacement = part.replacement; const repo = repositoryFor(record, replacement.repository);
         const sourceFile = current.repositories.find(r => r.repository === repo.name)?.files[replacement.path]; requireAudit(sourceFile, "Replacement source is missing.");
         const manifest = requirementManifest(repo.name, replacement.path, sourceFile.blob, readFileSync(assignedPath(repo, replacement.path), "utf8"));
         const target = manifest.criteria.find(c => c.label === replacement.criterion || c.key === replacement.criterion);
-        requireAudit(target && target.key !== row.criterionKey, `Cyclic/self replacement for ${part.id}.`);
+        requireAudit(target, `Replacement criterion ${replacement.criterion} for ${part.id} is not in ${replacement.repository}/${replacement.path}.`);
+        requireAudit(target.key !== row.criterionKey, `Cyclic/self replacement for ${part.id}.`);
         const seen = new Set([row.criterionKey]);
         let next: CriterionSource | undefined = target;
         while (next && /Superseded by:/.test(next.content)) {

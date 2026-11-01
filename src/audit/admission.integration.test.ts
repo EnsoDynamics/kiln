@@ -14,7 +14,7 @@ import { Engine } from "../engine/engine.js";
 import { TOKEN_HEADER, type LocalServer } from "../server/local-server.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { runAudit } from "../audit-command.js";
-import { auditCurrentness, auditEvidence, issueSnapshot, refreshAuditEvidence, submitAudit, type AdmissionContext } from "./admission.js";
+import { auditCurrentness, auditEvidence, auditStatus, issueSnapshot, latestAuditRefusal, refreshAuditEvidence, submitAudit, type AdmissionContext } from "./admission.js";
 import { validateReport } from "./validate-report.js";
 import { AuditStore, hashBytes, strictJson } from "./storage.js";
 import { captureSnapshot, compareSnapshots, requirementManifest, phaseScope } from "./snapshots.js";
@@ -156,6 +156,32 @@ describe("audit evidence admission", () => {
     expect(result.refusal?.reason).toContain('Part applicability must be "current" or "superseded"');
     expect(result.refusal?.reason).toContain('"in scope: owning phase 1 closed"');
     expect(result.refusal?.reason).not.toContain("needs the superseded status");
+  });
+  it("tells a resumed audit why its last submission was refused until a result is recorded (AC-RUN-02)", async () => {
+    const f = await fixture();
+    expect(latestAuditRefusal(f.stateDirectory, f.activity)).toBeUndefined();
+    for (const part of f.report.criteria[0]!.parts) (part as unknown as Record<string, unknown>).applicability = "in scope";
+    f.saveReport();
+    await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    const status = await auditStatus(f.context);
+    expect(status.latestRefusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining('Part applicability must be "current" or "superseded"') });
+    expect(latestAuditRefusal(f.stateDirectory, f.activity)?.code).toBe("invalid_report");
+    for (const part of f.report.criteria[0]!.parts) part.applicability = "current";
+    f.saveReport();
+    expect((await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath })).disposition).toBe("recorded");
+    expect((await auditStatus(f.context)).latestRefusal).toBeUndefined();
+  });
+  it("reports failed delivery checks to a resumed audit when the report itself validated (AC-RUN-02)", async () => {
+    const f = await fixture();
+    writeFileSync(join(f.root, f.activity.reportPath), JSON.stringify(f.report));
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.refusal).toBeUndefined(); expect(result.disposition).toBe("unresolved");
+    const failed = result.checks.filter(check => !check.passed);
+    expect(failed.length).toBeGreaterThan(0);
+    const problem = latestAuditRefusal(f.stateDirectory, f.activity)!;
+    expect(problem.code).toBe("unresolved_checks");
+    for (const check of failed) expect(problem.reason).toContain(`${check.name}: `);
+    expect((await auditStatus(f.context)).latestRefusal).toMatchObject({ code: "unresolved_checks" });
   });
   it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
     const f = await fixture();
@@ -629,7 +655,8 @@ describe("current requirements and classified content", () => {
     f.report.methodEvidence.assessmentEvidenceIds = [assessId]; f.report.methodEvidence.reviewEvidenceIds = [evidence.find(e => e.locator === "requirements-reviewer")!.evidenceId];
     f.saveReport(); const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath }); expect(result.checks.filter(c => !c.passed)).toEqual([]); expect(result.disposition).toBe("recorded");
     const input = { record: f.record, activity: f.activity, checked: f.checked, current: f.checked, evidence };
-    retired.replacement.criterion = "AC-MISSING-99"; expect(() => validateReport(f.report, input)).toThrow(); retired.replacement.criterion = "AC-PROOF-02";
+    retired.replacement.criterion = "AC-MISSING-99"; expect(() => validateReport(f.report, input)).toThrow(`Replacement criterion AC-MISSING-99 for retired is not in proof/${directory}/proof-prd.md.`); retired.replacement.criterion = "AC-PROOF-02";
+    const replacement = retired.replacement; delete (retired as Partial<typeof retired>).replacement; expect(() => validateReport(f.report, input)).toThrow("Superseded part retired needs a replacement"); retired.replacement = replacement;
     f.report.criteria[1]!.deliveryStatus = "changed_outside_requirements"; expect(() => validateReport(f.report, input)).toThrow("Changed behavior needs"); f.report.criteria[1]!.deliveryStatus = "implemented";
     if (partial) { f.report.criteria[0]!.parts = [retired]; expect(() => validateReport(f.report, input)).toThrow("Fully superseded row"); }
     writeFileSync(join(f.record.repositories.find(r => r.name === "companion")!.worktreePath, "companion.mjs"), "export const value = 0;\n");

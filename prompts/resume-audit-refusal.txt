@@ -1,0 +1,1 @@
+Kiln's latest check of this report, at {{at}}, did not accept it: {{refusal}} If the report already corrects this, resubmit it. Otherwise correct exactly what that names, then submit with `kiln audit submit` and continue until the result is recorded or a genuine blocker remains. Report an item only a person can resolve; do not work around it.

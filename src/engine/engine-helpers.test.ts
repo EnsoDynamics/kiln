@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPhasePlan } from "../plan/phase-plan.js";
 import { launchArguments, modelNameFromId, resumeArguments } from "../session/claude-session.js";
-import { auditSessionPrompt, freshSessionPrompt, outsideWorkspacePrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
+import { auditRecoveryPrompt, auditSessionPrompt, freshSessionPrompt, outsideWorkspacePrompt, phaseSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { keepAwakeMissingMessage, keepAwakeTool } from "../platform/keep-awake.js";
 import { formatPhaseLine, formatStartedLine, planColumns, terminalColors, terminalTime } from "../terminal-output.js";
 import { PHASES } from "../test-support/fixture-documents.js";
@@ -347,5 +347,17 @@ describe("development finalization recovery task", () => {
       }
     }
     expect(resumePrompt({ time: "2026-10-24T12:00:00Z" })).toContain("Carry on opening the pull request");
+  });
+});
+
+describe("audit recovery prompt (AC-RUN-02)", () => {
+  const task = { label: "Delivery audit", prdFile: "docs/prds/proof/proof-prd.md", activityId: "a1", round: 2, reportPath: "docs/prds/proof/kiln-audit-a1.json", skillPath: "/skills/delivery-audit/SKILL.md" };
+  it("carries Kiln's last refusal so a resumed session can correct it without a hand-written reply", () => {
+    const prompt = auditRecoveryPrompt({ ...task, lastRefusal: { at: "2026-10-31T22:49:00Z", text: "invalid_report: Part applicability must be \"current\" or \"superseded\"." } });
+    expect(prompt).toContain("Kiln's latest check of this report, at 2026-10-31T22:49:00Z, did not accept it: invalid_report: Part applicability must be \"current\" or \"superseded\". If the report already corrects this, resubmit it.");
+    expect(prompt).toContain("submit with `kiln audit submit`");
+  });
+  it("says nothing about a refusal when there is none", () => {
+    expect(auditRecoveryPrompt(task)).not.toContain("did not accept it");
   });
 });

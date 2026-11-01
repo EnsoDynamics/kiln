@@ -2077,7 +2077,8 @@
         "kind, round, continuationIndex, requiredReportPath": "Assigned audit kind/round and repository-relative report destination.",
         "currentSnapshot": "Latest complete snapshot, including requirements manifest, plan, repositories/files, testPaths and evidencePaths; null/absent before snapshot.",
         "evidence, nextCursor": "Up to 100 observed evidence records; copy nextCursor as optional positional cursor until absent. IDs must come from these real observations.",
-        "acceptedResults, outstandingChecks": "Recorded outcomes and remaining admission checks."
+        "acceptedResults, outstandingChecks": "Recorded outcomes and remaining admission checks.",
+        "latestRefusal": "While no result is accepted, what the latest check found {code, reason, criteria, at}: its refusal, or code unresolved_checks with the failed checks when the report validated but delivery checks did not pass. Includes checks Kiln made after the session ended. Correct exactly what it names before resubmitting."
       },
       "errors": [
         "malformed_request",
