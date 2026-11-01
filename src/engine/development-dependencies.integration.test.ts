@@ -93,10 +93,74 @@ describe("ordered delivery across repositories",()=>{
     expect(await prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).toMatchObject({operationId:"current-artifact"});
     commands.push({source:"authoritative provider contract",callId:"changed-current",command:"node current.mjs test-development",cwd:f.context.prdWorktree,calledAt:f.context.now(),resultAt:f.context.now(),outcome:"success",output:JSON.stringify({revision:"a".repeat(40),environment:"test-development"})});
     await submitEvidence(f.context,{checkpointId:f.checkpoint.id,operationId:"current-artifact",references:[{requirementId:"current",kind:"command",id:"changed-current",sessionId:"recorded-session"}]});
+    // The dependent shares its prerequisite's target, so Kiln asks whether the changed revision still carries the prerequisite.
+    f.responses[`repos/acme/acme-shop/compare/${f.merged}...${"a".repeat(40)}`]={body:{status:"diverged",merge_base_commit:{sha:"b".repeat(40)}}};f.save();
     const restore=await prepareOperation(f.context,{checkpointId:f.checkpoint.id,operation:{kind:"deploy",restorationFor:dependent.id}});expect(restore.disposition).toBe("proceed");
     const accepted=f.context.now();const restored={...f.deployment,id:13,created_at:accepted};f.responses[`repos/acme/acme-shop/deployments?sha=${f.merged}&environment=test-development&per_page=100&page=1`]={body:[restored]};f.responses["repos/acme/acme-shop/deployments/13"]={body:restored};f.responses["repos/acme/acme-shop/deployments/13/statuses?per_page=100&page=1"]={body:[{...f.status,created_at:accepted,log_url:"https://github.com/acme/acme-shop/actions/runs/99/job/100"}]};f.save();await reconcileDelivery(f.context);
     expect(f.checkpoint.operations.find(one=>one.id===restore.operationId)?.state).toBe("observed");
     await expect(prepareOperation(f.context,{checkpointId:f.checkpoint.id,operation:{kind:"deploy",restorationFor:dependent.id}})).rejects.toThrow("probe is stale");
   });
 
+});
+
+describe("cumulative deployments to one target",()=>{
+  // Every push to the base branch redeploys the same service, so a later checkpoint's deployment replaces its prerequisite's artifact.
+  async function laterCheckpoint(target:"same"|"other"){
+    const f=await deliveryFixture();fixtures.push(f);f.synchronize();
+    const {h,context}=f;const state=h.engine.record.developmentDelivery!;const prerequisite=f.checkpoint;const worktree=context.prdWorktree;
+    writeFileSync(join(worktree,"publishing.txt"),"Later publishing work\n");git(h.sandbox,worktree,"add","publishing.txt");git(h.sandbox,worktree,"commit","-m","Later publishing work");git(h.sandbox,worktree,"push","origin",prerequisite.featureBranch);
+    const head=git(h.sandbox,worktree,"rev-parse","HEAD").trim();
+    git(h.sandbox,h.repository,"merge","--squash",prerequisite.featureBranch);git(h.sandbox,h.repository,"commit","-m","Squash the later checkpoint");git(h.sandbox,h.repository,"push","origin","develop");
+    const merged=git(h.sandbox,h.repository,"rev-parse","HEAD").trim();
+    expect(git(h.sandbox,h.repository,"merge-base","--is-ancestor",f.merged,merged)).toBe("");
+    const environment=target==="same"?prerequisite.target.environment:"other-development";
+    const dependent=structuredClone(prerequisite);
+    Object.assign(dependent,{id:"later-checkpoint",headSha:head,baseSha:f.merged,dependsOn:[prerequisite.id],target:{...prerequisite.target,environment},createdAt:f.at(45),evidence:[],references:[{requirementId:"deploy",kind:"github_deployment",id:"14"}],operations:[{id:"later-merge",kind:"merge",state:"prepared",preparedAt:f.at(46),references:[],pullRequest:2}]});
+    // Mirrors the stuck checkpoint: verification binds only its own merge, with no "$dependency:" field.
+    dependent.requirements[1]={id:"verify",purpose:"verification",source:dependent.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:worktree,fields:{"/deployed_sha":"$mergeRevision",...(target==="other"?{"/prerequisite":`$dependency:${prerequisite.id}`}:{})}}};
+    if(target==="other")h.engine.record.developmentAuthorization!.grants.push({target:dependent.target,confirmedAt:f.at(0),source:"start"});
+    prerequisite.requirements.push({id:"current",purpose:"current_artifact",source:prerequisite.workflowSource,match:{kind:"command",invocation:"node current.mjs {{environment}}",cwd:worktree,fields:{"/deployed_sha":"$currentRevision"}}});
+    const deployment={...f.deployment,id:14,sha:merged,environment,created_at:f.at(55)};
+    Object.assign(f.responses,{
+      "repos/acme/acme-shop/pulls/2":{body:{...f.pull,number:2,html_url:"https://github.com/acme/acme-shop/pull/2",merged_at:f.at(50),merge_commit_sha:merged,head:{...f.pull.head,sha:head}}},
+      [`repos/acme/acme-shop/compare/${merged}...develop`]:{body:{status:"identical",merge_base_commit:{sha:merged}}},
+      [`repos/acme/acme-shop/compare/${f.merged}...${merged}`]:{body:{status:"ahead",merge_base_commit:{sha:f.merged}}},
+      "repos/acme/acme-shop/deployments/14":{body:deployment},
+      "repos/acme/acme-shop/deployments/14/statuses?per_page=100&page=1":{body:[{...f.status,environment,created_at:f.at(60)}]},
+    });f.save();
+    git(h.sandbox,worktree,"fetch","origin","develop");git(h.sandbox,worktree,"merge","--no-edit","origin/develop");git(h.sandbox,worktree,"push","origin",prerequisite.featureBranch);
+    dependent.operations.push({id:"later-sync",kind:"synchronize",sourceHead:head,intendedBaseSha:merged,state:"prepared",preparedAt:f.at(65),references:[]});
+    state.checkpoints.push(dependent);state.assessments[0]!.checkpointIds.push(dependent.id);
+    const commands:CommandEvidence[]=[];context.commands=()=>Promise.resolve(commands);
+    let clock=Date.now();const tick=()=>new Date(clock+=1000).toISOString();context.now=tick;
+    const run=(callId:string,command:string,output:unknown)=>{commands.push({source:"authoritative provider contract",callId,command,cwd:worktree,calledAt:tick(),resultAt:tick(),outcome:"success",output:JSON.stringify(output)});return {requirementId:callId.startsWith("probe")?"current":"verify",kind:"command" as const,id:callId,sessionId:"recorded-session"};};
+    await reconcileDelivery(context);
+    expect(dependent.merge?.resultSha).toBe(merged);expect(dependent.evidence.find(one=>one.requirementId==="deploy")?.revision).toBe(merged);
+    return {f,prerequisite,dependent,merged,environment,run};
+  }
+  it("verifies a later checkpoint whose own deployment replaced its same-target prerequisite, without another merge or deploy",async()=>{
+    const {f,prerequisite,dependent,merged,run}=await laterCheckpoint("same");
+    expect(await prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).toMatchObject({disposition:"unresolved",operationId:"current-artifact"});
+    // A current artifact that does not carry the prerequisite's work is still a changed artifact.
+    const foreign="c".repeat(40);f.responses[`repos/acme/acme-shop/compare/${f.merged}...${foreign}`]={body:{status:"diverged",merge_base_commit:{sha:"d".repeat(40)}}};f.save();
+    await submitEvidence(f.context,{checkpointId:prerequisite.id,operationId:"current-artifact",references:[run("probe-foreign","node current.mjs test-development",{deployed_sha:foreign})]});
+    await expect(prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).rejects.toThrow("current artifact changed");
+    // The later checkpoint's own deployment carries the prerequisite's merge, so the same service reporting it satisfies the probe.
+    await submitEvidence(f.context,{checkpointId:prerequisite.id,operationId:"current-artifact",references:[run("probe-current","node current.mjs test-development",{deployed_sha:merged})]});
+    const operation=await prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}});expect(operation.disposition).toBe("proceed");
+    expect(dependent.operations.filter(one=>one.kind==="merge"||one.kind==="deploy").map(one=>one.id)).toEqual(["later-merge"]);
+    await submitEvidence(f.context,{checkpointId:dependent.id,operationId:operation.operationId,references:[run("verify-current",`node verify.mjs ${merged} test-development`,{deployed_sha:merged})]});
+    expect(dependent.unresolvedReason).toBeUndefined();
+    expect(dependent.evidence.find(one=>one.requirementId==="verify")).toMatchObject({revision:merged,prerequisiteArtifacts:[{checkpointId:prerequisite.id,revision:f.merged}]});
+    expect(phaseDeliveryCheck(f.context,"1")).toMatchObject({passed:true});
+  });
+  it("still refuses a prerequisite on another target whose current artifact moved past it",async()=>{
+    const {f,prerequisite,dependent,merged,run}=await laterCheckpoint("other");
+    expect(await prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).toMatchObject({operationId:"current-artifact"});
+    await submitEvidence(f.context,{checkpointId:prerequisite.id,operationId:"current-artifact",references:[run("probe-current","node current.mjs test-development",{deployed_sha:merged})]});
+    await expect(prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).rejects.toThrow("Prerequisite first-checkpoint's current artifact changed");
+    // Without its typed binding, a cross-target verification is refused before any probe is read.
+    if(dependent.requirements[1]!.match.kind==="command")dependent.requirements[1]!.match.fields={"/deployed_sha":"$mergeRevision"};
+    await expect(prepareOperation(f.context,{checkpointId:dependent.id,operation:{kind:"verify"}})).rejects.toThrow('verify has no "$dependency:first-checkpoint" field');
+  });
 });

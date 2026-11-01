@@ -198,6 +198,26 @@ describe("retained delivery obligations", () => {
     const late={...checkpoint(h),id:"late-repository",target:{...target,repository:"github.com/acme/later-api"}};state.checkpoints.push(late);
     await expect(prepareOperation(c,{checkpointId:late.id,operation:{kind:"merge"}})).rejects.toThrow(/approval|approved|authoriz/i);expect(late.operations).toEqual([]);
   });
+  it("refuses at assessment a dependency its verification could never prove, naming the missing probe or binding", async () => {
+    const h = await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const c = context(h); const saved = () => h.engine.record.developmentDelivery!.checkpoints.map(one => one.id);
+    const verifyCommand = "node verify.mjs {{mergeRevision}} {{environment}}";
+    writeFileSync(join(c.prdWorktree, "README.md"), `# Delivery workflow\n.github/workflows/deploy.yml verify deploy\n${verifyCommand}\n`); git(h.sandbox, c.prdWorktree, "add", "README.md"); git(h.sandbox, c.prdWorktree, "commit", "-m", "Document dependent delivery evidence");
+    const status = h.engine.deliveryStatus(); const base = checkpoint(h);
+    const assess = (checkpoints: DeliveryCheckpoint[]) => h.engine.deliveryCommand("assessment", { executionId: status.executionId, revision: h.engine.deliveryStatus().revision, phaseId: "1", documentsDigest: status.documentsDigest, required: true, criteria: base.criteria, reason: "Acceptance requires ordered development delivery.", checkpoints });
+    const unprobed = { ...checkpoint(h), id: "unprobed-prerequisite" };
+    const probed = { ...checkpoint(h), id: "probed-prerequisite", requirements: [...base.requirements, { id: "current", purpose: "current_artifact" as const, source: base.workflowSource, match: { kind: "github_deployment" as const } }] };
+    expect(await assess([unprobed, probed])).toMatchObject({ ok: true });
+    const elsewhere = { ...target, environment: "other-development" };
+    const bound = (id: string) => ({ id: "verify", purpose: "verification" as const, source: base.workflowSource, match: { kind: "command" as const, invocation: verifyCommand, cwd: c.prdWorktree, fields: { "/revision": "$mergeRevision", "/prerequisite": `$dependency:${id}` } } });
+    // Another target: the prerequisite must stay deployed beside the dependent, so both its probe and a typed binding are required.
+    expect(await assess([{ ...checkpoint(h), id: "needs-probe", target: elsewhere, dependsOn: [unprobed.id], requirements: [base.requirements[0]!, bound(unprobed.id)] }])).toMatchObject({ ok: false, status: 422, reason: expect.stringContaining("needs unprobed-prerequisite to declare a current_artifact probe") });
+    expect(await assess([{ ...checkpoint(h), id: "needs-binding", target: elsewhere, dependsOn: [probed.id] }])).toMatchObject({ ok: false, status: 422, reason: expect.stringContaining('Verification needs-binding/verify must be a command evidence requirement with a "$dependency:probed-prerequisite" field') });
+    expect(saved()).toEqual([unprobed.id, probed.id]);
+    expect(await assess([{ ...checkpoint(h), id: "bound-dependent", target: elsewhere, dependsOn: [probed.id], requirements: [base.requirements[0]!, bound(probed.id)] }])).toMatchObject({ ok: true });
+    // The same target: the dependent's own deployment carries the prerequisite, so neither a probe nor a binding is needed.
+    expect(await assess([{ ...checkpoint(h), id: "same-target-dependent", dependsOn: [unprobed.id] }])).toMatchObject({ ok: true });
+    expect(saved()).toEqual([unprobed.id, probed.id, "bound-dependent", "same-target-dependent"]);
+  });
   it.each(["merge", "squash", "rebase"] as const)("retains source work after a real %s merge and advances the same feature branch", async method => {
     const h = await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const worktree = h.engine.worktreePath;
     const feature = h.engine.record.settings.featureBranch; const source = git(h.sandbox, worktree, "rev-parse", "HEAD").trim();

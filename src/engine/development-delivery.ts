@@ -156,7 +156,7 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
     const keys = auditDeliveryScope(context, owner).manifest.criteria.map(one => one.key);
     need(new Set(assessment.criteria).size === keys.length && assessment.criteria.length === keys.length && assessment.criteria.every(key => keys.includes(key)), "Audit development assessment must account for every exact criterion key in its requirement manifest.", 422);
   }
-  const state = ledger(context.record); const ids: string[] = [];
+  const state = ledger(context.record); const ids: string[] = []; const added: string[] = [];
   for (const candidate of assessment.checkpoints ?? []) {
     need(candidate && typeof candidate.id === "string" && candidate.id && candidate.executionId === context.record.executionId && sameOwner(candidate, { owner }) && candidate.requirementManifestDigest === binding.requirementManifestDigest && candidate.featureBranch === context.record.settings.featureBranch && sha(candidate.headSha) && sha(candidate.baseSha) && strings(candidate.criteria) && candidate.criteria.length && strings(candidate.dependsOn) && strings(candidate.requiredChecks) && typeof candidate.requireReview === "boolean", "Incomplete checkpoint identity or required checks.", 422);
     const target = normalizeTarget(candidate.target);
@@ -186,7 +186,7 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
         need(prior && prior.headSha !== checkpoint.headSha && !prior.supersededBy && targetKey(prior.target) === targetKey(checkpoint.target) && prior.criteria.every(criterion => checkpoint.criteria.includes(criterion)) && prior.dependsOn.every(id => checkpoint.dependsOn.includes(id)) && prior.requiredChecks.every(check => checkpoint.requiredChecks.includes(check)) && (!prior.requireReview || checkpoint.requireReview) && prior.requirements.every(requirement => checkpoint.requirements.some(one => one.id === requirement.id && one.purpose === requirement.purpose && one.source.path === requirement.source.path && hash(one.match) === hash(requirement.match))) && await ancestor(context, repo, prior.headSha, checkpoint.headSha), "Replacement must retain the earlier source work, target, criteria, requirements and prerequisites.", 422);
         prior.supersededBy = checkpoint.id;
       }
-      state.checkpoints.push(checkpoint);
+      state.checkpoints.push(checkpoint); added.push(checkpoint.id);
     }
     const document = readdirSync(join(context.prdWorktree, context.prdDirectory)).filter(file => file.endsWith("-prd.md")).map(file => readFileSync(join(context.prdWorktree, context.prdDirectory, file), "utf8")).join("\n");
     need(checkpoint.criteria.every(criterion => assessment.criteria.includes(criterion) && (owner.kind === "audit" ? auditDeliveryScope(context, owner).manifest.criteria.some(one => one.key === criterion) : document.includes(criterion) || (state.assignments ?? []).some(one => one.owner.kind === "phase" && one.owner.phaseId === owner.phaseId && one.criteria.includes(criterion) && document.includes(criterion.slice(criterion.lastIndexOf("#") + 1))))), "A checkpoint must identify governing PRD criteria from its assessment.", 422);
@@ -211,12 +211,27 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
   const visiting = new Set<string>(); const visited = new Set<string>();
   const walk = (id: string) => { need(!visiting.has(id), "Delivery dependency cycle.", 422); if (visited.has(id)) return; visiting.add(id); for (const dep of state.checkpoints.find(one => one.id === id)!.dependsOn) walk(dep); visiting.delete(id); visited.add(id); };
   for (const checkpoint of state.checkpoints) walk(checkpoint.id);
+  for (const id of added) dependencyProofDeclared(state, state.checkpoints.find(one => one.id === id)!);
   const splits = [...(assessment.split ? [assessment.split] : []), ...(assessment.splits ?? [])];
   for (const split of splits) { need(typeof split.phaseId === "string" && (split.phaseId === context.phaseId || owner.kind === "phase" && isAncestorOf(split.phaseId, owner.phaseId)) && split.documentsDigest === documentsDigest(context, split.phaseId) && Array.isArray(split.assignments), "Invalid or stale split assignment.");
     state.splits = [...state.splits.filter(one => one.phaseId !== split.phaseId), { ...split, revision: state.revision + 1 }];
   }
   if (splits.length) validateSplits(context);
 }
+/**
+ * Refuses, when a checkpoint is recorded, a dependency its verification could never prove. A prerequisite on another
+ * target must stay deployed beside this checkpoint, so it needs a current-artifact probe and a typed `$dependency:` binding
+ * in every verification. A prerequisite on the same target is carried by this checkpoint's own deployment instead.
+ */
+function dependencyProofDeclared(state: DevelopmentLedger, checkpoint: DeliveryCheckpoint): void {
+  for (const id of checkpoint.dependsOn) {
+    const dependency = effectiveCheckpoint(state, id); need(dependency, `Unknown prerequisite ${id}.`, 422);
+    if (targetKey(dependency.target) === targetKey(checkpoint.target)) continue;
+    need(dependency.requirements.some(one => one.purpose === "current_artifact"), `Prerequisite ${id} deploys to a different target, so ${checkpoint.id}'s verification needs ${dependency.id} to declare a current_artifact probe; replace ${dependency.id} with a checkpoint that declares one before recording ${checkpoint.id}.`, 422);
+    for (const requirement of checkpoint.requirements.filter(one => one.purpose === "verification")) need(dependencyBound(requirement, id), `Verification ${checkpoint.id}/${requirement.id} must be a command evidence requirement with a "$dependency:${id}" field binding the prerequisite's deployed artifact.`, 422);
+  }
+}
+function dependencyBound(requirement: EvidenceRequirement, id: string): boolean { return requirement.match.kind === "command" && Object.values(requirement.match.fields).includes(`$dependency:${id}`); }
 export function validateSplits(context: DeliveryContext): void {
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem);
   validateDeliverySplits(ledger(context.record), plan.plan, id => documentsDigest(context, id));
@@ -313,6 +328,20 @@ async function readMerge(context: DeliveryContext, checkpoint: DeliveryCheckpoin
   checkpoint.merge = { number: pull.number as number, url: pull.html_url, sourceHead: checkpoint.headSha, mergedHead: head.sha as string, resultSha: pull.merge_commit_sha, method: "unknown", mergedAt: pull.merged_at };
   if (op) { op.state = "observed"; delete op.reason; }
 }
+/** Whether `descendant` contains `ancestor`, read from the provider because merge results need not be fetched locally. */
+async function contains(context: DeliveryContext, repo: RepositoryEntry, ancestor: string, descendant: string): Promise<boolean> {
+  if (ancestor === descendant) return true;
+  const comparison = object(await github(context, `repos/${repo.github}/compare/${ancestor}...${descendant}`));
+  return ["ahead", "identical"].includes(String(comparison.status)) && object(comparison.merge_base_commit).sha === ancestor;
+}
+/**
+ * A prerequisite on the same target whose deployed revision is already in this checkpoint's merge is carried by this
+ * checkpoint's own deployment, which necessarily replaces the prerequisite's artifact. Requiring the prerequisite's exact
+ * revision to stay current would be unsatisfiable; this checkpoint's verification, bound to its own deployed revision, proves both.
+ */
+async function carriedPrerequisite(context: DeliveryContext, checkpoint: DeliveryCheckpoint, dependency: DeliveryCheckpoint, deployed: EvidenceFact): Promise<boolean> {
+  return targetKey(dependency.target) === targetKey(checkpoint.target) && !!checkpoint.merge && await contains(context, repository(context, checkpoint), deployed.revision, checkpoint.merge.resultSha);
+}
 function pointer(value: unknown, path: string): unknown { let current = value; for (const part of path.slice(1).split("/").map(part => part.replaceAll("~1", "/").replaceAll("~0", "~"))) { need(current !== null && typeof current === "object" && Object.hasOwn(current, part), `Missing evidence field ${path}.`); current = (current as Json)[part]; } return current; }
 async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckpoint, requirement: EvidenceRequirement, reference: EvidenceReference): Promise<EvidenceFact> {
   const repo = repository(context, checkpoint); let raw: unknown; let revision: string; let occurredAt: string; let startedAt: string | undefined; let deploymentJobUrl: string | undefined;
@@ -371,8 +400,7 @@ async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckp
   else {
     need(checkpoint.merge, "A deployment or verification cannot pass before the merge is confirmed.");
     if (requirement.purpose !== "current_artifact" && revision !== checkpoint.merge.resultSha) {
-      const comparison = object(await github(context, `repos/${repo.github}/compare/${checkpoint.merge.resultSha}...${revision}`));
-      need(["ahead", "identical"].includes(String(comparison.status)) && object(comparison.merge_base_commit).sha === checkpoint.merge.resultSha, "Deployed revision does not demonstrably contain the merge result.");
+      need(await contains(context, repo, checkpoint.merge.resultSha, revision), "Deployed revision does not demonstrably contain the merge result.");
     }
     need(Date.parse(occurredAt) >= Date.parse(checkpoint.merge.mergedAt), "Delivery evidence predates the confirmed merge.");
     if (requirement.purpose === "verification") {
@@ -384,10 +412,7 @@ async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckp
   if (requirement.purpose === "verification" && checkpoint.dependsOn.length) {
     const previous = checkpoint.evidence.find(one => one.requirementId === requirement.id && one.status === "success" && hash(one.reference) === hash(reference));
     if (previous?.prerequisiteArtifacts) prerequisiteArtifacts = previous.prerequisiteArtifacts;
-    else {
-      need(requirement.match.kind === "command" && checkpoint.dependsOn.every(id => Object.values(requirement.match.kind === "command" ? requirement.match.fields : {}).includes(`$dependency:${id}`)), "Dependent verification needs typed bindings to every prerequisite artifact.");
-      prerequisiteArtifacts = await prerequisiteArtifactsNow(context, checkpoint, startedAt);
-    }
+    else prerequisiteArtifacts = await prerequisiteArtifactsNow(context, checkpoint, [requirement], startedAt);
   }
   const rawDigest = hash(raw); const rawPath = join(context.stateDirectory, "delivery-evidence", `${rawDigest}.json`); writeJsonAtomically(rawPath, raw);
   return { requirementId: requirement.id, reference, revision, environment: checkpoint.target.environment, observedAt: context.now(), occurredAt, status: "success", rawDigest, rawPath, ...(startedAt ? { startedAt } : {}), ...(deploymentJobUrl ? { deploymentJobUrl } : {}), ...(prerequisiteArtifacts ? { prerequisiteArtifacts } : {}) };
@@ -401,17 +426,19 @@ function deployedArtifact(state: DevelopmentLedger, id: string): EvidenceFact | 
   const checkpoint = effectiveCheckpoint(state, id);
   return checkpoint?.evidence.find(one => one.status === "success" && checkpoint.requirements.find(req => req.id === one.requirementId)?.purpose === "deployment");
 }
-async function prerequisiteArtifactsNow(context: DeliveryContext, checkpoint: DeliveryCheckpoint, verificationStartedAt?: string): Promise<{ checkpointId: string; revision: string }[]> {
+async function prerequisiteArtifactsNow(context: DeliveryContext, checkpoint: DeliveryCheckpoint, verifications: EvidenceRequirement[], verificationStartedAt?: string): Promise<{ checkpointId: string; revision: string }[]> {
   const state = ledger(context.record); const artifacts: { checkpointId: string; revision: string }[] = [];
   for (const id of checkpoint.dependsOn) {
     const dependency = effectiveCheckpoint(state, id); need(dependency && checkpointSatisfied(state, dependency), `Prerequisite ${id} is unresolved.`);
     const deployed = dependency.evidence.find(one => one.status === "success" && dependency.requirements.find(req => req.id === one.requirementId)?.purpose === "deployment"); need(deployed, `Prerequisite ${id} has no deployed artifact.`);
-    const probes = dependency.requirements.filter(one => one.purpose === "current_artifact"); need(probes.length, `Prerequisite ${id} needs an explicit current-artifact probe.`);
+    const carried = await carriedPrerequisite(context, checkpoint, dependency, deployed);
+    if (!carried) for (const requirement of verifications) need(dependencyBound(requirement, id), `Dependent verification needs typed bindings to every prerequisite artifact: ${requirement.id} has no "$dependency:${id}" field.`);
+    const probes = dependency.requirements.filter(one => one.purpose === "current_artifact"); need(carried || probes.length, `Prerequisite ${id} needs an explicit current-artifact probe.`);
     for (const probe of probes) {
       const prior = dependency.evidence.find(one => one.requirementId === probe.id); need(prior, `Read prerequisite ${id}'s current artifact before dependent verification.`);
       const fresh = await evidenceFact(context, dependency, probe, prior.reference);
       if (probe.match.kind === "command") need(checkpoint.verificationProbeAfter && fresh.startedAt && Date.parse(fresh.startedAt) >= Date.parse(checkpoint.verificationProbeAfter) && (!verificationStartedAt || Date.parse(fresh.occurredAt) <= Date.parse(verificationStartedAt)), `Execute a fresh current-artifact probe for ${id} after ${checkpoint.verificationProbeAfter ?? "requesting verification preparation"}, before verification begins.`);
-      need(fresh.revision === deployed.revision, `Prerequisite ${id}'s current artifact changed; restore/reverify the intended artifact before proceeding.`);
+      need(fresh.revision === deployed.revision || carried && await contains(context, repository(context, dependency), deployed.revision, fresh.revision), `Prerequisite ${id}'s current artifact changed; restore/reverify the intended artifact before proceeding.`);
     }
     artifacts.push({ checkpointId: id, revision: deployed.revision });
   }
@@ -535,12 +562,13 @@ export async function prepareOperation(context: DeliveryContext, body: Record<st
     checkpointScope(context, dependent, dependent.requirements.filter(one => one.purpose === "verification").map(one => one.id));
     need(dependent.requirements.some(one => one.purpose === "verification" && (!dependent.evidence.some(fact => fact.requirementId === one.id && fact.status === "success") || dependent.unresolvedRequirements?.[one.id] || dependent.unresolvedRequirements?.["*"])), "The dependent verification is already complete; no restoration is needed.");
     const deployed = deployedArtifact(state, checkpoint.id); need(deployed, "The prerequisite has no retained deployed artifact.");
+    const carried = await carriedPrerequisite(context, dependent, checkpoint, deployed);
     let changed = false;
     for (const probe of checkpoint.requirements.filter(one => one.purpose === "current_artifact")) {
       const saved = checkpoint.evidence.find(one => one.requirementId === probe.id); need(saved, "Submit an independently observed current-artifact reference before restoration.");
       const fresh = await evidenceFact(context, checkpoint, probe, saved.reference);
       if (probe.match.kind === "command") need(fresh.startedAt && Date.parse(fresh.startedAt) >= Math.max(Date.parse(dependent.verificationProbeAfter), checkpoint.operations.some(one => one.restorationFor && one.state === "observed") ? Date.parse(deployed.occurredAt) : 0), "The prerequisite artifact probe is stale.");
-      changed ||= fresh.revision !== deployed.revision;
+      changed ||= fresh.revision !== deployed.revision && !(carried && await contains(context, repository(context, checkpoint), deployed.revision, fresh.revision));
     }
     need(changed, "The intended prerequisite artifact is already current; no redeployment is authorized."); restorationFor = dependent.id;
   } else checkpointScope(context, checkpoint, obligations);
@@ -581,7 +609,7 @@ export async function prepareOperation(context: DeliveryContext, body: Record<st
       checkpoint.verificationProbeAfter = context.now();
       return { operationId: "current-artifact", disposition: "unresolved", facts: [`Read and submit fresh prerequisite current-artifact probes after ${checkpoint.verificationProbeAfter}; then prepare verification again.`] };
     }
-    await prerequisiteArtifactsNow(context, checkpoint);
+    await prerequisiteArtifactsNow(context, checkpoint, checkpoint.requirements.filter(one => obligations.includes(one.id)));
   }
   const operation = { id: randomUUID(), requirementIds: obligations, sourceHead: currentHead, ...(sha(syncBase) ? { intendedBaseSha: syncBase } : {}), kind, preparedAt: context.now(), state: "prepared" as const, references: [], ...(prior ? { retryOf: prior.id } : {}), ...(pullRequest ? { pullRequest } : {}) };
   if (restorationFor) Object.assign(operation, { restorationFor });
