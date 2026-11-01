@@ -125,7 +125,10 @@ it.each(["before its plan read", "after a passing check, before its done record"
     if (failing && (value as { receipt?: Receipt }).receipt?.command_id === "fails-while-judged") throw new Error("control write interrupted");
     write(path, value);
   });
-  const failControlWrite = () => {
+  const failControlWrite = async () => {
+    // As in CI, the failing write follows the reply's durably applied outcome, which restart reconciles from.
+    const receipt = h.engine.commands.lookup("fails-while-judged").operation as Receipt;
+    await waitFor(() => records.readPrdRecord(h.stateDirectory)?.controlApplied?.operationId === receipt.id);
     failing = true;
     expect(() => h.engine.commands.checkpoint(h.engine.commands.lookup("fails-while-judged").operation as Receipt)).toThrow();
     expect(h.engine.commands.fault).toBeDefined();
@@ -136,8 +139,8 @@ it.each(["before its plan read", "after a passing check, before its done record"
   const judged = vi.spyOn(engine, "doneCheck").mockImplementation(async key => {
     // Resume checks the stop before the session runs; only the ended session's judgment comes after the second turn.
     if (h.claudeCalls().length < 2) return doneCheck(key);
-    if (moment === "before its plan read") { failControlWrite(); return doneCheck(key); }
-    finish(); const outcome = await doneCheck(key); expect(outcome.passed).toBe(true); failControlWrite(); return outcome;
+    if (moment === "before its plan read") { await failControlWrite(); return doneCheck(key); }
+    finish(); const outcome = await doneCheck(key); expect(outcome.passed).toBe(true); await failControlWrite(); return outcome;
   });
   const body = instruction("reply", "fails-while-judged", { message: "Exactly once" });
   h.engine.commands.submit(body); await h.engine.commands.settled(); await h.engine.settled();
