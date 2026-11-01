@@ -5,6 +5,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } 
 import { opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
+import * as zlib from "node:zlib";
 
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export class EvidenceIndex {
@@ -30,9 +31,22 @@ export class EvidenceIndex {
   }
 }
 
+/**
+ * Codex compresses idle rollouts to `<rollout>.jsonl.zst` (observed after about seven days) and
+ * still reports the uncompressed path. The file Codex itself reads: the rollout, else its archive.
+ *   existingRawHistory("~/.codex/sessions/2026/10/24/rollout-…-<id>.jsonl") // → "….jsonl.zst" once compressed
+ */
+export const existingRawHistory = (path: string): string => existsSync(path) || !existsSync(`${path}.zst`) ? path : `${path}.zst`;
+
 /** Strict UTF-8/JSONL streaming, including a required newline on the final record. */
 export async function* rawLines(path: string, signal: AbortSignal): AsyncGenerator<{ value: unknown; line: number }> {
-  const stream = createReadStream(path, { highWaterMark: 64 * 1024, signal });
+  const file = createReadStream(path, { highWaterMark: 64 * 1024, signal });
+  let stream: NodeJS.ReadableStream & { destroy(): void } = file;
+  if (path.endsWith(".zst")) {
+    if (typeof zlib.createZstdDecompress !== "function") { file.destroy(); throw new Error(`Reading compressed Codex history needs Node.js 22.15 or later; this is ${process.version}.`); }
+    stream = file.pipe(zlib.createZstdDecompress());
+    file.once("error", error => (stream as unknown as { destroy(error: Error): void }).destroy(error));
+  }
   let pending = Buffer.alloc(0); let position = 0;
   try {
     for await (const chunk of stream) {
@@ -50,5 +64,5 @@ export async function* rawLines(path: string, signal: AbortSignal): AsyncGenerat
     }
     if (pending.length) throw new Error("Codex history has a truncated final record.");
     if (!position) throw new Error("Codex history is empty.");
-  } finally { stream.destroy(); }
+  } finally { stream.destroy(); file.destroy(); }
 }

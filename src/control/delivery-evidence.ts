@@ -1,7 +1,7 @@
 /** Read provider-owned history only. A submitted stdin/RPC write is not proof of delivery. */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
+import { jsonLines } from "../platform/json-lines.js";
 import { claudeConfigFolder, findTranscripts } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
 import type { SessionRecord, SessionRun } from "../state/records.js";
@@ -27,9 +27,9 @@ export async function deliveredInHistory(session: SessionRecord, run: SessionRun
   }
   const file = findTranscripts(claudeConfigFolder(env), session.sessionId).main;
   if (!file) return false;
-  const stream = createReadStream(file, { encoding: "utf8", signal }); const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  const stream = createReadStream(file, { signal });
   try {
-    for await (const line of lines) {
+    for await (const line of jsonLines(stream)) {
       signal.throwIfAborted();
       const row = JSON.parse(line) as { type?: string; timestamp?: string; sessionId?: string; message?: { content?: unknown } };
       if (row.type !== "user" || row.sessionId !== session.sessionId || !row.timestamp || Date.parse(row.timestamp) < Date.parse(run.startedAt)) continue;
@@ -37,5 +37,5 @@ export async function deliveredInHistory(session: SessionRecord, run: SessionRun
       if (text !== undefined && digest(text) === run.control.promptDigest) return true;
     }
     return false;
-  } finally { lines.close(); stream.destroy(); }
+  } finally { stream.destroy(); }
 }

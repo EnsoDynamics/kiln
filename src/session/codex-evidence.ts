@@ -12,7 +12,7 @@ import { findExecutable, runHelper } from "../platform/helper-process.js";
 import { CodexHistoryRpc, type HistoryRpc } from "./codex-history-rpc.js";
 import { retainedCompaction } from "./codex-compaction.js";
 import { decodeRawCall } from "./codex-wrapper-decoder.mjs";
-import { digest, EvidenceIndex, rawLines } from "./codex-evidence-store.js";
+import { digest, EvidenceIndex, existingRawHistory, rawLines } from "./codex-evidence-store.js";
 import { readPowerShell } from "./codex-powershell.js";
 import { outsideChanges, gitCommandsIn, gitChange, OUTSIDE_NOTE, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type OutsideChange, type StayedOutcome } from "./outside-workspace.js";
 import type { TranscriptToolCall } from "./transcripts.js";
@@ -47,7 +47,7 @@ interface RawRecord { type: string; timestamp: string; payload: RawPayload }
 interface RawPayload {
   started_at_ms?: number; completed_at_ms?: number;
   reason?: string;
-  window_id?: string; first_window_id?: string; previous_window_id?: string; window_number?: number; output?: unknown; latest_token_usage_record?: { thread_id?: string; turn_id?: string };
+  window_id?: string; first_window_id?: string; previous_window_id?: string; window_number?: number; output?: unknown; latest_token_usage_record?: { thread_id?: string; turn_id?: string } | null;
   type?: string; id?: string; source?: Metadata["source"]; forked_from_id?: string; context_window?: { window_id?: string };
   turn_id?: string; cwd?: string; model?: string; effort?: string; call_id?: string; name?: string;
   arguments?: string; input?: string; namespace?: string;
@@ -124,15 +124,18 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     };
     const findRecordedPath = async (id: string): Promise<string> => {
       async function* names(folder: string): AsyncGenerator<string> {
-        for await (const entry of await opendir(folder)) { checkTime(); const path = join(folder, entry.name); if (entry.isDirectory()) yield* names(path); else if (entry.isFile() && entry.name.endsWith(`-${id}.jsonl`)) yield path; }
+        for await (const entry of await opendir(folder)) { checkTime(); const path = join(folder, entry.name); if (entry.isDirectory()) yield* names(path); else if (entry.isFile() && (entry.name.endsWith(`-${id}.jsonl`) || entry.name.endsWith(`-${id}.jsonl.zst`))) yield path; }
       }
       const found: string[] = [];
       for (const folder of ["sessions", "archived_sessions"]) {
         try { for await (const path of names(join(home, folder))) found.push(path); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       }
-      if (found.length !== 1) throw new Error(`Missing or ambiguous raw history for ${id}.`);
-      return safePath(found[0]!);
+      // A rollout being compressed briefly exists in both forms; the uncompressed one is the source.
+      const plain = found.filter(path => !path.endsWith(".zst"));
+      const candidates = plain.length ? plain : found;
+      if (candidates.length !== 1) throw new Error(`Missing or ambiguous raw history for ${id}.`);
+      return safePath(candidates[0]!);
     };
     const metadata = async (id: string): Promise<Metadata> => {
       const thread = (await call<{ thread: Metadata }>("thread/read", { threadId: id, includeTurns: false })).thread;
@@ -141,7 +144,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       return thread;
     };
     const sourcePath = async (thread: Metadata): Promise<string> => {
-      try { return safePath(requireText(thread.path, "raw history path")); }
+      try { return safePath(existingRawHistory(requireText(thread.path, "raw history path"))); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; return findRecordedPath(thread.id); }
     };
     const hashSource = async (path: string): Promise<string> => {
@@ -198,7 +201,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (["event_msg", "response_item"].includes(record.type) && (typeof payload.type !== "string" || !payload.type)) throw new Error(`${id}: missing raw event/item type.`);
         if (record.type === "response_item" && ["compaction", "compacted"].includes(payload.type ?? "")) problem(`${id}: compacted raw response history.`);
         if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; index.put("sessionMetadata", id, digest(payload)); first = false; }
-        if (record.type === "compacted" && payload.latest_token_usage_record?.thread_id === id) index.unique(`compaction:${id}`, requireText(payload.window_id, "compaction window"), digest(payload));
+        if (record.type === "compacted" && payload.latest_token_usage_record?.thread_id === id) {
+          index.unique(`compaction:${id}`, requireText(payload.window_id, "compaction window"), digest(payload));
+          index.unique(`compactionContent:${id}`, payload.window_id!, digest(compactionContent(payload)));
+        }
         if (record.type === "turn_context") rawTurn = payload.turn_id;
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocationValue:${id}`, requireText(payload.call_id, "raw call ID"), { payload, at: record.timestamp, turnId: payload.internal_chat_message_metadata_passthrough?.turn_id ?? rawTurn });
         if (record.type === "turn_context") index.unique(`context:${id}`, requireText(payload.turn_id, "context turn"), payload);
@@ -210,7 +216,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           else index.unique(`turn_aborted:${id}`, requireText(payload.turn_id, "raw aborted turn"), digest(payload));
         }
         // A collaboration call the tool itself refused started and reached no child: nothing was delegated.
-        if (record.type === "response_item" && payload.type === "function_call_output" && collaborationToolFailed(payload.output)) index.put(`failedCollaboration:${id}`, requireText(payload.call_id, "raw call ID"), true);
+        // Outputs without a call ID (Codex app notices) answer no call and refuse nothing.
+        if (record.type === "response_item" && payload.type === "function_call_output" && typeof payload.call_id === "string" && payload.call_id && collaborationToolFailed(payload.output)) index.put(`failedCollaboration:${id}`, payload.call_id, true);
         if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, requireText(payload.call_id, "raw call ID"), digest(payload));
         if (!options.commandProjection && record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
         if (record.type === "event_msg" && payload.type === "item_completed") {
@@ -220,8 +227,12 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             // Every raw command needs an owned normalized turn, independently of later coverage enumeration.
             // Copied ancestor commands are checked against their owning source below.
             if (payload.thread_id === id && !index.get(`turn:${id}`, turnId)) problem(`${id}: raw command has no owned normalized turn.`);
-            if (payload.thread_id === id) index.unique(`nativeCommand:${id}:${turnId}`, item.id, { id: item.id, threadId: id, turnId, argv: item.command, cwd: item.cwd, status: item.status, resultAt: record.timestamp, ...(typeof payload.started_at_ms === "number" ? { startedAtMs: payload.started_at_ms } : {}) });
-            else index.unique(`foreignCommand:${id}`, item.id, { id: item.id, turnId, threadId: payload.thread_id, sha256: digest(payload) });
+            if (payload.thread_id === id) {
+              const native = { id: item.id, threadId: id, turnId, argv: item.command, cwd: item.cwd, status: item.status, resultAt: record.timestamp, ...(typeof payload.started_at_ms === "number" ? { startedAtMs: payload.started_at_ms } : {}) };
+              index.unique(`nativeCommand:${id}:${turnId}`, item.id, native);
+              // Receipts match only a native command whose final argument is the call's command text.
+              if (Array.isArray(item.command) && typeof item.command.at(-1) === "string") index.put(`nativeByCommand:${id}:${turnId}:${digest(item.command.at(-1))}`, item.id, native);
+            } else index.unique(`foreignCommand:${id}`, item.id, { id: item.id, turnId, threadId: payload.thread_id, sha256: digest(payload) });
             index.unique(`commandEvent:${id}`, item.id, digest(payload));
           }
           if (item?.type === "FileChange" && payload.thread_id === id && item.changes && typeof payload.started_at_ms === "number") {
@@ -285,6 +296,21 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       // own window and its copied ancestor's) and every window a compaction produced.
       const windows = new Map<string, NonNullable<Parameters<typeof retainedCompaction>[1]>>();
       let metadataPrefix = true;
+      // Index each call's exec and patch operations once, so matching a native receipt to its
+      // call reads only the calls with that exact command or patch (a full rescan per receipt is
+      // quadratic and exceeds the scan deadline on long conversations).
+      if (options.commandProjection) for await (const candidate of index.values<{ payload: RawPayload; at: string; turnId?: string }>(`invocationValue:${id}`)) {
+        // Only calls in this conversation's own turns can own its receipts.
+        const cwd = candidate.turnId && index.get(`turn:${id}`, candidate.turnId) ? index.get<Context>(`context:${id}`, candidate.turnId)?.cwd : undefined;
+        const decodedCandidate = cwd ? decodeRawCall(candidate.payload) : undefined;
+        if (!cwd || decodedCandidate?.coverage !== "complete") continue;
+        const entry = { callId: candidate.payload.call_id!, at: candidate.at };
+        for (const one of decodedCandidate.operations as { name: string; input: unknown }[]) {
+          const input = one.input as Record<string, unknown> | undefined;
+          if (one.name === "exec_command" && typeof input?.cmd === "string") index.put(`execCandidate:${id}:${candidate.turnId}:${digest([input.cmd, physical(resolve(cwd, typeof input.workdir === "string" ? input.workdir : "."))])}`, entry.callId, entry);
+          if (one.name === "apply_patch" && typeof one.input === "string") index.put(`patchCandidate:${id}:${candidate.turnId}:${digest(one.input)}`, entry.callId, entry);
+        }
+      }
       for await (const { value } of rawLines(frontier.path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
         if (record.type === "session_meta") {
@@ -298,7 +324,21 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           const window = payload.context_window?.window_id;
           if (window) windows.set(window, { first: window, current: window, number: 0 });
         } else metadataPrefix = false;
-        if (record.type === "compacted") {
+        if (record.type === "compacted" && payload.latest_token_usage_record === null) {
+          // Observed with 0.166.0: a fork of a compacted thread opens with a copy of the ancestor's
+          // compaction that drops its usage and attribution bookkeeping. The model-visible content
+          // and window identity must match an ancestor's own compaction, validated in its source.
+          const window = requireText(payload.window_id, "compaction window");
+          let ancestor = byId.get(id)?.parentThreadId;
+          while (ancestor && index.get(`compactionContent:${ancestor}`, window) !== digest(compactionContent(payload))) ancestor = byId.get(ancestor)?.parentThreadId;
+          if (!ancestor) throw new Error(`${id}: changed or unowned inherited compaction.`);
+          // Pin the record's schema; only Codex's usage and attribution bookkeeping may differ.
+          const copy = payload as RawPayload & Record<string, unknown>; const metadata = copy.replacement_history_metadata;
+          if (Object.keys(copy).sort().join() !== COMPACTION_KEYS.join() || !Array.isArray(metadata) || metadata.length !== (copy.replacement_history as unknown[]).length
+            || metadata.some(meta => (meta as { client_authored?: unknown } | null)?.client_authored !== false)
+            || (copy.retained_context as { verified_answers?: unknown[] } | null)?.verified_answers?.length !== 0) throw new Error(`${id}: unsupported forked compaction copy.`);
+          windows.set(window, { first: payload.first_window_id!, current: window, number: payload.window_number! });
+        } else if (record.type === "compacted") {
           const origin = owner(id, requireText(payload.latest_token_usage_record?.turn_id, "compaction turn"));
           if (index.get(`compaction:${origin}`, requireText(payload.window_id, "compaction window")) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited compaction.`);
           const previous = windows.get(payload.previous_window_id ?? "")
@@ -340,7 +380,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
             const command = requireText(input.cmd, "recorded command");
             const cwd = physical(resolve(context.cwd, input.workdir === undefined ? "." : requireText(input.workdir, "command directory")));
             let matched = false; let handledPowerShell = false;
-            for await (const native of index.values<NativeCommand>(`nativeCommand:${id}:${turnId}`)) {
+            // Command projection reads only the turn's natives for this command text; a full check
+            // still visits every native command in the turn.
+            for await (const native of index.values<NativeCommand>(options.commandProjection ? `nativeByCommand:${id}:${turnId}:${digest(command)}` : `nativeCommand:${id}:${turnId}`)) {
               const argv = native.argv;
               if (!Array.isArray(argv) || !argv.length || argv.some(arg => typeof arg !== "string") || typeof native.cwd !== "string" || !native.cwd || !SETTLED_ITEM.has(native.status)) { if (options.commandProjection) continue; throw new Error(`${id}: unsettled or unsupported native command.`); }
               let nativeCwd = native.cwd;
@@ -355,11 +397,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
               matched = true; index.put(`coveredCommand:${id}`, native.id, true);
               if (options.commandProjection) {
                 const candidates: { callId: string; at: string }[] = [];
-                for await (const candidate of index.values<{ payload: RawPayload; at: string; turnId: string }>(`invocationValue:${id}`)) {
-                  if (candidate.turnId !== turnId || native.startedAtMs !== undefined && Date.parse(candidate.at) > native.startedAtMs) continue;
-                  const decodedCandidate = decodeRawCall(candidate.payload);
-                  if (decodedCandidate.coverage !== "complete") continue;
-                  if ((decodedCandidate.operations as { name: string; input: Record<string, unknown> }[]).some(one => one.name === "exec_command" && one.input?.cmd === command && physical(resolve(context.cwd, typeof one.input.workdir === "string" ? one.input.workdir : ".")) === cwd)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
+                for await (const candidate of index.values<{ callId: string; at: string }>(`execCandidate:${id}:${turnId}:${digest([command, cwd])}`)) {
+                  if (!(native.startedAtMs !== undefined && Date.parse(candidate.at) > native.startedAtMs)) candidates.push(candidate);
                 }
                 const latest = candidates.map(one => one.at).sort().at(-1);
                 const owners = native.startedAtMs === undefined ? candidates : candidates.filter(one => one.at === latest);
@@ -397,11 +436,8 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
                 const normalized = index.get<Item>(`expectedFileChange:${id}`, native.id);
                 if (normalized?.status !== "completed" || digest(normalized.changes?.flatMap(c => [physical(c.path), ...(c.kind.move_path ? [physical(c.kind.move_path)] : [])]).sort()) !== digest([...native.paths].sort())) continue;
                 const candidates: { callId: string; at: string }[] = [];
-                for await (const candidate of index.values<{ payload: RawPayload; at: string; turnId: string }>(`invocationValue:${id}`)) {
-                  if (candidate.turnId !== turnId || Date.parse(candidate.at) > native.startedAtMs) continue;
-                  const decodedCandidate = decodeRawCall(candidate.payload);
-                  if (decodedCandidate.coverage !== "complete") continue;
-                  if (decodedCandidate.operations.some(op => op.name === "apply_patch" && typeof op.input === "string" && op.input === patch)) candidates.push({ callId: candidate.payload.call_id!, at: candidate.at });
+                for await (const candidate of index.values<{ callId: string; at: string }>(`patchCandidate:${id}:${turnId}:${digest(patch)}`)) {
+                  if (!(Date.parse(candidate.at) > native.startedAtMs)) candidates.push(candidate);
                 }
                 const latest = candidates.map(c => c.at).sort().at(-1); const owners = candidates.filter(c => c.at === latest);
                 if (owners.length === 1 && owners[0]!.callId === payload.call_id) (report.mutations ??= []).push({ conversationId: id, callId: native.id, at: native.endedAt, paths: native.paths });
@@ -444,12 +480,20 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   return report;
 }
 
+/** What a forked copy of a compaction keeps from the original: its window identity and the model-visible context. */
+function compactionContent(payload: RawPayload) {
+  const { message, replacement_history, compaction_response_id, first_window_id, previous_window_id, window_id, window_number } = payload as RawPayload & Record<string, unknown>;
+  return { message, replacement_history, compaction_response_id, first_window_id, previous_window_id, window_id, window_number };
+}
+const COMPACTION_KEYS = ["message", "replacement_history", "replacement_history_metadata", "retained_context", "window_number", "first_window_id", "previous_window_id", "window_id", "compaction_response_id", "latest_token_usage_record", "resume_metadata"].sort();
+
 /**
  * A collaboration call Codex itself refused reached no child. Acknowledgements are empty or a JSON
  * object; refusals are plain text, e.g. "collab spawn failed: agent thread limit reached",
  * "collab tool failed: …" or "agent with id … not found" (observed 0.166.0 shapes). A call
  * whose child really ran still has its recorded child activity.
  */
+
 export function collaborationToolFailed(output: unknown): boolean {
   if (typeof output !== "string" || !output) return false;
   try { const value: unknown = JSON.parse(output); return !value || typeof value !== "object" || Array.isArray(value); }

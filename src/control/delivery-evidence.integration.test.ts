@@ -1,6 +1,8 @@
 // AC-ACT-05: real Codex-shaped dispatch/journal, then evidence-only RPC queries.
 // The protocol peer is covered by the separately recorded actual-provider proof.
-import { chmodSync, copyFileSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { Engine } from '../engine/engine.js';
@@ -9,6 +11,7 @@ import { createHarness, type Harness } from '../test-support/engine-harness.js';
 import { codexWorkFixture } from '../test-support/codex-work-fixture.js';
 import { historyFixture } from '../test-support/codex-history-fixture.js';
 import type { Receipt } from './commands.js';
+import { deliveredInHistory } from './delivery-evidence.js';
 
 let h: Harness;
 let work: ReturnType<typeof codexWorkFixture>;
@@ -52,4 +55,18 @@ it('requires the exact Codex thread, turn and user text before recording deliver
   for (let query = 0; query < 2; query++) expect((await h.engine.refreshCommand(input.command_id)).operation).toMatchObject({ id: receipt.id, state: 'completed', effects: { reply: 'delivered', session: 'resumed', plan: 'not_advanced' } });
   expect(readFileSync(sessionFile)).toEqual(before); expect(work.calls().filter(call => call.method === 'turn/start')).toHaveLength(turnCount);
   expect(history.calls().every(call => ['initialize', 'thread/read'].includes(call.method))).toBe(true);
+});
+
+it('finds a delivered Claude prompt in a real transcript file whose earlier records contain raw U+2028/U+2029', async () => {
+  const config = mkdtempSync(join(tmpdir(), 'kiln-claude-')); const sessionId = '4d9a2c7e-0000-4000-8000-000000000001';
+  try {
+    mkdirSync(join(config, 'projects', 'project'), { recursive: true });
+    const prompt = 'Resume the audit.'; const startedAt = '2026-11-01T12:00:00.000Z';
+    // JSON.stringify leaves U+2028/U+2029 unescaped, as Claude's transcripts do.
+    const rows = [{ type: 'assistant', sessionId, timestamp: startedAt, message: { content: 'scraped text here' } }, { type: 'user', sessionId, timestamp: '2026-11-01T12:00:01.000Z', message: { content: prompt } }];
+    writeFileSync(join(config, 'projects', 'project', `${sessionId}.jsonl`), rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+    const session = { agentId: 'claude', sessionId } as unknown as Parameters<typeof deliveredInHistory>[0];
+    const run = { startedAt, control: { operationId: 'operation', attemptId: 'attempt', promptDigest: createHash('sha256').update(prompt).digest('hex') } } as unknown as Parameters<typeof deliveredInHistory>[1];
+    expect(await deliveredInHistory(session, run, { ...process.env, CLAUDE_CONFIG_DIR: config })).toBe(true);
+  } finally { rmSync(config, { recursive: true, force: true }); }
 });

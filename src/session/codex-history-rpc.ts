@@ -1,7 +1,8 @@
 // Evidence-only private transport: this process cannot start, resume or interrupt work.
-import { createInterface } from "node:readline";
+import { onJsonLines } from "../platform/json-lines.js";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 
+const FRAME_BYTES = 128 * 1024 * 1024;
 const METHODS = new Set(["initialize", "thread/read", "thread/turns/list", "thread/list"]);
 export interface HistoryRpc { call<T>(method: string, params: unknown): Promise<T> }
 export class CodexHistoryRpc implements HistoryRpc {
@@ -19,10 +20,11 @@ export class CodexHistoryRpc implements HistoryRpc {
     if (signal.aborted) this.abort();
     let buffered = 0;
     this.child.stdout!.on("data", (chunk: Buffer) => {
-      // Bound individual frames, not the lifetime number of paginated reads.
-      for (const byte of chunk) { buffered = byte === 10 ? 0 : buffered + 1; if (buffered > 16 * 1024 * 1024) { this.fail(new Error("Oversized Codex history frame.")); break; } }
+      // Bound individual frames, not the lifetime number of paginated reads. A page of 100 full
+      // turns from a long conversation (Codex histories reach 40+ MiB) can exceed 16 MiB.
+      for (const byte of chunk) { buffered = byte === 10 ? 0 : buffered + 1; if (buffered > FRAME_BYTES) { this.fail(new Error("Oversized Codex history frame.")); break; } }
     });
-    createInterface({ input: this.child.stdout! }).on("line", (line) => {
+    onJsonLines(this.child.stdout!, (line) => {
       if (this.failure) return;
       try {
         const message = JSON.parse(line) as { id?: number; method?: string; error?: unknown; result?: unknown };

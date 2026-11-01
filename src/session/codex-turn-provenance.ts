@@ -2,10 +2,10 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { CodexTurnExecution } from "../state/records.js";
-import { rawLines } from "./codex-evidence-store.js";
+import { existingRawHistory, rawLines } from "./codex-evidence-store.js";
 
 export async function readCodexTurnExecutions(options: { path: string; codexHome: string; threadId: string; signal: AbortSignal }): Promise<CodexTurnExecution[]> {
-  const path = realpathSync(options.path);
+  const path = realpathSync(existingRawHistory(options.path));
   const home = realpathSync(options.codexHome);
   if (!["sessions", "archived_sessions"].some(folder => { const part = relative(join(home, folder), path); return part !== "" && !isAbsolute(part) && part !== ".." && !part.startsWith(`..${sep}`); })) throw new Error("Codex execution history is outside its initialized home.");
   const result = new Map<string, CodexTurnExecution>();

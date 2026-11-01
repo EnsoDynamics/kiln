@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync, statSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { auditCodexConversation, codexStayedOutcome, uncertaintyFingerprint } from "./codex-evidence.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
+import { readCodexTurnExecutions } from "./codex-turn-provenance.js";
 
 const fixtures: ReturnType<typeof historyFixture>[] = [];
 const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; };
@@ -108,6 +110,8 @@ describe("authoritative Codex conversation audit", () => {
     f.append("parent", f.record("response_item", { type: "function_call_output", call_id: "refused", output: "collab tool failed: agent thread limit reached", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
     f.append("parent", follow("closed"));
     f.append("parent", f.record("response_item", { type: "function_call_output", call_id: "closed", output: "agent with id 01a1 is closed", internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+    // Recorded by Codex Desktop: an app notice shaped as an output with no call to answer.
+    f.append("parent", f.record("response_item", { type: "function_call_output", id: "fco_notice", name: "automation_update", namespace: "codex_app", output: "<heartbeat>opaque</heartbeat>" }));
     const refused = await auditCodexConversation({ ...f.options, commandProjection });
     expect(refused.problems).toEqual([]); expect(refused.coverage).toBe("complete");
     f.append("parent", follow("unanswered"));
@@ -120,6 +124,19 @@ describe("authoritative Codex conversation audit", () => {
     expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.operationsChecked).toBe(205);
     expect(result.findings).toHaveLength(0);
     expect(f.calls().filter(call => call.method === "thread/turns/list").map(call => call.params.cursor)).toEqual([null, "100", "200", null, "100", "200"]);
+  });
+  it("reads history whose recorded text contains raw line and paragraph separators", async () => {
+    const f = fixture();
+    // Codex's JSON leaves U+2028/U+2029 unescaped; observed in scraped web text.
+    Object.assign(f.state.threads.parent!.turns[0]!.items[0]!, { aggregatedOutput: "line\u2028separator\u2029paragraph" }); f.save();
+    const result = await auditCodexConversation(f.options);
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete");
+  });
+  it("reads a history page larger than 16 MiB from a long conversation", async () => {
+    const f = fixture();
+    Object.assign(f.state.threads.parent!.turns[0]!.items[0]!, { aggregatedOutput: "x".repeat(20 * 1024 * 1024) }); f.save();
+    const result = await auditCodexConversation(f.options);
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete");
   });
   it("accepts the verified non-executing metadata envelopes, but rejects changed envelope schemas", async () => {
     const f = fixture();
@@ -189,6 +206,19 @@ describe("authoritative Codex conversation audit", () => {
     const archived = join(f.codexHome, "archived_sessions", "rollout-parent.jsonl"); renameSync(path, archived);
     const result = await auditCodexConversation(f.options);
     expect(result.problems).toEqual([]); expect(result.frontiers[0]!.path).toBe(archived);
+  });
+  it("reads rollouts Codex compressed after they went idle, which Codex still reports by their uncompressed path", async () => {
+    const f = fixture(); f.addThread("child", { parent: "parent" }); f.options.knownThreadIds = ["child"];
+    const compress = (id: string) => { const path = f.state.threads[id]!.metadata.path; writeFileSync(`${path}.zst`, zstdCompressSync(readFileSync(path))); return path; };
+    const parent = compress("parent"); const child = compress("child");
+    // While Codex compresses a rollout both forms exist; the uncompressed one is still the source.
+    const during = await auditCodexConversation(f.options);
+    expect(during.problems).toEqual([]); expect(during.frontiers.map(frontier => frontier.path).sort()).toEqual([child, parent].map(path => realpathSync(path)).sort());
+    rmSync(parent); rmSync(child);
+    const result = await auditCodexConversation(f.options);
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.frontiers).toHaveLength(2);
+    expect(result.frontiers.map(frontier => frontier.path).sort()).toEqual([`${child}.zst`, `${parent}.zst`].map(path => realpathSync(path)).sort());
+    expect(await readCodexTurnExecutions({ path: parent, codexHome: f.codexHome, threadId: "parent", signal: AbortSignal.timeout(10_000) })).toEqual([expect.objectContaining({ threadId: "parent", turnId: "parent-turn-0" })]);
   });
   it.each(["repeatCursor", "changedTree", "changeRawOnRead"])("rejects a changing or incomplete provider frontier: %s", async kind => {
     const f = fixture();

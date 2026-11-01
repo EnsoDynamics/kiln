@@ -1,5 +1,5 @@
 // Private, metadata-only JSONL transport. The allowlist makes starting a work turn impossible.
-import { createInterface } from "node:readline";
+import { onJsonLines } from "../platform/json-lines.js";
 import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
 
 const METHODS = new Set(["initialize", "model/list", "account/read", "account/rateLimits/read", "skills/list", "configRequirements/read", "config/read", "windowsSandbox/readiness"]);
@@ -22,7 +22,7 @@ export class CodexMetadataRpc {
     this.signal = signal;
     let bytes = 0;
     this.child.stdout!.on("data", (data: Buffer) => { bytes += data.length; if (bytes > 16 * 1024 * 1024) this.fail(new Error("Codex metadata exceeds the bounded response size.")); });
-    createInterface({ input: this.child.stdout! }).on("line", (line) => {
+    onJsonLines(this.child.stdout!, (line) => {
       try {
         const message = JSON.parse(line) as { id?: number; method?: string; result?: unknown; error?: unknown };
         if (message.method && message.id !== undefined) {
