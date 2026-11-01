@@ -67,6 +67,9 @@ function validate(report: AuditReport, context: ValidationContext): { report: Au
   const verifiedByAssessor = (id: string, partId?: string) => requireAudit(assessments.some(a => a.assessment!.verificationEvidenceIds?.includes(id) && (!partId || a.assessment!.partIds.includes(partId))), `Verification ${id} is not mapped by an independent test assessor.`, "missing_evidence");
   const partIds = new Set<string>(); const gaps = new Set<string>(); const failingTestKeys = new Set<string>();
   let unresolved = false;
+  // Check the enum across the whole report first: a free-text value would otherwise read as "fully superseded".
+  const unknownApplicability = report.criteria.flatMap(row => (Array.isArray(row.parts) ? row.parts : []).filter(part => !["current", "superseded"].includes(part.applicability)).map(part => ({ row: row.criterionKey, part })));
+  requireAudit(!unknownApplicability.length, `Part applicability must be "current" or "superseded"; ${unknownApplicability.length} part(s) in ${new Set(unknownApplicability.map(u => u.row)).size} row(s) use another value, e.g. ${unknownApplicability[0]?.part.id}: ${JSON.stringify(String(unknownApplicability[0]?.part.applicability).slice(0, 80))}. Applicability says whether the requirement text is still in force, not whether its phase is closed.`);
   for (const row of report.criteria) {
     const source = checked.requirements.criteria.find(c => c.key === row.criterionKey)!;
     requireAudit(Array.isArray(row.parts) && row.parts.length && strings(row.assessmentEvidenceIds) && row.assessmentEvidenceIds.length && Array.isArray(row.findings) && strings(row.blockerIds), `Incomplete criterion row ${row.criterionKey}`);

@@ -147,6 +147,16 @@ describe("audit evidence admission", () => {
     expect(result.refusal?.code).toBe("inconsistent_plan");
     expect(result.refusal?.reason).toContain("exactly the appended plan entries");
   });
+  it("names an unknown part applicability instead of calling the row superseded (AC-AUDIT-03)", async () => {
+    const f = await fixture();
+    for (const part of f.report.criteria[0]!.parts) (part as unknown as Record<string, unknown>).applicability = "in scope: owning phase 1 closed";
+    f.saveReport();
+    const result = await submitAudit(f.context, { ...f.body(), reportPath: f.activity.reportPath });
+    expect(result.refusal?.code).toBe("invalid_report");
+    expect(result.refusal?.reason).toContain('Part applicability must be "current" or "superseded"');
+    expect(result.refusal?.reason).toContain('"in scope: owning phase 1 closed"');
+    expect(result.refusal?.reason).not.toContain("needs the superseded status");
+  });
   it("verifies shared retained sources once per operation and rechecks their integrity on later checks", async () => {
     const f = await fixture();
     const source = f.store.putBytes("Shared retained transcript\n".repeat(40_000));
