@@ -335,6 +335,16 @@ async function contains(context: DeliveryContext, repo: RepositoryEntry, ancesto
   return ["ahead", "identical"].includes(String(comparison.status)) && object(comparison.merge_base_commit).sha === ancestor;
 }
 /**
+ * Whether a revision a probe reported contains the merge. GitHub's definite "no such commit" answer means it does not,
+ * so a probe reporting an unknown revision is refused on its own requirement rather than marking the provider unavailable.
+ */
+async function reportedContains(context: DeliveryContext, repo: RepositoryEntry, merge: string, reported: string): Promise<boolean> {
+  const endpoint = `repos/${repo.github}/compare/${merge}...${reported}`;
+  const answer = await runHelper(context.gh, ["api", "--hostname", "github.com", endpoint], { cwd: context.prdWorktree, env: context.env, ...(context.signal ? { signal: context.signal } : {}), timeoutMs: 30_000 });
+  if (answer.exitCode !== 0 && /\(HTTP (404|422)\)/.test(answer.stderr)) return false;
+  return contains(context, repo, merge, reported);
+}
+/**
  * A prerequisite on the same target whose deployed revision is already in this checkpoint's merge is carried by this
  * checkpoint's own deployment, which necessarily replaces the prerequisite's artifact. Requiring the prerequisite's exact
  * revision to stay current would be unsatisfiable; this checkpoint's verification, bound to its own deployed revision, proves both.
@@ -344,7 +354,7 @@ async function carriedPrerequisite(context: DeliveryContext, checkpoint: Deliver
 }
 function pointer(value: unknown, path: string): unknown { let current = value; for (const part of path.slice(1).split("/").map(part => part.replaceAll("~1", "/").replaceAll("~0", "~"))) { need(current !== null && typeof current === "object" && Object.hasOwn(current, part), `Missing evidence field ${path}.`); current = (current as Json)[part]; } return current; }
 async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckpoint, requirement: EvidenceRequirement, reference: EvidenceReference): Promise<EvidenceFact> {
-  const repo = repository(context, checkpoint); let raw: unknown; let revision: string; let occurredAt: string; let startedAt: string | undefined; let deploymentJobUrl: string | undefined;
+  const repo = repository(context, checkpoint); let raw: unknown; let revision: string; let occurredAt: string; let startedAt: string | undefined; let deploymentJobUrl: string | undefined; let observedRevision: string | undefined;
   need(reference.kind === requirement.match.kind, `Evidence source mismatch for ${requirement.id}.`);
   if (requirement.match.kind === "command") {
     need(reference.sessionId, "Command evidence needs its recorded session identity.");
@@ -359,11 +369,21 @@ async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckp
     raw = call; occurredAt = call.resultAt; startedAt = call.calledAt;
     let fields: unknown;
     if (Object.keys(requirement.match.fields).length) { try { fields = JSON.parse(call.output); } catch { throw new DeliveryRefusal(`${requirement.id}: required typed JSON result is unavailable.`); } }
-    for (const [path, declared] of Object.entries(requirement.match.fields)) { if (declared === "$currentRevision") { need(requirement.purpose === "current_artifact" && sha(pointer(fields, path)), "A current-artifact probe must report an immutable revision."); continue; } const expected = declared === "$sourceRevision" ? checkpoint.headSha : declared === "$mergeRevision" ? checkpoint.merge?.resultSha : declared === "$environment" ? checkpoint.target.environment : typeof declared === "string" && declared.startsWith("$dependency:") ? deployedArtifact(ledger(context.record), declared.slice(12))?.revision : declared; need(expected !== undefined && pointer(fields, path) === expected, `${requirement.id}: ${path} does not match its declared target/artifact.`); }
+    for (const [path, declared] of Object.entries(requirement.match.fields)) {
+      if (declared === "$currentRevision") { need(requirement.purpose === "current_artifact" && sha(pointer(fields, path)), "A current-artifact probe must report an immutable revision."); continue; }
+      // A later same-target deployment replaces this checkpoint's artifact, so its exact merge can never be current again;
+      // a reported revision the provider shows contains the merge still proves this checkpoint's work is what runs there.
+      const reported = pointer(fields, path);
+      if (declared === "$mergeRevision" && (requirement.purpose === "deployment" || requirement.purpose === "verification") && checkpoint.merge && reported !== checkpoint.merge.resultSha && sha(reported) && await reportedContains(context, repo, checkpoint.merge.resultSha, reported)) { observedRevision = reported; continue; }
+      const expected = declared === "$sourceRevision" ? checkpoint.headSha : declared === "$mergeRevision" ? checkpoint.merge?.resultSha : declared === "$environment" ? checkpoint.target.environment : typeof declared === "string" && declared.startsWith("$dependency:") ? deployedArtifact(ledger(context.record), declared.slice(12))?.revision : declared; need(expected !== undefined && pointer(fields, path) === expected, `${requirement.id}: ${path} does not match its declared target/artifact.`); }
     const expectedRevision = checkpoint.merge?.resultSha ?? checkpoint.headSha;
     if (requirement.purpose === "pre_merge") { need(argumentBound(directInvocation(invocation), checkpoint.headSha) || Object.values(requirement.match.fields).some(value => value === checkpoint.headSha || value === "$sourceRevision"), "The recorded pre-merge test has no evidence of the tested source revision."); revision = checkpoint.headSha; }
     else if (requirement.purpose === "current_artifact" && Object.values(requirement.match.fields).includes("$currentRevision")) { const path = Object.entries(requirement.match.fields).find(([, value]) => value === "$currentRevision")![0]; revision = pointer(fields, path) as string; }
-    else { need(argumentBound(directInvocation(invocation), expectedRevision) || Object.values(requirement.match.fields).some(value => value === expectedRevision || value === "$mergeRevision"), `${requirement.id}: no binding to the deployed merge revision.`); revision = expectedRevision; }
+    else {
+      need(argumentBound(directInvocation(invocation), expectedRevision) || Object.values(requirement.match.fields).some(value => value === expectedRevision || value === "$mergeRevision"), `${requirement.id}: no binding to the deployed merge revision.`); revision = expectedRevision;
+      // A deployment records what is actually deployed; a verification binds to whichever of this checkpoint's deployments it observed.
+      if (observedRevision && (requirement.purpose === "deployment" || [...checkpoint.evidence, ...(checkpoint.evidenceHistory ?? [])].some(fact => fact.status === "success" && fact.revision === observedRevision && checkpoint.requirements.find(one => one.id === fact.requirementId)?.purpose === "deployment"))) revision = observedRevision;
+    }
   } else if (requirement.match.kind === "github_deployment") {
     need(/^\d+$/.test(reference.id), "Invalid deployment ID.", 422);
     const deployment = object(await github(context, `repos/${repo.github}/deployments/${reference.id}`));
@@ -415,7 +435,7 @@ async function evidenceFact(context: DeliveryContext, checkpoint: DeliveryCheckp
     else prerequisiteArtifacts = await prerequisiteArtifactsNow(context, checkpoint, [requirement], startedAt);
   }
   const rawDigest = hash(raw); const rawPath = join(context.stateDirectory, "delivery-evidence", `${rawDigest}.json`); writeJsonAtomically(rawPath, raw);
-  return { requirementId: requirement.id, reference, revision, environment: checkpoint.target.environment, observedAt: context.now(), occurredAt, status: "success", rawDigest, rawPath, ...(startedAt ? { startedAt } : {}), ...(deploymentJobUrl ? { deploymentJobUrl } : {}), ...(prerequisiteArtifacts ? { prerequisiteArtifacts } : {}) };
+  return { requirementId: requirement.id, reference, revision, environment: checkpoint.target.environment, observedAt: context.now(), occurredAt, status: "success", rawDigest, rawPath, ...(startedAt ? { startedAt } : {}), ...(deploymentJobUrl ? { deploymentJobUrl } : {}), ...(observedRevision ? { observedRevision } : {}), ...(prerequisiteArtifacts ? { prerequisiteArtifacts } : {}) };
 }
 function effectiveCheckpoint(state: DevelopmentLedger, id: string): DeliveryCheckpoint | undefined {
   const seen = new Set<string>(); let checkpoint = state.checkpoints.find(one => one.id === id);

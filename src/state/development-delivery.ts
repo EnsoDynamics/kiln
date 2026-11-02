@@ -42,7 +42,7 @@ export interface EvidenceRequirement {
 export interface EvidenceReference { requirementId: string; kind: "command" | "github_deployment" | "github_workflow"; id: string; sessionId?: string }
 export interface EvidenceFact {
   requirementId: string; reference: EvidenceReference; revision: string; environment: string;
-  observedAt: string; occurredAt: string; status: "success" | "unresolved"; rawDigest: string; rawPath: string; startedAt?: string; deploymentJobUrl?: string; prerequisiteArtifacts?: { checkpointId: string; revision: string }[]; reason?: string;
+  observedAt: string; occurredAt: string; status: "success" | "unresolved"; rawDigest: string; rawPath: string; startedAt?: string; deploymentJobUrl?: string; observedRevision?: string; prerequisiteArtifacts?: { checkpointId: string; revision: string }[]; reason?: string;
 }
 export interface MergeFact { number: number; url: string; sourceHead: string; mergedHead: string; resultSha: string; method: string; mergedAt: string }
 export interface DeliveryOperation {
@@ -151,7 +151,7 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     if (checkpoint.merge) require(object(checkpoint.merge) && Number.isSafeInteger(checkpoint.merge.number) && checkpoint.merge.number > 0 && text(checkpoint.merge.url) && checkpoint.merge.url.toLowerCase() === `https://${checkpoint.target.repository}/pull/${checkpoint.merge.number}`.toLowerCase() && checkpoint.merge.sourceHead === checkpoint.headSha && checkpoint.merge.mergedHead === checkpoint.headSha && sha(checkpoint.merge.resultSha) && text(checkpoint.merge.method) && timestamp(checkpoint.merge.mergedAt), "confirmed merge fact");
     const retained = [...(checkpoint.references ?? []), ...checkpoint.operations.flatMap(one => one.references)];
     require(checkpoint.evidenceHistory === undefined || Array.isArray(checkpoint.evidenceHistory), "evidence history");
-    for (const fact of [...checkpoint.evidence, ...(checkpoint.evidenceHistory ?? [])]) require(object(fact) && requirements.has(fact.requirementId) && reference(fact.reference) && retained.some(one => one.requirementId === fact.reference.requirementId && one.id === fact.reference.id && one.kind === fact.reference.kind && one.sessionId === fact.reference.sessionId) && sha(fact.revision) && fact.environment === checkpoint.target.environment && ["success", "unresolved"].includes(fact.status) && timestamp(fact.observedAt) && timestamp(fact.occurredAt) && digest(fact.rawDigest) && text(fact.rawPath), "retained evidence fact and source reference");
+    for (const fact of [...checkpoint.evidence, ...(checkpoint.evidenceHistory ?? [])]) require(object(fact) && requirements.has(fact.requirementId) && reference(fact.reference) && retained.some(one => one.requirementId === fact.reference.requirementId && one.id === fact.reference.id && one.kind === fact.reference.kind && one.sessionId === fact.reference.sessionId) && sha(fact.revision) && (fact.observedRevision === undefined || sha(fact.observedRevision)) && fact.environment === checkpoint.target.environment && ["success", "unresolved"].includes(fact.status) && timestamp(fact.observedAt) && timestamp(fact.occurredAt) && digest(fact.rawDigest) && text(fact.rawPath), "retained evidence fact and source reference");
   }
   for (const checkpoint of state.checkpoints) {
     require(checkpoint.dependsOn.every(id => ids.has(id) && id !== checkpoint.id), "checkpoint prerequisites");

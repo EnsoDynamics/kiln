@@ -189,11 +189,46 @@ describe("independent delivery evidence and continuation", () => {
     f.context.commands=()=>Promise.resolve([{source:"verified provider contract",callId:"verify-result",command:`node verify.mjs ${f.merged} ${f.checkpoint.target.environment}`,cwd:f.context.prdWorktree,calledAt:f.at(21),resultAt:f.at(30),outcome:"success",output:JSON.stringify(output)}]);
     await reconcileDelivery(f.context); expect(phaseDeliveryCheck(f.context,"1").passed).toBe(true);
     output[field as "revision"|"environment"]=field==="revision" ? "a".repeat(40) : "another-environment";
+    // A revision the provider shows does not contain the merge stays a mismatch.
+    if(field==="revision"){f.responses[`repos/acme/acme-shop/compare/${f.merged}...${"a".repeat(40)}`]={body:{status:"diverged",merge_base_commit:{sha:f.head}}};f.save();}
     await reconcileDelivery(f.context);
     expect(f.checkpoint.merge?.resultSha).toBe(f.merged);
     expect(f.checkpoint.unresolvedRequirements?.verify).toBe(`verify: /${field} does not match its declared target/artifact.`);
     expect(phaseDeliveryCheck(f.context,"1").passed).toBe(false);
     expect((await evaluateRepositories(f.context)).passed).toBe(false);
+  });
+  it.each([["accepts","ahead"],["refuses","diverged"],["refuses","unknown to GitHub"]] as const)("%s a verification that reports a later same-target revision the provider shows is %s of the merge", async (outcome, status) => {
+    // A later checkpoint deployed to the same environment replaces this one's artifact; its exact merge can never be current again.
+    const f=await setup(); f.synchronize();
+    f.checkpoint.requirements[1]={id:"verify",purpose:"verification",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{"/revision":"$mergeRevision","/environment":"$environment"}}};
+    f.checkpoint.references![1]={requirementId:"verify",kind:"command",id:"verify-result",sessionId:"recorded-session"};
+    const later="b".repeat(40);
+    f.responses[`repos/acme/acme-shop/compare/${f.merged}...${later}`]=status==="unknown to GitHub"?{error:"gh: Not Found (HTTP 404)\n"}:{body:{status,merge_base_commit:{sha:status==="ahead"?f.merged:f.head}}}; f.save();
+    f.context.commands=()=>Promise.resolve([{source:"verified provider contract",callId:"verify-result",command:`node verify.mjs ${f.merged} ${f.checkpoint.target.environment}`,cwd:f.context.prdWorktree,calledAt:f.at(21),resultAt:f.at(30),outcome:"success",output:JSON.stringify({revision:later,environment:f.checkpoint.target.environment})}]);
+    await reconcileDelivery(f.context);
+    if (outcome==="accepts") {
+      expect(f.checkpoint.evidence.find(one=>one.requirementId==="verify")).toMatchObject({status:"success",revision:f.merged,observedRevision:later});
+      expect(phaseDeliveryCheck(f.context,"1").passed).toBe(true);
+    } else {
+      expect(f.checkpoint.unresolvedRequirements?.verify).toBe("verify: /revision does not match its declared target/artifact.");
+      expect(phaseDeliveryCheck(f.context,"1").passed).toBe(false);
+      // A refusal of this one requirement, never a provider outage that holds the whole ledger.
+      expect(f.h.engine.record.developmentDelivery!.sourceUnavailable).toBeFalsy();
+    }
+  });
+  it("records the later revision a command deployment actually reports, and binds verification of that revision to it", async () => {
+    const f=await setup(); f.synchronize();
+    const later="c".repeat(40);
+    f.responses[`repos/acme/acme-shop/compare/${f.merged}...${later}`]={body:{status:"ahead",merge_base_commit:{sha:f.merged}}}; f.save();
+    f.checkpoint.requirements[0]={id:"deploy",purpose:"deployment",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node deploy.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{"/revision":"$mergeRevision"}}};
+    f.checkpoint.requirements[1]={id:"verify",purpose:"verification",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{"/revision":"$mergeRevision"}}};
+    f.checkpoint.references=[{requirementId:"deploy",kind:"command",id:"deploy-result",sessionId:"recorded-session"},{requirementId:"verify",kind:"command",id:"verify-result",sessionId:"recorded-session"}];
+    const call=(id:string,command:string,from:number,to:number)=>({source:"verified provider contract",callId:id,command,cwd:f.context.prdWorktree,calledAt:f.at(from),resultAt:f.at(to),outcome:"success" as const,output:JSON.stringify({revision:later})});
+    f.context.commands=()=>Promise.resolve([call("deploy-result",`node deploy.mjs ${f.merged} ${f.checkpoint.target.environment}`,11,20),call("verify-result",`node verify.mjs ${f.merged} ${f.checkpoint.target.environment}`,21,30)]);
+    await reconcileDelivery(f.context);
+    expect(f.checkpoint.evidence.find(one=>one.requirementId==="deploy")).toMatchObject({status:"success",revision:later,observedRevision:later});
+    expect(f.checkpoint.evidence.find(one=>one.requirementId==="verify")).toMatchObject({status:"success",revision:later,observedRevision:later});
+    expect(phaseDeliveryCheck(f.context,"1").passed).toBe(true);
   });
   it("allows a new intent only after confirmed deployment/verification failure and retains the failed attempt",async()=>{
     const f=await setup();f.checkpoint.references=f.checkpoint.references!.filter(one=>one.requirementId!=="verify");f.checkpoint.requirements[1]={id:"verify",purpose:"verification",source:f.checkpoint.workflowSource,match:{kind:"command",invocation:"node verify.mjs {{mergeRevision}} {{environment}}",cwd:f.context.prdWorktree,fields:{}}};
