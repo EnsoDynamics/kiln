@@ -35,7 +35,7 @@ Handing work back to Claude and asking Kiln to confirm the work is done are diff
 
 ### Mark complete when Kiln's check is wrong
 
-When the person has checked again and Kiln still refuses, they can mark the activity complete, at any step, whatever check failed.
+When the person has checked again and Kiln still refuses, they can mark the activity complete (AC-WAIVE-02).
 
 - [ ] **AC-WAIVE-02 — Offered when a recheck still fails.** At any stopped activity, once a check run after the stop has failed, a **Mark {activity} complete** button appears below the checks under the heading "{Activity} is done, and Kiln's check is wrong?": in the **Is {activity} already done?** section of the hand-back page, or below **Check again** in the side panel of the standard Needs you page. It does not appear before a recheck, while a check is running, after a check that could not finish, or when every check passed. It is offered whatever check failed, recovery and safety checks and Current completion audits included. AC-WAIVE-04 gives the one other heading and label, for a **Phase plan reads** or **Completion audit readiness** stop on an activity that has not started.
 - [ ] **AC-WAIVE-11 — Every failing item is listed.** Each check lists every item it finds failing, one per line, instead of stopping at the first. This changes what a check reports, never what it accepts.
@@ -79,7 +79,7 @@ When the person has checked again and Kiln still refuses, they can mark the acti
 
 ### A waiver is recorded and never reads as verified
 
-Anyone looking later, in the browser, the terminal or a bot, must be able to tell the activity was completed on a waiver and which checks it skipped. These criteria also say how long a waiver keeps counting.
+Anyone looking later, in the browser, the terminal or a bot, must be able to tell the activity was completed on a waiver and which checks it skipped.
 
 - [ ] **AC-WAIVE-08 — The waiver is saved with everything needed to audit it.** Kiln saves, with the execution, before advancing: when, where it came from (browser or command line, with the local account name and any `--by` name), each waived item with its check, its failure text and what it was checked against (AC-WAIVE-09), and an identity for the check run it rests on. The record survives restarts and is never edited or deleted by Kiln.
 - [ ] **AC-WAIVE-09 — A waiver covers only the items it named, while they are unchanged.** A waived item counts as met wherever Kiln asks for it again (audits: AC-WAIVE-12): choosing the next activity, a later activity's checks, and the PRD's final completion checks. Across activities, an item matches by its table row and that row's Matched by, so a phase's unpushed work in a repository is the same item as final delivery's. Once what the item was checked against changes, it needs its own passing check or its own waiver; the PRD is never asked to waive the same unchanged item twice. A waiver ending never reopens a completed activity.
