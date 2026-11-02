@@ -1,26 +1,16 @@
 // How the screens show completion waivers (waivers technical design, "Display Contract"): a
 // check met only through a waiver reads Waived, never Passed, each covered item carries its own
 // Waived tag with the activity, time and source of its waiver, and counts report waived checks
-// separately (AC-WAIVE-10). Kept free of the engine's waiver module, which reads Git.
+// separately (AC-WAIVE-10). The counts and their wording are the engine's own.
 
 import type { CheckCounts, Snapshot, WaiverView } from "../../../src/engine/snapshot.js";
-import type { CheckItem, ItemChange, WaiverRef, WaiverSource } from "../../../src/engine/waivers.js";
+import { checkCounts, checksWord, countsText, type CheckItem, type ItemChange, type WaiverRef, type WaiverSource } from "../../../src/engine/waivers.js";
 import type { CheckResult } from "../../../src/state/records.js";
 
-export const checksWord = (count: number) => `${count} check${count === 1 ? "" : "s"}`;
-
+export { checksWord };
 /** "3 passed · 1 waived", with failing checks counted when there are any. */
-export function countsLine(counts: CheckCounts): string {
-  return [`${counts.passed} passed`, ...(counts.waived ? [`${counts.waived} waived`] : []), ...(counts.failed ? [`${counts.failed} failing`] : [])].join(" · ");
-}
-
-export function countsOf(checks: readonly CheckResult[]): CheckCounts {
-  return {
-    passed: checks.filter(check => check.passed && !check.waived).length,
-    waived: checks.filter(check => check.passed && check.waived).length,
-    failed: checks.filter(check => !check.passed).length,
-  };
-}
+export const countsLine: (counts: CheckCounts) => string = countsText;
+export const countsOf: (checks: readonly CheckResult[]) => CheckCounts = checkCounts;
 
 /**
  * A check count where the hand-back page shows one: "3 of 4 passed" with nothing waived,
