@@ -118,7 +118,7 @@ Replaces in part:
   - AC-BACK-04 and AC-MSG-05 (Mark complete is also an advance that releases the takeover hold and an acknowledged uncertain-message hold; the acknowledgement still comes first, AC-WAIVE-02/04).
 - AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (its routine controls also include `kiln waive-and-advance`).
 - In `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md`:
-  - AC-AUDIT-01 and AC-TEST-01 (an audit that cannot start on a waived audit-readiness problem counts as marked complete with no report, so it may never run, AC-WAIVE-04/12).
+  - AC-AUDIT-01 and AC-TEST-01 (an audit that cannot start on a waived audit-readiness problem, or whose launch check was waived before it ran, counts as marked complete with no report, so it may never run, AC-WAIVE-02/04/12).
   - AC-AUDIT-03 (a stopped audit can advance on a waiver without an accepted report, AC-WAIVE-12).
   - AC-AUDIT-04 (Current completion audits can be waived at final delivery, AC-WAIVE-02/12).
   - AC-LOOP-03 (a delivery audit marked complete is not repeated for the work it covered, even with no usable report, AC-WAIVE-12).
@@ -127,7 +127,7 @@ Replaces in part:
   - AC-RUN-03 (final delivery can complete on a waived **Audit evidence is current**).
 - In `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md`:
   - AC-NEUTRAL-03 (an audit stopped at Needs you, with or without a readable report, can be marked complete and then counts as AC-WAIVE-12 says).
-  - AC-NEUTRAL-04 (a phase skipped under a waived plan problem counts as closed, AC-WAIVE-04).
+  - AC-NEUTRAL-04 (a phase skipped under a waived plan problem counts as closed, AC-WAIVE-04; an audit whose report the plan disagrees with can be marked complete, and then counts as having no usable report, AC-WAIVE-12).
   - AC-NEUTRAL-05 (a test continuation refused for making no progress can be marked complete, and then counts as passed instead of starting another session, AC-WAIVE-12).
   - AC-NEUTRAL-06 (a waived audit stays current as an accepted one, and a no-report test audit counts as having changed only tests, AC-WAIVE-12).
   - AC-NEUTRAL-07 (an audit whose repository checks failed counts as accepted once waived, AC-WAIVE-12).
@@ -148,8 +148,13 @@ Replaces in part:
 - AC-CHECK-02 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (any of the evidence it keeps in force can be waived).
 - In `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md`:
   - AC-CONTINUE-01 (a phase completed on a waived Closed line, or skipped under a waived plan problem, counts as completed and is not rerun, AC-WAIVE-04/09).
+  - AC-CONTINUE-07 (a phase stopped because its preparation cannot complete can be marked complete without its dependent implementation, AC-WAIVE-02/04).
   - AC-HANDBACK-04 (a phase completed outside Kiln can also be accepted on a waiver, not only on existing completion evidence, AC-WAIVE-02/09).
-- AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (a known cleanup failure can be waived like any failing check).
+- In `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`:
+  - AC-AGENT-03 (an activity stopped before launch by agent selection and readiness can be marked complete without starting a session; later launches still require readiness, AC-WAIVE-02/04/09).
+  - AC-RECOVER-01 (a known cleanup failure can be waived like any failing check).
+- In `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md`:
+  - AC-RUN-02 and AC-CODEX-03 (a launch held for billing approval, or for a failed Codex sign-in or readiness check, on an activity that has not run, can be marked complete without launching it; the waiver never makes a later launch eligible, AC-WAIVE-02/04/09).
 
 ## Mockup
 
