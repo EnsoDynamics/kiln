@@ -33,7 +33,7 @@ None pending: every assumption is validated below.
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
 | WAIVE-001 | Corrected: any failing completion requirement can be waived, at any stopped activity, not only development delivery | 2026-11-01 | Moved to PRD AC-WAIVE-02. Reopening withdrawn 2026-11-02; Doug's ruling stands: any failing check can be waived, no exceptions |
-| WAIVE-002 | A waived requirement also counts at final delivery; the same unchanged item is never waived twice | 2026-11-01 | Moved to PRD AC-WAIVE-09 |
+| WAIVE-002 | A waived requirement also counts at final delivery; the same unchanged item is never waived twice | 2026-11-01 | Moved to PRD AC-WAIVE-09. 2026-11-02: also covers an unreadable plan or audit state; Kiln follows its normal order with a warning (AC-WAIVE-04) |
 | WAIVE-003 | Corrected: not person-only; bots waive through `kiln waive-and-advance`, under the same Needs you eligibility as the browser | 2026-11-01 | Moved to PRD AC-WAIVE-05 |
 | WAIVE-004 | A checkpoint resolved only by waiving its failing requirements also counts as resolved for the checkpoints that depend on it, while the waiver holds; each dependent checkpoint's own requirements still need their own evidence or waiver | 2026-11-02 | Moved to PRD AC-WAIVE-09 |
 | WAIVE-006 | An audit marked complete counts as passed: Kiln follows its report if it left one, and otherwise moves on with a "no audit report" warning instead of running it again | 2026-11-02 | Moved to PRD AC-WAIVE-12 |
