@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-completion-waivers
 
-Started: 2026-11-02   Current pass: 3   Status: In progress
+Started: 2026-11-02   Current pass: 4   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 3381 · growth baseline 3381
@@ -19,6 +19,7 @@ Last updated: 2026-11-02
 |---|---|---|---|---|---|---|---|
 | 1 | 9 (+4 from conformance) | 9 | 9 | 0 | 0 | 0 | 0 |
 | 2 | 8 (+4 carried, +1 conformance) | 13 | 11 | 0 | 0 | 0 | 1 |
+| 3 | 4 (+1 conformance) | 5 | 5 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -46,6 +47,12 @@ Last updated: 2026-11-02
 | Q19 | 2 | Continuation baseline revision when final delivery waived the PRD repo push (waivedHead fallback) | Technical | MEDIUM | 85 → 90 | Resolved | TD §Coverage (Continuation executions) |
 | Q20 | 2 | Display of a continued waiver on an already-complete activity | Technical (PRD decides) | LOW | 70 → 95 | Resolved (AC-WAIVE-10 decides) | TD §Display Contract |
 | Q21 | 2 (conformance) | TD §Check Runs: on a billing hold whose activity already ran, a recheck "replaces the hold's rows" with the done check's, and the snapshot reads the hold's rows rather than appending one, yet the same paragraph says the preview never counts "the Billing approval row the snapshot shows"; does the hold keep showing its Billing approval row after such a recheck (outside the waivable run), and where is it stored? | Technical | LOW | — | Resolved | TD §Check Runs |
+| Q22 | 3 | Under a waived plan problem, every later phase's Closed row fails with the plan-problem text: covered by the known_problem waiver? | Technical | HIGH | 60 → 85 | Resolved by decision (proposal rejected: Closed judged from the leaf document) | TD §Failing Items |
+| Q23 | 3 | Where 'Complete · N waived' is stored when an activity passes only on a carried waiver | Technical | MEDIUM | 70 → 90 | Resolved | TD §Coverage, §Display, §Upgrade |
+| Q24 | 3 | Plan stop raised by something other than the plan read (activation-recovery missing phase) never gets a recheck run | Technical | MEDIUM | 75 → 90 | Resolved | TD §Check Runs, §Normal Order |
+| Q25 | 3 | After check_results_changed, is Mark complete re-offered at once | Technical | LOW | 85 → 95 | Resolved (mockup decides) | TD §Display Contract |
+| Q26 | 3 (conformance) | Under a waived plan problem, PRD AC-WAIVE-04 takes the next phase "whose own document reads", but TD §Normal Order takes any next leaf (from the plan Kiln last recorded when none read) and §Failing Items then fails its Closed row with the plan-problem text; should §Normal Order pass over a leaf whose own document does not read, and how does such a leaf count for AC-NEUTRAL-04's open-phase rule and final delivery's "Phase N is still open"? | Technical | MEDIUM | — | Resolved (PRD decides: next phase whose own document reads; unreadable leaf skipped) | TD §Normal Order |
+
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
 ## Question notes
@@ -68,4 +75,4 @@ Changed after pass 1: AC-WAIVE-12 (None usable row, Q-C1); AC-WAIVE-02 (other he
 |---|---|---|
 
 ## Next action
-Pass 3 discovery.
+Pass 4 discovery.
