@@ -37,7 +37,7 @@ Handing work back to Claude and asking Kiln to confirm the work is done are diff
 
 When the person has checked again and Kiln still refuses, they can mark the activity complete, at any step, whatever check failed.
 
-- [ ] **AC-WAIVE-02 — Offered when a recheck still fails.** At any stopped activity, once a check run after the stop has failed, a **Mark {activity} complete** button appears below the checks under the heading "{Activity} is done, and Kiln's check is wrong?": in the **Is {activity} already done?** section of the hand-back page, or below **Check again** in the side panel of the standard Needs you page. It does not appear before a recheck, while a check is running, after a check that could not finish, or when every check passed. It is offered whatever check failed, recovery and safety checks and Current completion audits included. AC-WAIVE-04 gives the one other heading and label, for a stop on an activity that has not started.
+- [ ] **AC-WAIVE-02 — Offered when a recheck still fails.** At any stopped activity, once a check run after the stop has failed, a **Mark {activity} complete** button appears below the checks under the heading "{Activity} is done, and Kiln's check is wrong?": in the **Is {activity} already done?** section of the hand-back page, or below **Check again** in the side panel of the standard Needs you page. It does not appear before a recheck, while a check is running, after a check that could not finish, or when every check passed. It is offered whatever check failed, recovery and safety checks and Current completion audits included. AC-WAIVE-04 gives the one other heading and label, for a **Phase plan reads** or **Completion audit readiness** stop on an activity that has not started.
 - [ ] **AC-WAIVE-11 — Every failing item is listed.** Each check lists every item it finds failing, one per line, instead of stopping at the first. This changes what a check reports, never what it accepts.
 - [ ] **AC-WAIVE-03 — One click marks it complete, with no explanation asked.** The button waives every failing item in the latest check run, with no partial selection, confirmation panel or reason field. The sentence above it says what Kiln waives, what it does next and how the activity will show (AC-WAIVE-10). When a failing item is a repository's uncommitted or unpushed work, it adds that this work will be missing from the final pull request and, where resuming is offered, that resuming the activity can push it instead.
 - [ ] **AC-WAIVE-04 — Kiln checks again before saving, and waives only what it showed.** Submitting reruns every completion check and compares the result with the latest check run since the stop, the one Mark complete was offered on:
@@ -57,7 +57,7 @@ When the person has checked again and Kiln still refuses, they can mark the acti
   | Ran, and is not complete | Marks it complete, as for any other check |
   | Is already complete, such as the last audit | Leaves it as it was, its currentness included |
 
-  Like any waiver, these carry forward (AC-WAIVE-09): while a waived problem stands, Kiln does not stop on it again, under either check, but follows its normal order (Doug's ruling, 2026-11-02). A problem Kiln has not stopped on before still stops it once.
+  Like any waiver, these carry forward (AC-WAIVE-09): while a waived problem stands, Kiln does not stop on it again, under either check, but follows its normal order. A problem Kiln has not stopped on before still stops it once.
 
   | Waived problem | Kiln goes on to |
   |---|---|
@@ -100,35 +100,56 @@ Anyone looking later, in the browser, the terminal or a bot, must be able to tel
   |---|---|
   | Accepted | What its outcome says, a waived **Audit evidence is current** counted as current |
   | Valid, not accepted: it needs a person (**Audit work resolved**) or a repository or delivery check failed | Accepted, with needing a person counted as passed |
-  | None usable: marked complete without a usable report | Passed, and Kiln moves on (Doug's ruling, 2026-11-02): delivery audit to test audit, test audit to final delivery as having changed only tests. Completion phases it already appended still run first, and the work they add is audited afresh, as after any audit that appended phases |
+  | None usable: marked complete with no report, or with one Kiln could not read or refused, such as a test continuation that made no progress or a report its plan disagrees with | Passed, and Kiln moves on: delivery audit to test audit, test audit to final delivery as having changed only tests. Completion phases it already appended still run first, and the work they add is audited afresh, as after any audit that appended phases |
 
   With no usable report, a warning marker, "no audit report: Kiln couldn't tell what this audit found", sits beside the audit's waived label wherever AC-WAIVE-10 shows it, and in the `kiln status` JSON as a field on the audit's waiver; the sentence above Mark complete (AC-WAIVE-03) says so first.
 
 Replaces in part:
 
-- AC-DEV-03 and AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (failed required development evidence, and the final requirements that every repository qualifies and all development verification is satisfied, give way to a waiver under AC-WAIVE-04 and AC-WAIVE-09).
-- AC-PAGE-02, AC-TERMINAL-01, AC-VERIFY-01 and AC-RETURN-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the hand-back page's arrangement and action names under AC-NEXT-01/02, and Mark complete after a failed recheck; every action's behavior remains).
-- AC-BACK-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the hand-back pair is split into Have Kiln resume and Check again under AC-NEXT-01/02).
+- In `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md`:
+  - AC-DEV-03 and AC-DELIVER-04 (failed required development evidence, and the final requirements that every repository qualifies and all development verification is satisfied, give way to a waiver under AC-WAIVE-04 and AC-WAIVE-09).
+  - AC-DELIVER-03 (a prerequisite checkpoint resolved only by waiver counts as resolved for its dependents, WAIVE-004 under AC-WAIVE-09).
+- In `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md`:
+  - AC-PAGE-02, AC-TERMINAL-01, AC-VERIFY-01 and AC-RETURN-01 (the hand-back page's arrangement and action names under AC-NEXT-01/02, and Mark complete after a failed recheck; every action's behavior remains).
+  - AC-VERIFY-02 (the rows list every failing item and tag waived ones, and counts report waived checks separately, AC-WAIVE-10/11).
+- In `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md`:
+  - AC-BACK-01 (the hand-back pair is split into Have Kiln resume and Check again under AC-NEXT-01/02).
+  - AC-BACK-03 (a takeover audit's Verify becomes Check again under AC-NEXT-02, and a failed recheck offers Mark complete, even with no usable report, AC-WAIVE-02/12).
+  - AC-BACK-04 and AC-MSG-05 (Mark complete is also an advance that releases the takeover hold and an acknowledged uncertain-message hold; the acknowledgement still comes first, AC-WAIVE-02/04).
 - AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (its routine controls also include `kiln waive-and-advance`).
 - In `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md`:
+  - AC-AUDIT-01 and AC-TEST-01 (an audit that cannot start on a waived audit-readiness problem counts as marked complete with no report, so it may never run, AC-WAIVE-04/12).
   - AC-AUDIT-03 (a stopped audit can advance on a waiver without an accepted report, AC-WAIVE-12).
   - AC-AUDIT-04 (Current completion audits can be waived at final delivery, AC-WAIVE-02/12).
   - AC-LOOP-03 (a delivery audit marked complete is not repeated for the work it covered, even with no usable report, AC-WAIVE-12).
-  - AC-TEST-03 (a test audit with no usable report counts as having changed only tests, AC-WAIVE-12).
+  - AC-TEST-03 (a test audit marked complete counts as complete even when Kiln cannot tell whether it left a delivery gap, AC-WAIVE-12).
   - AC-TEST-04 (final delivery can follow a test audit marked complete with blockers unresolved, AC-WAIVE-12).
   - AC-RUN-03 (final delivery can complete on a waived **Audit evidence is current**).
 - In `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md`:
   - AC-NEUTRAL-03 (an audit stopped at Needs you, with or without a readable report, can be marked complete and then counts as AC-WAIVE-12 says).
   - AC-NEUTRAL-04 (a phase skipped under a waived plan problem counts as closed, AC-WAIVE-04).
+  - AC-NEUTRAL-05 (a test continuation refused for making no progress can be marked complete, and then counts as passed instead of starting another session, AC-WAIVE-12).
   - AC-NEUTRAL-06 (a waived audit stays current as an accepted one, and a no-report test audit counts as having changed only tests, AC-WAIVE-12).
   - AC-NEUTRAL-07 (an audit whose repository checks failed counts as accepted once waived, AC-WAIVE-12).
   - AC-NEUTRAL-08 (a missing audit skill can be waived, and Kiln then follows its normal order, AC-WAIVE-04).
-- AC-STOP-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a broken-plan stop can be waived, and Kiln then follows its normal order, AC-WAIVE-04).
-- AC-ADD-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a repository Kiln cannot add can be waived, and the phase needing it is skipped, AC-WAIVE-04).
+- In `docs/prds/kiln-v1/kiln-v1-prd.md`:
+  - AC-RUN-01 (a leaf whose missing Closed line was waived counts as done when choosing the next phase, and under a waived plan problem Kiln skips phases, AC-WAIVE-04/09).
+  - AC-RUN-07 (a waiver can also complete a phase, not only the done check, AC-WAIVE-04).
+  - AC-STOP-07 (a broken-plan stop can be waived, and Kiln then follows its normal order, AC-WAIVE-04).
+  - AC-STOP-08 (Mark complete and `kiln waive-and-advance --confirm` are another way for work to start after a stop, AC-WAIVE-04/05).
+  - AC-DONE-01 (Closed, Committed and Pushed can be waived).
+  - AC-WATCH-01 (a phase completed on a waiver, without passing the done check, is listed as complete with "N check(s) waived" beside it, AC-WAIVE-10).
+  - AC-VIEW-02 (Mark complete joins the browser view's controls, AC-WAIVE-02).
+  - AC-LOOK-01 (Needs you, the progress rows and Complete follow this change's mockup where waivers alter them; unaffected layout remains).
+- In `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`:
+  - AC-ADD-04 (a repository Kiln cannot add can be waived, and the phase needing it is skipped, AC-WAIVE-04).
+  - AC-PRS-05 (a repository's pull-request check can be waived).
+  - AC-SHOW-01 (Mark complete on the standard Needs you page and the waived markers follow this change's mockup; unaffected layout remains).
 - AC-CHECK-02 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (any of the evidence it keeps in force can be waived).
-- AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a repository's pull-request check can be waived).
+- In `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md`:
+  - AC-CONTINUE-01 (a phase completed on a waived Closed line, or skipped under a waived plan problem, counts as completed and is not rerun, AC-WAIVE-04/09).
+  - AC-HANDBACK-04 (a phase completed outside Kiln can also be accepted on a waiver, not only on existing completion evidence, AC-WAIVE-02/09).
 - AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (a known cleanup failure can be waived like any failing check).
-- AC-DONE-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Closed, Committed and Pushed can be waived).
 
 ## Mockup
 
