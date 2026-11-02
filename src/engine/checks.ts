@@ -265,6 +265,8 @@ export async function runPullRequestChecks(inputs: PullRequestCheckInput[]): Pro
   const check: CheckResult = { name, passed: open, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts, ...(open ? {} : { items }) };
   const passed = open;
   return {
+    // gh failing for any repository is a read that could not happen, not an answer (waivers AC-WAIVE-02).
+    ...(outcomes.some(outcome => outcome.ghError) ? { ghError: true } : {}),
     passed,
     check,
     checks: [check],

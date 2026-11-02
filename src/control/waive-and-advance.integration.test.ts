@@ -183,3 +183,37 @@ it("answers a replayed Mark complete whose rerun could not finish exactly as the
   expect(replay).toMatchObject({ status: 503, body: { ok: false, outcome: "check_unavailable", code: "check_unavailable", reason: first.body.reason, command_id: "unavailable" } });
   expect(h.engine.record.waivers ?? []).toEqual([]);
 });
+
+it("at a standard Needs you stop, rechecks as check-again without --confirm and returns the Mark complete preview to repeat with --confirm", async () => {
+  // Every phase lands; the final-delivery session opens no pull request, so final delivery stops on Pull request open.
+  const landing = (file: string) => ({ actions: [{ write: { path: file, content: "work\n" } }, { close: true }, { commit: "feat: the phase" }, { push: true }, { result: "Phase landed." }, { exit: 0 }] });
+  h = await createHarness({ sessions: [landing("src/one.txt"), landing("src/two.txt"), landing("src/three.txt"), { actions: [{ result: "Could not open the pull request here." }, { exit: 0 }] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  expect(h.engine.stoppedPhaseKey()).toBe("pr");
+  expect(h.engine.phaseRecoveryTarget()).toBeUndefined();
+  let port = 45320; while (port < 45340 && !await isPortFree(port)) port++;
+  if (port === 45340) throw new Error("No free waive-and-advance fixture port");
+  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
+
+  const first = await token();
+  // check-again takes no hand-back inputs.
+  expect((await cli(["waive-and-advance", target(), "--without-sending-reply", "--only-if-status-matches", first, "--command-id", "with-reply-flag", "--json"])).code).toBe(2);
+  const recheck = await cli(["waive-and-advance", target(), "--only-if-status-matches", first, "--command-id", "final-recheck", "--json"]);
+  expect(recheck.code, recheck.stdout).toBe(0);
+  expect(recheck.json()).toMatchObject({ ok: true, operation: { action: "check-again" } });
+  const checked = await receipt("final-recheck");
+  expect(checked.operation).toMatchObject({ action: "check-again", state: "completed", outcome: "completion_checks_failed", effects: { plan: "not_advanced" } });
+  expect(h.engine.record.waivers ?? []).toEqual([]);
+  const fresh = await token();
+  expect(checked.mark_complete).toMatchObject({ offered: true, label: "Mark final delivery complete", next_activity: { kind: "complete" }, next_argv: ["kiln", "waive-and-advance", target(), "--confirm", "--only-if-status-matches", fresh, "--command-id", "<new-command-id>"] });
+  const text = await cli(["command-status", target(), "--command-id", "final-recheck"]);
+  expect(text.stdout).toContain("Marking it complete would waive:");
+
+  // Following the preview's argv with a new command id marks final delivery complete.
+  const argv = (checked.mark_complete!.next_argv as string[]).slice(1).map(arg => arg === "<new-command-id>" ? "final-mark" : arg);
+  expect((await cli([...argv, "--json"])).code).toBe(0);
+  expect((await receipt("final-mark")).operation).toMatchObject({ action: "waive-and-advance", state: "completed", outcome: "marked_complete", effects: { plan: "advanced" } });
+  expect(h.engine.record.completedAt).toEqual(expect.any(String));
+  expect(h.engine.record.waivers).toEqual([expect.objectContaining({ activityKey: "pr", activityKind: "final_delivery", source: expect.objectContaining({ via: "command_line" }) })]);
+});

@@ -5,7 +5,11 @@
 
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { git } from "../test-support/git-repositories.js";
+import { startFixtureController } from "../test-support/controller-server.js";
+import * as gitReads from "./git-reads.js";
+import * as auditSnapshots from "../audit/snapshots.js";
 import { auditKey } from "../audit/workflow.js";
 import { readWork } from "../control/private-state.js";
 import { statusProjection } from "../control/projection.js";
@@ -17,11 +21,13 @@ import type { Engine } from "./engine.js";
 import { formatTerminalEvent } from "../kiln-command.js";
 import { formatSummaryLine } from "../underway-output.js";
 import { buildSnapshot } from "./snapshot.js";
-import { checkCounts, countsText, NO_REPORT_WARNING, PLAN_WARNING } from "./waivers.js";
+import { checkCounts, countsText, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult } from "./waivers.js";
+import { AuditStore } from "../audit/storage.js";
 
 const plain = { green: (s: string) => s, amber: (s: string) => s, red: (s: string) => s, grey: (s: string) => s, bold: (s: string) => s } as unknown as Parameters<typeof formatTerminalEvent>[2];
 let harness: Harness | undefined;
-afterEach(async () => { await harness?.cleanup(); harness = undefined; });
+afterEach(async () => { vi.restoreAllMocks(); await harness?.cleanup(); harness = undefined; });
+const realLocalBranchCommit = gitReads.localBranchCommit;
 
 let commandCount = 0;
 /** Submits one journal instruction as a caller does, against the current status token, and waits for it to settle. */
@@ -205,6 +211,56 @@ describe("final delivery marked complete (AC-WAIVE-10)", () => {
   });
 });
 
+describe("a recheck at the final delivery stop (AC-WAIVE-02, AC-WAIVE-05)", () => {
+  it("settles a failing Check again as completion_checks_failed, its receipt carrying the Mark complete preview with next_argv", async () => {
+    harness = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt"), landingSession("src/dashboard.txt"), noPullRequestSession()] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("pr");
+    // A standard Needs you stop: no hand-back target, so the stop's recheck is check-again.
+    expect(h.engine.phaseRecoveryTarget()).toBeUndefined();
+
+    // The recheck still fails: its receipt settles as completion_checks_failed and carries the preview (AC-WAIVE-05).
+    const recheck = await submit(h.engine, "check-again");
+    expect(recheck).toMatchObject({ state: "completed", outcome: "completion_checks_failed", effects: { plan: "not_advanced" } });
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(`Mark complete not offered: ${offer.reason}`);
+    const looked = h.engine.commands.lookup(recheck.command_id) as unknown as { mark_complete?: { offered: boolean; check_run_id: string; label: string; next_argv: string[] } };
+    expect(looked.mark_complete).toMatchObject({ offered: true, label: "Mark final delivery complete", check_run_id: offer.checkRunId });
+    expect(looked.mark_complete!.next_argv).toEqual(["kiln", "waive-and-advance", expect.any(String), "--confirm", "--only-if-status-matches", h.engine.controlView().token, "--command-id", "<new-command-id>"]);
+    expect(h.engine.record.waivers ?? []).toEqual([]);
+  });
+
+  it("records a recheck whose GitHub read fails as unfinished and withdraws Mark complete until GitHub reads again (AC-WAIVE-02)", async () => {
+    harness = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt"), landingSession("src/dashboard.txt"), noPullRequestSession()] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect((await submit(h.engine, "check-again")).outcome).toBe("completion_checks_failed");
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(`Mark complete not offered: ${offer.reason}`);
+
+    // GitHub cannot be read at the next recheck: a check that could not finish, recorded as an unfinished run, with no offer.
+    h.setPulls({ fail: "gh: could not reach api.github.com" });
+    const unreadable = await submit(h.engine, "check-again");
+    expect(unreadable).toMatchObject({ state: "failed", outcome: "check_unavailable" });
+    const run = h.engine.record.phases.pr!.stop!.run!;
+    expect(run).toMatchObject({ origin: "recheck", finished: false });
+    expect(run.id).not.toBe(offer.checkRunId);
+    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: false });
+    const refused = await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "command_line" });
+    expect(refused.outcome).toBe("mark_complete_not_offered");
+    expect(h.engine.record.waivers ?? []).toEqual([]);
+    expect(h.engine.record.completedAt).toBeUndefined();
+
+    // Once GitHub reads again, a finished failing recheck offers Mark complete again.
+    h.setPulls([]);
+    expect((await submit(h.engine, "check-again")).outcome).toBe("completion_checks_failed");
+    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: true, label: "Mark final delivery complete" });
+  });
+});
+
 const proofFiles = {
   "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",
   "technical-design.md": "# Design\nExport value from value.mjs.\n",
@@ -233,6 +289,12 @@ describe("an audit with no usable report marked complete (AC-WAIVE-12, AC-WAIVE-
     expect(first.offer.items.map(item => item.check)).toEqual(["Audit result recorded", "Pushed"]);
     expect(first.receipt.outcome).toBe("marked_complete");
     await h.engine.settled();
+    // The terminal reads the waived audit as complete · 2 checks waived with its no-report warning, never Audit result recorded.
+    const auditDone = h.events.find(event => event.kind === "audit" && event.event === "done" && event.activityId === delivery.activityId)!;
+    const [auditLine, auditWarning] = formatTerminalEvent(auditDone, h.engine.record, plain, id => new AuditStore(h.stateDirectory).read<AuditWaiverResult>(id)).split("\n");
+    expect(auditLine).toMatch(/Delivery audit · Round 1 +complete · 2 checks waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · browser · \S+$/);
+    expect(auditLine).not.toContain("Audit result recorded");
+    expect(auditWarning!.trim()).toBe(`! ${NO_REPORT_WARNING}`);
 
     // The delivery audit counts as passed with no report: the test audit ran next, and the delivery audit did not run again.
     const kinds = h.engine.record.completionAudits!.activities.map(a => a.kind);
@@ -265,5 +327,211 @@ describe("an audit with no usable report marked complete (AC-WAIVE-12, AC-WAIVE-
     const reopened = h.reopenFromDisk();
     await reopened.prepare();
     expect(buildSnapshot(reopened).phases.find(r => r.id === "pr")).toMatchObject({ state: "done", waivedChecks: 1, waivedCompletion: { counts: { waived: 1, failed: 0 } } });
+  });
+});
+
+describe("a Mark complete whose act fails after admission (design §Interfaces, AC-WAIVE-08)", () => {
+  it("answers mark_complete_failed with the record and audit unchanged, releases control, and a later Mark complete goes through", { timeout: 120_000 }, async () => {
+    harness = await createHarness({ folder: "proof", files: proofFiles, auditCycles: true, sessions: [pullRequestSession()] });
+    const h = harness;
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [reportlessAudit()] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const delivery = h.engine.record.completionAudits!.activities[0]!;
+    const key = auditKey(delivery);
+    expect(h.engine.stoppedPhaseKey()).toBe(key);
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true });
+    await h.engine.settled();
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(`Mark complete not offered: ${offer.reason}`);
+    const snapshots = [...delivery.snapshots];
+
+    // The settled head cannot be read once the audit's waiver result is stored: a Git failure in the act, after the rerun.
+    const readHead = vi.spyOn(gitReads, "localBranchCommit");
+    readHead.mockImplementation(async (...args) => new Error().stack?.includes("recordDone") ? undefined : realLocalBranchCommit(...args));
+    const failed = await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    readHead.mockRestore();
+    expect(failed).toMatchObject({ state: "failed", stage: "settled", outcome: "mark_complete_failed", effects: { plan: "not_advanced" } });
+    expect(failed.reason).toMatch(/^Nothing was marked complete: Cannot record settled audit head/);
+
+    // Nothing was saved or left behind in memory: no waiver, no completion, no waiver result on the audit.
+    for (const record of [h.engine.record, readPrdRecord(h.stateDirectory)!]) {
+      expect(record.waivers ?? []).toEqual([]);
+      expect(record.phases[key]!.doneAt).toBeUndefined();
+      expect(record.phases[key]!.waiverId).toBeUndefined();
+      expect(record.phases[key]!.stop).toBeDefined();
+      const activity = record.completionAudits!.activities[0]!;
+      expect(activity.waivedResult).toBeUndefined();
+      expect(activity.snapshots).toEqual(snapshots);
+    }
+    // The record in memory is the record on disk: the act's audit-record changes were rolled back with it.
+    expect(h.engine.record.completionAudits).toEqual(readPrdRecord(h.stateDirectory)!.completionAudits);
+    expect(h.engine.record.completedAt).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+    // Control is released: the stop stays, and Mark complete goes through on the run the failed act left.
+    expect(h.engine.commands.busy).toBe(false);
+    const again = h.engine.markCompleteOffer();
+    if (!again.offered) throw new Error(`Mark complete not offered after the failure: ${again.reason}`);
+    expect((await submit(h.engine, "waive-and-advance", { check_run_id: again.checkRunId, via: "browser" })).outcome).toBe("marked_complete");
+    expect(readPrdRecord(h.stateDirectory)!.phases[key]).toMatchObject({ doneAt: expect.any(String), waiverId: expect.any(String) });
+  });
+});
+
+describe("a readiness stop raised by audit allocation (AC-WAIVE-02, AC-WAIVE-04)", () => {
+  it("keeps the stop at its recheck while no work snapshot can be read, and offers Mark complete on that run", { timeout: 120_000 }, async () => {
+    harness = await createHarness({ folder: "proof", files: proofFiles, auditCycles: true, sessions: [pullRequestSession()] });
+    const h = harness;
+    // A simulated failure: the work snapshot audit allocation needs cannot be read.
+    const unreadable = "Kiln could not read the work snapshot: git ls-tree failed.";
+    vi.spyOn(auditSnapshots, "captureSnapshot").mockRejectedValue(new Error(unreadable));
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const key = h.engine.stoppedPhaseKey()!;
+    expect(h.engine.record.phases[key]!.stop).toMatchObject({ kind: "selection", checks: [{ name: "Completion audit readiness", passed: false, facts: [unreadable] }] });
+    expect(h.engine.record.completionAudits?.activities ?? []).toEqual([]);
+
+    // The skill still resolves, but the recheck also proves the audit could be allocated: it stays stopped on the same item.
+    expect(await h.engine.checkAgain()).toMatchObject({ ok: true, outcome: "still_stopped" });
+    await h.engine.settled();
+    const stop = h.engine.record.phases[key]!.stop!;
+    expect(stop).toMatchObject({ kind: "selection", run: { origin: "recheck", finished: true }, checks: [{ name: "Completion audit readiness", passed: false, facts: [unreadable] }] });
+    expect(h.engine.record.completionAudits?.activities ?? []).toEqual([]);
+    expect(h.claudeCalls()).toHaveLength(0);
+    const offer = h.engine.markCompleteOffer();
+    expect(offer).toMatchObject({ offered: true, checkRunId: stop.run!.id, items: [{ check: "Completion audit readiness", kind: "known_problem", text: unreadable }] });
+    expect(h.engine.record.waivers ?? []).toEqual([]);
+  });
+});
+
+/** The proof feature with a split phase whose second part has no document: the plan never reads. */
+const brokenPlanFiles = {
+  ...proofFiles,
+  "phase-2-extras.md": "# Phase 2: Extras — split into 2a and 2b\n\n## Split into\n\n| Phase | Document | Covers |\n|---|---|---|\n| [2a](phase-2a-one.md) | One | AC-PROOF-01 |\n| [2b](phase-2b-two.md) | Two | AC-PROOF-01 |\n\n## Phase dependencies\n1\n",
+  "phase-2a-one.md": "# Phase 2a: One\n\n**Closed:** 2026-10-25\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Phase dependencies\n1\n",
+};
+/** An audit session whose report passes, submitted through the pinned CLI. */
+const passingAudit = () => ({ actions: [{ auditReport: {} }, { result: "Audit ended." }, { exit: 0 }] });
+/** A final-delivery session that changes the work after the last audit, then opens the pull request. */
+const changingPullRequestSession = () => ({ actions: [{ write: { path: "docs/prds/proof/value.mjs", content: "export const value = () => 43;\n" } }, { commit: "fix: value after the audits" }, { push: true }, ...pullRequestSession().actions] });
+
+describe("final delivery under a waived plan problem (AC-WAIVE-04, AC-WAIVE-09)", () => {
+  it("still judges Current completion audits: work changed after the last audit does not complete on the stale audits", { timeout: 180_000 }, async () => {
+    harness = await createHarness({ folder: "proof", files: brokenPlanFiles, auditCycles: true, sessions: [changingPullRequestSession()] });
+    const h = harness;
+    // Passing audits submit their reports through the running controller, as audit-workflow's fixture does.
+    writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
+    git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-q", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [changingPullRequestSession()], auditSessions: [passingAudit(), passingAudit()] }));
+    const controller = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+    onTestFinished(async () => { await controller.server.close(); controller.release(); });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const problem = "phase-2-extras.md lists 2b, which has no file.";
+    expect(h.engine.stoppedPhaseKey()).toBe("pr");
+    expect(h.engine.record.phases.pr!.stop).toMatchObject({ kind: "plan", checks: [{ name: "Phase plan reads", passed: false, facts: [problem] }] });
+
+    // Continue in normal order: nothing is left to build, both audits pass, and the final-delivery session changes the work after them.
+    const { offer, receipt } = await recheckAndMarkComplete(h.engine);
+    expect(offer).toMatchObject({ label: "Continue in normal order", continueInOrder: true });
+    expect(receipt.outcome).toBe("continued");
+    await h.engine.settled();
+    // The plan problem stays waived, yet the audits are still judged at final delivery: the change after them made them stale,
+    // so Kiln ran a fresh delivery round instead of completing on the old audits, and completed only after it.
+    const rounds = h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round, h.engine.record.phases[auditKey(a)]?.doneAt !== undefined]);
+    expect(rounds).toEqual([["delivery_audit", 1, true], ["test_audit", 1, true], ["delivery_audit", 2, true], ["test_audit", 2, true]]);
+    const kinds = h.claudeCalls().map(call => call.prompt.includes("Pinned CLI:") ? "audit" : "final_delivery");
+    expect(kinds).toEqual(["audit", "audit", "final_delivery", "audit", "audit"]);
+    expect(readFileSync(join(h.engine.worktreePath, "docs/prds/proof/value.mjs"), "utf8")).toContain("43");
+    expect(h.engine.record.completedAt).toEqual(expect.any(String));
+    // Final delivery completed with the plan problem waived on the one waiver, never a stale audit counted as current.
+    expect(h.engine.record.waivers).toHaveLength(1);
+    expect(h.engine.record.phases.pr!.completionChecks!.find(c => c.name === "Phase plan reads")).toMatchObject({ passed: true, waived: true });
+    expect(h.engine.record.phases.pr!.completionChecks!.some(c => c.name === "Current completion audits")).toBe(false);
+  });
+});
+
+describe("a later phase under a waived plan problem that writes no Closed line (AC-WAIVE-04)", () => {
+  it("stops once, on its own No Closed line item alone, and never again on the waived plan problem", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const release = join(h.sandbox.root, "release");
+    // Phase 3 does its work and pushes it, but never writes its Closed line.
+    const unclosed = { actions: landingSession("src/dashboard.txt").actions.filter(action => !("close" in action)) };
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, unclosed, pullRequestSession()] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.claudeCalls().length === 1);
+    h.engine.pause();
+    writeFileSync(release, "");
+    await h.engine.settled();
+    rmSync(join(h.engine.worktreePath, "docs", "prds", "customer-returns", "phase-2b-store-credit.md"));
+    await h.engine.start();
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("2b");
+    expect((await recheckAndMarkComplete(h.engine)).receipt.outcome).toBe("continued");
+    await h.engine.settled();
+    const planWaiver = h.engine.record.waivers![0]!;
+
+    // Phase 3 ran and stopped on its own Closed line; the plan problem on the same run is met by the plan waiver.
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(h.engine.stoppedPhaseKey()).toBe("3");
+    const checks = h.engine.record.phases["3"]!.stop!.checks;
+    const failing = checks.filter(check => !check.passed);
+    expect(failing).toEqual([expect.objectContaining({ name: "Phase doc closed", items: [expect.objectContaining({ kind: "phase_closed", subject: "3" })] })]);
+    expect(failing[0]!.items![0]!.waiver).toBeUndefined();
+    expect(checks.find(check => check.name === "Phase plan reads")).toMatchObject({ passed: true, waived: true, items: [{ kind: "known_problem", waiver: { waiverId: planWaiver.waiverId } }] });
+
+    // Mark complete on that stop waives only the Closed item; Kiln then finishes without stopping on either problem again.
+    const { offer, receipt } = await recheckAndMarkComplete(h.engine);
+    expect(offer).toMatchObject({ label: "Mark phase 3 complete", continueInOrder: false });
+    expect(offer.items).toEqual([expect.objectContaining({ check: "Phase doc closed", kind: "phase_closed", subject: "3" })]);
+    expect(receipt.outcome).toBe("marked_complete");
+    await h.engine.settled();
+    expect(h.engine.record.completedAt).toEqual(expect.any(String));
+    expect(h.engine.record.waivers!.map(w => [w.activityKey, w.effect])).toEqual([["2b", "continued"], ["3", "completed"]]);
+    expect(h.engine.record.phases["3"]).toMatchObject({ waiverId: h.engine.record.waivers![1]!.waiverId, waiverWarning: { kind: "plan", waiverId: planWaiver.waiverId } });
+    expect(Object.values(h.engine.record.phases).filter(facts => facts.stop)).toEqual([]);
+  });
+});
+
+describe("a billing hold on a phase that has not run (AC-WAIVE-04)", () => {
+  it("marks the unstarted phase complete with its Closed item waived, never launches it, and keeps holding the next launch", async () => {
+    harness = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt")] });
+    const h = harness;
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    // The launch environment changes as setup finishes: phase 1 is held before any model run.
+    const off = h.engine.onChange(() => { if (h.engine.record.setupCompletedAt) h.env.ANTHROPIC_API_KEY = "waiver-hold-canary"; });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled(); off();
+    expect(h.engine.record.billing!.hold).toMatchObject({ phaseKey: "1", action: "launch" });
+    expect(h.claudeCalls()).toHaveLength(0);
+
+    const { offer, receipt } = await recheckAndMarkComplete(h.engine);
+    expect(offer).toMatchObject({ label: "Mark phase 1 complete", continueInOrder: false });
+    expect(offer.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ check: "Phase doc closed", kind: "phase_closed", subject: "1" }),
+      expect.objectContaining({ check: "Billing approval", kind: "other" }),
+    ]));
+    expect(receipt.outcome).toBe("marked_complete");
+    await h.engine.settled();
+
+    const saved = readPrdRecord(h.stateDirectory)!;
+    const waiver = saved.waivers!.find(w => w.activityKey === "1")!;
+    expect(waiver).toMatchObject({ effect: "completed", activityKind: "implementation" });
+    expect(waiver.checks.find(c => c.name === "Phase doc closed")).toMatchObject({ passed: true, waived: true });
+    expect(saved.phases["1"]).toMatchObject({ doneAt: expect.any(String), finishedByPerson: true, waiverId: waiver.waiverId });
+    expect(saved.phases["1"]!.stop).toBeUndefined();
+    expect(h.engine.latestSession("1")?.runs ?? []).toEqual([]);
+    // Never launched, and the waiver never approves billing for the next launch: 2b is held in turn.
+    expect(h.claudeCalls()).toHaveLength(0);
+    expect(saved.billing!.hold).toMatchObject({ phaseKey: "2b", action: "launch" });
+
+    // A restarted Kiln keeps phase 1 complete and goes on to 2b, never relaunching phase 1.
+    const reopened = h.reopenFromDisk();
+    await reopened.agents.refresh();
+    await reopened.prepare();
+    expect(reopened.record.phases["1"]).toMatchObject({ doneAt: saved.phases["1"]!.doneAt, waiverId: waiver.waiverId });
+    expect(reopened.latestSession("1")?.runs ?? []).toEqual([]);
+    expect(reopened.stoppedPhaseKey()).toBe("2b");
+    expect(h.claudeCalls()).toHaveLength(0);
   });
 });

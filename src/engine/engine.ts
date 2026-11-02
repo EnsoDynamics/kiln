@@ -4338,7 +4338,7 @@ export class Engine {
     for (const entry of this.setUpRepositories) {
       if (waivedWork.has(entry.name)) {
         const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
-        if (!head) continue;
+        if (!head) throw new CompletionCheckUnavailable(`Cannot read ${entry.name}'s feature head to record its waived work.`);
         const repository = (repositories[entry.name] ??= { startCommit: head });
         delete repository.pushedSha; repository.waivedHead = head;
         continue;

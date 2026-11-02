@@ -5,9 +5,9 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readPrdRecord, type CheckResult } from "../state/records.js";
-import { createHarness, landingSession, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import type { Engine } from "./engine.js";
@@ -17,7 +17,7 @@ import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
 
 let harness: Harness | undefined;
-afterEach(() => harness?.cleanup());
+afterEach(async () => { vi.restoreAllMocks(); await harness?.cleanup(); });
 
 /** A phase session that closes and commits its work, then ends without pushing: Kiln stops on Pushed. */
 const unpushedSession = (): ScenarioSession => ({
@@ -141,6 +141,49 @@ describe("Mark complete after a failed recheck (AC-WAIVE-01 to 04)", () => {
     expect(h.engine.record.waivers ?? []).toEqual([]);
     expect(h.engine.record.phases["1"]).toMatchObject({ doneAt: expect.any(String) });
     expect(h.engine.record.phases["1"]!.waiverId).toBeUndefined();
+  });
+});
+
+describe("a Mark complete interrupted before its write (design §Interfaces, AC-WAIVE-08)", () => {
+  it("settles as not_applied at restart with nothing saved, releasing control so the stop can be marked complete again", async () => {
+    const h = await stoppedOnPush();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error("not offered");
+
+    // The process dies after admission and the rerun, before the record write: the act never returns.
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const crashing = h.engine as unknown as { waiveStopped: (...args: unknown[]) => Promise<unknown> };
+    const act = vi.spyOn(crashing, "waiveStopped").mockImplementation(async () => { await held; return { ok: true, outcome: "check_results_changed", changes: [] }; });
+    const id = "crash-mid-mark";
+    h.engine.commands.submit({ command_id: id, execution_id: h.engine.record.executionId, status_token: h.engine.controlView().token, action: "waive-and-advance", inputs: { check_run_id: offer.checkRunId, via: "command_line" } }, "caller", true);
+    await waitFor(() => act.mock.calls.length === 1);
+    expect(h.engine.commands.all().find(r => r.command_id === id)).toMatchObject({ state: "in_progress", stage: "applying" });
+
+    try {
+      // A restarted Kiln reads the receipt left applying with no waiver carrying its operation id.
+      const reopened = h.reopenFromDisk();
+      await reopened.agents.refresh();
+      const receipt = reopened.commands.all().find(r => r.command_id === id)!;
+      expect(receipt).toMatchObject({ state: "failed", stage: "settled", outcome: "not_applied", effects: { plan: "not_advanced" } });
+      expect(receipt.reason).toMatch(/interrupted before anything was saved/);
+      const saved = readPrdRecord(h.stateDirectory)!;
+      expect(saved.waivers ?? []).toEqual([]);
+      expect(saved.phases["1"]!.doneAt).toBeUndefined();
+      expect(saved.phases["1"]!.stop).toMatchObject({ kind: "done_check" });
+      // Control is released: nothing holds the journal, and the same command id replays the settled receipt.
+      expect(reopened.commands.busy).toBe(false);
+      expect((reopened.commands.lookup(id) as unknown as { operation: { outcome: string } }).operation.outcome).toBe("not_applied");
+
+      // Check again, then choose again: Mark complete goes through on the fresh run.
+      await reopened.prepare();
+      await recheck(reopened);
+      const again = reopened.markCompleteOffer();
+      if (!again.offered) throw new Error(`not offered after restart: ${again.reason}`);
+      expect((await submit(reopened, "waive-and-advance", { check_run_id: again.checkRunId, via: "command_line" })).outcome).toBe("marked_complete");
+      expect(readPrdRecord(h.stateDirectory)!.waivers).toHaveLength(1);
+    } finally { release(); }
   });
 });
 
