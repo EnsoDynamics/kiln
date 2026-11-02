@@ -38,6 +38,8 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
 .kp-term{background:#151410;color:#e8e3d6;border-radius:10px;padding:16px 18px;font:12.5px/1.7 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:12px}
 .kp-term .a{color:#d6b474}.kp-term .g{color:#a8bd9b}.kp-term .d{color:#8f897b}
 .kp-cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:24px;align-items:start}.kp-step{display:grid;grid-template-columns:30px minmax(0,1fr);gap:0 12px;margin-top:16px}.kp-num{width:30px;height:30px;border-radius:99px;border:1px solid var(--kp-line);display:inline-flex;align-items:center;justify-content:center;font:17px Georgia,serif}
+.kp-warn{display:inline-flex;align-items:center;gap:6px;color:var(--kp-amber);font-weight:600;white-space:nowrap}.kp-warn-icon{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:99px;background:var(--kp-amber);color:var(--kp-panel);font:700 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;flex:none}
+.kp-divider{margin:40px 0 18px;padding-top:14px;border-top:2px dashed var(--kp-line)}
 .kp-phase-rows{list-style:none;padding:0;margin:12px 0 0}.kp-phase-rows li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--kp-line);font-size:13px}
 @media(max-width:720px){.kp-cols{grid-template-columns:1fr}.kp-body{padding:24px 18px}.kp-top{padding-left:18px}h1{font-size:30px}.kp-return-grid{grid-template-columns:1fr}.kp-finished{border-left:0;border-top:1px solid var(--kp-line);padding:22px 0 0}}
 </style>
@@ -55,6 +57,7 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
    <option value="final">7 · Final delivery: Mark complete on the standard Needs you page</option>
    <option value="final-audits">8 · Final delivery while an audit is also required</option>
    <option value="complete">9 · After final delivery is marked complete</option>
+   <option value="no-report">10 · Delivery audit left no report: Mark complete, then the test audit runs</option>
   </select></label>
  <span style="opacity:.75">Sample ids and revisions are illustrative.</span>
 </div>
@@ -303,6 +306,79 @@ Kiln stopped. Example feature is complete.</div>
  </section>
 </div>
 
+<!-- ===== Delivery audit with no usable report (state 10) ===== -->
+<div id="no-report" hidden>
+ <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
+ <div class="kp-between"><span class="kp-eyebrow">Needs you · Kiln is waiting</span></div>
+ <div class="kp-cols" style="margin-top:14px">
+  <div>
+   <section class="kp-card" style="margin-top:0">
+    <h1 style="font-size:30px;margin-top:0">The delivery audit session ended before it was done.</h1>
+    <p class="kp-muted kp-small">Delivery audit · Round 1 · Session ended · 7:31 PM · last skill seen: delivery-audit</p>
+    <p class="kp-muted kp-small" style="margin-top:14px">LAST MESSAGE FROM CLAUDE CODE</p>
+    <p>Every acceptance criterion traces to reachable code; no gaps found. Writing the audit report next.</p>
+   </section>
+   <section class="kp-card">
+    <span class="kp-eyebrow">Let Kiln carry on</span>
+    <h3 style="margin-top:8px">Reply and continue in Kiln</h3>
+    <p class="kp-muted">Kiln picks up the same session with its full history and sends your reply.</p>
+    <label for="nr-reply">Your reply to Claude Code <span class="kp-muted">Optional</span></label>
+    <textarea id="nr-reply" placeholder="Give instructions, answer its question, or ask what you need to know before it continues."></textarea>
+    <div class="kp-actions"><button class="kp-primary">Resume</button></div>
+   </section>
+  </div>
+  <aside class="kp-card" style="margin-top:0">
+   <span class="kp-eyebrow">Kiln continues when</span>
+   <ul class="kp-checks">
+    <li><span><strong>Audit result recorded</strong><br><span class="kp-muted">No audit report at docs/prds/example-feature/kiln-audit-3f9c2a.json yet. The audit session writes, commits and pushes it when the audit ends.</span></span><span class="kp-state">Not yet</span></li>
+   </ul>
+   <div class="kp-actions"><button class="kp-primary" style="width:100%">Check again</button></div>
+   <p class="kp-note">Checked again 7:33 PM.</p>
+   <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--kp-line)">
+    <h3>Delivery audit is done, and Kiln’s check is wrong?</h3>
+    <p class="kp-feedback"><span class="kp-warn"><span class="kp-warn-icon" aria-hidden="true">!</span> No audit report</span><br>Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.</p>
+    <p class="kp-muted">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit. Delivery audit will show as “Complete · 1 check waived” with a warning: no audit report.</p>
+    <div class="kp-actions"><button>Mark delivery audit complete</button></div>
+   </div>
+  </aside>
+ </div>
+
+ <div class="kp-divider"><span class="kp-eyebrow">After Mark complete</span></div>
+ <div class="kp-between"><span class="kp-eyebrow">Working · Kiln has control</span></div>
+ <h1>The test audit is running.</h1>
+ <section class="kp-card" aria-label="Progress">
+  <h2>Progress</h2>
+  <ul class="kp-phase-rows">
+   <li><span>Phase 4 · Reporting views</span><span class="kp-pass">Complete</span></li>
+   <li><span>Delivery audit · Round 1</span><span><span class="kp-pass">Complete</span> <span class="kp-muted kp-small">· 1 check waived</span> <span class="kp-warn kp-small"><span class="kp-warn-icon" aria-hidden="true">!</span> no audit report</span></span></li>
+   <li><span>Test audit · Round 1</span><span class="kp-state">Running</span></li>
+  </ul>
+ </section>
+ <section class="kp-card" aria-label="Delivery audit result">
+  <div class="kp-between"><h2>Delivery audit · Round 1</h2><span><span class="kp-pass">Complete</span> <span class="kp-muted kp-small">· 1 check waived</span> <span class="kp-warn kp-small"><span class="kp-warn-icon" aria-hidden="true">!</span> no audit report</span></span></div>
+  <p class="kp-feedback"><span class="kp-warn"><span class="kp-warn-icon" aria-hidden="true">!</span> No audit report</span><br>Kiln couldn’t tell what this audit found. It counted the audit as passed and moved on to the test audit.</p>
+  <p class="kp-muted">0 passed · 1 waived. The waived check was not verified by Kiln.</p>
+  <ul class="kp-checks">
+   <li><span><strong>Audit result recorded</strong><br><span class="kp-muted">No audit report at docs/prds/example-feature/kiln-audit-3f9c2a.json yet. The audit session writes, commits and pushes it when the audit ends.</span></span><span class="kp-waived">Waived</span></li>
+  </ul>
+  <dl class="kp-record">
+   <dt>Source</dt><dd>Browser · alex</dd>
+   <dt>When</dt><dd>11/1/2026, 7:34:10 PM</dd>
+   <dt>Waived</dt><dd><code>Audit result recorded</code> — no audit report</dd>
+  </dl>
+ </section>
+ <section class="kp-card" aria-label="kiln status">
+  <h3>In the terminal</h3>
+  <div class="kp-term"><span class="d">$ kiln status</span>
+Example feature · example-app · docs/prds/example-feature
+Phase 4          Reporting views   <span class="g">complete</span>
+Delivery audit   Round 1           <span class="g">complete</span> <span class="a">· 1 check waived 2026-11-01 19:34 EST · browser · alex</span>
+                                   <span class="a">! no audit report: Kiln couldn’t tell what this audit found</span>
+                                   0 passed · 1 waived
+Test audit       Round 1           running</div>
+ </section>
+</div>
+
 </main>
 </section>
 
@@ -313,11 +389,12 @@ Kiln stopped. Example feature is complete.</div>
  const busy=on=>{for(const b of document.querySelectorAll('.js-busy'))b.disabled=on;};
  function render(){
   const s=state.value;
-  const fin=s==='final'||s==='final-audits';
-  $('needs-you').hidden=s==='after'||s==='cli'||fin||s==='complete'; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli'; $('final').hidden=!fin; $('complete').hidden=s!=='complete';
-  $('crumb').textContent=fin?'Example feature / Final delivery':s==='complete'?'Example feature':'Example feature / Phase 3';
+  const fin=s==='final'||s==='final-audits', nr=s==='no-report';
+  $('needs-you').hidden=s==='after'||s==='cli'||fin||s==='complete'||nr; $('no-report').hidden=!nr; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli'; $('final').hidden=!fin; $('complete').hidden=s!=='complete';
+  $('crumb').textContent=nr?'Example feature / Delivery audit':fin?'Example feature / Final delivery':s==='complete'?'Example feature':'Example feature / Phase 3';
   $('audits-check').hidden=s!=='final-audits';
-  $('final-hint').textContent=s==='final-audits'?'This does not complete final delivery yet: Kiln skips Development delivery and remaining review, records it as waived, never as passed, then runs the test audit and checks final delivery again.':'Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · 1 check waived”.';
+  const fn=s==='final-audits'?2:1, fp=fn>1?'s':'';
+  $('final-hint').textContent='Mark it complete. Kiln skips the '+fn+' failing check'+fp+' above, records '+(fn>1?'them':'it')+' as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · '+fn+' check'+fp+' waived”.';
   const mixed=s==='mixed', changed=s==='changed', rechecked=s!=='stopped';
   $('closed-state').textContent=mixed?'Not yet':'Passed'; $('closed-state').className=mixed?'kp-state':'kp-pass';
   $('closed-fact').textContent=mixed?'No Closed line in phase-3-dev-delivery-fixes.md':'phase-3-dev-delivery-fixes.md has a Closed line';
