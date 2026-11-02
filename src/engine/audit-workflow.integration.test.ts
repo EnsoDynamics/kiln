@@ -103,14 +103,16 @@ describe("automatic completion activities", () => {
     const stop = structuredClone(current.engine.record.phases[key]);
     const baseline = current.engine.record.planReconciliation!.baselineId;
     rmSync(join(current.engine.worktreePath, "docs/prds/proof/technical-design.md"));
-    await expect(current.engine.checkAgain()).rejects.toThrow("Missing technical design");
+    // A plan the baseline cannot reconcile is a failing Phase plan reads row, not a check that could not finish (waivers "Failing Items").
+    expect(await current.engine.checkAgain()).toMatchObject({ ok: true });
     expect(current.engine.record.planReconciliation!.check).toMatchObject({ status: "failed", problem: expect.stringContaining("Missing technical design") });
     expect(buildSnapshot(current.engine).continuation!.planCheck!.problem).toContain("Missing technical design");
     expect(current.engine.record.planReconciliation!.baselineId).toBe(baseline);
-    // The same stop stays in place and reports the unavailable read as its reason.
+    // The same stop stays in place, now with the failing plan row in a finished recheck, so Mark complete can waive it.
     const after = current.engine.record.phases[key]!;
-    expect({ ...after, stop: { ...after.stop!, checkedAt: stop!.stop!.checkedAt, checks: stop!.stop!.checks } }).toEqual(stop);
-    expect(after.stop!.checks).toEqual([{ name: "Audit completion evidence", passed: false, facts: [expect.stringContaining("Missing technical design")] }]);
+    expect({ ...after, stop: { ...after.stop!, checkedAt: stop!.stop!.checkedAt, checks: stop!.stop!.checks, run: stop!.stop!.run } }).toEqual(stop);
+    expect(after.stop!.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false, facts: [expect.stringContaining("Missing technical design")] }));
+    expect(after.stop!.run).toMatchObject({ origin: "recheck", finished: true });
     expect(current.engine.record.completedAt).toBeUndefined();
   });
   it.each(["automatic", "Resume now"])("stops usage recovery on unavailable audit evidence without dispatching another turn (%s)", async mode => {

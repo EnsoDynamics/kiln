@@ -102,6 +102,8 @@ export function openedLabel(snapshot: Snapshot): string | undefined {
 export function rowPill(row: PhaseView, state: RowState, opened: string | undefined): string {
   switch (state) {
     case "done":
+      // A completion with a waived check reads Complete, its count beside it (waivers AC-WAIVE-10).
+      if (row.waivedChecks) return "Complete";
       return row.id === PR_ID && opened !== undefined ? opened : "Done";
     case "split":
       return `Split into ${(row.splitInto ?? []).join(", ")}`;
@@ -114,9 +116,10 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
     case "waiting":
       return "Waiting for usage";
     case "next":
-      return "Next";
+      return row.skippedByWaiver ? "Skipped" : "Next";
     default:
-      return "Planned";
+      // Skipped under a waived plan problem: not built, counted as closed (AC-WAIVE-04).
+      return row.skippedByWaiver ? "Skipped" : "Planned";
   }
 }
 

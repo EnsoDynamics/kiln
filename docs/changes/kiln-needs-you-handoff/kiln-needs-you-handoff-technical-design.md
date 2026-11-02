@@ -47,6 +47,8 @@ All recovery submissions share the engine’s existing exclusive checking/dispat
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan reconciliation before handback advancement).
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Mark Complete (a third intent, Mark complete, after a failed Verify).
+
 An evaluation returns one of: **complete**, **incomplete**, or **check unavailable**, with an authoritative result time for completed evaluations. It may refresh the accepted plan and evidence records as existing checks require, but does not delete a stop, mark Done, clear a billing hold, activate a pause or kick subsequent work merely because it passed.
 
 | Person’s intent | Complete | Incomplete | Check unavailable |
@@ -150,6 +152,8 @@ Show billing below the reply/terminal choices and the terminal-return controls. 
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — safe takeover phases/audits and ordinary-terminal ownership admission; live-message recovery remains Phase 2.
 
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (hand-back arrangement and action names under AC-NEXT-01/02).
 
 Build the arrangement and action wording from the saved mockup; sample agent, phase, question and check count are illustrative. Keep feature/repository/PRD identity and connection state visible. Lead with the recorded last message verbatim, or existing output/error evidence if absent; never assert that a failed check means the agent asked a question. Then show peer reply/terminal choices, followed by **Back from your terminal?**, with unfinished-work Resume and finished-personally Verify beside its visible check results. Stack in that reading order on narrow screens.
 

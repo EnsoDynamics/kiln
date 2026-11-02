@@ -22,7 +22,8 @@ it("resumes only description repair after every source change is delivered, then
   f.pull.body = ""; f.save();
   const missing = await evaluateRepositories(f.context);
   expect(missing).toMatchObject({ passed: false, pullRequests: [] });
-  expect(missing.checks.filter(check => !check.passed).flatMap(check => check.facts)).toEqual(["acme-shop: unresolved — acme-shop #1: add the PRD reference to the description."]);
+  expect(missing.checks.filter(check => !check.passed).flatMap(check => check.facts)).toEqual(["acme-shop #1: add the PRD reference to the description."]);
+  expect(missing.checks[0]!.items).toEqual([{ kind: "other", subject: "acme-shop", text: "acme-shop #1: add the PRD reference to the description.", against: "" }]);
   // Reopen the same real engine with the captured GitHub reader. Provider calls are
   // deterministic here; the actual provider continuation is proved by the kept runner.
   f.h.tools.gh = f.context.gh;
@@ -33,7 +34,7 @@ it("resumes only description repair after every source change is delivered, then
   expect(engine.stoppedPhaseKey()).toBe("pr");
   const session = engine.latestSession("pr")!;
   const stop = buildSnapshot(engine).needsYou!;
-  expect(stop.checks.filter(check => !check.passed).flatMap(check => check.facts)).toEqual(["acme-shop: unresolved — acme-shop #1: add the PRD reference to the description."]);
+  expect(stop.checks.filter(check => !check.passed).flatMap(check => check.facts)).toEqual(["acme-shop #1: add the PRD reference to the description."]);
   expect(stop.resumePrompt).toContain("description links");
   const historicalMerge = structuredClone(engine.record.developmentDelivery!.checkpoints[0]!.merge);
   expect(await engine.resume({ ...recoveryRequest(engine), note: "Repair the missing description reference." })).toMatchObject({ ok: true });

@@ -20,7 +20,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -74,6 +74,18 @@ export interface CheckResult {
   passed: boolean;
   /** One per fact; each names its repository when the PRD has more than one (AC-CHECK-02). */
   facts: string[];
+  /** Every failing item, one per failing fact line (waivers AC-WAIVE-11); absent or empty when passed. */
+  items?: import("../engine/waivers.js").CheckItem[];
+  /** Passed only because a waiver covers every failing item (AC-WAIVE-09); shows as Waived, never Passed. */
+  waived?: true;
+}
+
+/** The identity of a stop's latest check run (waivers "Check Runs"): Mark complete is offered on a finished recheck only. */
+export interface CheckRun {
+  id: string;
+  at: string;
+  origin: "stop" | "recheck";
+  finished: boolean;
 }
 
 export interface PhaseStop {
@@ -89,6 +101,8 @@ export interface PhaseStop {
   interrupted?: { at: string; atIsLastOutput: boolean };
   /** The stopped run was refused by a usage limit (usage-limit recovery AC-LIMIT-01 to 03). */
   limit?: StopLimit;
+  /** The latest check run of this stop (schema 19). */
+  run?: CheckRun;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -136,6 +150,8 @@ export interface LimitRefusal {
 export interface RepositoryPhaseFacts {
   startCommit: string;
   pushedSha?: string;
+  /** The feature head when this repository's uncommitted or unpushed work was waived, in place of `pushedSha` (AC-WAIVE-09). */
+  waivedHead?: string;
   commitCount?: number;
 }
 
@@ -149,6 +165,14 @@ export interface PhaseFacts {
   wait?: PhaseWait;
   /** By repository name. */
   repositories: Record<string, RepositoryPhaseFacts>;
+  /** The waiver this activity was marked complete on (AC-WAIVE-08). */
+  waiverId?: string;
+  /** The completing check run, kept when any check in it was met only by a carried waiver (AC-WAIVE-10). */
+  completionChecks?: CheckResult[];
+  /** Skipped under a waived plan problem: the waiver that covered it (AC-WAIVE-04). */
+  skippedByWaiver?: string;
+  /** Reached or skipped under a waived plan or audit-readiness problem (AC-WAIVE-04). */
+  waiverWarning?: { kind: "plan" | "audit"; waiverId: string };
   /** @deprecated Legacy confinement facts, discarded when saved records are loaded. */
   outsideConfirmations?: { at: string }[];
   /** @deprecated Legacy confinement facts, discarded when saved records are loaded. */
@@ -273,6 +297,8 @@ export interface PrdRecord {
   mergedBranches?: MergedBranchFacts[];
   deliveryHistory?: DeliveryHistory;
   plan?: RecordedPlanPhase[];
+  /** Append-only; Kiln never edits or removes an entry (AC-WAIVE-08). */
+  waivers?: import("../engine/waivers.js").Waiver[];
 }
 
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
@@ -474,7 +500,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -515,6 +541,16 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (facts.wait) facts.wait.checks = facts.wait.checks.filter(check => check.name !== "Stayed in the workspace");
   }
   record.settings.resumeAfterUsageLimit ??= true;
+  // Schema 19: a saved stop's check run predates items, so Mark complete waits for a fresh recheck.
+  if (record.schemaVersion < 19) {
+    for (const facts of Object.values(record.phases)) if (facts.stop) facts.stop.run ??= { id: randomUUID(), at: facts.stop.checkedAt, origin: "stop", finished: true };
+    const hold = record.billing?.hold;
+    if (hold) {
+      hold.run ??= { id: randomUUID(), at: hold.at, origin: "stop", finished: true };
+      hold.checks ??= holdChecks(record, hold);
+    }
+  }
+  assertWaivers(record.waivers);
   if (record.schemaVersion >= 2) {
     record.schemaVersion = SCHEMA_VERSION;
     return record;
@@ -563,6 +599,17 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   for (const phase of record.plan ?? []) phase.repositories ??= [];
   record.schemaVersion = SCHEMA_VERSION;
   return record;
+}
+
+/** A migrated billing hold's rows, as the snapshot built them before schema 19: the retained stop's or wait's rows, then Billing approval. */
+function holdChecks(record: PrdRecord, hold: NonNullable<BillingState["hold"]>): CheckResult[] {
+  const facts = record.phases[hold.phaseKey];
+  return [...(facts?.stop?.checks ?? facts?.wait?.checks ?? []), { name: "Billing approval", passed: false, facts: [hold.reason] }];
+}
+
+function assertWaivers(waivers: unknown): void {
+  if (waivers === undefined) return;
+  if (!Array.isArray(waivers) || !waivers.every(w => w && typeof w === "object" && typeof w.waiverId === "string" && Number.isFinite(Date.parse(w.at)) && typeof w.activityKey === "string" && ["completed", "continued"].includes(w.effect) && Array.isArray(w.items) && Array.isArray(w.checks) && w.source && ["browser", "command_line"].includes(w.source.via))) throw new Error("Malformed waiver record.");
 }
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {

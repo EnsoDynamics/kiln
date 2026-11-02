@@ -5,7 +5,7 @@ import { executionDeliveries } from "../engine/continuation-state.js";
 import { randomUUID } from "node:crypto";
 import { type Action, type Receipt } from "../control/commands.js";
 import { sameRecoveryTarget, validRecoveryTarget } from "../engine/phase-recovery.js";
-import { ControlFailure, errorFact, result as controlResult } from "../control/result.js";
+import { ControlFailure, errorFact, exitFor, result as controlResult } from "../control/result.js";
 import { installInspectionRoutes } from "../control/server.js";
 import { bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { BillingError } from "../billing/authority.js";
@@ -447,6 +447,44 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
     return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
+  });
+
+  // Mark complete (waivers "Local HTTP", AC-WAIVE-03 to 06): the one `waive-and-advance` journal
+  // action, admitted only against the page's own status token and check run, never a substituted one.
+  app.post("/api/mark-complete", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Mark complete needs the page's status token and command id." }, 400);
+    if (Object.keys(body).some(k => !["checkRunId", "target", "reviewedReceiptIds", "withoutSendingReply"].includes(k)) || typeof body.checkRunId !== "string" || body.withoutSendingReply !== undefined && typeof body.withoutSendingReply !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Invalid Mark complete request." }, 400);
+    // A live target, or a hand-back target carrying one, becomes `live_target`; any other hand-back target must be the current one.
+    let live: unknown;
+    if (body.target !== undefined) {
+      if (validLiveTarget(body.target)) live = body.target;
+      else if (validRecoveryTarget(body.target)) {
+        if (!engine.commands.has(id) && !sameRecoveryTarget(engine.phaseRecoveryTarget(), body.target)) return c.json({ ok: false, code: "stale_check_run", reason: "Refresh the stopped activity before marking it complete." }, 409);
+        live = body.target.live;
+      } else return c.json({ ok: false, code: "invalid_request", reason: "Invalid Mark complete target." }, 400);
+    }
+    const inputs: Record<string, unknown> = { check_run_id: body.checkRunId, via: "browser", ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}), ...(body.withoutSendingReply === true ? { without_sending_reply: true } : {}) };
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "waive-and-advance", inputs }, "caller", true);
+      if (!answer.ok) {
+        const refusal = answer.errors[0]!;
+        // The token covers the check run, so a page that missed a newer run is refused as a stale check run.
+        return c.json({ ok: false, code: refusal.code === "stale_status_token" ? "stale_check_run" : refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409);
+      }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      const extra = { command_id: id, operation: op, controlToken: engine.controlView().token };
+      if (op.outcome === "check_unavailable") return c.json({ ok: false, outcome: "check_unavailable", code: "check_unavailable", reason: op.reason, ...extra }, 503);
+      if (op.state === "indeterminate") return c.json({ ok: false, code: "operation_indeterminate", reason: op.reason, ...extra }, 503);
+      if (op.state === "failed" || op.state === "refused") return c.json({ ok: false, code: op.outcome ?? "control_unavailable", reason: op.reason, ...extra }, op.outcome === "state_write_failed" ? 500 : 409);
+      return c.json({ ok: true, outcome: op.outcome, ...(op.waiver_id ? { waiverId: op.waiver_id } : {}), ...(op.changes ? { changes: op.changes } : {}), ...(op.reason ? { reason: op.reason } : {}), ...extra });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
   });
 
   app.all("/api/*", (c) => refuse(c, 404, "No such API."));

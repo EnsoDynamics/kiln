@@ -95,6 +95,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait (a refused session's failed check records a wait; the reconcile at `kiln run` waits again)
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Normal Order Under a Waived Problem (a waived plan stop follows normal order).
+
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Reconciliation is passive by default: an in-memory restart review holds all new dispatch and usage-wait watchers. Eligible continuation is shown through the Paused overview with a Resume button, completed/total/planned phases and the next activity. The snapshot adds optional `restartReview: { activityKey, action: start | resume | wait }`. Needs you, Complete and an intentional pause keep their existing screens. Resume uses the existing Start API and bot `continue` command, rechecks current state, then releases the review and drives normal continuation. The review has no saved schema field; every controller restart reviews again. `--resume` skips only this review for an already-started record, never an intentional pause or another restriction. No record or an unstarted record with that flag fails before setup. The following reconciliation choices describe what becomes eligible after this review, or immediately with `--resume`. Pseudocode:
 
 ```
@@ -412,6 +414,8 @@ Kiln has no watchdog for a session that stops producing output without exiting; 
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Completion Evidence and Errors (manual phase evaluation/acceptance and unavailable-check display).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check, Stayed in the workspace), §The Pull Requests (the pull-request check per repository, with Stayed in the workspace)
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (waivable Closed, Committed and Pushed).
 
 Run in the worktree after every phase's session, on Check again and on `kiln run` for a stopped phase (not a `plan` stop), on `kiln run` for a session whose verdict was never recorded, and before any resume (AC-DONE-03). All three must pass (AC-DONE-01); the session's exit code and words play no part (AC-DONE-02, AC-DONE-04).
 

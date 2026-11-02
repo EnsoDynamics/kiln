@@ -22,7 +22,7 @@ import { CommandJournal, ACTIONS, lookupReceipt, readReceipts, type Receipt, typ
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
-import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, acceptedAudit, resolveAuditSkill } from "../audit/workflow.js";
+import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { auditSessionPrompt } from "../session/prompts.js";
@@ -32,7 +32,7 @@ import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
 import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
-import { AuditRefusal, completionPhaseIds } from "../audit/contracts.js";
+import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
 import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
@@ -44,6 +44,7 @@ import { runCodexSession, reconcileCodexAttempt } from "../session/codex-session
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
 import { recoverCodexOutput } from "../session/codex-recovery-output.js";
 import { prepareCodexLaunch } from "../session/codex-launch-profile.js";
+import { probeCodexLaunchSettings } from "../session/codex-launch-probe.js";
 import { CodexOutputReader, CODEX_CHILD_OUTPUT_NOTICE } from "../session/codex-output.js";
 import { CODEX_NATIVE_CLEANUP_WARNING } from "../session/codex-background-terminals.js";
 import { sleepInterruption } from "../session/run-verdict.js";
@@ -59,7 +60,7 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -113,9 +114,15 @@ import {
   type SessionRun,
   type Settings,
   type PhaseStop,
+  type CheckRun,
   type StopKind,
   type StopLimit,
 } from "../state/records.js";
+import { applyWaivers, changedItems, checkCounts, closedWaiver, completeLabel, effectivePlan, fillAgainst, itemize, knownProblemWaiver, KNOWN_PROBLEM_CHECKS, previewSentence, unmetItems, READINESS_CHECK, type ItemChange, type MarkCompleteOffer, type MarkCompleteOutcome, type Waiver, type WaiverSource } from "./waivers.js";
+import { userInfo } from "node:os";
+import { readRepositoryFingerprints } from "./waiver-fingerprints.js";
+import { readPhasePlan } from "../plan/phase-plan.js";
+import { isPhaseFileName } from "../plan/phase-ids.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation } from "../session/codex-evidence.js";
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
@@ -195,6 +202,10 @@ export type CommandResult =
   | { ok: false; status: 400 | 409 | 422 | 500 | 503; reason: string; code?: PhaseRecoveryCode; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
 
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
+/** What Mark complete's rerun and act answer (waivers "Interfaces"). */
+export type WaiveAnswer = { ok: boolean; outcome?: MarkCompleteOutcome | string; reason?: string; code?: string; status?: number; waiver_id?: string; changes?: ItemChange[] };
+interface WaiveRequest { offered: CheckResult[]; offeredRun: { id: string; at: string }; source: WaiverSource; operationId: string; continueInOrder: boolean }
+
 export type AddRepositoryResult =
   | { ok: true; name: string; worktreePath: string; branch: string; baseBranch: string; added: boolean }
   | { ok: false; status: 409 | 422; reason: string };
@@ -397,6 +408,9 @@ export class Engine {
   private readonly additionsUnderway = new Map<string, Promise<AddRepositoryResult>>();
   /** The repositories the last pull-request check read from Git as getting a pull request. */
   private lastPullRequestRepositories: RepositoryEntry[] | undefined;
+  /** The latest completion check of each kind, for Mark complete's act after its rerun. */
+  private lastDoneCheck: { key: string; outcome: DoneCheckOutcome } | undefined;
+  private lastFinalCheck: { pullRequests?: PullRequestFacts[] | undefined; mergedBranches?: MergedBranchFacts[] | undefined } | undefined;
 
   constructor(options: EngineOptions) {
     this.options = options;
@@ -440,6 +454,7 @@ export class Engine {
         return undefined;
       },
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
+      markCompleteOffer: () => this.markCompleteOffer(),
       reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
     });
     this.recoverLiveMessages();
@@ -507,6 +522,7 @@ export class Engine {
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
+      "waive-and-advance": this.markCompleteOffer().offered && !busy && !releasePending,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
       "outside-confirmation": false,
     };
@@ -517,10 +533,11 @@ export class Engine {
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
       "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
+      "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
     };
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
-    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
@@ -573,10 +590,13 @@ export class Engine {
     }
     const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
     if (!persisted || receipt.execution_id !== persisted.executionId) return undefined;
-    if (Object.values(persisted.phases).some(f => f.completedByOperation === receipt.id)) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
+    const completed = Object.values(persisted.phases).find(f => f.completedByOperation === receipt.id);
+    // A Mark complete that crashed after its record write settles with its real outcome.
+    if (completed && receipt.instruction.action === "waive-and-advance") return { ...receipt, state: "completed", stage: "settled", outcome: completed.waiverId ? "marked_complete" : "checks_passed", effects: { ...receipt.effects, plan: "advanced" } };
+    if (completed) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
     if (persisted.controlApplied?.operationId === receipt.id) {
       const outcome = persisted.controlApplied.outcome;
-      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(outcome === "advanced" ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
+      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
     }
     // Check again never directly dispatches a session. A verification interrupted
     // before settlement can fail honestly without retaining control forever.
@@ -593,7 +613,7 @@ export class Engine {
     // Dispatch is saved as dispatching before spawn; completion is stamped in
     // its atomic record write. After ruling out both above, applying proves
     // only saved reviews, which survive without replaying this hand-back.
-    if (["resume", "verify-and-advance", "reply"].includes(receipt.instruction.action) && receipt.stage === "applying" && Array.isArray(receipt.instruction.inputs.reviewed_receipt_ids) && receipt.instruction.inputs.reviewed_receipt_ids.length && receipt.effects.session === "not_started" && receipt.effects.plan !== "advanced") {
+    if (["resume", "verify-and-advance", "reply", "waive-and-advance"].includes(receipt.instruction.action) && receipt.stage === "applying" && Array.isArray(receipt.instruction.inputs.reviewed_receipt_ids) && receipt.instruction.inputs.reviewed_receipt_ids.length && receipt.effects.session === "not_started" && receipt.effects.plan !== "advanced") {
       return { ...receipt, state: "failed", stage: "settled", outcome: "hand_back_not_started", reason: "Saved message acknowledgements are retained. No dispatch or completion was recorded; submit a new explicit hand-back after reviewing any remaining messages.", effects: { ...receipt.effects, session: "not_started", plan: "not_advanced" } };
     }
     return undefined;
@@ -607,7 +627,7 @@ export class Engine {
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
-    if (["reply", "resume", "verify-and-advance"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
+    if (["reply", "resume", "verify-and-advance", "waive-and-advance"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
     switch (action) {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
@@ -623,6 +643,7 @@ export class Engine {
         catch (error) { if (!(error instanceof CompletionCheckUnavailable)) throw error; return { ok: false, code: "check_unavailable", reason: error.message, status: 503 }; }
         break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
+      case "waive-and-advance": return this.markComplete(inputs, receipt);
       case "reply": case "resume":
         this.controlDispatch = receipt;
         answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume"), { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
@@ -1308,7 +1329,7 @@ export class Engine {
     return { target, ...(attemptStartedAt ? { attemptStartedAt } : {}), completion: error || !stop?.checks.length ? "unknown" : stop.checks.every(check => check.passed) ? "complete" : "incomplete", ...(error ? { checkError: { reason: error.reason, attemptedAt: error.attemptedAt } } : {}) };
   }
 
-  private async recoverPhase(action: "resume" | "verify", body: Record<string, unknown>): Promise<CommandResult> {
+  private async recoverPhase(action: "resume" | "verify", body: Record<string, unknown>, waive?: WaiveRequest): Promise<CommandResult | WaiveAnswer> {
     const fail = (code: PhaseRecoveryCode, reason: string, status: 400 | 409 | 500 | 503 = 409): CommandResult => ({ ok: false, code, reason, status });
     const allowed = action === "resume" ? ["target", "note"] : ["target", "intent"];
     if (Object.keys(body).some(key => !allowed.includes(key)) || (body.target !== undefined && !validRecoveryTarget(body.target))) return fail("invalid_request", "Submit a valid recovery target and only the fields for this action.", 400);
@@ -1333,7 +1354,9 @@ export class Engine {
       const outcome = await this.doneCheck(key);
       if (outcome === "stopping" || this.stopping) throw new CompletionCheckUnavailable("The completion check was interrupted. No work was started.");
       if (outcome.unavailable) throw new CompletionCheckUnavailable(outcome.unavailable);
-      if (!outcome.plan.ok) throw new CompletionCheckUnavailable(outcome.plan.problem);
+      if (!outcome.plan.ok && outcome.plan.unavailable) throw new CompletionCheckUnavailable(outcome.plan.problem);
+      // A plan that does not read or reconcile is a failing row for Verify and Mark complete, but never lets Resume dispatch.
+      if (!outcome.plan.ok && action === "resume") throw new ResumeHeld(outcome.plan.problem);
       // A hold may precede a normal stop. Save actual completion evidence separately from billing.
       const facts = this.record.phases[key]!;
       const previousStop = structuredClone(facts.stop);
@@ -1355,6 +1378,8 @@ export class Engine {
         }
         return { ok: true, outcome: "advanced", target: target! };
       }
+      // Mark complete's act runs inside the same checking boundary, on this rerun (waivers "Mark Complete").
+      if (waive) return await this.waiveStopped(key, waive, outcome, evaluatedMaterial);
       if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
       if (!this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
       this.returningTakeover = !!this.record.liveControl;
@@ -1364,6 +1389,7 @@ export class Engine {
     } catch (error) {
       const reason = (error as Error).message;
       if (error instanceof OwnershipError && error.code === "message_review_required") return fail("message_review_required", reason);
+      if (error instanceof CompletionCheckUnavailable && !(error instanceof ResumeHeld)) this.unfinishedRecheck(key);
       this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
       return fail(error instanceof RecoveryStateWriteFailed ? "state_write_failed" : "check_unavailable", reason, error instanceof RecoveryStateWriteFailed ? 500 : 503);
     } finally {
@@ -1375,7 +1401,7 @@ export class Engine {
 
   /** Check again: runs the stopped phase's check, or reads the plan again at a `plan` stop (AC-STOP-07). */
   async checkAgain(body: Record<string, unknown> = {}): Promise<CommandResult> {
-    if (this.phaseRecoveryTarget() || "target" in body || "intent" in body) return this.recoverPhase("verify", body);
+    if (this.phaseRecoveryTarget() || "target" in body || "intent" in body) return this.recoverPhase("verify", body) as Promise<CommandResult>;
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
@@ -1389,6 +1415,236 @@ export class Engine {
     }
     this.kick();
     return { ok: true };
+  }
+
+  /** The stop's latest check run and its rows: a billing hold's own while it names the activity (waivers "Check Runs"). */
+  private stopRun(key: string): { run: CheckRun | undefined; checks: CheckResult[] } {
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === key && hold.checks) return { run: hold.run, checks: hold.checks };
+    const stop = this.record.phases[key]?.stop;
+    return { run: stop?.run, checks: stop?.checks ?? [] };
+  }
+
+  /** Whether the stopped activity ran: a session of it dispatched a run. */
+  private activityRan(key: string): boolean {
+    return (this.record.phases[key]?.sessionIds ?? []).some(id => this.sessionRecord(key, id)?.runs.some(run => run.pid !== undefined && !codexNotDispatched(run)));
+  }
+
+  /** "Phase 3", "Delivery audit", "Final delivery". */
+  private activityName(key: string): string {
+    const audit = this.auditActivity(key);
+    return key === PR_PHASE_KEY ? "Final delivery" : audit ? auditLabel(audit.kind) : `Phase ${this.judgedId(key)}`;
+  }
+
+  /** A Done activity, or a leaf closed outside Kiln, which no session of Kiln's ran: a development check can still stop it. */
+  private alreadyComplete(key: string): boolean {
+    if (key === PR_PHASE_KEY) return !!this.record.completedAt;
+    if (this.record.phases[key]?.doneAt) return true;
+    if (this.auditActivity(key) || this.activityRan(key)) return false;
+    const leaf = judgedPhase(this.record.plan ?? [], key);
+    return !!leaf && !leaf.splitInto && (leaf.closed || this.waiverClosed(leaf.id));
+  }
+
+  /**
+   * Whether Mark complete is offered at the current stop, and what it would do (AC-WAIVE-02,
+   * AC-WAIVE-03): the one predicate the snapshot, CLI and server share. Offered exactly when the
+   * activity holds a Needs you stop whose latest run is a finished recheck with an unmet check, and
+   * nothing is checking, dispatching or writing. `admitting`: the journal's own instruction is the
+   * one in progress.
+   */
+  markCompleteOffer(admitting = false): MarkCompleteOffer {
+    const key = this.stoppedPhaseKey();
+    if (key === undefined || this.current?.processRunning) return { offered: false, reason: this.current?.processRunning ? `${this.activityName(this.current.phaseKey)} is running, not at Needs you. There is nothing to mark complete.` : "Nothing is waiting at Needs you. There is nothing to mark complete." };
+    const name = this.activityName(key);
+    if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || !admitting && this.commands?.busy) return { offered: false, reason: "Kiln is checking, dispatching or writing. Try again when it has finished." };
+    const { run, checks } = this.stopRun(key);
+    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.` };
+    if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read." };
+    const failing = checks.filter(check => !check.passed);
+    if (!failing.length) return { offered: false, reason: "Every check passed. Check again advances without a waiver." };
+    const items = unmetItems(checks);
+    const stopKind = this.record.phases[key]?.stop?.kind;
+    const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
+    const complete = this.alreadyComplete(key);
+    const started = this.activityRan(key) || complete;
+    const continueInOrder = problemStop && !started;
+    const lower = name.charAt(0).toLowerCase() + name.slice(1);
+    const audit = this.auditActivity(key);
+    const preview = audit && !complete ? this.auditWaiverPreview(audit) : undefined;
+    const nextActivity = continueInOrder || complete ? null : this.forecastNext(key, preview?.countedOutcome);
+    const next = key === PR_PHASE_KEY ? "moves to Complete"
+      : preview ? `counts the audit as ${preview.report === "none" ? "passed" : "its report says"} and ${nextActivity?.kind === "audit" ? `moves on to the ${nextActivity.title.toLowerCase()}` : nextActivity?.kind === "final_delivery" ? "moves on to final delivery" : nextActivity?.kind === "phase" ? "runs the completion phases it added first" : "moves to the next step"}`
+      : "moves to the next step";
+    const resultingLabel = completeLabel(failing.length + checkCounts(checks).waived + (complete ? this.waivedCount(key) : 0));
+    const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => item.subject))];
+    return {
+      offered: true,
+      label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
+      heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
+      continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
+      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder }),
+    };
+  }
+
+  /** Checks an activity completed with that waivers met: its own waiver's run, else its completion run, plus continued waivers on it. */
+  private waivedCount(key: string): number {
+    const facts = this.record.phases[key];
+    const own = facts?.waiverId ? this.record.waivers?.find(w => w.waiverId === facts.waiverId)?.checks : facts?.completionChecks;
+    const continued = (this.record.waivers ?? []).filter(w => w.activityKey === key && w.effect === "continued" && w.waiverId !== facts?.waiverId).flatMap(w => w.checks);
+    return checkCounts([...(own ?? []), ...continued]).waived;
+  }
+
+  /**
+   * The next activity Kiln would choose with the waiver in place, forecast from the saved record
+   * and the latest run, never by the live choice, so offering Mark complete writes nothing.
+   */
+  private forecastNext(key: string, countedOutcome?: string): NonNullable<Extract<MarkCompleteOffer, { offered: true }>["nextActivity"]> {
+    if (key === PR_PHASE_KEY) return { kind: "complete", key: PR_PHASE_KEY, title: "Complete" };
+    const audit = this.auditActivity(key);
+    const stopped = audit ? undefined : this.judgedId(key);
+    const leaf = recordedLeaves(this.record.plan ?? []).find(phase => phase.id !== stopped && !phase.closed && !this.waiverClosed(phase.id) && !this.record.phases[phase.id]?.doneAt);
+    if (leaf) return { kind: "phase", key: leaf.id, title: `Phase ${leaf.id} · ${leaf.title}` };
+    if (!audit) return { kind: "audit", key: "", title: "Delivery audit" };
+    if (countedOutcome === "continue_test") return { kind: "audit", key: "", title: "Test audit" };
+    return audit.kind === "delivery_audit" ? { kind: "audit", key: "", title: "Test audit" } : { kind: "final_delivery", key: PR_PHASE_KEY, title: "Final delivery" };
+  }
+
+  /** How a waived audit would count (AC-WAIVE-12). */
+  private auditWaiverPreview(activity: AuditActivity): { report: "accepted" | "valid" | "none"; countedOutcome: string } {
+    return previewAuditWaiver(this.stateDirectory, activity);
+  }
+
+  /**
+   * Mark complete (AC-WAIVE-03, AC-WAIVE-04), applied by the control journal as `waive-and-advance`:
+   * reruns the stop's own check under the exclusive checking boundary, and only when its unmet
+   * items equal the offered run's saves the waiver with the completion it grants in one record write.
+   *
+   *   inputs: { check_run_id, via: "browser" | "command_line", by?, live_target?, reviewed_receipt_ids?, without_sending_reply? }
+   *   → { ok: true, outcome: "marked_complete", waiver_id } | { ok: true, outcome: "check_results_changed", changes } | …
+   */
+  private async markComplete(inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: MarkCompleteOutcome | string; reason?: string; code?: string; status?: number; waiver_id?: string; changes?: ItemChange[] }> {
+    const offer = this.markCompleteOffer(true);
+    if (!offer.offered) return { ok: false, code: "mark_complete_not_offered", reason: offer.reason, status: 409 };
+    if (inputs.check_run_id !== offer.checkRunId) return { ok: false, code: "stale_check_run", reason: "The checks have run again since this was offered. Review the latest results, then choose again.", status: 409 };
+    const key = this.stoppedPhaseKey()!;
+    const offered = structuredClone(this.stopRun(key).checks);
+    const source: WaiverSource = { via: inputs.via === "command_line" ? "command_line" : "browser", account: userInfo().username, ...(typeof inputs.by === "string" ? { by: inputs.by } : {}) };
+    const request = { offered, offeredRun: { id: offer.checkRunId, at: this.stopRun(key).run!.at }, source, operationId: receipt.id, continueInOrder: offer.continueInOrder };
+    const handBack = this.phaseRecoveryTarget();
+    let answer: WaiveAnswer;
+    if (handBack) answer = await this.recoverPhase("verify", { target: handBack, intent: "advance" }, request);
+    else {
+      this.checking = true; this.changed();
+      try {
+        const verdict = await this.recheckStop(key, { routeAudits: false });
+        answer = verdict === "still_stopped" ? await this.waiveStopped(key, request) : { ok: true, outcome: "checks_passed" };
+      } catch (error) {
+        if (!(error instanceof CompletionCheckUnavailable)) throw error;
+        answer = { ok: false, code: "check_unavailable", reason: error.message, status: 503 };
+      } finally { this.checking = false; this.changed(); }
+    }
+    if (answer.ok && answer.outcome !== "check_results_changed") {
+      if (answer.outcome === "checks_passed" || answer.outcome === "advanced") answer = { ...answer, outcome: "checks_passed" };
+      receipt.effects.plan = "advanced";
+      if (this.record.controlApplied?.operationId !== receipt.id) { this.record.controlApplied = { operationId: receipt.id, outcome: answer.outcome! }; this.save(); }
+      this.kick();
+    }
+    return answer;
+  }
+
+  /**
+   * The act half of Mark complete, once the rerun still fails: compares its unmet items with the
+   * offered run's and, on an exact match, saves the waiver with the completion it grants.
+   */
+  private async waiveStopped(key: string, request: WaiveRequest, outcome?: DoneCheckOutcome, takeoverMaterial?: string): Promise<WaiveAnswer> {
+    const rerun = this.stopRun(key);
+    const changes = changedItems(request.offered, rerun.checks);
+    if (changes.length) return { ok: true, outcome: "check_results_changed", changes };
+    const items = unmetItems(rerun.checks);
+    const audit = this.auditActivity(key);
+    const complete = this.alreadyComplete(key);
+    const effect: Waiver["effect"] = request.continueInOrder || complete ? "continued" : "completed";
+    const waiver: Waiver = {
+      waiverId: randomUUID(), at: this.now().toISOString(), activityKey: key,
+      activityKind: key === PR_PHASE_KEY ? "final_delivery" : audit ? audit.kind : "implementation",
+      effect, source: request.source, operationId: request.operationId, checkRun: request.offeredRun, items, checks: [],
+    };
+    // The rerun's rows, marked with the waiver they now rest on.
+    const checks = applyWaivers([...(this.record.waivers ?? []), waiver], structuredClone(rerun.checks), { isLeaf: id => this.isLeaf(id) });
+    waiver.checks = checks;
+    const before = structuredClone(this.record);
+    try {
+      if (effect === "continued") {
+        (this.record.waivers ??= []).push(waiver);
+        const facts = this.record.phases[key];
+        if (facts) { delete facts.stop; if (!facts.sessionIds.length && !facts.doneAt && !audit) delete this.record.phases[key]; }
+        if (this.record.billing?.hold?.phaseKey === key) delete this.record.billing.hold;
+        this.record.controlApplied = { operationId: request.operationId, outcome: "continued" };
+        if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; }
+        this.save();
+        return { ok: true, outcome: "continued", waiver_id: waiver.waiverId };
+      }
+      this.record.controlApplied = { operationId: request.operationId, outcome: "marked_complete" };
+      if (key === PR_PHASE_KEY) {
+        const final = this.lastFinalCheck;
+        const heads = await this.waivedWorkHeads(checks);
+        this.complete(final?.pullRequests ?? [], true, final?.mergedBranches ?? [], checks, waiver, heads);
+      } else if (audit) {
+        await this.completeWaivedAudit(audit, waiver, checks, takeoverMaterial);
+      } else {
+        const done = outcome ?? (this.lastDoneCheck?.key === key ? this.lastDoneCheck.outcome : undefined);
+        if (!done) throw new CompletionCheckUnavailable("The completion check's result is no longer available. Check again, then mark complete.");
+        await this.recordDone(key, { ...done, checks, passed: true }, true, true, takeoverMaterial, waiver);
+      }
+      if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
+    } catch (error) {
+      for (const field of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[field];
+      Object.assign(this.record, before);
+      throw error;
+    }
+    return { ok: true, outcome: "marked_complete", waiver_id: waiver.waiverId };
+  }
+
+  /** An audit marked complete: its waiver result, measured from a snapshot captured now, saved with the waiver and its completion (AC-WAIVE-12). */
+  private async completeWaivedAudit(audit: AuditActivity, waiver: Waiver, checks: CheckResult[], takeoverMaterial?: string): Promise<void> {
+    const key = auditKey(audit);
+    const done = this.lastDoneCheck?.key === key ? this.lastDoneCheck.outcome : undefined;
+    if (!done) throw new CompletionCheckUnavailable("The completion check's result is no longer available. Check again, then mark complete.");
+    const snapshot = await captureSnapshot({ ...this.admissionContext(waiver), activity: audit, now: waiver.at });
+    const recorded = waiveAudit(this.stateDirectory, audit, { waiverId: waiver.waiverId, snapshot });
+    waiver.audit = { report: recorded.report, countedOutcome: recorded.countedOutcome, ...(recorded.countedChangedImplementation !== undefined ? { countedChangedImplementation: recorded.countedChangedImplementation } : {}), resultRef: recorded.resultRef };
+    this.record.completionAudits!.revision++;
+    await this.recordDone(key, { ...done, checks, passed: true }, true, true, takeoverMaterial, waiver);
+  }
+
+  /**
+   * An audit that cannot start on a waived readiness problem: allocated without a session and
+   * completed at once on that waiver with no report, carrying both warnings (AC-WAIVE-04, AC-WAIVE-12).
+   */
+  private async completeAuditAtOnce(kind: AuditKind, continuation: boolean, waiver: Waiver): Promise<void> {
+    const activity = await this.allocateAudit(kind, continuation, true);
+    const before = structuredClone(this.record);
+    try {
+      waiveUnstartedAudit(this.stateDirectory, activity, waiver.waiverId);
+      const facts = this.record.phases[auditKey(activity)]!;
+      facts.doneAt = this.now().toISOString(); facts.finishedByPerson = false;
+      // Its one row is the carried Completion audit readiness row, read from the originating waiver.
+      facts.waiverId = waiver.waiverId; facts.waiverWarning = { kind: "audit", waiverId: waiver.waiverId };
+      this.record.completionAudits!.revision++;
+      this.save();
+    } catch (error) { for (const field of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[field]; Object.assign(this.record, before); throw error; }
+    this.emitAudit(activity, "done");
+  }
+
+  /** Each repository whose uncommitted or unpushed work a check run waived, with its feature head. */
+  private async waivedWorkHeads(checks: CheckResult[]): Promise<Record<string, string>> {
+    const names = new Set(checks.flatMap(check => (check.items ?? []).filter(item => item.kind === "repository_work" && item.waiver).map(item => item.subject)));
+    const heads: Record<string, string> = {};
+    for (const entry of this.setUpRepositories.filter(one => names.has(one.name))) {
+      const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
+      if (head) heads[entry.name] = head;
+    }
+    return heads;
   }
 
   /**
@@ -1405,7 +1661,7 @@ export class Engine {
    */
   async resume(body: Record<string, unknown> = {}): Promise<CommandResult> {
     if (this.restartReview) return refuse("Review the phase plan and use Continue to resume Kiln.");
-    if (this.phaseRecoveryTarget() || "target" in body) return this.recoverPhase("resume", body);
+    if (this.phaseRecoveryTarget() || "target" in body) return this.recoverPhase("resume", body) as Promise<CommandResult>;
     const waiting = this.record.billing?.hold ? undefined : this.waitingPhaseKey();
     if (waiting !== undefined) {
       // An empty note counts as none.
@@ -1595,7 +1851,7 @@ export class Engine {
     const activity = this.record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
     if (!activity) return undefined;
     const refusal = latestAuditRefusal(this.stateDirectory, activity);
-    return { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: activity.skill.path, instructions: this.auditPrompt(activity), ...(refusal ? { lastRefusal: { at: refusal.at, text: `${refusal.code}: ${refusal.reason}${refusal.criteria.length ? ` Criteria: ${refusal.criteria.join(", ")}.` : ""}` } } : {}) };
+    return { label: activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit", prdFile: this.pathFrom(folder, this.prdFile()), activityId: activity.activityId, round: activity.round, reportPath: activity.reportPath, skillPath: runnableSkill(activity).path, instructions: this.auditPrompt(activity), ...(refusal ? { lastRefusal: { at: refusal.at, text: `${refusal.code}: ${refusal.reason}${refusal.criteria.length ? ` Criteria: ${refusal.criteria.join(", ")}.` : ""}` } } : {}) };
   }
 
   deliveryOwnerFor(key: string): DeliveryOwner {
@@ -1726,33 +1982,61 @@ export class Engine {
     return JSON.stringify({ cli: { executable: process.execPath, script: fileURLToPath(new URL("../cli.js", import.meta.url)) }, executionId: this.record.executionId, featureBranch: this.record.settings.featureBranch, owner: this.current?.phaseKey || this.stoppedPhaseKey() ? this.deliveryOwnerFor((this.current?.phaseKey ?? this.stoppedPhaseKey())!) : undefined, grants: this.record.developmentAuthorization!.grants.map(one => one.target), ledgerRevision: ledger(this.record).revision, activationRecovery: this.record.developmentAuthorization?.activationRecovery, unresolved: ledger(this.record).checkpoints.filter(one => one.unresolvedReason).map(one => ({ id: one.id, reason: one.unresolvedReason })), confirmedMerges: ledger(this.record).checkpoints.flatMap(one => one.merge ? [{ id: one.id, url: one.merge.url, head: one.merge.sourceHead, result: one.merge.resultSha }] : []) }, null, 2);
   }
 
+  /**
+   * The plan as read; while a problem a waiver covers stops it from reading, the order Normal
+   * Order takes instead: the readable phases in plan order, a leaf whose own document does not
+   * read skipped under the waiver, with the plan warning for what Kiln reaches (AC-WAIVE-04).
+   */
+  private async planOrWaivedOrder(): Promise<{ ok: true; plan: PhasePlan; warning?: { kind: "plan"; waiverId: string } } | { ok: false; problem: string }> {
+    const read = await this.readPlan();
+    if (read.ok) return read;
+    const waiver = !read.unavailable && knownProblemWaiver(this.record.waivers, read.problem);
+    if (!waiver) return read;
+    const phases = this.orderSource();
+    for (const leaf of recordedLeaves(this.record.plan ?? [])) {
+      // A recorded leaf missing from the readable phases, its document gone or unreadable, cannot start: skipped under the waiver.
+      if (phases.some(phase => phase.id === leaf.id) || leaf.closed || this.record.phases[leaf.id]?.doneAt || this.record.phases[leaf.id]?.skippedByWaiver) continue;
+      const facts = (this.record.phases[leaf.id] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
+      facts.skippedByWaiver = waiver.waiverId; facts.waiverWarning = { kind: "plan", waiverId: waiver.waiverId };
+    }
+    this.save();
+    return { ok: true, plan: { phases, problems: [] }, warning: { kind: "plan", waiverId: waiver.waiverId } };
+  }
+
   /** A grant may precede the stopped leaf's very first provider session (plan/readiness stop). */
   private nextExecutionLeaf(plan: PhasePlan): PlannedPhase | undefined {
     const activation = this.record.developmentAuthorization?.activationRecovery;
-    if (activation && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, recoveryStopKey(activation));
-    return nextLeaf(plan);
+    // A waived missing activation-recovery phase lifts the recovery gate (AC-WAIVE-04).
+    const recoveryWaived = knownProblemWaiver(this.record.waivers, ACTIVATION_MISSING);
+    if (activation && !recoveryWaived && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, recoveryStopKey(activation));
+    const leaf = nextLeaf(effectivePlan(plan, this.record, this.carriedWaived()).plan);
+    if (leaf && activation && recoveryWaived && !this.record.phases[leaf.id]?.waiverWarning) { (this.record.phases[leaf.id] ??= { sessionIds: [], finishedByPerson: false, repositories: {} }).waiverWarning = { kind: "plan", waiverId: recoveryWaived.waiverId }; }
+    return leaf;
   }
 
   private async unresolvedDeliveryLeaf(): Promise<string | undefined> {
     if (!deliveryEnabled(this.record)) return undefined;
     await reconcileDelivery(this.deliveryContext());
     const activation = this.record.developmentAuthorization?.activationRecovery;
-    if (activation) {
+    // Under a waived missing recovery phase, unmet recovery obligations stop Kiln only as their own failing development checks.
+    if (activation && !knownProblemWaiver(this.record.waivers, ACTIVATION_MISSING)) {
       const failed = this.activationChecks().filter(check => !check.passed);
       if (failed.length && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length) {
         // Launch the authorized stopped leaf once its original blocker clears. Its first
         // session supplies the historical assessments; no future leaf can overtake it.
         if (recoveryStopKey(activation) === PR_PHASE_KEY || this.auditActivity(recoveryStopKey(activation)) || judgedPhase(this.record.plan ?? [], recoveryStopKey(activation))) return undefined;
-        this.recordStop(recoveryStopKey(activation), "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: ["The activation-recovery phase is missing from the current plan."] }]); return recoveryStopKey(activation);
+        this.recordStop(recoveryStopKey(activation), "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: [ACTIVATION_MISSING] }]); return recoveryStopKey(activation);
       }
-      if (failed.length) { this.recordStop(recoveryStopKey(activation), recoveryStopKey(activation) === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return recoveryStopKey(activation); }
+      if (failed.length && !await this.markChecks(recoveryStopKey(activation), failed)) { this.recordStop(recoveryStopKey(activation), recoveryStopKey(activation) === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return recoveryStopKey(activation); }
     }
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
-      if (!leaf.closed) break;
+      if (!leaf.closed && !this.waiverClosed(leaf.id)) break;
+      // A skipped phase was not built; its delivery obligations are not asked for (AC-WAIVE-04).
+      if (this.record.phases[leaf.id]?.skippedByWaiver) continue;
       const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
       if (this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
-      if (!check.passed) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
+      if (!await this.markChecks(leaf.id, [check])) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
     }
     this.save(); return undefined;
   }
@@ -2327,7 +2611,8 @@ export class Engine {
   }
 
   private async decideQuietly(): Promise<UnderwayDecision> {
-    if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
+    // A preparation whose phase was marked complete holds nothing (waivers "Mark Complete").
+    if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && !this.record.phases[this.record.preparation.phaseId]?.doneAt && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
       const target = this.record.liveControl.takeover.target;
       const session = this.sessionRecord(target.activityKey, target.sessionId);
@@ -2436,7 +2721,7 @@ export class Engine {
 
     if (record.pause.activeSince !== undefined) return withDone({ kind: "paused" as const, beforePhaseKey: this.nextKeyFromRecordedPlan() });
     // What the engine loop does next, in its order.
-    const read = await this.readPlan();
+    const read = await this.planOrWaivedOrder();
     if (!read.ok) return withDone(this.recordPlanStop(read.problem));
     const unresolved = await this.unresolvedDeliveryLeaf();
     if (unresolved) return withDone({ kind: "needs_you" as const, phaseKey: unresolved, again: true });
@@ -2451,7 +2736,7 @@ export class Engine {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (deliveryEnabled(record) && check.ghError) { this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true }); }
       if (check.passed && !this.stopping) {
-        this.complete(check.pullRequests!, false, check.mergedBranches);
+        this.complete(check.pullRequests ?? [], false, check.mergedBranches, check.checks);
         return withDone({ kind: "complete" as const });
       }
     }
@@ -2519,7 +2804,7 @@ export class Engine {
         if (verdict.kind !== "done") return;
         continue;
       }
-      const read = await this.readPlan();
+      const read = await this.planOrWaivedOrder();
       if (!read.ok) {
         this.recordPlanStop(read.problem);
         return;
@@ -2536,6 +2821,16 @@ export class Engine {
       if (leaf) {
         const added = await this.addNamedRepositories(leaf, read.plan);
         if (this.stopping) return;
+        const skip = !added.ok && knownProblemWaiver(this.record.waivers, added.facts.join(" "));
+        if (skip) {
+          // A phase whose start fails on a waived problem is skipped and counts as closed (AC-WAIVE-04).
+          this.current = undefined;
+          const facts = (this.record.phases[leaf.id] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
+          facts.skippedByWaiver = skip.waiverId; facts.waiverWarning = { kind: "plan", waiverId: skip.waiverId };
+          this.save();
+          continue;
+        }
+        if (read.warning) { (this.record.phases[leaf.id] ??= { sessionIds: [], finishedByPerson: false, repositories: {} }).waiverWarning = read.warning; this.save(); }
         if (!added.ok) {
           this.current = undefined;
           this.recordStop(leaf.id, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }]);
@@ -2549,7 +2844,7 @@ export class Engine {
         if (deliveryEnabled(record) && check.ghError) { this.current = undefined; this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return; }
         if (this.stopping) return;
         if (check.passed) {
-          this.complete(check.pullRequests!, false, check.mergedBranches);
+          this.complete(check.pullRequests ?? [], false, check.mergedBranches, check.checks);
           return;
         }
       }
@@ -2594,9 +2889,17 @@ export class Engine {
 
   auditActivity(key: string): AuditActivity | undefined { return this.record.completionAudits?.activities.find(a => auditKey(a) === key); }
 
-  private admissionContext(): AdmissionContext {
+  private admissionContext(extra?: Waiver): AdmissionContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    return { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, signal };
+    const planPhases = this.waivedOrderPhases(extra);
+    return { record: this.record, stateDirectory: this.stateDirectory, git: { ...this.git, signal }, signal, ...(planPhases ? { planPhases } : {}) };
+  }
+
+  /** While a waived plan problem stops the documents from reading, the phases Normal Order uses, so audits can snapshot the work (AC-WAIVE-04). */
+  private waivedOrderPhases(extra?: Waiver): PlannedPhase[] | undefined {
+    const read = readPlanAt(this.worktreePath, this.paths.prdDirectoryFromRoot);
+    if (read.ok || read.unavailable) return undefined;
+    return knownProblemWaiver([...(this.record.waivers ?? []), ...(extra ? [extra] : [])], read.problem) ? this.orderSource() : undefined;
   }
 
   private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
@@ -2605,12 +2908,12 @@ export class Engine {
     if (pending) { this.record.nextActivityKey = auditKey(pending); this.save(); return { kind: "audit", key: auditKey(pending), activity: pending }; }
     const leaf = this.nextExecutionLeaf(plan);
     if (leaf) { this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf }; }
-    let kind: Awaited<ReturnType<typeof auditNext>>;
+    let kind: Awaited<ReturnType<typeof auditNext>> | undefined;
     try {
       // Finished audit origins retain their development obligations after a first grant.
       if (deliveryEnabled(this.record)) for (const activity of this.record.completionAudits?.activities ?? []) {
         const check = ownerDeliveryCheck(this.deliveryContext(auditKey(activity)), { kind: "audit", activityId: activity.activityId });
-        if (!check.passed) { this.recordStop(auditKey(activity), "done_check", [check]); return { kind: "stopped", key: auditKey(activity) }; }
+        if (!await this.markChecks(auditKey(activity), [check])) { this.recordStop(auditKey(activity), "done_check", [check]); return { kind: "stopped", key: auditKey(activity) }; }
       }
       kind = await auditNext(this.admissionContext());
       if (kind === "final_delivery") { this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" }; }
@@ -2618,22 +2921,46 @@ export class Engine {
       return { kind: "audit", key: auditKey(activity), activity };
     } catch (error) {
       const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
-      this.recordStop(key, "selection", [{ name: "Completion audit readiness", passed: false, facts: [(error as Error).message] }]);
-      return { kind: "stopped", key };
+      const waiver = !this.stopping && knownProblemWaiver(this.record.waivers, (error as Error).message);
+      if (!waiver) {
+        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]);
+        return { kind: "stopped", key };
+      }
+      // A waived readiness problem: the step the saved audit record gives, judged without the step that failed (AC-WAIVE-04).
+      const step = kind ?? this.auditStepAfterSettled();
+      if (step === "final_delivery") {
+        (this.record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {} }).waiverWarning = { kind: "audit", waiverId: waiver.waiverId };
+        this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" };
+      }
+      // An audit that cannot start on the waived problem counts as marked complete with no report (AC-WAIVE-12).
+      try { await this.completeAuditAtOnce(step === "continue_test" ? "test_audit" : step, step === "continue_test", waiver); }
+      catch (failure) {
+        // An audit that cannot even be allocated, such as when no work snapshot can be read, stops on that problem.
+        if (this.stopping) throw failure;
+        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(failure as Error).message] }]);
+        return { kind: "stopped", key };
+      }
+      return this.nextActivity(plan);
     }
   }
 
-  private async allocateAudit(kind: AuditKind, continuation = false): Promise<AuditActivity> {
-    const skill = await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+  /** Where the record cannot tell: the next of delivery audit, test audit, final delivery after the last settled audit. */
+  private auditStepAfterSettled(): "delivery_audit" | "test_audit" | "final_delivery" {
+    const settled = this.record.completionAudits?.activities.findLast(a => this.record.phases[auditKey(a)]?.doneAt);
+    return !settled ? "delivery_audit" : settled.kind === "delivery_audit" ? "test_audit" : "final_delivery";
+  }
+
+  private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
+    const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
     try {
       const state = this.record.completionAudits!;
       const predecessor = continuation ? state.activities.findLast(a => a.kind === "test_audit") : undefined;
-      if (continuation && (!predecessor || acceptedAudit(this.stateDirectory, predecessor)?.report.outcome !== "continue_test" || !this.record.phases[auditKey(predecessor)]?.doneAt)) throw new Error("A test continuation requires its settled accepted predecessor.");
+      if (continuation && (!predecessor || continuablePredecessor({ record: this.record, stateDirectory: this.stateDirectory }) !== predecessor)) throw new Error("A test continuation requires its settled accepted predecessor.");
       const id = randomUUID(); const at = this.now().toISOString();
       const observed = observeActivity(this.record, this.stateDirectory, `audit-${id}`, kind, at, id);
-      const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: predecessor?.round ?? Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: predecessor ? predecessor.continuationIndex + 1 : 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, skill, snapshots: [], attempts: [] };
+      const activity: AuditActivity = { activityId: id, sequence: observed.sequence, kind, round: predecessor?.round ?? Math.max(0, ...state.activities.filter(a => a.kind === kind).map(a => a.round)) + 1, continuationIndex: predecessor ? predecessor.continuationIndex + 1 : 1, createdAt: at, sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-${id}.json`, ...(skill ? { skill } : {}), snapshots: [], attempts: [] };
       state.activities.push(activity); this.record.nextActivityKey = auditKey(activity);
       this.record.phases[auditKey(activity)] = { sessionIds: [], finishedByPerson: false, repositories: {} };
       const context = this.admissionContext();
@@ -2658,9 +2985,9 @@ export class Engine {
   auditPrompt(activity: AuditActivity): string {
     // Include the latest test record even when a delivery reassessment intervened.
     // Grades remain history: this activity independently reassesses all current rows.
-    const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && a.acceptedResult);
+    const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && hasEffectiveResult(a) && effectiveAudit(this.stateDirectory, a)?.reportBytes);
     const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
-    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: activity.skill.name, skillPath: activity.skill.path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => acceptedAudit(this.stateDirectory, a)!.result.reportBytes).join("\n\n") } : {}) });
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}) });
   }
 
   private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
@@ -2672,7 +2999,7 @@ export class Engine {
     let before: PrdRecord | undefined;
     try {
       const plan = await this.readPlan();
-      if (!plan.ok) throw new CompletionCheckUnavailable(plan.problem);
+      if (!plan.ok && plan.unavailable) throw new CompletionCheckUnavailable(plan.problem);
       before = structuredClone(this.record);
       await this.refreshCodexConversations(key);
       const activity = this.auditActivity(key)!; const context = this.admissionContext();
@@ -2683,15 +3010,15 @@ export class Engine {
         if (ledger(this.record).sourceUnavailable) throw new CompletionCheckUnavailable(ledger(this.record).lastReadError ?? "Required development-delivery evidence is unavailable.");
       }
       try {
-        if (!activity.acceptedResult) {
+        if (!hasEffectiveResult(activity)) {
           const result = await submitAudit(context, { executionId: this.record.executionId, activityId: activity.activityId, revision: this.record.completionAudits!.revision, reportPath: activity.reportPath });
           if (result.refusal && (result.refusal.status === 503 || result.refusal.code === "evidence_unavailable")) throw new CompletionCheckUnavailable(result.refusal.reason);
           checks.push(...result.checks);
         } else {
-          let accepted: NonNullable<ReturnType<typeof acceptedAudit>>;
-          try { accepted = acceptedAudit(this.stateDirectory, activity)!; }
+          let accepted: NonNullable<ReturnType<typeof effectiveAudit>>;
+          try { accepted = effectiveAudit(this.stateDirectory, activity)!; }
           catch (error) { throw new CompletionCheckUnavailable((error as Error).message); }
-          checks.push({ name: "Audit result recorded", passed: true, facts: [`Accepted ${activity.reportPath}: ${accepted.report.outcome}.`] });
+          checks.push({ name: "Audit result recorded", passed: true, facts: [accepted.source === "waiver" ? `Marked complete ${activity.reportPath}: counted as ${accepted.countedOutcome}.` : `Accepted ${activity.reportPath}: ${accepted.outcome}.`] });
           try {
             const current = await auditCurrentness(context, activity);
             checks.push({ name: "Audit evidence is current", passed: current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent), facts: [current.deliveryCurrent && (activity.kind !== "test_audit" || current.testsCurrent) ? "Assigned audit evidence matches current work." : "Checked audit work changed; recover the assigned result before continuing."] });
@@ -2707,8 +3034,12 @@ export class Engine {
       }
       checks.push(...await repositoryChecks(context));
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
+      if (!plan.ok) checks.push(planCheck(plan));
       this.save();
-      return this.withCodexSafety(key, { passed: checks.every(c => c.passed), checks, plan, judgedLeafId: key });
+      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks, plan, judgedLeafId: key });
+      outcome.passed = await this.markChecks(key, outcome.checks);
+      this.lastDoneCheck = { key, outcome };
+      return outcome;
     } catch (error) { if (before && !this.commands.fault) Object.assign(this.record, before); throw error; }
     finally { this.activeCheck = undefined; }
   }
@@ -2733,9 +3064,25 @@ export class Engine {
         const read = await this.readPlan();
         if (!read.ok) { outcome.checks.push(planCheck(read)); outcome.passed = false; return; }
       }
-      if (next === "final_delivery" && !nextLeaf(this.plan!) && baseline === this.record.planReconciliation?.baselineId) return;
+      if (next === "final_delivery" && !nextLeaf(effectivePlan(this.plan!, this.record, this.carriedWaived()).plan) && baseline === this.record.planReconciliation?.baselineId) {
+        // Met only because an audit counts on its waiver: a met row marked Waived, tagged with that audit's waiver (AC-WAIVE-10, AC-WAIVE-12).
+        const audits = this.record.completionAudits?.activities ?? [];
+        const relied = [audits.findLast(a => a.kind === "delivery_audit"), audits.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a?.waivedResult);
+        const items = relied.flatMap(audit => {
+          const waiver = this.record.waivers?.find(w => w.waiverId === this.record.phases[auditKey(audit)]?.waiverId);
+          if (!waiver) return [];
+          const text = `${auditLabel(audit.kind)} · Round ${audit.round} was marked complete`;
+          return [{ kind: "other" as const, subject: auditKey(audit), text, against: audit.waivedResult!, waiver: { waiverId: waiver.waiverId, activityKey: waiver.activityKey, at: waiver.at, ...waiver.source } }];
+        });
+        if (items.length) outcome.checks.push({ name: "Current completion audits", passed: true, waived: true, facts: items.map(item => item.text), items });
+        return;
+      }
       outcome.checks.push({ name: "Current completion audits", passed: false, facts: [`${next === "final_delivery" ? "Implementation" : auditLabel(next === "continue_test" ? "test_audit" : next)} is required before final completion.`] });
-    } catch (error) { outcome.checks.push({ name: "Current completion audits", passed: false, facts: [(error as Error).message] }); }
+    } catch (error) {
+      const text = (error as Error).message;
+      // The same plan or audit-readiness problem, raised again here, carries its waiver (AC-WAIVE-04).
+      outcome.checks.push({ name: "Current completion audits", passed: false, facts: [text], ...(knownProblemWaiver(this.record.waivers, text) ? { items: [{ kind: "known_problem" as const, subject: text, text, against: text }] } : {}) });
+    }
     outcome.passed = false;
   }
 
@@ -3308,7 +3655,10 @@ export class Engine {
   }
 
   private holdBilling(phaseKey: string, session: SessionRecord, cause: SessionRun["cause"], observed: BillingSummary, reason: string): void {
-    this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString() };
+    const facts = this.record.phases[phaseKey];
+    // The retained stop's or wait's rows, plus Billing approval inside the run only for an activity that has not run (waivers "Check Runs").
+    const rows = structuredClone(facts?.stop?.checks ?? facts?.wait?.checks ?? []);
+    this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows };
     this.checking = false; this.current = undefined; this.unwatchWait();
     this.save(); this.updateKeepAwake(); this.changed();
     this.emit({ kind: "message", text: `Billing hold: ${reason} Open Kiln's browser address above to review billing and continue.` });
@@ -3495,7 +3845,7 @@ export class Engine {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return { kind: "stopping" };
         if (check.passed) {
-          this.complete(check.pullRequests!, byPerson, check.mergedBranches);
+          this.complete(check.pullRequests ?? [], byPerson, check.mergedBranches, check.checks);
           return { kind: "complete" };
         }
         if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
@@ -3534,7 +3884,7 @@ export class Engine {
       if (this.stopping) return { kind: "stopping" };
       if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
       if (!check.passed) return !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(PR_PHASE_KEY, "pull_request_check", check.checks);
-      this.complete(check.pullRequests!, false, check.mergedBranches);
+      this.complete(check.pullRequests ?? [], false, check.mergedBranches, check.checks);
       return { kind: "complete" };
     }
     const outcome = await this.doneCheck(phaseKey);
@@ -3564,48 +3914,93 @@ export class Engine {
     return { kind: "stopped" };
   }
 
-  /** Check again, or `kiln run` on a stopped phase: the stop's own check, run again. */
-  private async recheckStop(phaseKey: string): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
+  /**
+   * Check again, or `kiln run` on a stopped phase: the stop's own check, run again. It keeps the
+   * stop, with a new check run, while that check still fails, and clears it only when it passes
+   * (waivers "Check Runs"). `routeAudits: false` is Mark complete's rerun, which never routes a
+   * final delivery whose only failing check is Current completion audits to the audits.
+   */
+  private async recheckStop(phaseKey: string, options: { routeAudits?: boolean } = {}): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
+    const routeAudits = options.routeAudits !== false;
     const facts = this.record.phases[phaseKey]!;
     const hold = this.record.billing?.hold;
     if (hold?.phaseKey === phaseKey) {
       if (this.latestSession(phaseKey)?.runs.length) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
         if (outcome !== "stopping" && "unavailable" in outcome && outcome.unavailable) {
-          if (facts.stop) this.updateStop(phaseKey, outcome.checks); else this.recordStop(phaseKey, "done_check", outcome.checks);
+          if (!facts.stop) this.recordStop(phaseKey, "done_check", outcome.checks);
+          this.unfinishedRecheck(phaseKey);
           throw new CompletionCheckUnavailable(outcome.unavailable);
         }
         if (outcome !== "stopping" && outcome.passed) {
           delete this.record.billing!.hold;
-          if (phaseKey === PR_PHASE_KEY) { const final = outcome as Awaited<ReturnType<Engine["pullRequestCheck"]>>; this.complete(final.pullRequests!, true, final.mergedBranches); return "complete"; }
+          if (phaseKey === PR_PHASE_KEY) { const final = outcome as Awaited<ReturnType<Engine["pullRequestCheck"]>>; this.complete(final.pullRequests ?? [], true, final.mergedBranches, final.checks); return "complete"; }
           await this.recordDone(phaseKey, outcome as DoneCheckOutcome, true); return "done";
         }
+        // The run's rows only: the Billing approval row is shown beside them, outside the run, and is never waivable.
+        if (outcome !== "stopping") { hold.checks = outcome.checks; hold.run = this.newRun("recheck"); this.save(); }
         return "still_stopped";
       }
       await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
-      if (!this.billing.view.canLaunch) return "still_stopped";
-      delete this.record.billing!.hold; this.save(); return "cleared";
+      if (this.billing.view.canLaunch) { delete this.record.billing!.hold; this.save(); return "cleared"; }
+      // An activity that has not run: the launch check, then its own completion check, in one run.
+      const rows = await this.completionRows(phaseKey);
+      const checks = [...rows, { name: "Billing approval", passed: false, facts: [hold.reason] }];
+      await this.markChecks(phaseKey, checks);
+      hold.checks = checks; hold.run = this.newRun("recheck"); this.save();
+      return "still_stopped";
     }
     const stop = facts.stop!;
     const latest = this.latestSession(phaseKey);
     if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
+    if (stop.kind === "selection" && stop.checks.some(check => check.name === READINESS_CHECK)) {
+      // The scheduling decision and, when the next step is an audit, its skill resolution, without allocating an activity.
+      try {
+        const kind = await auditNext(this.admissionContext());
+        if (kind !== "final_delivery") await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+      } catch (error) {
+        if (this.stopping) return "still_stopped";
+        const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }];
+        if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks); return "still_stopped"; }
+      }
+      return this.clearStop(phaseKey);
+    }
+    if (stop.kind === "selection" && stop.checks.some(check => check.name === "Preparation permissions") && this.record.preparation) {
+      // A Preparation permissions stop on an activity that has not run reruns the permission read.
+      try { await preparationPermissions(this.preparationContext(), true); }
+      catch (error) {
+        if (this.stopping) return "still_stopped";
+        const checks = [{ name: "Preparation permissions", passed: false, facts: [(error as Error).message] }, ...await this.completionRows(phaseKey)];
+        await this.markChecks(phaseKey, checks);
+        this.updateStop(phaseKey, checks);
+        return "still_stopped";
+      }
+      return this.clearStop(phaseKey);
+    }
     if (stop.kind === "selection") {
       await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return "still_stopped";
       const issue = this.selectionError;
-      if (issue) {
-        this.updateStop(phaseKey, [{ name: "Agent selection and readiness", passed: false, facts: [issue] }]);
+      const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch() : undefined;
+      if (issue || probe) {
+        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [issue] } : probe!;
+        // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
+        const checks = [launch, ...(this.activityRan(phaseKey) ? [] : await this.completionRows(phaseKey))];
+        await this.markChecks(phaseKey, checks);
+        this.updateStop(phaseKey, checks);
         return "still_stopped";
       }
-      delete facts.stop;
-      if (facts.sessionIds.length === 0 && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
-      this.save();
-      return "cleared";
+      return this.clearStop(phaseKey);
     }
     if (stop.kind === "plan") {
       const read = await this.readPlan();
       if (!read.ok) {
-        this.updateStop(phaseKey, [planCheck(read)]);
+        if (read.unavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(read.problem); }
+        // A phase that ran and is not complete is rechecked by its done check, which carries the plan row (waivers "Mark Complete").
+        const checks = this.activityRan(phaseKey) && !this.alreadyComplete(phaseKey) ? await this.completionRows(phaseKey) : [planCheck(read)];
+        // A problem a waiver already covers no longer stops Kiln: it follows its normal order (AC-WAIVE-04).
+        if (await this.markChecks(phaseKey, checks)) return this.clearStop(phaseKey);
+        this.updateStop(phaseKey, checks);
         return "still_stopped";
       }
       // A repository the phase names that the workspace lacks is tried again (multi-repo AC-ADD-04).
@@ -3613,15 +4008,19 @@ export class Engine {
       if (leaf && leaf.id === phaseKey) {
         const added = await this.addNamedRepositories(leaf, read.plan);
         if (!added.ok) {
-          this.updateStop(phaseKey, [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }]);
+          const checks = [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }];
+          if (await this.markChecks(phaseKey, checks)) return this.clearStop(phaseKey);
+          this.updateStop(phaseKey, checks);
           return "still_stopped";
         }
       }
+      const activation = this.record.developmentAuthorization?.activationRecovery;
+      if (activation && recoveryStopKey(activation) === phaseKey && stop.checks.some(check => check.facts.includes(ACTIVATION_MISSING)) && !judgedPhase(this.record.plan ?? [], phaseKey)) {
+        this.updateStop(phaseKey, [{ name: CHECK_NAMES.plan, passed: false, facts: [ACTIVATION_MISSING] }]);
+        return "still_stopped";
+      }
       // The plan reads again. Nothing ran, so nothing is marked Done; the loop goes round again.
-      delete facts.stop;
-      if (facts.sessionIds.length === 0 && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
-      this.save();
-      return "cleared";
+      return this.clearStop(phaseKey);
     }
     const activation = this.record.developmentAuthorization?.activationRecovery;
     if (activation && recoveryStopKey(activation) === phaseKey && facts.sessionIds.length === 0) {
@@ -3629,20 +4028,29 @@ export class Engine {
       // blocker clears, the ordinary launch supplies the bounded recovery session.
       delete facts.stop; this.save(); return "cleared";
     }
+    if (phaseKey !== PR_PHASE_KEY && stop.kind === "done_check" && this.alreadyComplete(phaseKey) && stop.checks.every(check => check.passed || check.name === DELIVERY_CHECK)) {
+      // A development check that stopped an already-complete activity reruns only that check (waivers "Check Runs").
+      await reconcileDelivery(this.deliveryContext(phaseKey));
+      if (ledger(this.record).sourceUnavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable("Required development-delivery evidence is unavailable. Retry when the source can be read."); }
+      const audit = this.auditActivity(phaseKey);
+      const checks = [audit ? ownerDeliveryCheck(this.deliveryContext(phaseKey), { kind: "audit", activityId: audit.activityId }) : phaseDeliveryCheck(this.deliveryContext(phaseKey), phaseKey)];
+      if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks); return "still_stopped"; }
+      return this.clearStop(phaseKey);
+    }
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "still_stopped";
       if (check.passed) {
-        this.complete(check.pullRequests!, true, check.mergedBranches);
+        this.complete(check.pullRequests ?? [], true, check.mergedBranches, check.checks);
         return "complete";
       }
-      if (this.finalNeedsAudits(check)) return "done";
+      if (routeAudits && this.finalNeedsAudits(check)) return "done";
       this.updateStop(phaseKey, check.checks);
       return "still_stopped";
     }
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping" || this.stopping) return "still_stopped";
-    if (outcome.unavailable) { this.updateStop(phaseKey, outcome.checks); throw new CompletionCheckUnavailable(outcome.unavailable); }
+    if (outcome.unavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(outcome.unavailable); }
     if (!outcome.passed) {
       this.updateStop(phaseKey, outcome.checks);
       return "still_stopped";
@@ -3650,6 +4058,37 @@ export class Engine {
     if (!this.auditActivity(phaseKey)) delete facts.stop;
     await this.recordDone(phaseKey, outcome, true);
     return "done";
+  }
+
+  /** A stop whose check now passes: cleared, and a facts entry the stop itself created removed. */
+  private clearStop(phaseKey: string): "cleared" {
+    const facts = this.record.phases[phaseKey]!;
+    delete facts.stop;
+    if (facts.sessionIds.length === 0 && !facts.doneAt && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
+    this.save();
+    return "cleared";
+  }
+
+  /** An activity's own completion check, for a launch-check stop on an activity that has not run. */
+  private async completionRows(phaseKey: string): Promise<CheckResult[]> {
+    if (phaseKey === PR_PHASE_KEY) return (await this.pullRequestCheck(PR_PHASE_KEY)).checks;
+    const outcome = await this.doneCheck(phaseKey);
+    if (outcome === "stopping") throw new CompletionCheckUnavailable("The completion check was interrupted.");
+    if (outcome.unavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(outcome.unavailable); }
+    return outcome.checks;
+  }
+
+  /** The Codex launch-settings probe a Codex launch settings stop reruns: its failing row, or undefined when it passes. */
+  private async probeCodexLaunch(): Promise<CheckResult | undefined> {
+    mkdirSync(this.workspaceFolder, { recursive: true });
+    let prepared: Awaited<ReturnType<typeof prepareCodexLaunch>>;
+    try { prepared = await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+    catch (error) { return { name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }; }
+    // A probe that could not finish (Codex did not start, a deadline, an abort) is a check that could not finish.
+    try {
+      const probe = await probeCodexLaunchSettings({ executable: this.options.tools.codex!, env: this.sessionEnv(), prepared, signal: this.abort.signal });
+      return probe.ok ? undefined : { name: "Codex launch settings", passed: false, facts: [probe.message] };
+    } catch (error) { throw new CompletionCheckUnavailable((error as Error).message); }
   }
 
   private canResumeCodex(phaseKey: string): boolean {
@@ -3741,6 +4180,7 @@ export class Engine {
         prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
         branch: this.record.settings.featureBranch,
         launchedLeafId: phaseKey,
+        orderSource: () => this.orderSource(),
         lastWakeAt: () => this.lastWakeAt,
         ...(this.options.originRetryMs === undefined ? {} : { originRetryMs: this.options.originRetryMs }),
       });
@@ -3759,8 +4199,11 @@ export class Engine {
         }
         outcome.plan = reconciled;
       }
-      if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !this.latestSession(phaseKey)?.runs[this.record.preparation.implementationRun!])) { outcome.passed = false; outcome.checks.push({ name: "Prerequisite preparation", passed: false, facts: [this.record.preparation.reason ?? "Preparation and the engine-owned verification checkpoint must pass before dependent implementation."] }); }
-      return this.withCodexSafety(phaseKey, outcome);
+      if (this.record.preparation?.phaseId === phaseKey && !this.record.phases[phaseKey]?.doneAt && (this.record.preparation.stage !== "implementation" || !this.latestSession(phaseKey)?.runs[this.record.preparation.implementationRun!])) { outcome.passed = false; outcome.checks.push({ name: "Prerequisite preparation", passed: false, facts: [this.record.preparation.reason ?? "Preparation and the engine-owned verification checkpoint must pass before dependent implementation."] }); }
+      this.withCodexSafety(phaseKey, outcome);
+      outcome.passed = await this.markChecks(phaseKey, outcome.checks) && !outcome.unavailable;
+      this.lastDoneCheck = { key: phaseKey, outcome };
+      return outcome;
     } finally {
       this.activeCheck = undefined;
     }
@@ -3780,7 +4223,8 @@ export class Engine {
         const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
         const check = result.checks[0]!;
         const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed, check, checks: result.checks, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
-        await this.requireCurrentAudits(outcome); ledger(this.record).currentComplete = outcome.passed; this.save(); return outcome;
+        await this.requireCurrentAudits(outcome); outcome.passed = await this.markChecks(PR_PHASE_KEY, outcome.checks); ledger(this.record).currentComplete = outcome.passed; this.save();
+        this.lastFinalCheck = { pullRequests: outcome.pullRequests, mergedBranches: outcome.mergedBranches }; return outcome;
       }
       const repositories = await this.pullRequestRepositoriesNow();
       const outcome = await runPullRequestChecks(
@@ -3799,13 +4243,20 @@ export class Engine {
         })),
       );
       await this.requireCurrentAudits(outcome);
-      return this.withCodexSafety(PR_PHASE_KEY, outcome);
+      const marked = this.withCodexSafety(PR_PHASE_KEY, outcome);
+      marked.passed = await this.markChecks(PR_PHASE_KEY, marked.checks);
+      this.lastFinalCheck = { pullRequests: marked.pullRequests, mergedBranches: marked.mergedBranches };
+      return marked;
     } finally {
       if (phaseKey !== undefined) this.activeCheck = undefined;
     }
   }
 
-  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false, takeoverMaterial?: string): Promise<void> {
+  /**
+   * Done for a phase or audit, in one record write. With `waiver`, the waiver is saved in that same
+   * write (AC-WAIVE-08); a completing run that any waiver met is kept as `completionChecks` (AC-WAIVE-10).
+   */
+  private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false, takeoverMaterial?: string, waiver?: Waiver): Promise<void> {
     if (this.record.liveControl && !acceptManual) throw new CompletionCheckUnavailable("Takeover holds completion until explicit hand-back.");
     const facts = this.record.phases[phaseKey]!;
     const finalTakeoverCheck = async () => {
@@ -3821,35 +4272,49 @@ export class Engine {
       delete facts.wait;
       if (this.record.billing?.hold?.phaseKey === phaseKey) delete this.record.billing.hold;
     };
+    const waivedFacts = () => {
+      if (waiver) { (this.record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; }
+      else if (outcome.checks.some(check => check.waived)) facts.completionChecks = structuredClone(outcome.checks);
+    };
     // Backfilling development assessments does not rewrite historical completion/push facts.
     if (facts.doneAt && this.record.developmentAuthorization?.activationRecovery && !this.auditActivity(phaseKey)) { clearManualStop(); this.save(); return; }
     const audit = this.auditActivity(phaseKey);
+    // A repository whose uncommitted or unpushed work was waived records its head as waived, never as pushed (AC-WAIVE-09).
+    const waivedWork = new Set(outcome.checks.flatMap(check => (check.items ?? []).filter(item => item.kind === "repository_work" && item.waiver).map(item => item.subject)));
     if (audit) {
       if (facts.doneAt) { const stop = facts.stop; delete facts.stop; try { this.save(); } catch (error) { if (stop) facts.stop = stop; throw error; } return; }
       const before = structuredClone(this.record);
       try {
-        const accepted = acceptedAudit(this.stateDirectory, audit)!;
+        const accepted = effectiveAudit(this.stateDirectory, audit)!;
         if (outcome.plan.ok) this.record.plan = recordedPlan(outcome.plan.plan);
-        for (const phaseId of completionPhaseIds(accepted.report)) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
+        for (const phaseId of accepted.completionPhases()) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
           if (!head) throw new Error(`Cannot record settled audit head for ${entry.name}.`);
           const repository = facts.repositories[entry.name] ??= { startCommit: head };
-          repository.pushedSha = head;
+          if (waivedWork.has(entry.name)) { delete repository.pushedSha; repository.waivedHead = head; } else repository.pushedSha = head;
           const count = await firstParentCount(this.git, expandHome(entry.worktreePath), repository.startCommit, head);
           if (count !== undefined) repository.commitCount = count;
         }
         await finalTakeoverCheck();
-        facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop;
+        facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop; waivedFacts();
+        if (acceptManual && this.record.billing?.hold?.phaseKey === phaseKey) delete this.record.billing.hold;
         if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
         this.save();
       } catch (error) { Object.assign(this.record, before); throw error; }
       this.emitAudit(audit, "done"); return;
     }
-    const shas = outcome.pushedShas!;
+    const shas = outcome.pushedShas ?? {};
     const repositories = structuredClone(facts.repositories);
     const pushes: { name: string; sha: string }[] = [];
     for (const entry of this.setUpRepositories) {
+      if (waivedWork.has(entry.name)) {
+        const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
+        if (!head) continue;
+        const repository = (repositories[entry.name] ??= { startCommit: head });
+        delete repository.pushedSha; repository.waivedHead = head;
+        continue;
+      }
       const sha = shas[entry.name];
       if (sha === undefined) continue;
       const repository = (repositories[entry.name] ??= { startCommit: sha });
@@ -3867,8 +4332,10 @@ export class Engine {
     facts.finishedByPerson = byPerson;
     if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
     clearManualStop();
+    waivedFacts();
     try { this.save(); } catch (error) { Object.assign(this.record, before); throw error; }
-    const prdSha = shas[this.paths.repositoryName]!;
+    // Waived work was not pushed, so the done line names no pushed commit for it.
+    const prdSha = waivedWork.has(this.paths.repositoryName) ? undefined : shas[this.paths.repositoryName];
     // The done line lists the code repositories in list order, then the PRD's repository.
     const ordered = [...pushes.filter((push) => push.name !== this.paths.repositoryName), ...pushes.filter((push) => push.name === this.paths.repositoryName)];
     this.emit({
@@ -3877,7 +4344,7 @@ export class Engine {
       phaseId: outcome.judgedLeafId,
       title: this.titleOf(outcome.judgedLeafId),
       event: "done",
-      pushedSha: prdSha,
+      ...(prdSha ? { pushedSha: prdSha } : {}),
       ...(this.setUpRepositories.length > 1 ? { pushes: ordered } : {}),
     });
   }
@@ -3919,11 +4386,14 @@ export class Engine {
     return reading;
   }
 
-  private complete(pullRequests: PullRequestFacts[], byPerson: boolean, mergedBranches: MergedBranchFacts[] = []): void {
+  private complete(pullRequests: PullRequestFacts[], byPerson: boolean, mergedBranches: MergedBranchFacts[] = [], checks: CheckResult[] = [], waiver?: Waiver, waivedHeads: Record<string, string> = {}): void {
     const { record } = this;
     const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
     const at = this.now().toISOString();
     delete facts.stop;
+    if (waiver) { (record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; }
+    else if (checks.some(check => check.waived)) facts.completionChecks = structuredClone(checks);
+    for (const [name, head] of Object.entries(waivedHeads)) (facts.repositories[name] ??= { startCommit: head }).waivedHead = head;
     facts.doneAt ??= at;
     facts.finishedByPerson = byPerson;
     record.pullRequests = pullRequests;
@@ -3959,19 +4429,90 @@ export class Engine {
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = (this.record.phases[phaseKey] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
-    facts.stop = { kind, at, checks, checkedAt: checkedAt ?? at, ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
+    facts.stop = { kind, at, checks: itemize(checks, phaseKey), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
     // The account card shows a reading taken after the refusal (usage-limit recovery AC-LIMIT-03).
     if (limit !== undefined) this.askReading();
   }
 
-  private updateStop(phaseKey: string, checks: CheckResult[]): void {
+  /** A recheck of the stop: its rows and a new check run, `finished: false` when it could not finish (waivers "Check Runs"). */
+  private updateStop(phaseKey: string, checks: CheckResult[], finished = true): void {
     const stop = this.record.phases[phaseKey]!.stop!;
-    stop.checks = checks;
+    if (finished) stop.checks = itemize(checks, phaseKey);
     stop.checkedAt = this.now().toISOString();
+    stop.run = this.newRun("recheck", finished);
     this.save();
     this.readStoppedCommits(phaseKey);
+  }
+
+  /** A recheck that could not finish: a new unfinished run, the earlier rows kept with their own time. */
+  private unfinishedRecheck(phaseKey: string): void {
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === phaseKey) { hold.run = this.newRun("recheck", false); this.save(); return; }
+    const stop = this.record.phases[phaseKey]?.stop;
+    if (!stop) return;
+    stop.run = this.newRun("recheck", false);
+    this.save();
+  }
+
+  private newRun(origin: CheckRun["origin"], finished = true): CheckRun {
+    return { id: randomUUID(), at: this.now().toISOString(), origin, finished };
+  }
+
+  // ---- Waivers (waivers technical design) ---------------------------------------------------
+
+  /** A leaf closed by waiver or skipped under a plan waiver counts as closed (waivers "Effective plan"). */
+  private waiverClosed(phaseId: string): boolean {
+    return !!this.record.phases[phaseId]?.skippedByWaiver || !!closedWaiver(this.record.waivers, phaseId) || this.carriedWaived().has(phaseId);
+  }
+
+  /** Leaves an earlier execution completed or skipped on a waiver, carried through the plan baseline (waivers "Continuation executions"). */
+  private carriedWaived(): Set<string> {
+    const id = this.record.continuation ? this.record.planReconciliation?.baselineId : undefined;
+    if (!id) return new Set();
+    if (this.carriedWaivedCache?.id !== id) {
+      let ids: string[] = [];
+      try { ids = Object.entries(readBaseline(this.stateDirectory, id).completions).filter(([, receipt]) => receipt.waiverId).map(([phaseId]) => phaseId); } catch { /* An unreadable baseline stops at the plan read, not here. */ }
+      this.carriedWaivedCache = { id, ids: new Set(ids) };
+    }
+    return this.carriedWaivedCache.ids;
+  }
+  private carriedWaivedCache: { id: string; ids: Set<string> } | undefined;
+
+  /**
+   * The phases Normal Order takes its order from while the plan does not read: the readable
+   * phases the parser returns, otherwise the plan Kiln last recorded (AC-WAIVE-04).
+   */
+  private orderSource(): PlannedPhase[] {
+    try {
+      const directory = join(this.worktreePath, ...this.paths.prdDirectoryFromRoot.split("/"));
+      const files = readdirSync(directory).filter(isPhaseFileName).map(fileName => ({ fileName, markdown: readFileSync(join(directory, fileName), "utf8") }));
+      const readable = readPhasePlan(files).phases;
+      if (readable.length) return readable;
+    } catch { /* Unreadable: the recorded plan is the order source. */ }
+    const directory = join(this.worktreePath, ...this.paths.prdDirectoryFromRoot.split("/"));
+    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
+  }
+
+  /** The leaves a Closed-line item is judged against: the plan as read, else the order source. */
+  private isLeaf(phaseId: string): boolean {
+    const phases = this.plan?.phases ?? this.orderSource();
+    return phases.some(phase => phase.id === phaseId && phase.splitInto === undefined);
+  }
+
+  /**
+   * Items, their fingerprints and waiver coverage for a check run that decides what happens next
+   * (waivers "Coverage"): every caller reads `passed` only after this.
+   */
+  private async markChecks(activityKey: string, checks: CheckResult[]): Promise<boolean> {
+    itemize(checks, activityKey);
+    if (checks.some(check => check.items?.some(item => !item.against))) {
+      const fingerprints = await readRepositoryFingerprints(this.git, this.setUpRepositories.map(entry => ({ name: entry.name, mainCheckoutPath: entry.mainCheckoutPath, worktreePath: expandHome(entry.worktreePath) })), this.record.settings.featureBranch);
+      fillAgainst(checks, fingerprints);
+    }
+    applyWaivers(this.record.waivers ?? [], checks, { isLeaf: id => this.isLeaf(id) });
+    return checks.every(check => check.passed);
   }
 
   private readStoppedCommits(phaseKey: string): void {
@@ -4120,7 +4661,7 @@ export class Engine {
       if (check.passed) {
         delete facts.wait;
         this.unwatchWait();
-        this.complete(check.pullRequests!, true, check.mergedBranches);
+        this.complete(check.pullRequests ?? [], true, check.mergedBranches, check.checks);
         this.updateKeepAwake();
         return "complete";
       }
@@ -4753,7 +5294,7 @@ export class Engine {
   /** The first leaf not closed in the recorded plan, or `pr` when every leaf there is closed. */
   nextKeyFromRecordedPlan(): string {
     const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
-    return pending ? auditKey(pending) : recordedLeaves(this.record.plan ?? []).find((phase) => !phase.closed)?.id ?? this.record.nextActivityKey ?? PR_PHASE_KEY;
+    return pending ? auditKey(pending) : recordedLeaves(this.record.plan ?? []).find((phase) => !phase.closed && !this.waiverClosed(phase.id))?.id ?? this.record.nextActivityKey ?? PR_PHASE_KEY;
   }
 
   /** The leaf a launched leaf's session is shown as: its first leaf after a split, else itself. */
@@ -4796,7 +5337,7 @@ export class Engine {
         if (!facts.doneAt || !facts.sessionIds.length || key === PR_PHASE_KEY || this.auditActivity(key)) continue;
         const recorded = judgedPhase(this.record.plan ?? [], key);
         const current = recorded && active.plan.phases.find(p => p.id === recorded.id);
-        if (!recorded || !current || !current.closed || current.splitInto) throw new Error(`baseline_unavailable: Phase ${recorded?.id ?? key} was previously completed but is now removed, reopened or split. Reconcile that historical completion before returning control.`);
+        if (!recorded || !current || !current.closed && !this.waiverClosed(current.id) || current.splitInto) throw new Error(`baseline_unavailable: Phase ${recorded?.id ?? key} was previously completed but is now removed, reopened or split. Reconcile that historical completion before returning control.`);
       }
       if (previous) {
         const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))]);
@@ -4804,19 +5345,28 @@ export class Engine {
         if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
       }
       const completions = { ...previous?.completions };
-      for (const phase of active.plan.phases.filter(p => p.closed && !p.splitInto)) {
-        const owner = Object.entries(this.record.phases).find(([key, facts]) => judgedPhase(active.plan.phases, key)?.id === phase.id && facts.sessionIds.length);
+      for (const phase of active.plan.phases.filter(p => (p.closed || this.waiverClosed(p.id)) && !p.splitInto)) {
+        const owner = Object.entries(this.record.phases).find(([key, facts]) => judgedPhase(active.plan.phases, key)?.id === phase.id && (facts.sessionIds.length || facts.waiverId || facts.skippedByWaiver));
+        // Completed or skipped on a waiver: carried by its waiver, never by evidence it does not have (waivers "Continuation executions").
+        const waiverId = owner?.[1].waiverId ?? owner?.[1].skippedByWaiver ?? closedWaiver(this.record.waivers, phase.id)?.waiverId;
+        if (owner && !owner[1].doneAt && owner[1].skippedByWaiver) {
+          completions[phase.id] ??= { kind: "kiln", waiverId: owner[1].skippedByWaiver, scopeRepositories: phaseRepositories(active, phase.id) };
+          continue;
+        }
         if (owner) {
           if (owner[1].doneAt) {
-            const revision = owner[1].repositories[this.paths.repositoryName]?.pushedSha;
+            const revision = owner[1].repositories[this.paths.repositoryName]?.pushedSha ?? owner[1].repositories[this.paths.repositoryName]?.waivedHead;
             let scopeRepositories = completions[phase.id]?.scopeRepositories;
             if (!scopeRepositories) {
-              if (!revision) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-              const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision);
-              if (!original.plan.phases.find(p => p.id === phase.id)?.closed || !completedPhaseScopeUnchanged(original, active, phase.id)) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
-              scopeRepositories = phaseRepositories(original, phase.id);
+              if (!revision && waiverId) scopeRepositories = phaseRepositories(active, phase.id);
+              else {
+                if (!revision) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
+                const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision!);
+                if (!original.plan.phases.find(p => p.id === phase.id)?.closed && !this.waiverClosed(phase.id) || !completedPhaseScopeUnchanged(original, active, phase.id)) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
+                scopeRepositories = phaseRepositories(original, phase.id);
+              }
             }
-            completions[phase.id] = { scopeRepositories, kind: "kiln", doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+            completions[phase.id] = { scopeRepositories, kind: "kiln", ...(waiverId ? { waiverId } : {}), doneAt: owner[1].doneAt, ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.pushedSha }]] : facts.waivedHead ? [[name, { identity: this.record.repositories.find(entry => entry.name === name)!.github, revision: facts.waivedHead, waived: true as const }]] : [])) };
           }
           continue;
         }
@@ -4866,7 +5416,10 @@ export class Engine {
       const problem = (error as Error).message;
       this.record.planReconciliation = { ...this.record.planReconciliation, check: { status: "failed", attemptedAt, problem } };
       this.save();
-      return { ok: false, problem, unavailable: true };
+      // Only a read that could not happen is a check that could not finish; a structural or
+      // reconciliation problem is a failing Phase plan reads row, which can be waived (waivers "Failing Items").
+      const io = typeof (error as NodeJS.ErrnoException).code === "string" || (error as Error).name === "AbortError" || signal.aborted;
+      return { ok: false, problem, ...(io ? { unavailable: true as const } : {}) };
     }
     const retained = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, baseline));
     const earlier = this.record.planReconciliation;
@@ -4937,6 +5490,23 @@ function stopLimit(refusal: LimitRefusal): StopLimit {
     label: refusal.label,
     ...(refusal.resetsAt === undefined ? {} : { resetsAt: refusal.resetsAt }),
   };
+}
+
+/** A finished check whose plan problem holds Resume back, reported as check_unavailable as before. */
+class ResumeHeld extends CompletionCheckUnavailable {}
+
+const ACTIVATION_MISSING = "The activation-recovery phase is missing from the current plan.";
+const DELIVERY_CHECK = "Required development delivery verified";
+
+/** How a waived audit would count (AC-WAIVE-12). */
+function previewAuditWaiver(stateDirectory: string, activity: AuditActivity): { report: "accepted" | "valid" | "none"; countedOutcome: string } {
+  return classifyAuditReport(stateDirectory, activity);
+}
+
+/** An audit that runs a session always resolved its skill; only one completed at once under a waived readiness problem has none. */
+function runnableSkill(activity: AuditActivity): NonNullable<AuditActivity["skill"]> {
+  if (!activity.skill) throw new Error(`Audit ${activity.activityId} has no resolved skill; it was completed under a waiver and never runs.`);
+  return activity.skill;
 }
 
 function refuse(reason: string): CommandResult {

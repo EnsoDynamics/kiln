@@ -86,13 +86,13 @@ describe("Claude billing browser controls", () => {
     h.engine.record.pause.requestedAt = new Date().toISOString(); // Existing pending pause is part of the displayed control token.
     const page = await open(mode === "verify" ? 360 : 1280);
     const button = (label: string) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
-    const reply = button("Send reply & resume Phase 1"); const resume = button("Resume Phase 1 in Kiln"); const verify = button("Verify Phase 1 & advance");
+    const reply = button("Send reply & resume Phase 1"); const resume = button("Have Kiln resume Phase 1"); const verify = button("Check Phase 1 again");
     await page.waitFor(`document.querySelector('textarea')`);
     await page.evaluate(`(() => { const field = document.querySelector('textarea'); field.value = 'Preserve this unsent draft'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
     await page.waitFor(`${reply}.disabled && ${resume}.disabled`);
     expect(await page.evaluate(`${verify}.disabled`)).toBe(false);
     await page.evaluate(`${reply}.click(); ${resume}.click()`); expect(h.claudeCalls()).toHaveLength(1);
-    await page.evaluate(`${verify}.click()`); await page.waitFor(`document.body.textContent.includes('still unfinished')`);
+    await page.evaluate(`${verify}.click()`); await page.waitFor(`document.body.textContent.includes('failing check')`);
     expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.engine.latestSession("1")!.sessionId).toBe(original.sessionId);
     expect(await page.evaluate(`document.querySelector('textarea').value`)).toBe("Preserve this unsent draft");
     writeFileSync(`/tmp/kiln-billing-resume-held-${mode === "verify" ? 360 : 1280}.png`, await page.screenshot());

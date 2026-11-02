@@ -9,6 +9,7 @@
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
+  import WaivedStatus from "./WaivedStatus.svelte";
   import type { IconName } from "./Icon.svelte";
   import PhaseCircle, { type CircleTone } from "./PhaseCircle.svelte";
   import Pill, { type PillTone } from "./Pill.svelte";
@@ -45,6 +46,7 @@
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
             <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>
+            {#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}
           </span>
         </div>
         {#if row.details && state !== "implementing" && state !== "interrupted"}<DetailsList rows={detailRows(row.details, new Date(now))} indent />{/if}

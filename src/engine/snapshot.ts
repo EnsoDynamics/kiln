@@ -26,7 +26,8 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { PR_PHASE_KEY, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
+import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
+import { PR_PHASE_KEY, type CheckRun, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
@@ -122,6 +123,16 @@ export interface PhaseView {
   finishedByPerson: boolean;
   /** A multi-repository PRD's Done: how many repositories the phase pushed to, in place of its pushed commit (AC-PRS-03). */
   pushedRepositoryCount?: number;
+  /** Checks met only through a waiver in this activity's completion (AC-WAIVE-10): "Complete · N check(s) waived". */
+  waivedChecks?: number;
+  /** The waived completion's check list, marked, with its counts (AC-WAIVE-10). */
+  waivedCompletion?: { checks: CheckResult[]; counts: CheckCounts };
+  /** The waivers that count on this activity: its own, and a `continued` one on it once complete. */
+  waivers?: WaiverView[];
+  /** Warning markers beside its status (AC-WAIVE-04, AC-WAIVE-12). */
+  warnings?: { kind: WaiverWarningKind; text: string }[];
+  /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
+  skippedByWaiver?: true;
   details?: SessionIdentityView & {
     from: string;
     to?: string;
@@ -136,6 +147,25 @@ export interface PhaseView {
     repositories?: RepositoryDetails[];
   };
 }
+
+/** A saved waiver as the screens show it (AC-WAIVE-08, AC-WAIVE-10). */
+export interface WaiverView {
+  id: string;
+  at: string;
+  activityKey: string;
+  /** The activity's name in a sentence: "Phase 3", "Final delivery", "Delivery audit". */
+  activity: string;
+  effect: "completed" | "continued";
+  source: WaiverSource;
+  /** The check run Mark complete was offered on. */
+  checkRun: { id: string; at: string };
+  items: WaivedItem[];
+}
+
+export type WaiverWarningKind = "plan_problem_waived" | "audit_problem_waived" | "no_audit_report";
+
+/** Check counts with waived checks reported separately (AC-WAIVE-10). */
+export interface CheckCounts { passed: number; waived: number; failed: number }
 
 export interface RepositoryDetails {
   name: string;
@@ -224,6 +254,8 @@ export interface Snapshot {
   /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
   models?: { value: string; displayName: string }[];
   phases: PhaseView[];
+  /** Every saved waiver, oldest first (AC-WAIVE-08), for the tags and the delivery panel. */
+  waivers?: WaiverView[];
   current?: SessionIdentityView & {
     deliveryActivity?: { label: string; repository?: string; environment?: string };
     phaseId: string;
@@ -253,8 +285,15 @@ export interface Snapshot {
     spawnError?: { code: string; message: string };
     lastSkill?: { name: string; at: string };
     lastLines?: OutputLine[];
+    /** The latest check run's rows, marked by the coverage rule (AC-WAIVE-10, AC-WAIVE-11). */
     checks: CheckResult[];
+    /** Their counts, waived checks separately (AC-WAIVE-10). */
+    counts?: CheckCounts;
     checkedAt?: string;
+    /** The latest check run: `origin: stop` until the person checks again (AC-NEXT-02). */
+    checkRun?: CheckRun;
+    /** Whether Mark complete is offered, and what it would do (AC-WAIVE-02, AC-WAIVE-03). */
+    markComplete?: MarkCompleteOffer;
     phaseRecovery?: PhaseRecoveryView;
     checking?: true;
     /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
@@ -392,7 +431,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
-      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => leaf.closed).length,
+      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
       phasesTotal: leaves.length,
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
@@ -435,6 +474,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     repositories: repositoryRows(engine, state),
     ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: views,
+    ...(record.waivers?.length ? { waivers: record.waivers.map(waiver => waiverView(engine, waiver)) } : {}),
     ...optional("restartReview", engine.restartReview),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
@@ -522,15 +562,22 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const { record } = engine;
   const hold = record.billing?.hold?.phaseKey === phaseKey ? record.billing.hold : undefined;
   const retainedStop = record.phases[phaseKey]?.stop;
-  const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.at, checks: [...(retainedStop?.checks ?? record.phases[phaseKey]?.wait?.checks ?? []), { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
+  // A hold's own run and rows govern (waivers "Check Runs"); where the activity has run, the Billing approval row is shown beside them, outside the run.
+  const holdRows = hold ? hold.checks ?? retainedStop?.checks ?? record.phases[phaseKey]?.wait?.checks ?? [] : [];
+  const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.run?.at ?? hold.at, ...optional("run", hold.run), checks: holdRows.some(check => check.name === "Billing approval") ? holdRows : [...holdRows, { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
   const phaseRecovery = engine.phaseRecoveryView();
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
+  const checks = (phaseRecovery ? retainedStop?.checks ?? [] : stop.checks).map(check => auditCheckTitle(phaseKey, check));
+  const checkRun = phaseRecovery ? retainedStop?.run : stop.run;
   const base = {
     phaseId: judged,
     kind: stop.kind,
-    checks: (phaseRecovery ? retainedStop?.checks ?? [] : stop.checks).map(check => auditCheckTitle(phaseKey, check)),
+    checks,
+    counts: checkCounts(checks),
+    ...optional("checkRun", checkRun),
+    markComplete: engine.markCompleteOffer(),
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
@@ -777,7 +824,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
   for (const key of Object.keys(record.phases)) {
     if (key !== PR_PHASE_KEY) factsByRow.set(judgedKeyFor(plan, key), key);
   }
-  const nextLeaf = recordedLeaves(plan).find((leaf) => !leaf.closed);
+  const nextLeaf = recordedLeaves(plan).find((leaf) => !effectiveRecordedClosed(record, leaf));
   const multi = engine.multiRepository;
   const currentRow = engine.current ? judgedKeyFor(plan, engine.current.phaseKey) : undefined;
 
@@ -824,6 +871,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
         ...(multi ? { repositories: repositoryDetails(engine, facts!, stopped) } : {}),
       };
     }
+    if (key !== undefined) Object.assign(view, waivedFacts(engine, key, view.state === "done"));
     return view;
   });
 
@@ -841,6 +889,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
       row.sessionStartedAt = startedAt;
       if (includeTiming) row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
     }
+    Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
     rows.push(row);
   }
   return rows;
@@ -950,7 +999,7 @@ function sessionSteps(engine: Engine, key: string, session: SessionRecord): Step
   const audit = engine.auditActivity(key);
   if (!audit) return stepStates(session.steps, session.agentId);
   return [
-    ...(session.lastSkill?.name.endsWith(audit.skill.name) ? [{ name: "Assessment", state: "observed" as const, startedAt: session.lastSkill.at }] : []),
+    ...(audit.skill && session.lastSkill?.name.endsWith(audit.skill.name) ? [{ name: "Assessment", state: "observed" as const, startedAt: session.lastSkill.at }] : []),
     ...session.steps.filter(s => s.name === "Commit" || s.name === "Push").map(s => ({ ...s, state: "observed" as const })),
     ...(audit.acceptedResult ? [{ name: "Audit result recorded", state: "observed" as const }] : []),
   ];
@@ -980,8 +1029,10 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
         row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.worktreePath), branch: record.settings.featureBranch, sessionId: session.sessionId, ...optional("commitCount", facts?.repositories[engine.paths.repositoryName]?.commitCount), ...optional("latestCommit", facts?.repositories[engine.paths.repositoryName]?.pushedSha) };
       }
     }
+    let waivedResult: AuditWaiverResult | undefined;
     try {
       const store = inspectionStore ?? new AuditStore(engine.stateDirectory);
+      waivedResult = audit.waivedResult ? store.read<AuditWaiverResult>(audit.waivedResult) : undefined;
       const accepted = acceptedAudit(engine.stateDirectory, audit, store);
       const attempt = accepted?.result ?? (audit.attempts.at(-1) ? store.read<import("../audit/contracts.js").AuditResult>(audit.attempts.at(-1)!) : undefined);
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
@@ -997,10 +1048,74 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
         if (report?.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
+    Object.assign(row, waivedFacts(engine, activity.key, row.state === "done", waivedResult));
+    // A waived audit's checks are its waived completion's, never the refused attempt's (AC-WAIVE-10).
+    if (row.audit && row.waivedCompletion) row.audit.checks = row.waivedCompletion.checks;
     rows.push(row); started.add(row.id);
   }
   // Closed-at-start phases have no activity history; show their preserved history before audits.
   const historical = phases.filter(r => !started.has(r.id) && (r.state === "done" || r.state === "split"));
   const pending = phases.filter(r => !started.has(r.id) && r.state !== "done" && r.state !== "split");
   return [...historical, ...rows, ...pending];
+}
+
+/** "Phase 3", "Final delivery" or "Delivery audit": an activity's name in a sentence. */
+function activityName(engine: Engine, key: string): string {
+  if (key === PR_PHASE_KEY) return "Final delivery";
+  const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
+  if (audit) return auditLabel(audit.kind);
+  return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;
+}
+
+function waiverView(engine: Engine, waiver: Waiver): WaiverView {
+  return { id: waiver.waiverId, at: waiver.at, activityKey: waiver.activityKey, activity: activityName(engine, waiver.activityKey), effect: waiver.effect, source: waiver.source, checkRun: waiver.checkRun, items: waiver.items };
+}
+
+/**
+ * A waiver's saved check run as it read once the waiver applied: the rerun's rows, cloned, with
+ * the coverage rule run over the waivers up to and including this one, so its own items read
+ * Waived and carried ones keep the tag they had (AC-WAIVE-10).
+ */
+function markedBy(waivers: readonly Waiver[], waiver: Waiver): CheckResult[] {
+  const index = waivers.indexOf(waiver);
+  return applyWaivers(waivers.slice(0, index + 1), structuredClone(waiver.checks));
+}
+
+/**
+ * What an activity shows of waivers (AC-WAIVE-04, AC-WAIVE-10, AC-WAIVE-12): its waived
+ * completion's check list, read from its own waiver's `checks`, otherwise its `completionChecks`;
+ * a `continued` waiver on it once complete counts on it too, while a Continue in normal order
+ * waiver, saved before the activity completed, adds no count. An audit completed at once under a
+ * readiness waiver shows the carried readiness row from the originating waiver.
+ */
+function waivedFacts(engine: Engine, key: string, done: boolean, waivedResult?: AuditWaiverResult): Partial<PhaseView> {
+  const { record } = engine;
+  const facts = record.phases[key];
+  const all = record.waivers ?? [];
+  const own = facts?.waiverId ? all.find(waiver => waiver.waiverId === facts.waiverId) : undefined;
+  const counting = all.filter(waiver => waiver.activityKey === key && (waiver.effect === "completed" || (facts?.doneAt !== undefined && Date.parse(facts.doneAt) <= Date.parse(waiver.at))));
+  if (own && !counting.includes(own)) counting.unshift(own);
+  const lists: CheckResult[][] = [];
+  if (own) lists.push(markedBy(all, own));
+  else if (facts?.completionChecks?.length) lists.push(facts.completionChecks);
+  const origin = !own && waivedResult ? all.find(waiver => waiver.waiverId === waivedResult.waiverId && waiver.activityKey !== key) : undefined;
+  if (origin) lists.push(markedBy(all, origin).filter(check => KNOWN_PROBLEM_CHECKS.includes(check.name) && check.waived));
+  for (const waiver of counting) if (waiver !== own) lists.push(markedBy(all, waiver));
+  const merged: CheckResult[] = [];
+  for (const list of lists) for (const check of list) {
+    const at = merged.findIndex(one => one.name === check.name);
+    if (at === -1) merged.push(check); else if (check.waived || !check.passed) merged[at] = check;
+  }
+  const waived = merged.filter(check => check.passed && check.waived).length;
+  const warnings: NonNullable<PhaseView["warnings"]> = [];
+  if (facts?.waiverWarning?.kind === "plan") warnings.push({ kind: "plan_problem_waived", text: PLAN_WARNING });
+  if (facts?.waiverWarning?.kind === "audit") warnings.push({ kind: "audit_problem_waived", text: AUDIT_WARNING });
+  if (waivedResult?.report === "none" || own?.audit?.report === "none") warnings.push({ kind: "no_audit_report", text: NO_REPORT_WARNING });
+  const views = [...counting, ...(origin ? [origin] : [])].map(waiver => waiverView(engine, waiver));
+  return {
+    ...(done && waived > 0 ? { waivedChecks: waived, waivedCompletion: { checks: merged, counts: checkCounts(merged) } } : {}),
+    ...(views.length ? { waivers: views } : {}),
+    ...(warnings.length ? { warnings } : {}),
+    ...(facts?.skippedByWaiver && !done ? { skippedByWaiver: true as const } : {}),
+  };
 }

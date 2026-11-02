@@ -78,8 +78,11 @@ export function completionPhaseIds(report: AuditReport): string[] {
 export interface AuditActivity {
   activityId: string; sequence: number; kind: AuditKind; round: number; continuationIndex: number;
   createdAt: string; sessionIds: string[]; reportPath: string;
-  skill: { name: string; path: string; digest: string };
+  /** Absent only for an audit completed at once under a waived readiness problem (waivers "Audits Marked Complete"). */
+  skill?: { name: string; path: string; digest: string };
   snapshots: string[]; attempts: string[]; acceptedResult?: string;
+  /** The audit-waiver result in the audit store, when this audit was marked complete (AC-WAIVE-12). */
+  waivedResult?: string;
 }
 export interface AuditState {
   revision: number; policy: "required" | "legacy_complete";

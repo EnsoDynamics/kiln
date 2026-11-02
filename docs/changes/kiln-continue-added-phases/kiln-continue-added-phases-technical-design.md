@@ -37,6 +37,8 @@ A successful observation is not a completion check. A historical delivery is not
 
 ### Retained baseline
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (a leaf closed or skipped by waiver counts as closed and carries its `waiverId` and `waivedHead`).
+
 Retain a versioned `PlanBaseline` when a new execution starts, whenever a compatible active plan is accepted, and when it completes. Keep the completed baseline immutable. Store source bytes or immutable content-addressed copies so a deleted old worktree or branch cannot erase the comparison basis. Updating the visible current plan must not overwrite the previous baseline before comparison.
 
 A baseline contains the governing PRD identity, document references, parsed ordered phases, normalized scope for each phase, requirement manifest, repository names, dependencies and closure evidence references. Store both an exact document digest and a comparison digest: readiness and stale-proposal checks use exact inputs; detecting a completed phase's material change uses the comparison form.
@@ -66,6 +68,8 @@ Integration proof must cover the identified work in every affected repository. E
 ## Source Reconciliation
 
 ### Completed feature discovery
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (a leaf closed or skipped by waiver counts as closed and carries its `waiverId` and `waivedHead`).
 
 Read the shared checkout's saved document bytes and the latest configured remote delivery-base revision of the PRD repository. Resolve the base through the existing origin read and objects-only fetch, and read its files directly from Git objects; discovery creates no checkout and never alters a working branch or index. Read the PRD, design, assumptions when present, phase files and their required local document references as one candidate document set. Retain the path/revision/digest and exact files that are absent, dirty or unintegrated. Resolve local references within the assigned repository, reject escaping paths and symlinks, detect cycles by document identity, and apply the aggregate size/phase limits while reading. A document link cannot authorize reading arbitrary local files or fetching a remote URL.
 

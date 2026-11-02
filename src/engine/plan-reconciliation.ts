@@ -42,7 +42,8 @@ export interface PlanBaseline {
   active: PlanSource;
   sources: PlanSource[];
   /** References, not synthetic passing provider receipts. */
-  completions: Record<string, { kind: "kiln" | "external"; scopeRepositories?: string[]; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string; integration?: { sourceRevision: string; baseRevision: string } }> }>;
+  /** `waiverId`: completed or skipped on a waiver, carried as completed while its scope is unchanged (waivers "Continuation executions"); a repository whose work was waived has `waived` and its waived head as `revision`. */
+  completions: Record<string, { kind: "kiln" | "external"; waiverId?: string; scopeRepositories?: string[]; revision?: string; doneAt?: string; repositories?: Record<string, { identity: string; revision: string; waived?: true; integration?: { sourceRevision: string; baseRevision: string } }> }>;
 }
 export interface HandbackNotice { source: string; addedPhaseIds: string[]; remainingCount: number; acceptedAt: string }
 export interface PlanReconciliationState {

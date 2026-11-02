@@ -22,7 +22,7 @@ export function exitFor(answer: Result): number {
   if (answer.ok) return 0;
   const codes = answer.errors.map(e => e.code);
   if (codes.some(c => ["inventory_incomplete", "controller_unreachable", "instance_incompatible", "state_unavailable", "provider_unavailable", "saved_output_unavailable", "operation_indeterminate", "check_unavailable"].includes(c))) return 4;
-  return codes.some(c => ["control_unavailable", "ownership_mismatch", "busy", "stale_status_token", "unsent_reply_acknowledgement_required"].includes(c)) ? 3 : 2;
+  return codes.some(c => ["control_unavailable", "ownership_mismatch", "busy", "stale_status_token", "unsent_reply_acknowledgement_required", "mark_complete_not_offered", "stale_check_run"].includes(c)) ? 3 : 2;
 }
 export function commandText(argv: string[]): string {
   return argv.map(s => /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", "'\\''")}'`).join(" ");

@@ -36,8 +36,8 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-desktop.png`, await page.screenshot());
     expect(await page.evaluate("document.querySelector('.message .final').textContent")).toContain("Should I keep <optional> exactly as written?");
     const labels = await page.evaluate<string[]>("[...document.querySelectorAll('main h2, main h3')].map(e => e.textContent)");
-    expect(labels.indexOf("Reply here and let Kiln finish")).toBeLessThan(labels.indexOf("Open the conversation in your terminal"));
-    expect(labels.indexOf("Open the conversation in your terminal")).toBeLessThan(labels.indexOf("Back from your terminal?"));
+    expect(labels.indexOf("Reply here and let Kiln finish")).toBeLessThan(labels.indexOf("Talk it through in your terminal"));
+    expect(labels.indexOf("Talk it through in your terminal")).toBeLessThan(labels.indexOf(`Is Phase ${stop.phaseId} already done?`));
     expect(await page.evaluate("[...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Check again')")).toBe(false);
     const reply = "  Preserve my exact draft.\nDo not send on Verify.  "; await draft(page, reply);
     await page.evaluate("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedCommand = text; } } })");
@@ -55,34 +55,34 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     await click(page, output.trim()); await words(page, "Session output");
     await page.evaluate("history.back()"); await words(page, "Reply here and let Kiln finish");
     expect(await page.evaluate("document.querySelector('textarea').value")).toBe(reply);
-    await click(page, `Resume Phase ${stop.phaseId} in Kiln`); await words(page, "already complete");
+    await click(page, `Have Kiln resume Phase ${stop.phaseId}`); await words(page, "already complete");
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target });
     expect(await page.evaluate("document.activeElement.textContent")).toContain("already complete");
     await words(page, "Advance without sending reply");
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-choice-desktop.png`, await page.screenshot());
     await click(page, "Back to recovery page"); await words(page, "Your reply has not been sent");
     expect(await page.evaluate("document.querySelector('textarea').value")).toBe(reply);
-    const previousTime = await page.evaluate<string>("document.querySelector('.finished [role=status]').textContent");
+    const previousTime = await page.evaluate<string>("document.querySelector('.return .between [role=status]').textContent");
     failed = true;
-    await click(page, `Verify Phase ${stop.phaseId} & advance`); await words(page, "Repository unavailable");
+    await click(page, `Check Phase ${stop.phaseId} again`); await words(page, "Repository unavailable");
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "verify" });
     expect(await page.evaluate("document.querySelector('textarea').value")).toBe(reply);
-    expect(await page.evaluate("document.querySelector('.finished [role=status]').textContent")).toBe(previousTime);
+    expect(await page.evaluate("document.querySelector('.return .between [role=status]').textContent")).toBe(previousTime);
     failed = false; outcome = "still_stopped";
     let release!: () => void; gate = new Promise<void>(resolve => { release = resolve; });
-    await click(page, `Verify Phase ${stop.phaseId} & advance`); await words(page, "Checking…");
-    expect(await page.evaluate("[...document.querySelectorAll('main button')].filter(e => /^(Send reply|Resume Phase|Verify Phase|Checking)/.test(e.textContent.trim())).every(e => e.disabled)")).toBe(true);
+    await click(page, `Check Phase ${stop.phaseId} again`); await words(page, "Checking…");
+    expect(await page.evaluate("[...document.querySelectorAll('main button')].filter(e => /^(Send reply|Have Kiln resume Phase|Check Phase|Checking)/.test(e.textContent.trim())).every(e => e.disabled)")).toBe(true);
     stop.checkedAt = new Date("2026-10-26T20:01:02Z").toISOString();
     stop.checks.push({ name: "Required delivery", passed: true, facts: ["Delivery receipt confirmed"] });
     server.send("snapshot", snapshot); release(); gate = undefined;
-    await words(page, "still unfinished"); await words(page, `of ${stop.checks.length} requirements passed`);
-    expect(await page.evaluate("document.querySelector('.finished [role=status]').textContent")).not.toBe(previousTime);
-    expect(await page.evaluate("document.querySelector('.finished [role=status]').textContent")).toContain(await page.evaluate(`new Date(${JSON.stringify(stop.checkedAt)}).toLocaleString()`));
+    await words(page, "failing check"); await words(page, `of ${stop.checks.length} passed`);
+    expect(await page.evaluate("document.querySelector('.return .between [role=status]').textContent")).not.toBe(previousTime);
+    expect(await page.evaluate("document.querySelector('.return .between [role=status]').textContent")).toContain(await page.evaluate(`new Date(${JSON.stringify(stop.checkedAt)}).toLocaleTimeString()`));
     outcome = "already_complete";
     await click(page, `Send reply & resume Phase ${stop.phaseId}`); await words(page, "already complete");
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target, note: reply });
     outcome = "still_stopped";
-    await click(page, "Advance without sending reply"); await words(page, "still unfinished");
+    await click(page, "Advance without sending reply"); await words(page, "failing check");
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "advance", withoutSendingReply: true });
     await server.close(); await words(page, "Disconnected");
     expect(await page.evaluate("document.querySelector('textarea') === null")).toBe(true);
@@ -95,8 +95,8 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     // A late response for the old target cannot reopen its choice on a new stopped turn.
     outcome = "already_complete";
     gate = new Promise<void>(resolve => { release = resolve; });
-    await click(page, `Resume Phase ${stop.phaseId} in Kiln`);
-    await page.waitFor("[...document.querySelectorAll('button')].find(e => e.textContent.startsWith('Resume Phase')).disabled");
+    await click(page, `Have Kiln resume Phase ${stop.phaseId}`);
+    await page.waitFor("[...document.querySelectorAll('button')].find(e => e.textContent.startsWith('Have Kiln resume Phase')).disabled");
     // A new actual turn in the same conversation must not inherit an old reply.
     stop.phaseRecovery!.target = { ...target, stoppedAt: "2026-10-26T21:02:00Z" };
     stop.phaseRecovery!.attemptStartedAt = "2026-10-26T21:01:30Z";
@@ -119,13 +119,13 @@ it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens 
   const server = await serveViewFixture({ port, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "already_complete", target: stop.phaseRecovery!.target } }) });
   const page = await chrome.open(server.address, { width: 390, height: 844 });
   try {
-    await words(page, "Back from your terminal?");
+    await words(page, `Is Phase ${stop.phaseId} already done?`);
     expect(await page.evaluate("!!(document.querySelector('.return').compareDocumentPosition(document.querySelector('.billing')) & Node.DOCUMENT_POSITION_FOLLOWING)")).toBe(true);
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     const positions = await page.evaluate<number[]>("[...document.querySelector('.peer-choices').children].map(e => e.getBoundingClientRect().top)");
     expect(positions[1]!).toBeGreaterThan(positions[0]!);
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-narrow.png`, await page.screenshot());
-    await click(page, `Resume Phase ${stop.phaseId} in Kiln`); await words(page, "already complete");
+    await click(page, `Have Kiln resume Phase ${stop.phaseId}`); await words(page, "already complete");
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-choice-narrow.png`, await page.screenshot());
     await click(page, "Back to recovery page");
@@ -134,7 +134,7 @@ it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens 
     server.send("snapshot", snapshot); await words(page, "Saved history is unavailable."); await words(page, "Start a fresh session in your terminal");
     expect(await page.evaluate("[...document.querySelectorAll('button')].some(e => /resume Phase|Resume Phase/.test(e.textContent))")).toBe(false);
     await words(page, "LAST OUTPUT FROM");
-    await words(page, `Verify Phase ${stop.phaseId} & advance`);
+    await words(page, `Check Phase ${stop.phaseId} again`);
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-unavailable-narrow.png`, await page.screenshot());
     expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
@@ -183,9 +183,9 @@ it("advances without creating a persistent verification success notice", async (
   const server = await serveViewFixture({ port: 41983, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "advanced", target } }) });
   const page = await chrome.open(server.address, { width: 1200, height: 900 });
   try {
-    await words(page, "Verify Phase 2b & advance");
-    await click(page, "Verify Phase 2b & advance");
-    await page.waitFor("!document.querySelector('.finished button').disabled");
+    await words(page, "Check Phase 2b again");
+    await click(page, "Check Phase 2b again");
+    await page.waitFor("!document.querySelector('.return .actions button').disabled");
     expect(server.commands).toHaveLength(1);
     expect(await page.evaluate("document.body.innerText")).not.toContain("verified and accepted");
     expect(await page.evaluate("document.querySelector('.command-notice')?.textContent ?? ''")).not.toContain("Dismiss");

@@ -25,8 +25,11 @@ import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork 
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
+import { markCompletePreview, progressRows, projectCheck, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { checkCounts, type AuditWaiverResult } from "../engine/waivers.js";
+import type { CheckResult } from "../state/records.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "message", "take-over"];
+export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -258,25 +261,57 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     : savedStop ? { reason: savedStop[1].stop!.kind, final_message: savedMessage?.trim() ? savedMessage : null, message_complete: !!modelSession, message_reason: !modelSession ? "Saved session is unavailable; its final message cannot be established." : savedMessage?.trim() ? null : "No final message was saved for this stop.", failed_checks: savedStop[1].stop!.checks.filter(c => !c.passed), checked_at: savedStop[1].stop!.checkedAt, human_requests: savedHumanRequests,
       session_id: sessionId ?? null, sessionId: sessionId ?? null, activity: savedActivity, agent: modelSession ? modelSession.agentId ?? "claude_code" : null,
       recovery: retainedInstructions ? { state: "stale", observed_at: cache!.observed_at, reason: "Controller disconnected; last-known recovery instructions.", ...retainedInstructions } : { state: "unavailable", observed_at: null, reason: "Saved recovery instructions are unavailable without a matching inspection sidecar.", resume_command: null, continuation_prompt: null, fresh_session_instructions: null } } : null;
-  const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
+  let progress: ProgressRow[] = [];
+  try { progress = progressRows(record, engine?.current?.phaseKey, auditWaiverReader(engine ? dirname(dirname(engine.stateDirectory)) : work.root, engine?.stateDirectory ?? work.directory, deadline)); }
+  catch { statusErrors.push(errorFact("state_unavailable", "Waiver facts could not be read completely.")); }
+  const waived = (key: string | null | undefined) => {
+    const row = key ? progress.find(r => r.key === key) : undefined;
+    return row ? { waived_checks: row.waived_checks, waivers: row.waivers, warnings: row.warnings } : { waived_checks: 0, waivers: [], warnings: [] };
+  };
+  const keyOf = (a: { id?: string; activityId?: string; kind?: string; key?: string; phase_id?: string | null; activity_id?: string | null }) => a.key ?? (a.kind === "final_delivery" ? "pr" : a.kind === "delivery_audit" || a.kind === "test_audit" ? (a.activityId ?? a.activity_id) && `audit-${a.activityId ?? a.activity_id}` : a.id ?? a.phase_id);
+  const stopRecord = savedStop?.[1].stop;
+  let markComplete: Record<string, unknown> = { offered: false, reason: "Controller is disconnected; no executable controls." };
+  if (engine) {
+    try { markComplete = markCompletePreview(engine.markCompleteOffer(), work.canonical, control?.token ?? null); }
+    catch { statusErrors.push(errorFact("state_unavailable", "Mark complete eligibility could not be read.")); markComplete = { offered: false, reason: "Mark complete eligibility could not be read." }; }
+  }
+  const stopWaivers = (detail: Record<string, unknown>) => {
+    const checks = (detail.checks ?? stopRecord?.checks ?? []) as CheckResult[];
+    return { ...detail, checks: checks.map(projectCheck), failed_checks: checks.filter(c => !c.passed).map(projectCheck),
+      check_run: stopRecord?.run ? { id: stopRecord.run.id, at: stopRecord.run.at, origin: stopRecord.run.origin, finished: stopRecord.run.finished, counts: checkCounts(checks) } : null,
+      mark_complete: markComplete };
+  };
+  const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
+  const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
     state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => p.closed).length, total: view?.feature.phasesTotal ?? leaves.length },
-    activity: view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity,
+    activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
     agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
     requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     pause_status: pauseStatus,
-    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail,
+    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
+    progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
-    ...(full ? { plan: record.plan ?? [], activity_history: view?.activities ?? record.activities ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
+    ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
   }, [...statusErrors, ...last.errors]);
   if (engine && JSON.stringify(engine.record) !== before) throw new ControlFailure("state_unavailable", "Execution changed while status was assembled; refresh status.");
   if (full) return ownResult(answer, history.dispose, deadline);
   history.dispose(); return answer;
   } catch (error) { history.dispose(); throw error; }
+}
+/** The audit store's waiver results, read through the same private, bounded reads as inspection. */
+function auditWaiverReader(root: string, stateDirectory: string, deadline: number): AuditWaiverReader {
+  const store = new AuditStore(stateDirectory);
+  return id => {
+    const bytes = privateBytes(root, store.path(id), deadline);
+    if (hashBytes(bytes) !== id) return undefined;
+    const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as AuditWaiverResult;
+    return value.kind === "audit_waiver" ? value : undefined;
+  };
 }
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
   if (engine?.record.liveControl) await engine.reconcileTakeover();

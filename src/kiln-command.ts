@@ -29,6 +29,9 @@ import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, t
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
 import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
 import { formatCompletedPlanCheck, formatDecisionLine, formatSummaryLine } from "./underway-output.js";
+import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
+import { AuditStore } from "./audit/storage.js";
+import type { AuditWaiverResult } from "./engine/waivers.js";
 
 export interface CommandContext {
   cwd: string;
@@ -237,7 +240,7 @@ function makeEngine(
     onTerminal: (event) => {
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
-      write(formatTerminalEvent(event, engine.record, colors) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
+      write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id)) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
   });
@@ -364,7 +367,27 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   return stop.done;
 }
 
-export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
+/**
+ * A terminal event's line. A phase, audit or final delivery that completes with waived checks says
+ * so, with the waiver's time and source and any warning marker (waivers AC-WAIVE-10):
+ *
+ *   "19:16  3   Dev delivery fixes   complete · 1 check waived 2026-11-01 19:16 EST · browser · alex"
+ */
+export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, readAudit?: AuditWaiverReader): string {
+  const line = formatEventLine(event, record, colors);
+  const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? `audit-${event.activityId}` : event.kind === "pull_request" && event.event === "completed" ? "pr" : undefined;
+  if (key === undefined || !record.phases?.[key]?.doneAt) return line;
+  const { suffix, warnings } = terminalWaivers(record, key, readAudit);
+  const notes = warnings.map(warning => `\n${" ".repeat(10)}${colors.amber(warning)}`).join("");
+  if (!suffix) return `${line}${notes}`;
+  // A phase completed on a waiver pushed nothing of its own: it reads complete, never done · pushed.
+  if (event.kind === "phase" && !event.pushedSha && !event.pushes?.length) {
+    return `${formatPhaseLine(event.at, event.phaseId, event.title, { kind: "completed", summary: suffix.slice(2) }, planColumns(record.plan ?? []), colors)}${notes}`;
+  }
+  return `${line} ${colors.amber(suffix)}${notes}`;
+}
+
+function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
     case "completed_plan_checked": return formatCompletedPlanCheck(event.check);

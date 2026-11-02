@@ -31,7 +31,11 @@
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
-  import { changeSettings, checkAgain, refreshMetadata, resume } from "../lib/api.js";
+  import { changeSettings, checkAgain, markComplete, refreshMetadata, resume } from "../lib/api.js";
+  import type { ItemChange, MarkCompleteOffer } from "../../../src/engine/waivers.js";
+  import { verdict } from "../lib/waivers.js";
+  import CheckFacts from "../components/CheckFacts.svelte";
+  import MarkComplete from "../components/MarkComplete.svelte";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
@@ -61,8 +65,18 @@
   let note = $state("");
   let resuming = $state(false);
   let resumeReason = $state<string | undefined>(undefined);
-  // From a press of Resume or Check again until the session runs again or the result is shown, neither can be pressed (AC-RESUME-02).
-  const busy = $derived(pressing || resuming || stop.checking === true);
+  // Mark complete sits below Check again once a recheck still fails (waivers AC-WAIVE-02); a
+  // pressed offer stays shown, reading Checking…, while its rerun runs (AC-WAIVE-06).
+  let marking = $state(false);
+  let markOffer = $state<Extract<MarkCompleteOffer, { offered: true }> | undefined>(undefined);
+  let markChanges = $state<ItemChange[]>([]);
+  let markError = $state<string | undefined>(undefined);
+  const offer = $derived(stop.markComplete?.offered ? stop.markComplete : marking ? markOffer : undefined);
+  const connected = $derived(connection ? connection.connected : true);
+  // From a press of Resume, Check again or Mark complete until the session runs again or the
+  // result is shown, none can be pressed (AC-RESUME-02, AC-WAIVE-06); a disconnected page submits nothing.
+  const busy = $derived(pressing || resuming || marking || stop.checking === true || !connected);
+  const VERDICT = { passed: "Yes", waived: "Waived", failed: "Not yet" } as const;
 
   async function copyFreshPrompt() {
     showPrompt = true;
@@ -80,9 +94,20 @@
 
   async function pressCheckAgain() {
     pressing = true;
+    markChanges = []; markError = undefined;
     const answer = await checkAgain(config);
     pressing = false;
     reason = answer.ok ? undefined : answer.reason;
+  }
+  async function pressMarkComplete() {
+    const current = stop.markComplete;
+    if (busy || !current?.offered) return;
+    marking = true; markOffer = current; markChanges = []; markError = undefined;
+    const answer = await markComplete(config, { checkRunId: current.checkRunId });
+    marking = false; markOffer = undefined;
+    if (!answer.ok) { markError = answer.reason; return; }
+    if (answer.outcome === "check_results_changed") markChanges = (answer.changes as ItemChange[] | undefined) ?? [];
+    else if (answer.outcome === "check_unavailable") markError = String(answer.reason ?? "The checks could not finish. Nothing was marked complete.");
   }
   async function saveSelection(change: Partial<Settings>) {
     const answer = await changeSettings(config, { ...change, agentId: snapshot.settings.agentId ?? "claude_code", selectionGeneration: snapshot.settings.selectionGeneration ?? 0 });
@@ -235,9 +260,10 @@
         <span class="eyebrow">{copy.sideHeading}</span>
         <ul class="checks">
           {#each stop.checks as check (check.name)}
+            {@const state = verdict(check)}
             <li>
-              <span class="mark" class:passed={check.passed}>{#if check.passed}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={check.passed}>{check.passed ? "Yes" : "Not yet"}</span></span>{#each check.facts as fact, index (index)}<span class="fact">{fact}</span>{/each}</span>
+              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
+              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
             </li>
           {/each}
         </ul>
@@ -247,6 +273,7 @@
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{/if}
       </aside>
     </div>
   </div>
@@ -307,7 +334,8 @@
   .check-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--text); }
   .verdict { font-size: 12px; color: var(--amber); }
   .verdict.passed { color: var(--green); }
-  .fact { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+  .verdict.waived { font-weight: 600; }
+  .mark.waived { border: 1px solid var(--amber-border); }
   .again { display: flex; flex-direction: column; gap: 10px; }
   .checked { font-size: 12.5px; color: var(--dim); }
   .reason { font-size: 12.5px; color: var(--amber); }

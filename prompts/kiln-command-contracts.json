@@ -1726,6 +1726,183 @@
     },
     {
       "path": [
+        "waive-and-advance"
+      ],
+      "purpose": "Check a stopped activity again; with --confirm, mark it complete on a waiver when Kiln's check still fails.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln waive-and-advance <PRD-path> [--confirm] [--by <name>] --only-if-status-matches <status_token> --command-id <id> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        },
+        "without-sending-reply": {
+          "value": null,
+          "source": "At a hand-back stop, the operator explicitly acknowledges the preserved unsent reply for this stop; never sends it. The recheck form passes it to verify-and-advance; check-again takes no inputs."
+        },
+        "message-reviewed": {
+          "value": "receipt-id",
+          "source": "Repeat for each uncertain message reviewed in the exact conversation, as for verify-and-advance. Copy receipt IDs from status.live_control.reviewRequired or command-status. Acknowledgement never resends or upgrades provider confirmation.",
+          "repeatable": true
+        },
+        "confirm": {
+          "value": null,
+          "source": "Mark complete: waive every failing item of the latest check run since the stop and advance. Accepted only where status.stop.mark_complete.offered is true, after a recheck since the stop still failed. Without it the command is the stop's recheck (verify-and-advance at a hand-back stop, check-again otherwise) and never waives anything."
+        },
+        "by": {
+          "value": "name",
+          "source": "With --confirm only: who asked, such as a bot's name; 1 to 64 printable characters, recorded verbatim with the waiver beside the command-line source and the local account name. No reason is asked or recorded."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Without --confirm: journaled as the stop's recheck, chosen by the controller before admission (verify-and-advance while a hand-back recovery target exists, check-again otherwise). Its receipt, rules and command-status are that action's; a command ID that already has a receipt keeps its action. When the recheck settles as completion_checks_failed, the receipt and kiln status carry mark_complete: what Mark complete would waive and do next, with next_argv repeating this command with --confirm, the new status token and <new-command-id> to replace with a fresh ID.",
+        "With --confirm: Kiln reruns every completion check under the same exclusive checking boundary. Only when the failing items equal the offered check run's does it save the waiver and advance (marked_complete, or continued for a plan or audit-readiness stop on an activity that has not started or is already complete). When everything passes it advances without a waiver (checks_passed); when any item changed it saves nothing and the receipt lists the changes (check_results_changed); when the check cannot finish nothing changes (check_unavailable).",
+        "A waiver is never evidence of a deployment, verification, commit or push. Waived checks show as Waived, never Passed, in kiln status, the browser and the terminal summary."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | resumed | unknown. resumed requires a correlated saved attempt and provider start; it does not mean the phase finished.",
+        "operation.effects.plan": "not_advanced | advanced | unknown. advanced only for marked_complete, checks_passed and continued; it does not promise the next model turn started.",
+        "operation.outcome": "Without --confirm, the recheck's outcomes (advanced, completion_checks_failed, check_unavailable). With --confirm: marked_complete | continued | checks_passed | check_results_changed | check_unavailable, or a refusal code.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Normalized literal accepted reply, or null for non-reply commands. A phase_already_complete reply stays not_sent and retained for the saved history lifetime.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID.",
+        "operation.waiver_id": "With --confirm: the saved waiver's ID for marked_complete or continued; absent otherwise.",
+        "operation.changes": "With --confirm and check_results_changed: each item that newly fails, newly passes or changed text, as { check, subject, change, before, after }. Nothing was waived; read kiln status for the new check run.",
+        "operation.action": "The journal action this instruction was recorded as: check-again or verify-and-advance without --confirm, waive-and-advance with it.",
+        "mark_complete": "On a recheck that settled as completion_checks_failed: the stop's Mark complete offer { offered, label, check_run_id, items, next_activity, resulting_label, sentence, next_argv }, or { offered: false, reason } when the stop has moved on."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "mark_complete_not_offered",
+        "stale_check_run",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate",
+        "unsent_reply_acknowledgement_required",
+        "check_unavailable"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. completion_checks_failed and check_results_changed are completed domain outcomes and do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable, mark_complete_not_offered, stale_check_run or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable, check_unavailable on a replayed Mark complete, or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Push Phase 3 along: check it again, and if it still fails, show me what would be waived.",
+          "argv": [
+            "kiln",
+            "waive-and-advance",
+            "/work/shop/docs/prds/orders",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-recheck-id",
+            "--json"
+          ]
+        },
+        {
+          "request": "The health check is fine; mark Phase 3 complete as grokbot.",
+          "preparation": "Copy the status token from the recheck's mark_complete.next_argv or a fresh kiln status, and generate a new command ID.",
+          "argv": [
+            "kiln",
+            "waive-and-advance",
+            "/work/shop/docs/prds/orders",
+            "--confirm",
+            "--by",
+            "grokbot",
+            "--only-if-status-matches",
+            "status-after-recheck",
+            "--command-id",
+            "new-waiver-id",
+            "--json"
+          ]
+        },
+        {
+          "request": "Mark the finished phase complete without sending the preserved reply I reviewed.",
+          "argv": [
+            "kiln",
+            "waive-and-advance",
+            "/work/shop/docs/prds/orders",
+            "--confirm",
+            "--without-sending-reply",
+            "--only-if-status-matches",
+            "status-after-recheck",
+            "--command-id",
+            "new-waiver-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, an invalid command ID, --by without --confirm, a --by name outside 1 to 64 printable characters, or recheck inputs check-again does not take. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations.",
+        "unsent_reply_acknowledgement_required": "Exit 3: this stop has preserved unsent replies. Read status/receipts; use --without-sending-reply only with explicit operator acknowledgement and a fresh ID/token.",
+        "check_unavailable": "Exit 4: when reported as a command error, the rerun could not finish; nothing was waived or advanced. Receipt queries still exit 0.",
+        "mark_complete_not_offered": "Exit 3: Mark complete is not offered here: no check has run since the stop (run without --confirm first), a check is running, every check passed, or nothing is at Needs you. Read status.stop.mark_complete.reason.",
+        "stale_check_run": "Exit 3: Mark complete was offered on an earlier check run. Refresh status and decide again with a new command ID."
+      }
+    },
+    {
+      "path": [
         "command-status"
       ],
       "purpose": "Retrieve the durable receipt for an earlier instruction without dispatching work.",

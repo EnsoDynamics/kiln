@@ -1,4 +1,5 @@
 /** Completed delivery is history; current plan checks never authorize another execution. */
+import { closedWaiver } from "./waivers.js";
 import { createHash } from "node:crypto";
 import { leavesOf } from "../plan/phase-plan.js";
 import type { PrdRecord } from "../state/records.js";
@@ -53,7 +54,9 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   const { record, directory, shared, git } = context;
   if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, record.prdDirectory, revision) });
   const revision = record.phases.pr?.repositories[record.repository.name]?.pushedSha
-    ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit;
+    ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit
+    // Final delivery completed on waived work: the plan at its waived head, from the local repository (waivers "Continuation executions").
+    ?? record.phases.pr?.repositories[record.repository.name]?.waivedHead;
   if (!revision || !record.plan?.length) throw new Error("baseline_unavailable: No retained accepted plan or recorded completion revision. Restore the original completion record and its Git revision, then check again; today's checkout cannot prove the earlier scope.");
   let source: PlanSource;
   try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
@@ -61,15 +64,16 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   if (JSON.stringify(recordedPlan(source.plan)) !== JSON.stringify(record.plan)) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
   for (const phase of leavesOf(source.plan)) {
-    if (!phase.closed) throw new Error(`baseline_unavailable: Phase ${phase.id} was not closed at recorded completion ${revision}. Restore its completion evidence.`);
-    const owner = Object.entries(record.phases).find(([id, facts]) => facts.doneAt && judgedPhase(source.plan.phases, id)?.id === phase.id);
+    const waiverId = record.phases[phase.id]?.skippedByWaiver ?? closedWaiver(record.waivers, phase.id)?.waiverId;
+    if (!phase.closed && !waiverId) throw new Error(`baseline_unavailable: Phase ${phase.id} was not closed at recorded completion ${revision}. Restore its completion evidence.`);
+    const owner = Object.entries(record.phases).find(([id, facts]) => (facts.doneAt || facts.skippedByWaiver) && judgedPhase(source.plan.phases, id)?.id === phase.id);
     if (!owner) throw new Error(`baseline_unavailable: Phase ${phase.id} has no recorded completion receipt. Restore its earlier receipt before checking again.`);
-    completions[phase.id] = { kind: owner[1].sessionIds.length ? "kiln" : "external", scopeRepositories: phaseRepositories(source, phase.id), doneAt: owner[1].doneAt!, revision, repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.pushedSha }]] : [])) };
+    completions[phase.id] = { kind: owner[1].sessionIds.length ? "kiln" : "external", ...(waiverId ? { waiverId } : {}), scopeRepositories: phaseRepositories(source, phase.id), doneAt: owner[1].doneAt ?? record.completedAt!, revision, repositories: Object.fromEntries(Object.entries(owner[1].repositories).flatMap(([name, facts]) => facts.pushedSha ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.pushedSha }]] : facts.waivedHead ? [[name, { identity: record.repositories.find(r => r.name === name)!.github, revision: facts.waivedHead, waived: true as const }]] : [])) };
   }
   for (const [id, completion] of Object.entries(completions)) {
     const workRevision = completion.repositories?.[record.repository.name]?.revision ?? completion.revision!;
     const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision);
-    if (!historical.plan.phases.some(phase => phase.id === id && phase.closed && !phase.splitInto) || !completedPhaseScopeUnchanged(historical, source, id)) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
+    if (!historical.plan.phases.some(phase => phase.id === id && (phase.closed || completion.waiverId) && !phase.splitInto) || !completedPhaseScopeUnchanged(historical, source, id)) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
     completion.scopeRepositories = phaseRepositories(historical, id);
   }
   return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });

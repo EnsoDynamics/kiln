@@ -1637,7 +1637,7 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       expect(await words(page)).toContain(flat("Your reply has not been sent"));
       await click(page, "Back to recovery page");
       expect(await page.evaluate(`document.querySelector("textarea").value`)).toBe("Explain before continuing.");
-      await click(page, "Resume Phase 1 in Kiln");
+      await click(page, "Have Kiln resume Phase 1");
       await page.waitFor(`document.body.innerText.includes("Phase 1 is already complete")`);
       await click(page, "Advance without sending reply");
       await page.waitFor(`document.body.innerText.includes("Implementing phase 2b") && !document.querySelector("textarea")`);

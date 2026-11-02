@@ -245,11 +245,13 @@ describe("version-2 audit admission", () => {
   it("titles every refusal with the unmet condition once, its reason beneath (AC-NEUTRAL-03)", async () => {
     const f = await fixture();
     const missing = await f.submit();
-    expect(missing.checks).toEqual([{ name: "Audit result recorded", passed: false, facts: [`No audit report at ${f.activity.reportPath} yet. The audit session writes, commits and pushes it when the audit ends.`] }]);
+    // One judgment, one waivable item naming the one report and its refusal (AC-WAIVE-11).
+    const reason = `No audit report at ${f.activity.reportPath} yet. The audit session writes, commits and pushes it when the audit ends.`;
+    expect(missing.checks).toEqual([{ name: "Audit result recorded", passed: false, facts: [reason], items: [{ kind: "other", subject: f.activity.reportPath, text: reason, against: "" }] }]);
     f.saveReport();
     // A refusal raised after the report itself validated replaces the passing row rather than adding a second one.
     const late = await submitAudit({ ...f.context, developmentChecks: () => { throw new AuditRefusal("evidence_unavailable", "Development ledger unreadable."); } }, { ...f.body(), reportPath: f.activity.reportPath });
-    expect(late.checks.filter(check => check.name === "Audit result recorded")).toEqual([{ name: "Audit result recorded", passed: false, facts: ["Development ledger unreadable."] }]);
+    expect(late.checks.filter(check => check.name === "Audit result recorded")).toEqual([{ name: "Audit result recorded", passed: false, facts: ["Development ledger unreadable."], items: [{ kind: "other", subject: f.activity.reportPath, text: "Development ledger unreadable.", against: "" }] }]);
   });
   it("uses real authenticated HTTP and the CLI, with rollback when state persistence fails", async () => {
     const f = await fixture(); f.saveReport(); writePrdRecord(f.stateDirectory, f.record);

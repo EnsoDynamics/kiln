@@ -6,6 +6,7 @@
 import type { PrdRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReportV2, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { requirementsDocumentFilter } from "./snapshots.js";
+import { effectiveRecordedClosed } from "../engine/waivers.js";
 
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
@@ -36,7 +37,9 @@ function validate(report: AuditReportV2, { record, activity, initial, current }:
   const appended = current.plan.slice(initial.plan.length);
   requireAudit(JSON.stringify(appended.map(phase => phase.id).sort()) === JSON.stringify([...report.completionPhases].sort()), `completionPhases must name exactly the phases this audit appended (${appended.map(phase => phase.id).join(", ") || "none"}).`, "inconsistent_plan");
   requireAudit(appended.every(phase => !phase.closed), "An appended completion phase is already closed.", "inconsistent_plan");
-  const open = current.plan.filter(phase => !phase.closed && !phase.splitInto);
+  // A leaf closed by waiver or skipped under a waived plan problem counts as closed for routing
+  // (AC-WAIVE-04, AC-WAIVE-09); the immutability rule above still compares the documents' own Closed lines.
+  const open = current.plan.filter(phase => !phase.splitInto && !effectiveRecordedClosed(record, phase));
   if (report.outcome === "passed") requireAudit(!appended.length && !open.length, `A passing audit leaves no open phase; open: ${open.map(phase => phase.id).join(", ")}.`, "inconsistent_plan");
   if (report.outcome === "completion_phases") requireAudit(appended.length > 0, "A completion_phases report must append at least one phase to the plan.", "inconsistent_plan");
   if (report.outcome === "continue_test") {

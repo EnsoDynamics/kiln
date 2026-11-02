@@ -21,6 +21,8 @@
   import LiveComposer from "../components/LiveComposer.svelte";
   import LiveMessages from "../components/LiveMessages.svelte";
   import PausePanel from "../components/PausePanel.svelte";
+  import WaivedCompletion from "../components/WaivedCompletion.svelte";
+  import WaivedStatus from "../components/WaivedStatus.svelte";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
@@ -61,7 +63,7 @@
     <div class="name">
       <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{row?.title ?? ""}</h2>
-      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">Done</Pill>{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
+      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{row.waivedChecks ? "Complete" : "Done"}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
@@ -85,6 +87,7 @@
       {#each row.audit.pendingActions as action}<p>Human action: {action}</p>{/each}
     </section>
   {/if}
+  {#if row?.waivedCompletion && row.state === "done"}<WaivedCompletion {snapshot} {row} />{/if}
   <div class="columns-main">
     {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">

@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(18);
+    expect(SCHEMA_VERSION).toBe(19);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -111,4 +111,21 @@ it("validates durable control fields without inventing prior effects", () => {
   expect(current.controlRevision).toBeUndefined();
   expect(() => migrateRecord({ ...current, controlRevision: -1 })).toThrow(/control metadata/);
   expect(() => migrateRecord({ ...current, controlFingerprint: "truncated" })).toThrow(/control metadata/);
+});
+
+describe("schema 19: completion waivers (waivers technical design, Upgrade)", () => {
+  it("gives a saved stop a finished stop-origin run, so Mark complete waits for a fresh recheck", () => {
+    const eighteen = migrateRecord(schemaOne({ phases: { "3": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, stop: { kind: "done_check", at: "2026-11-01T23:12:40Z", checkedAt: "2026-11-01T23:12:40Z", checks: [{ name: "Pushed", passed: false, facts: ["4c1a9e0 isn't on origin yet"] }] } } } }));
+    eighteen.schemaVersion = 18; delete eighteen.phases["3"]!.stop!.run;
+    const nineteen = migrateRecord(eighteen);
+    expect(nineteen.schemaVersion).toBe(19);
+    expect(nineteen.phases["3"]!.stop!.run).toMatchObject({ at: "2026-11-01T23:12:40Z", origin: "stop", finished: true });
+    // Saved rows without items keep displaying as before.
+    expect(nineteen.phases["3"]!.stop!.checks[0]).toEqual({ name: "Pushed", passed: false, facts: ["4c1a9e0 isn't on origin yet"] });
+  });
+
+  it("refuses a malformed waiver record rather than reading waivers it cannot trust", () => {
+    const record = migrateRecord(schemaOne({}));
+    expect(() => migrateRecord({ ...record, waivers: [{ waiverId: "w" }] as never })).toThrow(/waiver/);
+  });
 });

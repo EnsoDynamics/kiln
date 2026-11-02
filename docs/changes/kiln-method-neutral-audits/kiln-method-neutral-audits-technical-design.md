@@ -27,6 +27,8 @@ The audit prompt (`prompts/audit-session.txt`) states this contract and maps it 
 
 ## Admission
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage and §Audits Marked Complete (the no-open-phase routing rule counts phases closed or skipped by waiver as closed; a waived attempt counts as AC-WAIVE-12 says).
+
 `kiln audit submit` keeps idempotent retries, revision and activity checks, attempt retention and Needs you on refusal. Every refusal is recorded as a failing **Audit result recorded** check whose fact is the reason; the refusal code stays in the attempt's `refusal` and the resume prompt. A missing report reads "No audit report at <path> yet." Kiln captures the checked snapshot itself at submission; the session never issues one. Checks, in order:
 
 1. Report readable, size, strict JSON, contract fields above.
@@ -42,6 +44,8 @@ A `needs_you` report adds a failing **Audit work resolved** check listing `needs
 Removed: the evidence catalog and `refreshAuditEvidence`, `provider-evidence.ts`, criterion/part/status validation, red checks, suite pairing, skill-load evidence and digest comparison, `test-audit.md` checks, origin-marker and dependency-section checks, artifact-runtime checks and the test-path classification path in snapshots. `kiln audit snapshot` and `POST /api/audit/snapshot` refuse with `malformed_request` and change nothing. `kiln audit status` keeps identity, revision, report path, accepted results and the latest refusal, without an evidence page.
 
 ## Snapshots and currentness
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Audits Marked Complete (a waived audit's baseline is its waiver snapshot).
 
 Snapshots remain Kiln-captured per-file digests with the requirement manifest and normalized plan. Capture stops requiring a technical design and stops traversing document links; the required documents are the governing PRD, plan files and any design or assumptions in the PRD folder. Test-path declarations are always empty for new snapshots; old snapshots keep theirs for comparison.
 

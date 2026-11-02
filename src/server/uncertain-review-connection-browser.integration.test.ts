@@ -44,7 +44,7 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("retains exact uncert
     await page.waitFor(`!${review}.disabled`);
     expect(await page.evaluate(`document.querySelector('.messages pre').textContent`)).toBe(text);
     expect(receipt().message).toMatchObject({ text, delivery: "uncertain" }); expect(receipt().message?.reviewedAt).toBeUndefined();
-    expect(await page.evaluate(`${button("Resume Phase 1 in Kiln")}.disabled`)).toBe(true);
+    expect(await page.evaluate(`${button("Have Kiln resume Phase 1")}.disabled`)).toBe(true);
     expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
   } finally { await page?.close(); await server?.close(); await h.cleanup(); }
 });

@@ -66,6 +66,12 @@ export function codexThreadParameters(prepared: PreparedCodexLaunch): Record<str
   return { cwd: prepared.profile.cwd, model: prepared.choice.model, modelProvider: "openai", sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review", config: { model_reasoning_effort: prepared.choice.effort ?? null, sandbox_workspace_write: { writable_roots: prepared.profile.writableRoots, network_access: true } } };
 }
 export function assertCodexEffective(result: CodexEffectiveSettings, prepared: PreparedCodexLaunch): void {
+  assertCodexEffectiveProfile(result, prepared);
+  if (!result.thread.id || !result.thread.sessionId || result.thread.ephemeral !== false) throw new Error("Codex did not establish a durable conversation identity.");
+}
+
+/** The launch's settings comparison without the durable identity, which the ephemeral launch-settings probe never has (waivers "Check Runs"). */
+export function assertCodexEffectiveProfile(result: CodexEffectiveSettings, prepared: PreparedCodexLaunch): void {
   if (result.model !== prepared.choice.model || (result.reasoningEffort ?? undefined) !== prepared.choice.effort || result.modelProvider !== "openai" || comparable(result.cwd) !== comparable(prepared.profile.cwd)) throw new Error("Codex refused the recorded model, effort, provider or launch directory; no work was dispatched.");
   // Workspace-write always grants cwd. Codex omits it from the additional roots
   // when the requested workspace is the launch directory itself.
@@ -73,5 +79,4 @@ export function assertCodexEffective(result: CodexEffectiveSettings, prepared: P
   const actual = result.sandbox.writableRoots && roots(result.sandbox.writableRoots);
   const expected = roots(prepared.profile.writableRoots);
   if (result.approvalPolicy !== "on-request" || result.approvalsReviewer !== "auto_review" || result.sandbox.type !== "workspaceWrite" || result.sandbox.networkAccess !== true || !actual || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Codex's effective protected launch profile differs from the assigned workspace; no work was dispatched.");
-  if (!result.thread.id || !result.thread.sessionId || result.thread.ephemeral !== false) throw new Error("Codex did not establish a durable conversation identity.");
 }

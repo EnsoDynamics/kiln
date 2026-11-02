@@ -8,6 +8,9 @@ import { handoffProjection, instanceEpoch, statusProjection } from "./projection
 import { readHistory, chooseOutputSession } from "./history.js";
 import { outputPage } from "./logs.js";
 import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
+import { NO_CHECK_RUN } from "./commands.js";
+import { ResponseSpool } from "./spool.js";
+import { progressHeading, progressText, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
 
@@ -16,7 +19,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
   const work = () => ({ ...readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory), record: structuredClone(engine.record) });
   const send = (c: Context, answer: Result) => {
     const text = c.req.path.endsWith("/status") && c.req.query("format") === "text";
-    const output = spoolResult(answer, !text);
+    const output = text ? withProgress(answer) : spoolResult(answer, !text);
     c.header("Content-Type", text ? "text/plain; charset=utf-8" : "application/json; charset=utf-8");
     c.header("Content-Length", String(output.bytes));
     c.header("X-Kiln-Exit", String(exitFor(answer)));
@@ -32,7 +35,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: engine.record.executionId,
-    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review"] }));
+    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -96,6 +99,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
         // Public spelling; the browser and journal retain their existing action identity.
         if (command.action === "take_over") command.action = "take-over";
         if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume or verify-and-advance with reviewed receipt IDs.", 2);
+        if (command.action === "waive-and-advance") waiveAndAdvance(engine, command);
         const old = engine.commands.all().find(r => r.command_id === command.command_id);
         if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
         // Deduplication precedes current eligibility. Never reconstruct an old target from a successor.
@@ -105,7 +109,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
           if (command.action === "message" || command.action === "take-over") {
             if (inputs.target === undefined) inputs.target = target;
             if (!inputs.target) throw new ControlFailure("control_unavailable", "No active supported Claude attempt is available. Refresh status.", 3);
-          } else if (["resume", "verify-and-advance", "reply"].includes(String(command.action)) && target) {
+          } else if (["resume", "verify-and-advance", "reply", "waive-and-advance"].includes(String(command.action)) && target) {
             if (inputs.live_target === undefined) inputs.live_target = target;
           }
         }
@@ -117,4 +121,48 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     } catch (error) { return send(c, { ...failed(error), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId!, command_id: commandId }); }
   });
   app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "Unknown command API route or unsupported protocol.", retryable: false, next_command: null, next_argv: null }])));
+}
+
+/**
+ * `kiln waive-and-advance` (waivers "Command line", AC-WAIVE-05): the control route picks the
+ * journal action before admission. Without `confirm` it is the stop's recheck, `verify-and-advance`
+ * while a hand-back recovery target exists and `check-again` otherwise, and a command id that already
+ * has a receipt keeps that receipt's action. With it, it is the one `waive-and-advance` action, with
+ * the offered check run filled in from the guarded status (or the original receipt, so an identical
+ * retry replays it) and `via: command_line`; the caller never supplies either.
+ */
+function waiveAndAdvance(engine: Engine, command: Record<string, unknown>): void {
+  const inputs = command.inputs;
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
+  const fields = inputs as Record<string, unknown>;
+  if (typeof fields.confirm !== "boolean") throw new ControlFailure("invalid_input", "waive-and-advance needs confirm: true or false.", 2);
+  if (fields.via !== undefined || fields.check_run_id !== undefined) throw new ControlFailure("invalid_input", "Kiln fills in the check run and source of a waiver; the caller never supplies them.", 2);
+  const confirm = fields.confirm; delete fields.confirm;
+  const old = engine.commands.all().find(r => r.command_id === command.command_id);
+  if (!confirm) {
+    if (fields.by !== undefined) throw new ControlFailure("invalid_input", "--by records who marked an activity complete; it needs --confirm.", 2);
+    if (old && old.instruction.action !== "check-again" && old.instruction.action !== "verify-and-advance") throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
+    command.action = old?.instruction.action ?? (engine.phaseRecoveryTarget() ? "verify-and-advance" : "check-again");
+    if (command.action === "check-again" && Object.keys(fields).length) throw new ControlFailure("invalid_input", "This stop's recheck is check-again, which takes no --without-sending-reply or --message-reviewed; those apply at a hand-back stop.", 2);
+    return;
+  }
+  if (old && old.instruction.action !== "waive-and-advance") throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
+  const offer = engine.markCompleteOffer();
+  fields.check_run_id = old ? old.instruction.inputs.check_run_id : offer.offered ? offer.checkRunId : NO_CHECK_RUN;
+  fields.via = "command_line";
+}
+
+/** Text status begins with the activity progress block, then the result's fields (AC-WAIVE-10). */
+function withProgress(answer: Result): ResponseSpool {
+  const rows = answer.progress as ProgressRow[] | undefined;
+  const heading = progressHeading(answer);
+  const body = spoolResult(answer, false);
+  if (!rows?.length) return body;
+  const output = new ResponseSpool();
+  try {
+    output.append(Buffer.from(`${progressText(heading, rows)}\n`));
+    for (const chunk of body.chunks()) output.append(chunk);
+    return output;
+  } catch (error) { output.close(); throw error; }
+  finally { body.close(); }
 }

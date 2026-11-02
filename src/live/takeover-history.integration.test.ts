@@ -195,7 +195,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         expect(body).toContain("retry release checks"); expect(body).toContain("Kiln will not force the operation to stop.");
         if (recovery === "takeover") expect(body).toContain("Pausing for takeover — finishing the current operation.");
         expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(false);
-        expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>/^(Resume |Verify .* & advance)/.test(b.textContent.trim())&&!b.disabled)`)).toBe(false);
+        expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>/^(Have Kiln resume |Check .* again)/.test(b.textContent.trim())&&!b.disabled)`)).toBe(false);
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
         expect(page.problems).toEqual([]); await page.close(); page = undefined;
       }
@@ -220,7 +220,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       for (const bytes of [legacy, originalHistory + '{"type":']) { writeFileSync(historyFile, bytes); await released(); expect(h.engine.record.liveControl?.takeover.state).toBe("released"); }
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(calls);
       page = await chrome.open(server.address, { width: 390, height: 1100 });
-      await page.waitFor(`${button(`Verify ${label} & advance`)} && !${button(`Verify ${label} & advance`)}.disabled`);
+      await page.waitFor(`${button(`Check ${label} again`)} && !${button(`Check ${label} again`)}.disabled`);
       expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(true);
       // Observe the real Verify response rather than impose a separate 20-second
       // polling deadline on the full report/currentness/ownership evaluation.
@@ -249,7 +249,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         };
       })()`);
       proofStage = `awaiting the browser Verify response, clicked after ${Date.now() - testStarted} ms of assertions`;
-      await page.evaluate(`${button(`Verify ${label} & advance`)}.click()`);
+      await page.evaluate(`${button(`Check ${label} again`)}.click()`);
       const answer = await page.evaluate<{ status: number; body: { ok: boolean; outcome?: string } }>("window.__historyVerifyDone");
       expect(answer).toMatchObject({ status: 200, body: { ok: true, outcome: "advanced" } });
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();

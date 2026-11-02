@@ -7,10 +7,12 @@ import { readSessionRecord } from "../state/records.js";
 import { claudeConfigFolder } from "../session/transcripts.js";
 import { readSkillList } from "../account/model-list.js";
 import { readCodexMetadata } from "../agents/codex-metadata.js";
-import { acceptedSnapshot, auditCurrentness, type AdmissionContext } from "./admission.js";
+import { auditCurrentness, type AdmissionContext } from "./admission.js";
 import { compareSnapshots } from "./snapshots.js";
-import { AuditRefusal, type AuditActivity, type AuditKind, type AuditReport, type AuditResult, type WorkSnapshot } from "./contracts.js";
+import { AuditRefusal, type AuditActivity, type AuditKind, type WorkSnapshot } from "./contracts.js";
+import { effectiveAudit, effectiveSnapshot, hasEffectiveResult } from "./effective-result.js";
 import { AuditStore, hashBytes } from "./storage.js";
+export { acceptedAudit, classifyAuditReport, countedOutcome, effectiveAudit, effectiveSnapshot, hasEffectiveResult, phasesBeyondInitial, waiveAudit, waiveUnstartedAudit, type AuditReportClass, type AuditWaiverRecorded, type EffectiveAudit } from "./effective-result.js";
 
 export interface ExecutionActivity {
   activityId: string; sequence: number; kind: "implementation" | AuditKind | "final_delivery";
@@ -18,12 +20,6 @@ export interface ExecutionActivity {
 }
 export const auditKey = (activity: Pick<AuditActivity, "activityId">) => `audit-${activity.activityId}`;
 export const auditLabel = (kind: AuditKind) => kind === "delivery_audit" ? "Delivery audit" : "Test audit";
-export function acceptedAudit(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): { result: AuditResult; report: AuditReport } | undefined {
-  if (!activity.acceptedResult) return undefined;
-  const result = store.read<AuditResult>(activity.acceptedResult);
-  if (result.activityId !== activity.activityId || result.disposition !== "recorded") throw new AuditRefusal("missing_evidence", `Invalid accepted audit result for ${activity.reportPath}.`);
-  return { result, report: JSON.parse(result.reportBytes) as AuditReport };
-}
 /** Upgrade only observed history, retaining original timestamps and session paths. */
 export function activityHistory(record: PrdRecord, stateDirectory: string): ExecutionActivity[] {
   if (record.activities) return record.activities;
@@ -46,37 +42,52 @@ export function observeActivity(record: PrdRecord, stateDirectory: string, key: 
   const activity: ExecutionActivity = { activityId: id, sequence: Math.max(0, ...history.map(a => a.sequence)) + 1, kind, key, ...(kind === "implementation" ? { phaseId: key } : {}), createdAt: at };
   history.push(activity); return activity;
 }
-/** Reused by every completion entry point and again after repository finalization. */
+/**
+ * Reused by every completion entry point and again after repository finalization. Each audit
+ * routes on its effective result, so an audit marked complete counts as its report allows
+ * (AC-WAIVE-12) and is measured for currentness from its waiver snapshot.
+ */
 export async function auditNext(context: AdmissionContext): Promise<AuditKind | "continue_test" | "final_delivery"> {
   const state = context.record.completionAudits;
   if (!state) throw new AuditRefusal("missing_evidence", "Completion audit policy is missing; reopen with a compatible Kiln.");
   if (state.policy === "legacy_complete" && context.record.completedAt) return "final_delivery";
   const delivery = state.activities.findLast(a => a.kind === "delivery_audit");
   if (!delivery) return "delivery_audit";
-  const accepted = acceptedAudit(context.stateDirectory, delivery);
-  if (!accepted || accepted.report.outcome !== "passed" || !context.record.phases[auditKey(delivery)]?.doneAt) return "delivery_audit";
+  const settled = effectiveAudit(context.stateDirectory, delivery);
+  if (!settled || settled.outcome !== "passed" || !context.record.phases[auditKey(delivery)]?.doneAt) return "delivery_audit";
   const tests = state.activities.findLast(a => a.kind === "test_audit" && a.sequence > delivery.sequence);
-  const testAccepted = tests && acceptedAudit(context.stateDirectory, tests);
-  const testSettled = !!testAccepted && !!context.record.phases[auditKey(tests)]?.doneAt;
+  const testResult = tests && effectiveAudit(context.stateDirectory, tests);
+  const testSettled = !!testResult && !!context.record.phases[auditKey(tests)]?.doneAt;
   // The test audit's own statement decides whether its changes need a fresh delivery audit (AC-NEUTRAL-06):
   // one that says it changed only tests and records is judged from its own snapshot, not the delivery audit's.
-  if (testSettled && testAccepted.report.schemaVersion === 2 && testAccepted.report.changedImplementation) return "delivery_audit";
+  // A test audit marked complete with no usable report counts as having changed only tests (AC-WAIVE-12).
+  if (testSettled && testResult.changedImplementation) return "delivery_audit";
   // Trusted only when nothing changed between one audit's acceptance and the next one's start, such as a person's edit during a stop.
-  const vouchedTests = testSettled && testAccepted.report.schemaVersion === 2 && untouchedBetweenAudits(context, [delivery, ...state.activities.filter(a => a.kind === "test_audit" && a.sequence > delivery.sequence && a.acceptedResult)]);
+  const vouchedTests = testSettled && testResult.changedImplementation !== undefined && untouchedBetweenAudits(context, [delivery, ...state.activities.filter(a => a.kind === "test_audit" && a.sequence > delivery.sequence && hasEffectiveResult(a))]);
   if (!vouchedTests && !(await auditCurrentness(context, delivery)).deliveryCurrent) return "delivery_audit";
   if (!tests || !testSettled) return "test_audit";
   const current = await auditCurrentness(context, tests);
   if (!current.deliveryCurrent) return "delivery_audit";
   if (!current.testsCurrent) return "test_audit";
-  if (testAccepted.report.outcome === "continue_test") return "continue_test";
-  return testAccepted.report.outcome === "passed" ? "final_delivery" : "test_audit";
+  if (testResult.outcome === "continue_test") return "continue_test";
+  return testResult.outcome === "passed" ? "final_delivery" : "test_audit";
 }
-function untouchedBetweenAudits(context: AdmissionContext, chain: AuditActivity[]): boolean {
+/** Whether each audit's checked work is what the next one started from (accepted or waiver snapshot). */
+export function untouchedBetweenAudits(context: AdmissionContext, chain: AuditActivity[]): boolean {
   const store = new AuditStore(context.stateDirectory);
-  return chain.slice(1).every((next, index) => compareSnapshots(context.record, acceptedSnapshot(context.stateDirectory, chain[index]!), store.read<WorkSnapshot>(next.snapshots[0]!)).deliveryCurrent);
+  return chain.slice(1).every((next, index) => compareSnapshots(context.record, effectiveSnapshot(context.stateDirectory, chain[index]!, store), store.read<WorkSnapshot>(next.snapshots[0]!)).deliveryCurrent);
+}
+/**
+ * A test continuation may follow only a settled test audit whose effective result is `continue_test`,
+ * accepted or counted at a waiver (AC-NEUTRAL-05, AC-WAIVE-12).
+ */
+export function continuablePredecessor(context: Pick<AdmissionContext, "record" | "stateDirectory">): AuditActivity | undefined {
+  const predecessor = context.record.completionAudits?.activities.findLast(a => a.kind === "test_audit");
+  if (!predecessor || !context.record.phases[auditKey(predecessor)]?.doneAt) return undefined;
+  return effectiveAudit(context.stateDirectory, predecessor)?.outcome === "continue_test" ? predecessor : undefined;
 }
 /** Discover enabled skills at the launch directory; ambiguity is a visible refusal. */
-export async function resolveAuditSkill(options: { kind: AuditKind; agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<AuditActivity["skill"]> {
+export async function resolveAuditSkill(options: { kind: AuditKind; agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<NonNullable<AuditActivity["skill"]>> {
   const name = options.kind === "delivery_audit" ? "delivery-audit" : "test-audit";
   let paths: string[] = [];
   if (options.agent === "codex") {

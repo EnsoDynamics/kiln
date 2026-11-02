@@ -419,8 +419,9 @@ describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", h
         const spy = vi.spyOn(development, "reconcileDelivery").mockImplementation(async context => { development.ledger(context.record).sourceUnavailable = true; development.ledger(context.record).lastReadError = "Development source read unavailable"; });
         restore = () => { spy.mockRestore(); delete h.engine.record.developmentAuthorization; };
       } else if (audit.acceptedResult) {
-        const realAccepted = workflow.acceptedAudit;
-        const spy = vi.spyOn(workflow, "acceptedAudit").mockImplementation((directory, selected) => { if (selected.activityId === audit.activityId) throw new Error("Private audit source read unavailable"); return realAccepted(directory, selected); }); restore = () => { spy.mockRestore(); };
+        // The engine reads an audit's effective result (accepted or waived, waivers AC-WAIVE-12).
+        const realEffective = workflow.effectiveAudit;
+        const spy = vi.spyOn(workflow, "effectiveAudit").mockImplementation((directory, selected, store) => { if (selected.activityId === audit.activityId) throw new Error("Private audit source read unavailable"); return realEffective(directory, selected, store); }); restore = () => { spy.mockRestore(); };
       } else {
         const spy = vi.spyOn(admission, "submitAudit").mockImplementation(async () => {
           if (fault === "provider") throw new Error("Provider evidence read unavailable");

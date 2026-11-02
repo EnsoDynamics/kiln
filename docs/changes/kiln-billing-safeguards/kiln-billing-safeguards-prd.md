@@ -75,6 +75,7 @@ Billing protection must survive an unattended run and a restart. The screen expl
   - Replaces in part: AC-WATCH-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (billing readiness is checked before every AI launch, alongside existing account refreshes).
 
 - [ ] **AC-RUN-02 — A blocked continuation preserves the work.** An unapproved detected metered route keeps Start unavailable before the first run or holds the next AI launch at Needs you once work is underway, retaining the recorded session and completed work. The screen identifies the detected source and offers approval or changing that source followed by recheck. Resume becomes available after the applicable billing and existing recovery requirements pass; approving alone does not resume work. Missing additional billing details alone never cause this hold.
+  - Superseded in part by: AC-WAIVE-02/04/09 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a launch held for billing approval, on an activity that has not run, can be marked complete without launching it; the waiver never makes a later launch eligible).
 
 - [ ] **AC-RUN-03 — Recovery applies the same billing rules.** Usage-limit recovery, wake-from-sleep recovery, manual Resume, and Resume now all obey AC-RUN-01 and the cases in AC-BILL-02. Automatic recovery cannot bypass an unapproved detected override, but missing additional billing details alone do not prevent it. A newly signed-in subscription account needs no billing confirmation without evidence of a metered override. Existing percentage-used warnings remain advisory.
   - Replaces in part: AC-AUTO-02 and AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Claude resumes require billing eligibility even when the usage reset permits recovery).
@@ -105,6 +106,7 @@ Codex users should be able to see which ChatGPT account the work uses and unders
   | Only a balance or availability flag is known | Do not infer that paid usage is enabled, that the current run is consuming credits, that auto-reload is enabled, or that the balance authorizes automatic recovery. |
 
 - [ ] **AC-CODEX-03 — Existing authentication restrictions still decide eligibility.** Kiln continues requiring ChatGPT authentication and the OpenAI provider before every Codex launch and resume, including after restart. Existing version, managed-policy, and execution-readiness checks remain in force. Neither a Claude approval nor missing optional billing details can bypass a failed Codex check.
+  - Superseded in part by: AC-WAIVE-02/04/09 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a launch held for a failed Codex sign-in or readiness check, on an activity that has not run, can be marked complete without launching it; the waiver never makes a later launch eligible).
 
   | Codex readiness case | User action and launch behavior |
   |---|---|

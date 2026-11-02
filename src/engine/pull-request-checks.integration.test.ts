@@ -45,6 +45,11 @@ describe("the pull-request check across repositories", () => {
       name: "Pull request open",
       passed: false,
       facts: ["product: #12 open", "returns-api: #57 is a draft", "notifications: No open pull request from feature/customer-returns into main"],
+      // One item per repository that fails, keyed by repository (waivers AC-WAIVE-11).
+      items: [
+        { kind: "other", subject: "returns-api", text: "returns-api: #57 is a draft", against: "" },
+        { kind: "other", subject: "notifications", text: "notifications: No open pull request from feature/customer-returns into main", against: "" },
+      ],
     };
     expect(failing).toEqual({ passed: false, check, checks: [check] });
     // Asked in parallel, so in no fixed order.

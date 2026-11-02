@@ -33,6 +33,8 @@ Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-ad
 
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (reconcile active additions before finalization).
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Audits Marked Complete (a waived audit routes by its counted outcome).
+
 Every startup, loop continuation, session settlement, Check again and Resume uses one next-activity decision. Evaluate outstanding workspace, plan and required development evidence first. Then select the first applicable row:
 
 | Current facts | Next work |

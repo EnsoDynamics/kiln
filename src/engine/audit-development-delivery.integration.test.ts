@@ -80,7 +80,8 @@ describe("audit development owners", () => {
     expect(f.record.developmentDelivery).toEqual(before);
     await expect(recordAssessment(f.context, f.assess({ checkpoints: [{ ...f.checkpoint, phaseId: "1" }] }))).rejects.toThrow();
     writeFileSync(join(f.h.engine.worktreePath, directory, "customer-returns-prd.md"), prd.replace("return value", "new return value"));
-    expect(ownerDeliveryCheck(f.context, f.owner)).toMatchObject({ passed: false, facts: [expect.stringContaining("needs a current development-delivery assessment")] });
+    // Every failing item is listed (AC-WAIVE-11): the stale assessment, and the unmet obligations beside it.
+    expect(ownerDeliveryCheck(f.context, f.owner)).toMatchObject({ passed: false, facts: expect.arrayContaining([expect.stringContaining("needs a current development-delivery assessment")]) });
   });
 
   it("migrates schema-6 phase origins without rewriting history and refuses ambiguous audit origins", async () => {

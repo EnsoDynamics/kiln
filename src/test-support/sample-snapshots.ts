@@ -1,7 +1,9 @@
 // The mockups' sample data as Snapshots (fictional), for the view's tests: Documents found,
 // then the progress screens, then the multi-repo delivery mockups' PRD across repositories.
 
-import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../engine/snapshot.js";
+import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot, WaiverView } from "../engine/snapshot.js";
+import type { CheckItem, MarkCompleteOffer, WaiverRef } from "../engine/waivers.js";
+import type { CheckResult } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
 import { outsideWorkspacePrompt } from "../session/prompts.js";
 
@@ -622,5 +624,142 @@ export function completeDeliveryHistorySnapshot(): Snapshot {
     { kind: "pull_request", repository: "acme-shop", number: 6, commit: "3".repeat(40), title: "Release returns acceptance", target: "main", url: "https://github.com/acme/acme-shop/pull/6", workCommits: ["f".repeat(40)], broader: true, occurredAt: "2026-10-17T15:00:00Z" },
     { kind: "merge", repository: "acme-shop", commit: "4".repeat(40), title: "Merge returns into another branch", target: "develop", url: "https://github.com/acme/acme-shop/commit/" + "4".repeat(40), workCommits: ["a".repeat(40), "b".repeat(40)], broader: false, occurredAt: "2026-10-17T15:30:00Z" },
   ] }] };
+  return snapshot;
+}
+
+// ---- The completion waivers mockup's states (docs/changes/kiln-completion-waivers/mockups/),
+// on this feature's phase 2b: a hand-back stop whose development verification Kiln refuses,
+// Mark complete, and the displays after the waiver.
+
+const DELIVERY_CHECK = "Required development delivery verified";
+const DELIVERY_TEXT = "api-checkpoint / verify: /deployed_sha does not match its declared target/artifact.";
+const DELIVERY_ITEM: CheckItem = { kind: "development_requirement", subject: "api-checkpoint/verify", text: DELIVERY_TEXT, against: "api-checkpoint@abcdef123456" };
+export const WAIVER_AT = "2026-10-17T15:58:22Z";
+export const WAIVER: WaiverView = {
+  id: "waiver-2b", at: WAIVER_AT, activityKey: "2b", activity: "Phase 2b", effect: "completed",
+  source: { via: "browser", account: "alex" }, checkRun: { id: "run-2b-recheck", at: "2026-10-17T15:56:05Z" },
+  items: [{ check: DELIVERY_CHECK, kind: DELIVERY_ITEM.kind, subject: DELIVERY_ITEM.subject, text: DELIVERY_ITEM.text, against: DELIVERY_ITEM.against }],
+};
+const WAIVER_REF: WaiverRef = { waiverId: WAIVER.id, activityKey: "2b", at: WAIVER_AT, via: "browser", account: "alex" };
+
+function handBackChecks(mixed: boolean): CheckResult[] {
+  return [
+    mixed ? { name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"], items: [{ kind: "phase_closed", subject: "2b", text: "No Closed line in phase-2b-store-credit.md", against: "2b" }] } : { name: "Phase doc closed", passed: true, facts: ["phase-2b-store-credit.md has a Closed line"] },
+    { name: "Everything committed", passed: true, facts: ["acme-shop: working tree is clean"] },
+    mixed ? { name: "Pushed", passed: false, facts: ["acme-shop: 1 commit not pushed (head 4c1a9e07)"], items: [{ kind: "repository_work", subject: "acme-shop", text: "acme-shop: 1 commit not pushed (head 4c1a9e07)", against: "4c1a9e07:clean" }] } : { name: "Pushed", passed: true, facts: ["acme-shop: no commits waiting to be pushed"] },
+    { name: DELIVERY_CHECK, passed: false, facts: [DELIVERY_TEXT], items: [{ ...DELIVERY_ITEM }] },
+  ];
+}
+
+/** The offer on phase 2b once a recheck still fails (AC-WAIVE-02, AC-WAIVE-03). */
+export function markCompleteOfferSample(mixed = false): Extract<MarkCompleteOffer, { offered: true }> {
+  const failing = mixed ? 3 : 1;
+  return {
+    offered: true, label: "Mark Phase 2b complete", heading: "Phase 2b is done, and Kiln’s check is wrong?", continueInOrder: false, checkRunId: "run-2b-recheck",
+    items: handBackChecks(mixed).filter(check => !check.passed).flatMap(check => check.items!.map(item => ({ check: check.name, kind: item.kind, subject: item.subject, text: item.text, against: item.against }))),
+    failingChecks: failing, nextActivity: { kind: "phase", key: "3", title: "Returns dashboard" }, resultingLabel: `Complete · ${failing} check${failing === 1 ? "" : "s"} waived`, noReport: false,
+    sentence: [
+      `Mark it complete. Kiln skips the ${failing} failing check${failing === 1 ? "" : "s"} above, records ${failing === 1 ? "it" : "them"} as waived, never as passed, and moves to the next step. Phase 2b will show as “Complete · ${failing} check${failing === 1 ? "" : "s"} waived”.`,
+      ...(mixed ? ["acme-shop has work that is not committed and pushed. Work that is not committed and pushed will be missing from the final pull request. To push it instead, have Kiln resume Phase 2b."] : []),
+    ],
+  };
+}
+
+/**
+ * The hand-back page for phase 2b (waivers mockup states 1 to 4): before a recheck, the checks
+ * from when Kiln stopped; after one, `rechecked`, Mark complete offered unless `checking`.
+ */
+export function handBackSnapshot(options: { resumeOffered?: boolean; rechecked?: boolean; checking?: boolean; mixed?: boolean } = {}): Snapshot {
+  const { resumeOffered = true, rechecked = false, checking = false, mixed = false } = options;
+  const snapshot = needsYouMessageSnapshot();
+  const stop = snapshot.needsYou!;
+  const checks = handBackChecks(mixed);
+  const failed = checks.filter(check => !check.passed).length;
+  const handBack: NonNullable<Snapshot["needsYou"]> = {
+    ...stop,
+    resumeOffered,
+    checks,
+    counts: { passed: checks.length - failed, waived: 0, failed },
+    checkedAt: rechecked ? "2026-10-17T15:56:05Z" : "2026-10-17T15:52:00Z",
+    checkRun: rechecked ? { id: "run-2b-recheck", at: "2026-10-17T15:56:05Z", origin: "recheck", finished: true } : { id: "run-2b-stop", at: "2026-10-17T15:52:00Z", origin: "stop", finished: true },
+    markComplete: rechecked && !checking ? markCompleteOfferSample(mixed) : { offered: false, reason: checking ? "Kiln is checking." : "No check has run since Phase 2b stopped." },
+    ...(checking ? { checking: true as const } : {}),
+    phaseRecovery: { target: { executionId: "display-execution", phaseKey: "2b", sessionId: SESSION_2B, stoppedAt: "2026-10-17T15:52:00Z" }, completion: "incomplete" },
+  };
+  if (!resumeOffered) delete handBack.resumeCommand;
+  snapshot.needsYou = handBack;
+  return snapshot;
+}
+
+/** After phase 2b was marked complete (waivers mockup state 6): phase 3 running, 2b Complete · 1 check waived. */
+export function waivedPhaseSnapshot(): Snapshot {
+  const snapshot = runningSnapshot();
+  const waivedChecks: CheckResult[] = [
+    { name: "Phase doc closed", passed: true, facts: ["phase-2b-store-credit.md has a Closed line"] },
+    { name: "Everything committed", passed: true, facts: ["acme-shop: working tree is clean"] },
+    { name: "Pushed", passed: true, facts: ["acme-shop: no commits waiting to be pushed"] },
+    { name: DELIVERY_CHECK, passed: true, waived: true, facts: [DELIVERY_TEXT], items: [{ ...DELIVERY_ITEM, waiver: WAIVER_REF }] },
+  ];
+  const done2b: PhaseView = {
+    ...PHASE_2B, state: "done", sessionStartedAt: "2026-10-17T14:58:00Z", doneAt: WAIVER_AT, finishedByPerson: false,
+    details: details("2026-10-17T14:58:00Z", WAIVER_AT, "high", 2, "7f3a91c5e2aa", SESSION_2B),
+    waivedChecks: 1, waivedCompletion: { checks: waivedChecks, counts: { passed: 3, waived: 1, failed: 0 } }, waivers: [WAIVER],
+  };
+  snapshot.feature = { ...snapshot.feature, currentPhaseId: "3", phasesDone: 3 };
+  snapshot.phases = [PHASE_1, PHASE_2, PHASE_2A, done2b, { ...PHASE_3, state: "implementing", sessionStartedAt: "2026-10-17T15:58:30Z" }, PHASE_4];
+  snapshot.current = { ...snapshot.current!, phaseId: "3", sessionId: SESSION_3, startedAt: "2026-10-17T15:58:30Z" };
+  snapshot.waivers = [WAIVER];
+  return snapshot;
+}
+
+/**
+ * Final delivery on the standard Needs you page (waivers mockup state 7): a carried waiver tags
+ * its item within a check that still fails, and Mark complete sits below Check again.
+ */
+export function finalDeliveryNeedsYouSnapshot(): Snapshot {
+  const snapshot = needsYouMessageSnapshot();
+  const stop = snapshot.needsYou!;
+  const checks: CheckResult[] = [{
+    name: "Development delivery and remaining review", passed: false,
+    facts: [DELIVERY_TEXT, "acme-shop: unresolved — no complete source-work delivery provenance."],
+    items: [{ ...DELIVERY_ITEM, waiver: WAIVER_REF }, { kind: "other", subject: "acme-shop", text: "acme-shop: unresolved — no complete source-work delivery provenance.", against: "acme-shop=9e04c7d2" }],
+  }];
+  snapshot.feature = { ...snapshot.feature, currentPhaseId: "pr", phasesDone: 5 };
+  snapshot.waivers = [WAIVER];
+  snapshot.needsYou = {
+    ...stop, phaseId: "pr", resumeOffered: true, checks, counts: { passed: 0, waived: 0, failed: 1 },
+    checkedAt: "2026-10-17T16:41:00Z", checkRun: { id: "run-pr-recheck", at: "2026-10-17T16:41:00Z", origin: "recheck", finished: true },
+    markComplete: {
+      offered: true, label: "Mark final delivery complete", heading: "Final delivery is done, and Kiln’s check is wrong?", continueInOrder: false, checkRunId: "run-pr-recheck",
+      items: [{ check: checks[0]!.name, kind: "other", subject: "acme-shop", text: checks[0]!.facts[1]!, against: "acme-shop=9e04c7d2" }],
+      failingChecks: 1, nextActivity: { kind: "complete", key: "complete", title: "Complete" }, resultingLabel: "Complete · 1 check waived", noReport: false,
+      sentence: ["Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · 1 check waived”."],
+    },
+  };
+  return snapshot;
+}
+
+/** A delivery audit with no usable report, marked complete (waivers mockup state 10, after Mark complete). */
+export function noReportAuditSnapshot(): Snapshot {
+  const snapshot = waivedPhaseSnapshot();
+  const auditWaiver: WaiverView = { id: "waiver-audit", at: "2026-10-17T16:34:10Z", activityKey: "audit-da1", activity: "Delivery audit", effect: "completed", source: { via: "browser", account: "alex" }, checkRun: { id: "run-da1", at: "2026-10-17T16:33:00Z" }, items: [{ check: "Audit result recorded", kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10" }] };
+  const reportCheck: CheckResult = { name: "Audit result recorded", passed: true, waived: true, facts: ["No audit report yet."], items: [{ kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10", waiver: { waiverId: auditWaiver.id, activityKey: "audit-da1", at: auditWaiver.at, via: "browser", account: "alex" } }] };
+  const audit: PhaseView = {
+    id: "audit-da1", activityId: "da1", kind: "delivery_audit", title: "Delivery audit", file: "Round 1", round: 1, continuationIndex: 1, state: "done", doneAt: auditWaiver.at, finishedByPerson: false,
+    audit: { checks: [reportCheck], criteria: [], repositories: [], blockers: [], pendingActions: [] },
+    waivedChecks: 1, waivedCompletion: { checks: [reportCheck], counts: { passed: 0, waived: 1, failed: 0 } }, waivers: [auditWaiver],
+    warnings: [{ kind: "no_audit_report", text: "no audit report: Kiln couldn’t tell what this audit found" }],
+  };
+  snapshot.activities = [...snapshot.phases.filter(row => row.id !== "4"), audit, { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Round 1", round: 1, continuationIndex: 1, state: "implementing", finishedByPerson: false }];
+  snapshot.waivers = [WAIVER, auditWaiver];
+  return snapshot;
+}
+
+/** Complete after final delivery was marked complete (waivers mockup state 9). */
+export function completeWaivedSnapshot(): Snapshot {
+  const snapshot = completeSnapshot();
+  const prWaiver: WaiverView = { ...WAIVER, id: "waiver-pr", activityKey: "pr", activity: "Final delivery", at: "2026-10-17T18:55:00Z" };
+  snapshot.phases = snapshot.phases.map(row => row.id === "2b" ? { ...row, waivedChecks: 1, waivers: [WAIVER] } : row.id === "pr" ? { ...row, waivedChecks: 1, waivers: [prWaiver] } : row);
+  snapshot.waivers = [WAIVER, prWaiver];
   return snapshot;
 }

@@ -1,15 +1,28 @@
 import { readFileSync, statSync } from "node:fs";
 import type { PrdRecord, CheckResult } from "../state/records.js";
 import type { GitContext } from "../engine/git-reads.js";
+import type { CheckItem } from "../engine/waivers.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { AuditStore, hashBytes, hashValue, REPORT_LIMIT, strictJson } from "./storage.js";
 import { assignedPath, captureSnapshot, compareSnapshots, gitText, repositoryFor } from "./snapshots.js";
 import { REPORT_FIELDS, validateReport } from "./validate-report.js";
+import { effectiveAudit, hasEffectiveResult } from "./effective-result.js";
 
 export const RESULT_CHECK = "Audit result recorded";
+/**
+ * A failing Audit result recorded row: one judgment, so one item naming the one report and its
+ * first refusal reason (AC-WAIVE-11). Its `against` is left for the engine to fill.
+ *
+ *   auditResultCheck(activity, "No audit report at docs/…/kiln-audit-1.json yet.")
+ */
+export function auditResultCheck(activity: Pick<AuditActivity, "reportPath">, reason: string): CheckResult {
+  return { name: RESULT_CHECK, passed: false, facts: [reason], items: [{ kind: "other", subject: activity.reportPath, text: reason, against: "" }] };
+}
 export interface AdmissionContext {
   record: PrdRecord; stateDirectory: string; git: GitContext; signal: AbortSignal;
   developmentChecks?(): CheckResult[];
+  /** While a waived plan problem stops the plan from reading, the phases Normal Order uses; snapshots read them (waivers AC-WAIVE-04). */
+  planPhases?: import("../plan/phase-plan.js").PlannedPhase[];
 }
 export function activeAudit(record: PrdRecord): AuditActivity {
   const activity = record.completionAudits?.activities.at(-1);
@@ -23,7 +36,7 @@ export interface AuditProblem { code: string; reason: string; criteria: string[]
  */
 export function latestAuditRefusal(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): AuditProblem | undefined {
   const latest = activity.attempts.at(-1);
-  if (activity.acceptedResult || !latest) return undefined;
+  if (hasEffectiveResult(activity) || !latest) return undefined;
   const result = store.read<AuditResult>(latest);
   if (result.refusal) return { code: result.refusal.code, reason: result.refusal.reason, criteria: result.refusal.criteria ?? [], at: result.at };
   const failed = result.checks.filter(check => !check.passed);
@@ -42,7 +55,7 @@ function revision(context: AdmissionContext, body: Record<string, unknown>) {
 export function auditStatus(context: AdmissionContext) {
   const activity = activeAudit(context.record); const state = context.record.completionAudits!;
   const latestRefusal = latestAuditRefusal(context.stateDirectory, activity);
-  return { executionId: context.record.executionId, activityId: activity.activityId, kind: activity.kind, round: activity.round, continuationIndex: activity.continuationIndex, revision: state.revision, requiredReportPath: activity.reportPath, reportContract: REPORT_FIELDS, acceptedResults: state.activities.flatMap(a => a.acceptedResult ? [{ activityId: a.activityId, resultId: a.acceptedResult }] : []), outstandingChecks: activity.acceptedResult ? [] : [RESULT_CHECK], ...(latestRefusal ? { latestRefusal } : {}) };
+  return { executionId: context.record.executionId, activityId: activity.activityId, kind: activity.kind, round: activity.round, continuationIndex: activity.continuationIndex, revision: state.revision, requiredReportPath: activity.reportPath, reportContract: REPORT_FIELDS, acceptedResults: state.activities.flatMap(a => a.acceptedResult ? [{ activityId: a.activityId, resultId: a.acceptedResult }] : []), ...(activity.waivedResult ? { waivedResult: activity.waivedResult } : {}), outstandingChecks: hasEffectiveResult(activity) ? [] : [RESULT_CHECK], ...(latestRefusal ? { latestRefusal } : {}) };
 }
 
 /** Retired (AC-NEUTRAL-10): Kiln captures snapshots itself, so a request changes nothing. */
@@ -50,18 +63,25 @@ export function issueSnapshot(): never {
   throw new AuditRefusal("malformed_request", "kiln audit snapshot is retired: Kiln captures the work itself when the report is submitted. Commit and push the report, then run kiln audit submit.", 400);
 }
 
+/**
+ * Everything committed and Pushed, one failing item per repository and problem (AC-WAIVE-11):
+ * uncommitted or unpushed work is that repository's `repository_work` item, any other problem an
+ * `other` item keyed by the repository. The engine fills each `against`.
+ */
 export async function repositoryChecks(context: AdmissionContext): Promise<CheckResult[]> {
-  const committed: string[] = []; const pushed: string[] = [];
+  const committed: CheckItem[] = []; const pushed: CheckItem[] = [];
+  const item = (kind: CheckItem["kind"], subject: string, text: string): CheckItem => ({ kind, subject, text, against: "" });
   for (const repo of context.record.repositories) {
     const status = await gitText(context.git, repo, ["status", "--porcelain"]);
-    if (status.trim()) committed.push(`${repo.name}: uncommitted or untracked work remains.`);
+    if (status.trim()) committed.push(item("repository_work", repo.name, `${repo.name}: uncommitted or untracked work remains.`));
     const branch = (await gitText(context.git, repo, ["branch", "--show-current"])).trim();
-    if (branch !== context.record.settings.featureBranch) committed.push(`${repo.name}: assigned branch changed.`);
+    if (branch !== context.record.settings.featureBranch) committed.push(item("other", repo.name, `${repo.name}: assigned branch changed.`));
     const head = (await gitText(context.git, repo, ["rev-parse", "HEAD"])).trim();
     const origin = await gitText(context.git, repo, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`]);
-    if (origin.trim().split(/\s/)[0] !== head) pushed.push(`${repo.name}: current head is not pushed to its assigned branch.`);
+    if (origin.trim().split(/\s/)[0] !== head) pushed.push(item("repository_work", repo.name, `${repo.name}: current head is not pushed to its assigned branch.`));
   }
-  return [{ name: "Everything committed", passed: !committed.length, facts: committed.length ? committed : ["Every assigned worktree is clean."] }, { name: "Pushed", passed: !pushed.length, facts: pushed.length ? pushed : ["Every assigned head matches origin."] }];
+  const row = (name: string, items: CheckItem[], passing: string): CheckResult => items.length ? { name, passed: false, facts: items.map(one => one.text), items } : { name, passed: true, facts: [passing] };
+  return [row("Everything committed", committed, "Every assigned worktree is clean."), row("Pushed", pushed, "Every assigned head matches origin.")];
 }
 
 /** Idempotency precedes revision checking, so a disconnected successful caller can recover. */
@@ -74,11 +94,11 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     if (statSync(path).size > REPORT_LIMIT) throw new AuditRefusal("report_too_large", `Maximum report size is ${REPORT_LIMIT} bytes.`, 413);
     bytes = readFileSync(path, "utf8");
   } catch (error) {
-    if (activity.acceptedResult) throw error;
+    if (hasEffectiveResult(activity)) throw error;
     revision(context, body);
     const missing = error instanceof AuditRefusal ? error.code === "missing_evidence" : (error as NodeJS.ErrnoException).code === "ENOENT";
     const refused = missing ? new AuditRefusal("missing_evidence", `No audit report at ${activity.reportPath} yet. The audit session writes, commits and pushes it when the audit ends.`) : error instanceof AuditRefusal ? error : new AuditRefusal("evidence_unavailable", `Cannot read the audit report at ${activity.reportPath}: ${(error as Error).message}`, 503);
-    const result: AuditResult = { id: "", activityId: activity.activityId, reportDigest: hashBytes(""), reportBytes: "", at: new Date().toISOString(), revision: state.revision + 1, disposition: "unresolved", nextAction: "needs_you", checks: [{ name: RESULT_CHECK, passed: false, facts: [refused.message] }], refusal: { code: refused.code, status: refused.status, reason: refused.message, criteria: refused.criteria } };
+    const result: AuditResult = { id: "", activityId: activity.activityId, reportDigest: hashBytes(""), reportBytes: "", at: new Date().toISOString(), revision: state.revision + 1, disposition: "unresolved", nextAction: "needs_you", checks: [auditResultCheck(activity, refused.message)], refusal: { code: refused.code, status: refused.status, reason: refused.message, criteria: refused.criteria } };
     result.id = hashValue({ ...result, id: undefined }); activity.attempts.push(store.put(result)); state.revision = result.revision; return result;
   }
   const reportDigest = hashBytes(bytes);
@@ -86,6 +106,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   const identical = attempts.findLast(a => a.reportDigest === reportDigest && a.disposition === "recorded");
   if (identical) return identical;
   if (activity.acceptedResult) throw new AuditRefusal("result_conflict", "A different result is already accepted for this activity.", 409);
+  if (activity.waivedResult) throw new AuditRefusal("result_conflict", "This audit was marked complete; Kiln no longer accepts a report for it.", 409);
   revision(context, body);
   const checks: CheckResult[] = []; let refusal: AuditResult["refusal"]; let nextAction: AuditResult["nextAction"] = "needs_you"; let snapshotId: string | undefined;
   try {
@@ -107,7 +128,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     refusal = { code: error.code, status: error.status, reason: error.message, criteria: error.criteria };
     // Shown under "Kiln continues when": the unmet condition, with the refusal as its reason.
     for (let i = checks.length - 1; i >= 0; i--) if (checks[i]!.name === RESULT_CHECK) checks.splice(i, 1);
-    checks.push({ name: RESULT_CHECK, passed: false, facts: [error.message] });
+    checks.push(auditResultCheck(activity, error.message));
   }
   const disposition = checks.every(c => c.passed) ? "recorded" : "unresolved";
   const revisionNumber = state.revision + 1;
@@ -125,12 +146,19 @@ export function acceptedSnapshot(stateDirectory: string, activity: AuditActivity
   return checked;
 }
 
-/** The scheduler calls this for the latest gate only. */
+/**
+ * The scheduler calls this for the latest gate only. Measured from the effective result's snapshot:
+ * the accepted snapshot, or for an audit marked complete its waiver snapshot (AC-WAIVE-12), so a
+ * waived audit stays current while the work is unchanged. A report it rests on must be unchanged too.
+ */
 export async function auditCurrentness(context: AdmissionContext, activity: AuditActivity) {
-  const store = new AuditStore(context.stateDirectory); const checked = acceptedSnapshot(context.stateDirectory, activity);
-  const result = store.read<AuditResult>(activity.acceptedResult!);
-  const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath), "utf8");
-  requireAudit(hashBytes(portable) === result.reportDigest, "Latest portable audit report changed.", "stale_snapshot");
+  const effective = effectiveAudit(context.stateDirectory, activity);
+  requireAudit(effective, "Audit result has not been accepted.", "missing_evidence");
+  const checked = effective.snapshot();
+  if (effective.reportDigest !== undefined) {
+    const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath), "utf8");
+    requireAudit(hashBytes(portable) === effective.reportDigest, "Latest portable audit report changed.", "stale_snapshot");
+  }
   const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString(), retainedClassification: true }, checked.testPaths);
   return compareSnapshots(context.record, checked, current);
 }

@@ -12,6 +12,8 @@ import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import type { PhasePlan } from "../plan/phase-plan.js";
+import { applyWaivers, effectivePlan, matchKey, type CheckItem, type Waiver } from "./waivers.js";
+import { hasEffectiveResult } from "../audit/effective-result.js";
 
 export class DeliveryRefusal extends Error { constructor(message: string, readonly status: 400 | 409 | 422 = 409) { super(message); } }
 class ObservedOperationFailure extends DeliveryRefusal { constructor(message: string, readonly rawPath: string) { super(message); } }
@@ -68,8 +70,9 @@ async function source(context: DeliveryContext, repo: RepositoryEntry, path: str
   need(sha(revision) && typeof path === "string" && path.length > 0 && !isAbsolute(path) && !path.split(/[\\/]/).includes(".."), "Workflow evidence needs a repository-relative source path and immutable revision.", 422);
   return git(context, repo, ["show", `${revision}:${path}`]);
 }
+/** The current plan's leaves, a leaf whose Closed line a waiver covers or that was skipped under a plan waiver counting as closed (waivers "Effective plan"). */
 function currentLeaves(context: DeliveryContext) {
-  const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem); return plan.plan.phases.filter(phase => !phase.splitInto);
+  const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem); return effectivePlan(plan.plan, context.record).plan.phases.filter(phase => !phase.splitInto);
 }
 export function ownerDocuments(context: DeliveryContext, owner: DeliveryOwner): { documentsDigest: string; requirementManifestDigest?: string } {
   if (owner.kind === "phase") return { documentsDigest: documentsDigest(context, owner.phaseId) };
@@ -77,7 +80,7 @@ export function ownerDocuments(context: DeliveryContext, owner: DeliveryOwner): 
   return { documentsDigest: binding.documentsDigest, requirementManifestDigest: binding.requirementManifestDigest };
 }
 function recoveryOwner(context: DeliveryContext): DeliveryOwner | undefined {
-  return activeRecoveryOwner(context, owner => ownerDeliveryCheck(context, owner).passed);
+  return activeRecoveryOwner(context, owner => applyWaivers(context.record.waivers ?? [], [ownerDeliveryCheck(context, owner)])[0]!.passed);
 }
 function activationLeaf(context: DeliveryContext): string | undefined {
   const owner = recoveryOwner(context); return owner?.kind === "phase" ? owner.phaseId : undefined;
@@ -89,7 +92,7 @@ function scope(context: DeliveryContext, owner: DeliveryOwner): void {
   need(active, "Delivery changes require the running or stopped activity.");
   if (active.kind === "audit") {
     const assigned = context.record.completionAudits?.activities.at(-1);
-    need(assigned?.activityId === active.activityId && !assigned.acceptedResult && ownerKey(active) === ownerKey(owner), "Only the current unfinished audit may record delivery.");
+    need(assigned?.activityId === active.activityId && !hasEffectiveResult(assigned) && ownerKey(active) === ownerKey(owner), "Only the current unfinished audit may record delivery.");
     return;
   }
   need(active.phaseId !== "pr" && owner.kind === "phase", "Delivery changes require the running or stopped implementation leaf.");
@@ -449,7 +452,8 @@ function deployedArtifact(state: DevelopmentLedger, id: string): EvidenceFact | 
 async function prerequisiteArtifactsNow(context: DeliveryContext, checkpoint: DeliveryCheckpoint, verifications: EvidenceRequirement[], verificationStartedAt?: string): Promise<{ checkpointId: string; revision: string }[]> {
   const state = ledger(context.record); const artifacts: { checkpointId: string; revision: string }[] = [];
   for (const id of checkpoint.dependsOn) {
-    const dependency = effectiveCheckpoint(state, id); need(dependency && checkpointSatisfied(state, dependency), `Prerequisite ${id} is unresolved.`);
+    // Binding needs the prerequisite resolved for every dependent; a dependent's own waived prerequisite item never binds an artifact.
+    const dependency = effectiveCheckpoint(state, id); need(dependency && checkpointResolved(state, dependency, context.record.waivers), `Prerequisite ${id} is unresolved.`);
     const deployed = dependency.evidence.find(one => one.status === "success" && dependency.requirements.find(req => req.id === one.requirementId)?.purpose === "deployment"); need(deployed, `Prerequisite ${id} has no deployed artifact.`);
     const carried = await carriedPrerequisite(context, checkpoint, dependency, deployed);
     if (!carried) for (const requirement of verifications) need(dependencyBound(requirement, id), `Dependent verification needs typed bindings to every prerequisite artifact: ${requirement.id} has no "$dependency:${id}" field.`);
@@ -468,6 +472,86 @@ export function checkpointSatisfied(state: DevelopmentLedger, checkpoint: Delive
   if (!checkpoint || seen.has(checkpoint.id)) return false; seen.add(checkpoint.id);
   if (checkpoint.supersededBy) { const replacement = state.checkpoints.find(one => one.id === checkpoint.supersededBy); return !!replacement && checkpointSatisfied(state, replacement, seen); }
   return !checkpoint.unresolvedReason && !!checkpoint.merge && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed") && checkpoint.requirements.filter(one => one.purpose !== "current_artifact").every(requirement => checkpoint.evidence.some(fact => fact.requirementId === requirement.id && fact.status === "success")) && checkpoint.dependsOn.every(id => { const dependency = state.checkpoints.find(one => one.id === id); return !!dependency && checkpointSatisfied(state, dependency, new Set(seen)); });
+}
+export const DELIVERY_CHECK = "Required development delivery verified";
+/** What a checkpoint's development items are checked against (AC-WAIVE-09): its id and merge result revision, so replacing it or a new merge ends a waiver. */
+export function checkpointAgainst(checkpoint: DeliveryCheckpoint): string { return `${checkpoint.id}@${checkpoint.merge?.resultSha ?? "unmerged"}`; }
+/** The obligations a checkpoint owes: its merge and every requirement but the current-artifact probe. */
+function obligationIds(checkpoint: DeliveryCheckpoint): string[] { return ["requiredMerge", ...checkpoint.requirements.filter(one => one.purpose !== "current_artifact").map(one => one.id)]; }
+/** Why one obligation is unmet, or undefined when its evidence is confirmed. */
+function obligationProblem(checkpoint: DeliveryCheckpoint, id: string): string | undefined {
+  const unresolved = checkpoint.unresolvedRequirements ?? {};
+  if (id === "requiredMerge") {
+    if (checkpoint.merge && !checkpoint.mergeUnresolvedReason && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed")) return undefined;
+    if (checkpoint.mergeUnresolvedReason) return checkpoint.mergeUnresolvedReason;
+    if (checkpoint.merge) return "the confirmed merge is not yet synchronized into the feature branch";
+    return unresolved["*"] ?? (checkpoint.unresolvedReason && !Object.keys(unresolved).length ? checkpoint.unresolvedReason : "the required merge is not confirmed");
+  }
+  if (!unresolved[id] && !unresolved["*"] && checkpoint.evidence.some(fact => fact.requirementId === id && fact.status === "success")) return undefined;
+  return unresolved[id] ?? unresolved["*"] ?? "required delivery evidence remains unresolved";
+}
+function obligationItem(checkpoint: DeliveryCheckpoint, id: string, problem: string): CheckItem {
+  return { kind: "development_requirement", subject: `${checkpoint.id}/${id}`, text: `${checkpoint.id} / ${id}: ${problem}`, against: checkpointAgainst(checkpoint) };
+}
+/** A dependent's unresolved prerequisite, checked against the prerequisite (its replacement, once replaced), so the dependent's own merge never ends its waiver. */
+function prerequisiteItem(state: DevelopmentLedger, dependent: DeliveryCheckpoint, id: string): CheckItem {
+  const prerequisite = effectiveCheckpoint(state, id);
+  return { kind: "development_requirement", subject: `${dependent.id}/prerequisite:${id}`, text: `${dependent.id}: prerequisite ${id} is unresolved.`, against: prerequisite ? checkpointAgainst(prerequisite) : `${id}@unmerged` };
+}
+function failingObligations(checkpoint: DeliveryCheckpoint, ids = obligationIds(checkpoint)): CheckItem[] {
+  return ids.flatMap(id => { const problem = obligationProblem(checkpoint, id); return problem === undefined ? [] : [obligationItem(checkpoint, id, problem)]; });
+}
+/** Whether an unexpired waiver covers this item, decided by the one coverage rule. */
+function covered(waivers: readonly Waiver[], item: CheckItem): boolean {
+  const [check] = applyWaivers(waivers, [{ name: DELIVERY_CHECK, passed: false, facts: [item.text], items: [{ ...item }] }]);
+  return !!check!.items![0]!.waiver;
+}
+/**
+ * The waived items a checkpoint is resolved on (WAIVE-004): empty when it is satisfied, the covered items when each
+ * obligation it fails is covered by a waiver and each prerequisite is resolved the same way or its own prerequisite item
+ * is covered, and undefined when it is unresolved. A waiver is never evidence: nothing is written from one.
+ */
+function resolution(state: DevelopmentLedger, waivers: readonly Waiver[], checkpoint: DeliveryCheckpoint | undefined, seen = new Set<string>()): CheckItem[] | undefined {
+  if (!checkpoint || seen.has(checkpoint.id)) return undefined;
+  if (checkpointSatisfied(state, checkpoint)) return [];
+  if (!waivers.some(waiver => waiver.items.some(item => item.kind === "development_requirement"))) return undefined;
+  const visited = new Set(seen).add(checkpoint.id);
+  if (checkpoint.supersededBy) return resolution(state, waivers, state.checkpoints.find(one => one.id === checkpoint.supersededBy), visited);
+  const items = failingObligations(checkpoint);
+  if (!items.every(item => covered(waivers, item))) return undefined;
+  for (const id of checkpoint.dependsOn) {
+    const carried = resolution(state, waivers, state.checkpoints.find(one => one.id === id), visited);
+    if (carried) { items.push(...carried); continue; }
+    const item = prerequisiteItem(state, checkpoint, id);
+    if (!covered(waivers, item)) return undefined;
+    items.push(item);
+  }
+  return items.length ? items : undefined;
+}
+/**
+ * Checkpoint resolved (WAIVE-004): satisfied as today, or resolved only by waivers of its failing obligations and
+ * prerequisites. Replaces the satisfied test wherever a prerequisite is judged.
+ *
+ *   checkpointResolved(ledger(record), prerequisite, record.waivers) // true once every failing obligation is waived
+ */
+export function checkpointResolved(state: DevelopmentLedger, checkpoint: DeliveryCheckpoint, waivers: readonly Waiver[] = []): boolean {
+  return resolution(state, waivers, checkpoint) !== undefined;
+}
+/** Whether a dependent may treat a prerequisite as met: resolved, or its own prerequisite item waived directly (never for other dependents). */
+function prerequisiteMet(state: DevelopmentLedger, waivers: readonly Waiver[], dependent: DeliveryCheckpoint, id: string): boolean {
+  return resolution(state, waivers, state.checkpoints.find(one => one.id === id)) !== undefined || covered(waivers, prerequisiteItem(state, dependent, id));
+}
+/**
+ * A dependent's prerequisite as items: none when satisfied; the prerequisite's waived items when it is resolved only by
+ * waivers, so a check met through them shows Waived rather than Passed; otherwise the dependent's prerequisite item.
+ */
+function prerequisiteItems(state: DevelopmentLedger, waivers: readonly Waiver[], dependent: DeliveryCheckpoint, id: string): CheckItem[] {
+  return resolution(state, waivers, state.checkpoints.find(one => one.id === id)) ?? [prerequisiteItem(state, dependent, id)];
+}
+/** One item per identity: a development item by its match key, any other by its text. */
+function uniqueItems(items: CheckItem[]): CheckItem[] {
+  const seen = new Set<string>();
+  return items.filter(item => { const key = item.kind === "development_requirement" ? matchKey(DELIVERY_CHECK, item) : `${item.kind}\u0000${item.subject}\u0000${item.text}`; if (seen.has(key)) return false; seen.add(key); return true; });
 }
 async function discoverEvidence(context: DeliveryContext, checkpoint: DeliveryCheckpoint): Promise<void> {
   if (!checkpoint.merge) return;
@@ -544,26 +628,42 @@ export async function reconcileDelivery(context: DeliveryContext): Promise<void>
   state.checkedAt = context.now();
 }
 export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult { return ownerDeliveryCheck(context, { kind: "phase", phaseId }); }
+/**
+ * The owner check, listing every failing item (AC-WAIVE-11): the assessment or split problem, one item per unresolved
+ * obligation and one per unresolved prerequisite. Items are unmarked; callers apply waivers before reading `passed`.
+ */
 export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwner): CheckResult {
-  const check: CheckResult = { name: "Required development delivery verified", passed: false, facts: [] }; const state = ledger(context.record);
+  const state = ledger(context.record); const items: CheckItem[] = [];
+  const problem = (error: unknown) => { const text = (error as Error).message; items.push({ kind: "other", subject: text, text, against: "" }); };
+  let assessment: DeliveryAssessment | undefined;
+  try { validateSplits(context); } catch (error) { problem(error); }
   try {
-    validateSplits(context);
-    const assessment = state.assessments.find(one => sameOwner(one, { owner }));
+    const current = state.assessments.find(one => sameOwner(one, { owner }));
     const binding = ownerDocuments(context, owner);
-    need(assessment && assessment.documentsDigest === binding.documentsDigest && assessment.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
-    requireOwnerDeliveryEvidence(state, owner);
-    check.passed = true; check.facts = [assessment.required ? "Required merge, deployment and verification evidence confirmed" : assessment.reason];
-  } catch (error) { check.facts = [(error as Error).message]; } return check;
+    need(current && current.documentsDigest === binding.documentsDigest && current.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
+    assessment = current;
+  } catch (error) { problem(error); }
+  try { items.push(...ownerDeliveryItems(state, owner, context.record.waivers ?? [])); } catch (error) { problem(error); }
+  const failing = uniqueItems(items);
+  if (!failing.length && assessment) return { name: DELIVERY_CHECK, passed: true, facts: [assessment.required ? "Required merge, deployment and verification evidence confirmed" : assessment.reason] };
+  return { name: DELIVERY_CHECK, passed: false, facts: failing.map(item => item.text), items: failing };
 }
-/** Evaluate direct, split and recovery obligations without mutating historical facts. */
+/** Every unmet direct, split and recovery obligation of an owner, and every unresolved prerequisite of its checkpoints, without mutating historical facts. */
+export function ownerDeliveryItems(state: DevelopmentLedger, owner: DeliveryOwner, waivers: readonly Waiver[] = []): CheckItem[] {
+  const items: CheckItem[] = [];
+  for (const checkpoint of state.checkpoints) {
+    const ids = assignedObligations(state, checkpoint, owner).filter(id => id === "requiredMerge" || checkpoint.requirements.find(one => one.id === id)?.purpose !== "current_artifact");
+    if (!ids.length) continue;
+    if (checkpoint.supersededBy) { const replaced = resolution(state, waivers, checkpoint); if (replaced) { items.push(...replaced); continue; } }
+    items.push(...failingObligations(checkpoint, ids));
+    for (const id of checkpoint.dependsOn) items.push(...prerequisiteItems(state, waivers, checkpoint, id));
+  }
+  return uniqueItems(items);
+}
+/** Throws the first unmet obligation; for retained continuation evidence, which carries no waivers. */
 export function requireOwnerDeliveryEvidence(state: DevelopmentLedger, owner: DeliveryOwner): void {
-    for (const checkpoint of state.checkpoints) {
-      const ids = assignedObligations(state, checkpoint, owner).filter(id => id === "requiredMerge" || checkpoint.requirements.find(one => one.id === id)?.purpose !== "current_artifact");
-      if (!ids.length) continue;
-      if (checkpoint.supersededBy && checkpointSatisfied(state, checkpoint)) continue;
-      for (const id of ids) need(id === "requiredMerge" ? !!checkpoint.merge && !checkpoint.mergeUnresolvedReason && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed") : !checkpoint.unresolvedRequirements?.[id] && !checkpoint.unresolvedRequirements?.["*"] && checkpoint.evidence.some(fact => fact.requirementId === id && fact.status === "success"), `${checkpoint.id} / ${id}: ${checkpoint.unresolvedReason ?? "required delivery evidence remains unresolved"}`);
-      for (const dependency of checkpoint.dependsOn) need(checkpointSatisfied(state, state.checkpoints.find(one => one.id === dependency)!), `${checkpoint.id}: prerequisite ${dependency} is unresolved.`);
-    }
+  const first = ownerDeliveryItems(state, owner)[0];
+  if (first) throw new DeliveryRefusal(first.text);
 }
 export async function prepareOperation(context: DeliveryContext, body: Record<string, unknown>): Promise<{ operationId: string; disposition: "proceed" | "already_observed" | "unresolved"; facts: string[] }> {
   const state = ledger(context.record); const checkpoint = state.checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown delivery checkpoint.", 422); granted(context, checkpoint);
@@ -605,7 +705,7 @@ export async function prepareOperation(context: DeliveryContext, body: Record<st
   const currentHead = await git(context, repo, ["rev-parse", "HEAD"]);
   need(await ancestor(context, repo, checkpoint.headSha, currentHead), "The assigned branch no longer retains the checkpoint's source work.");
   if (kind === "merge") need(currentHead === checkpoint.headSha, "The checkpoint source head changed; assess a new checkpoint.");
-  for (const id of checkpoint.dependsOn) need(checkpointSatisfied(state, state.checkpoints.find(one => one.id === id)!), `Prerequisite checkpoint ${id} is unresolved.`);
+  for (const id of checkpoint.dependsOn) need(prerequisiteMet(state, context.record.waivers ?? [], checkpoint, id), `Prerequisite checkpoint ${id} is unresolved.`);
   let pullRequest: number | undefined;
   if (kind === "merge") {
     const pull = await findPull(context, checkpoint); need(pull && pull.state === "open" && pull.draft === false && object(pull.head).sha === checkpoint.headSha, "An appropriate non-draft PR for the exact checkpoint head is required.");
@@ -672,86 +772,144 @@ export async function submitEvidence(context: DeliveryContext, body: Record<stri
   await reconcileDelivery(context);
 }
 
-/** Current-work accounting, shared by finalization and reopening. Never infers squash delivery from a zero diff. */
+/** A checkpoint's items in final delivery's scan: every unmet obligation and unresolved prerequisite, whoever owns them. */
+function scanItems(state: DevelopmentLedger, waivers: readonly Waiver[], checkpoint: DeliveryCheckpoint): CheckItem[] {
+  const fallback = (): CheckItem[] => { const text = `${checkpoint.id}: ${checkpoint.unresolvedReason ?? "required delivery remains unresolved"}`; return [{ kind: "other", subject: text, text, against: "" }]; };
+  // A replaced checkpoint is judged through its replacement, which the scan reports itself.
+  if (checkpoint.supersededBy) return resolution(state, waivers, checkpoint) ?? (effectiveCheckpoint(state, checkpoint.id) ? [] : fallback());
+  const items = [...failingObligations(checkpoint), ...checkpoint.dependsOn.flatMap(id => prerequisiteItems(state, waivers, checkpoint, id))];
+  return items.length ? items : fallback();
+}
+type RepositoryResult = DevelopmentLedger["repositoryResults"][number];
+/**
+ * Records one reason a repository is unresolved, once; `work` marks its uncommitted or unpushed work. A read failing
+ * after the repository already has a definite reason is listed but does not make the evaluation unfinished
+ * (`markUnavailable: false`), since that repository fails whatever the read would have said.
+ */
+function repositoryReason(state: DevelopmentLedger, result: RepositoryResult, error: unknown, work?: Set<string>, markUnavailable = true): void {
+  const message = (error as Error).message;
+  if (!result.reasons.includes(message)) result.reasons.push(message);
+  if (work) work.add(message);
+  result.state = "unresolved";
+  if (markUnavailable && sourceUnavailable(error)) { state.sourceUnavailable = true; state.lastReadError = message; }
+}
+
+/**
+ * Current-work accounting, shared by finalization and reopening. Never infers squash delivery from a zero diff. Lists
+ * every failing item (AC-WAIVE-11): each open phase, each phase's and checkpoint's unmet obligation, and every reason
+ * per repository. Items are unmarked and repository items carry an empty `against`, which the engine fills before
+ * applying waivers; `passed` and `currentComplete` are the unwaived result.
+ */
 export async function evaluateRepositories(context: DeliveryContext): Promise<{ passed: boolean; checks: CheckResult[]; pullRequests: import("../state/records.js").PullRequestFacts[] }> {
-  const state = ledger(context.record); const results: DevelopmentLedger["repositoryResults"] = []; const checkedHeads = new Map<string, string>(); const pullRequests: import("../state/records.js").PullRequestFacts[] = [];
+  const state = ledger(context.record); const results: RepositoryResult[] = []; const pullRequests: import("../state/records.js").PullRequestFacts[] = [];
+  const checkedHeads = new Map<string, { head: string; status: string; remote?: string }>(); const work = new Map<string, Set<string>>();
+  const waivers = context.record.waivers ?? []; const featureBranch = context.record.settings.featureBranch;
   await reconcileDelivery(context);
-  const global: string[] = [];
+  const global: CheckItem[] = [];
   for (const leaf of currentLeaves(context)) {
-    const check = phaseDeliveryCheck(context, leaf.id); if (!leaf.closed || !check.passed) global.push(!leaf.closed ? `Phase ${leaf.id} is still open.` : check.facts.join(" "));
+    if (!leaf.closed) { const text = `Phase ${leaf.id} is still open.`; global.push({ kind: "other", subject: text, text, against: "" }); continue; }
+    // A skipped phase was not built; its delivery obligations are not asked for (AC-WAIVE-04).
+    if (context.record.phases[leaf.id]?.skippedByWaiver) continue;
+    const check = phaseDeliveryCheck(context, leaf.id); if (!check.passed) global.push(...(check.items ?? []));
   }
-  for (const checkpoint of state.checkpoints) if (!checkpointSatisfied(state, checkpoint)) global.push(`${checkpoint.id}: ${checkpoint.unresolvedReason ?? "required delivery remains unresolved"}`);
+  for (const checkpoint of state.checkpoints) if (!checkpointSatisfied(state, checkpoint)) global.push(...scanItems(state, waivers, checkpoint));
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
-    const result: DevelopmentLedger["repositoryResults"][number] = { repository: repo.name, state: "unresolved", deliveredCheckpointIds: state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.id), reasons: [] };
-    results.push(result);
-    try {
-      need(await git(context, repo, ["symbolic-ref", "--short", "HEAD"]) === context.record.settings.featureBranch, `${repo.name}: assigned workspace branch changed.`);
-      need((await git(context, repo, ["status", "--porcelain", "--untracked-files=all"])) === "", `${repo.name}: uncommitted work remains.`);
-      const head = await git(context, repo, ["rev-parse", "HEAD"]); need(sha(head), "Feature head unavailable."); checkedHeads.set(repo.name, head);
-      need(repo.baseCommit, "Original source-work boundary is unavailable.");
-      if (head === repo.baseCommit && !result.deliveredCheckpointIds.length) { result.state = "unchanged"; continue; }
-      const remote = await git(context, repo, ["ls-remote", "origin", `refs/heads/${context.record.settings.featureBranch}`]);
-      need(remote.split(/\s/)[0] === head, `${repo.name}: current feature head is not pushed to its assigned origin branch.`);
-      const confirmed = state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge);
-      for (const checkpoint of confirmed) need(await ancestor(context, repo, checkpoint.headSha, head), `${repo.name}: accumulated source work is missing from the assigned branch.`);
-      const commits = (await git(context, repo, ["rev-list", "--first-parent", `${repo.baseCommit}..${head}`])).split("\n").filter(Boolean);
-      const uncovered: string[] = [];
-      for (const commit of commits) {
-        let covered = false;
-        for (const checkpoint of confirmed) if (await ancestor(context, repo, commit, checkpoint.headSha)) { covered = true; break; }
-        if (!covered) {
-          const synchronized = confirmed.flatMap(one => one.operations).find(one => one.kind === "synchronize" && one.state === "observed" && one.synchronized?.featureHead === commit);
-          if (synchronized) {
-            const parents = (await git(context, repo, ["show", "-s", "--format=%P", commit])).split(" ");
-            if (commit === synchronized.synchronized!.baseHead || parents.length === 2 && parents.includes(synchronized.synchronized!.baseHead)) {
-              const delta = await runGit(context.git, repo.worktreePath, ["diff", "--quiet", synchronized.synchronized!.baseHead, commit]);
-              need(delta.exitCode === 0 || delta.exitCode === 1, "Could not inspect synchronized source work.");
-              covered = delta.exitCode === 0;
+    const result: RepositoryResult = { repository: repo.name, state: "unresolved", deliveredCheckpointIds: state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.id), reasons: [] };
+    results.push(result); const repositoryWork = new Set<string>(); work.set(repo.name, repositoryWork);
+    const fail = (error: unknown, isWork = false) => repositoryReason(state, result, error, isWork ? repositoryWork : undefined, result.reasons.length === 0);
+    const attempt = async <T>(read: () => Promise<T>): Promise<T | undefined> => { try { return await read(); } catch (error) { fail(error); return undefined; } };
+    /** Records the reason when the condition fails; true when it holds. */
+    const holds = (condition: unknown, message: string, isWork = false): boolean => { if (!condition) fail(new DeliveryRefusal(message), isWork); return !!condition; };
+    let settled: RepositoryResult["state"] = "unresolved";
+    const branch = await attempt(() => git(context, repo, ["symbolic-ref", "--short", "HEAD"]));
+    const onBranch = branch !== undefined && holds(branch === featureBranch, `${repo.name}: assigned workspace branch changed.`);
+    const status = await attempt(() => git(context, repo, ["status", "--porcelain", "--untracked-files=all"]));
+    if (status !== undefined) holds(status === "", `${repo.name}: uncommitted work remains.`, true);
+    const head = onBranch ? await attempt(() => git(context, repo, ["rev-parse", "HEAD"])) : undefined;
+    if (head !== undefined && holds(sha(head), "Feature head unavailable.")) {
+      const checked: { head: string; status: string; remote?: string } = { head, status: status ?? "" }; checkedHeads.set(repo.name, checked);
+      if (!holds(repo.baseCommit, "Original source-work boundary is unavailable.")) { /* nothing further can be judged */ }
+      else if (head === repo.baseCommit && !result.deliveredCheckpointIds.length) settled = "unchanged";
+      else {
+        const remote = await attempt(async () => (await git(context, repo, ["ls-remote", "origin", `refs/heads/${featureBranch}`])).split(/\s/)[0] ?? "");
+        const pushed = remote !== undefined && (checked.remote = remote, holds(remote === head, `${repo.name}: current feature head is not pushed to its assigned origin branch.`, true));
+        const confirmed = state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge);
+        for (const checkpoint of confirmed) { const contained = await attempt(() => ancestor(context, repo, checkpoint.headSha, head)); if (contained !== undefined) holds(contained, `${repo.name}: accumulated source work is missing from the assigned branch.`); }
+        const uncovered = await attempt(async () => {
+          const commits = (await git(context, repo, ["rev-list", "--first-parent", `${repo.baseCommit}..${head}`])).split("\n").filter(Boolean);
+          const missing: string[] = [];
+          for (const commit of commits) {
+            let covered = false;
+            for (const checkpoint of confirmed) if (await ancestor(context, repo, commit, checkpoint.headSha)) { covered = true; break; }
+            if (!covered) {
+              const synchronized = confirmed.flatMap(one => one.operations).find(one => one.kind === "synchronize" && one.state === "observed" && one.synchronized?.featureHead === commit);
+              if (synchronized) {
+                const parents = (await git(context, repo, ["show", "-s", "--format=%P", commit])).split(" ");
+                if (commit === synchronized.synchronized!.baseHead || parents.length === 2 && parents.includes(synchronized.synchronized!.baseHead)) {
+                  const delta = await runGit(context.git, repo.worktreePath, ["diff", "--quiet", synchronized.synchronized!.baseHead, commit]);
+                  need(delta.exitCode === 0 || delta.exitCode === 1, "Could not inspect synchronized source work.");
+                  covered = delta.exitCode === 0;
+                }
+              }
+            }
+            if (!covered) missing.push(commit);
+          }
+          return missing;
+        });
+        if (uncovered !== undefined) {
+          let review: Json | undefined;
+          // A review PR can only hold the pushed head; for an unpushed head its reason would restate the unpushed work.
+          if (uncovered.length && pushed) review = await attempt(async () => {
+            const pulls = await pages(context, `repos/${repo.github}/pulls?state=open&head=${encodeURIComponent(repo.github.split("/")[0] + ":" + featureBranch)}&base=${encodeURIComponent(repo.baseBranch)}`);
+            const listed = pulls.find(pull => pull.draft === false && object(pull.head).sha === head && object(pull.head).ref === featureBranch && object(object(pull.head).repo).full_name?.toString().toLowerCase() === repo.github.toLowerCase() && object(pull.base).ref === repo.baseBranch);
+            need(listed && typeof listed.body === "string" && typeof listed.html_url === "string" && Number.isSafeInteger(listed.number), `${repo.name}: open, non-draft review PR must contain the exact current pushed head.`);
+            const reread = object(await github(context, `repos/${repo.github}/pulls/${listed.number}`));
+            need(typeof reread.html_url === "string" && reread.state === "open" && reread.draft === false && object(reread.head).sha === head && object(reread.base).ref === repo.baseBranch && Number.isInteger(reread.commits) && Number.isInteger(reread.additions) && Number.isInteger(reread.deletions), "The remaining review PR changed or returned incomplete facts.");
+            result.remainingHeadSha = head; result.reviewPullRequest = { number: reread.number as number, url: reread.html_url };
+            pullRequests.push({ repository: repo.name, number: reread.number as number, title: String(reread.title), url: reread.html_url, head: featureBranch, base: repo.baseBranch, commits: reread.commits as number, additions: reread.additions as number, deletions: reread.deletions as number });
+            return reread;
+          });
+          const related = [...state.checkpoints.flatMap(one => one.merge ? [one.merge.url] : []), ...results.flatMap(one => one.reviewPullRequest ? [one.reviewPullRequest.url] : [])];
+          const descriptions = [...confirmed.map(one => one.merge!.number), ...(review ? [review.number as number] : [])];
+          for (const number of descriptions) {
+            const pull = await attempt(async () => object(await github(context, `repos/${repo.github}/pulls/${number}`))); if (!pull) continue;
+            const body = typeof pull.body === "string" ? pull.body : "";
+            holds(body.includes(context.prdDirectory), `${repo.name} #${number}: add the PRD reference to the description.`);
+            for (const url of related.filter(url => url !== pull.html_url)) holds(body.includes(url), `${repo.name} #${number}: link related delivery ${url}.`);
+            for (const checkpoint of confirmed.filter(one => one.merge!.number === number)) for (const dependency of checkpoint.dependsOn) {
+              const url = effectiveCheckpoint(state, dependency)?.merge?.url; holds(url && body.includes(url) && /depends on|after|before/i.test(body), `${repo.name} #${number}: state its required delivery order.`);
             }
           }
-        }
-        if (!covered) uncovered.push(commit);
-      }
-      let review: Json | undefined;
-      if (uncovered.length) {
-        const pulls = await pages(context, `repos/${repo.github}/pulls?state=open&head=${encodeURIComponent(repo.github.split("/")[0] + ":" + context.record.settings.featureBranch)}&base=${encodeURIComponent(repo.baseBranch)}`);
-        review = pulls.find(pull => pull.draft === false && object(pull.head).sha === head && object(pull.head).ref === context.record.settings.featureBranch && object(object(pull.head).repo).full_name?.toString().toLowerCase() === repo.github.toLowerCase() && object(pull.base).ref === repo.baseBranch);
-        need(review && typeof review.body === "string" && typeof review.html_url === "string" && Number.isSafeInteger(review.number), `${repo.name}: open, non-draft review PR must contain the exact current pushed head.`);
-        review = object(await github(context, `repos/${repo.github}/pulls/${review.number}`));
-        need(typeof review.html_url === "string" && review.state === "open" && review.draft === false && object(review.head).sha === head && object(review.base).ref === repo.baseBranch && Number.isInteger(review.commits) && Number.isInteger(review.additions) && Number.isInteger(review.deletions), "The remaining review PR changed or returned incomplete facts.");
-        result.remainingHeadSha = head; result.reviewPullRequest = { number: review.number as number, url: review.html_url };
-        pullRequests.push({ repository: repo.name, number: review.number as number, title: String(review.title), url: review.html_url, head: context.record.settings.featureBranch, base: repo.baseBranch, commits: review.commits as number, additions: review.additions as number, deletions: review.deletions as number });
-      }
-      const related = [...state.checkpoints.flatMap(one => one.merge ? [one.merge.url] : []), ...results.flatMap(one => one.reviewPullRequest ? [one.reviewPullRequest.url] : [])];
-      const descriptions = [...confirmed.map(one => one.merge!.number), ...(review ? [review.number as number] : [])];
-      for (const number of descriptions) {
-        const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); const body = typeof pull.body === "string" ? pull.body : "";
-        need(body.includes(context.prdDirectory), `${repo.name} #${number}: add the PRD reference to the description.`);
-        for (const url of related.filter(url => url !== pull.html_url)) need(body.includes(url), `${repo.name} #${number}: link related delivery ${url}.`);
-        for (const checkpoint of confirmed.filter(one => one.merge!.number === number)) for (const dependency of checkpoint.dependsOn) {
-          const url = effectiveCheckpoint(state, dependency)?.merge?.url; need(url && body.includes(url) && /depends on|after|before/i.test(body), `${repo.name} #${number}: state its required delivery order.`);
+          settled = review ? (confirmed.length ? "mixed" : "review") : (confirmed.length && !uncovered.length ? "delivered" : "unresolved");
+          // A missing review PR is already its own reason; otherwise nothing accounts for the source work.
+          if (settled === "unresolved" && !uncovered.length) holds(false, `${repo.name}: no complete source-work delivery provenance.`);
         }
       }
-      result.state = review ? (confirmed.length ? "mixed" : "review") : (confirmed.length && !uncovered.length ? "delivered" : "unresolved");
-      need(result.state !== "unresolved", `${repo.name}: no complete source-work delivery provenance.`);
-    } catch (error) { result.state = "unresolved"; result.reasons.push((error as Error).message); if (sourceUnavailable(error)) { state.sourceUnavailable = true; state.lastReadError = (error as Error).message; } }
+    }
+    result.state = result.reasons.length ? "unresolved" : settled;
   }
   // A later repository's review link must also appear in earlier descriptions.
   const allLinks = results.flatMap(one => one.reviewPullRequest ? [one.reviewPullRequest.url] : []);
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
     const result = results.find(one => one.repository === repo.name)!;
     for (const number of [...state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.merge!.number), ...(result.reviewPullRequest ? [result.reviewPullRequest.number] : [])]) {
-      try { const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); for (const url of allLinks) if (url !== pull.html_url) need(String(pull.body).includes(url), `${repo.name} #${number}: link related review ${url}.`); }
-      catch (error) { result.state = "unresolved"; result.reasons.push((error as Error).message); if (sourceUnavailable(error)) { state.sourceUnavailable = true; state.lastReadError = (error as Error).message; } }
+      try { const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); for (const url of allLinks) if (url !== pull.html_url && !String(pull.body).includes(url)) repositoryReason(state, result, new DeliveryRefusal(`${repo.name} #${number}: link related review ${url}.`)); }
+      catch (error) { repositoryReason(state, result, error); }
     }
   }
+  // Nothing judged above may change while it was judged; work already found missing is not reported again as a change.
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
     const expected = checkedHeads.get(repo.name); const result = results.find(one => one.repository === repo.name)!;
+    if (!expected) continue;
     try {
-      need(expected && await git(context, repo, ["rev-parse", "HEAD"]) === expected && await git(context, repo, ["status", "--porcelain", "--untracked-files=all"]) === "", `${repo.name}: workspace changed during completion reconciliation.`);
-      if (result.state !== "unchanged") need((await git(context, repo, ["ls-remote", "origin", `refs/heads/${context.record.settings.featureBranch}`])).split(/\s/)[0] === expected, `${repo.name}: origin changed during completion reconciliation.`);
-    } catch (error) { result.state = "unresolved"; result.reasons.push((error as Error).message); if (sourceUnavailable(error)) { state.sourceUnavailable = true; state.lastReadError = (error as Error).message; } }
+      need(await git(context, repo, ["rev-parse", "HEAD"]) === expected.head && await git(context, repo, ["status", "--porcelain", "--untracked-files=all"]) === expected.status, `${repo.name}: workspace changed during completion reconciliation.`);
+      if (expected.remote !== undefined) need((await git(context, repo, ["ls-remote", "origin", `refs/heads/${featureBranch}`])).split(/\s/)[0] === expected.remote, `${repo.name}: origin changed during completion reconciliation.`);
+    } catch (error) { repositoryReason(state, result, error); }
   }
+  const repositoryItems = results.flatMap(result => result.reasons.map((reason): CheckItem => ({ kind: work.get(result.repository)?.has(reason) ? "repository_work" : "other", subject: result.repository, text: reason.includes(result.repository) ? reason : `${result.repository}: ${reason}`, against: "" })));
+  const items = uniqueItems([...global, ...repositoryItems]);
   state.repositoryResults = results; state.checkedAt = context.now(); state.currentComplete = global.length === 0 && results.length > 0 && results.every(one => one.state !== "unresolved");
-  return { passed: state.currentComplete, pullRequests, checks: [{ name: "Development delivery and remaining review", passed: state.currentComplete, facts: [...global, ...results.map(one => `${one.repository}: ${one.state}${one.reasons.length ? ` — ${one.reasons.join(" ")}` : ""}`)] }] };
+  const passed = state.currentComplete;
+  const facts = passed || !items.length ? results.map(one => `${one.repository}: ${one.state}${one.reasons.length ? ` — ${one.reasons.join(" ")}` : ""}`) : items.map(item => item.text);
+  return { passed, pullRequests, checks: [{ name: "Development delivery and remaining review", passed, facts, ...(passed || !items.length ? {} : { items }) }] };
 }

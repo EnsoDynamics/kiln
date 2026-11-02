@@ -10,6 +10,8 @@ Preserve the existing controller, Git evaluators, runtime ownership, permissions
 
 Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-technical-design.md) (authenticated audit evidence only; development-delivery receipts remain).
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (the evidence it keeps in force can be waived).
+
 Completion evaluators have no workspace-history predicate. Phase closure, clean assigned worktrees, correct branch and matching pushed heads remain mandatory. Final delivery keeps its existing PR or verified integration rules and current audit requirements. Interruptions and usage waits retain conversation availability, cleanup and permission safeguards without scanning for outside changes. Completion accounting validates retained scope-bound Git receipts without requiring a confinement scan of historic provider conversations.
 
 Required test, audit and deployment evidence remains authenticated against provider-owned history. Receipt projection may ignore unsupported unrelated calls; it must never manufacture a required command, successful result or mutation from an undecodable input. Unknown unrelated calls and observed outside changes do not invalidate otherwise authentic receipts. Source ownership, stable/readable history, exact command/result correlation and required evidence/currentness remain enforced.

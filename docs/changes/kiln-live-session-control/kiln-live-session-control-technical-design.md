@@ -131,6 +131,8 @@ Replaces in part: [Kiln v1 design](../../prds/kiln-v1/technical-design.md), §Se
 
 ## Terminal Ownership and Hand-back
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (the hand-back pair becomes Have Kiln resume and Check again).
+
 ### Ownership admission
 
 Resolve terminal ownership by exact provider conversation UUID under the effective Claude configuration root, independent of cwd. Inspect both provider registry identities and same-user OS argv for an exact pending `--resume <provider-session-id>` launch; the measured argv preceded registry creation. Validate every relevant PID with its OS start identity and configuration-root binding. An idle interactive process still owns its conversation. A relevant owner with missing, unreadable, corrupt or ambiguous identity evidence yields `ownership_unknown`, never release by absence or elapsed time.

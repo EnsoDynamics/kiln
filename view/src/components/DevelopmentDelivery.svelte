@@ -5,6 +5,7 @@
   import { authorizeDevelopmentTarget, changeSettings, type PageConfig } from "../lib/api.js";
   let { snapshot, config, connected, editable = false }: { snapshot: Snapshot; config?: PageConfig | undefined; connected: boolean; editable?: boolean } = $props();
   import EarlyMergeTarget from "./EarlyMergeTarget.svelte";
+  import { shortDateTime, waivedRequirements } from "../lib/waivers.js";
   let error = $state("");
   let granting = $state(false);
   let inspected = $state<Record<string, string>>({});
@@ -61,12 +62,16 @@
     <p>Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     <ul>{#each delivery.authorization.grants as grant}<li>{grant.target.repository} · {grant.target.baseBranch}{#if grant.target.environment}{" · "}Existing scope: {grant.target.environment}{/if}</li>{/each}</ul>
     {#each delivery.checkpoints as checkpoint (checkpoint.id)}
+      {@const waived = waivedRequirements(snapshot, checkpoint.id)}
       <article>
         <h4>{checkpoint.target.repository} · {checkpoint.target.environment}</h4>
         <p>{checkpoint.merge ? "Merge confirmed" : "Merge unresolved"}{#if checkpoint.merge} · <a href={checkpoint.merge.url} target="_blank" rel="noreferrer">#{checkpoint.merge.number}</a>{/if}</p>
         <p>Source {checkpoint.headSha.slice(0, 12)}{#if checkpoint.merge} · Result {checkpoint.merge.resultSha.slice(0, 12)}{/if}</p>
         {#each checkpoint.operations as operation (operation.id)}<p>{operation.kind}: {operation.state === "prepared" ? "planned / awaiting evidence" : operation.state}{#if operation.reason} · {operation.reason}{/if}</p>{/each}
-        {#each checkpoint.evidence as fact}<p>{checkpoint.requirements.find(one => one.id === fact.requirementId)?.purpose}: {fact.status} · {fact.environment} · {fact.revision.slice(0, 12)} · {new Date(fact.observedAt).toLocaleString()}</p>{#if config}<button type="button" onclick={() => inspect(fact.rawDigest)}>Inspect {fact.requirementId} evidence</button>{/if}{#if inspected[fact.rawDigest]}<pre>{inspected[fact.rawDigest]}</pre>{/if}{/each}
+        {#each checkpoint.evidence.filter(fact => fact.status === "success" || !waived.has(fact.requirementId)) as fact}<p>{checkpoint.requirements.find(one => one.id === fact.requirementId)?.purpose}: {fact.status} · {fact.environment} · {fact.revision.slice(0, 12)} · {new Date(fact.observedAt).toLocaleString()}</p>{#if config}<button type="button" onclick={() => inspect(fact.rawDigest)}>Inspect {fact.requirementId} evidence</button>{/if}{#if inspected[fact.rawDigest]}<pre>{inspected[fact.rawDigest]}</pre>{/if}{/each}
+        {#each [...waived] as [requirementId, waiver] (requirementId)}
+          {#if !checkpoint.evidence.some(fact => fact.requirementId === requirementId && fact.status === "success")}<p>{checkpoint.requirements.find(one => one.id === requirementId)?.purpose ?? (requirementId === "requiredMerge" ? "merge" : "requirement")} (<code>{requirementId}</code>): <span class="waived">waived</span> · {shortDateTime(waiver.at)}</p>{/if}
+        {/each}
         {#if checkpoint.evidenceHistory?.length}
           <details><summary>Earlier confirmed evidence ({checkpoint.evidenceHistory.length})</summary>
             {#each checkpoint.evidenceHistory as fact}<p>{fact.requirementId} · {fact.revision.slice(0, 12)} · {new Date(fact.occurredAt).toLocaleString()}</p>{#if config}<button type="button" onclick={() => inspect(fact.rawDigest)}>Inspect earlier {fact.requirementId} evidence</button>{/if}{#if inspected[fact.rawDigest]}<pre>{inspected[fact.rawDigest]}</pre>{/if}{/each}
@@ -105,5 +110,6 @@
   .scope-note { font-size: 12px; }
   h3, h4 { font-size: 14px; }
   a { color: inherit; }
+  .waived { color: var(--amber); font-weight: 600; }
   pre { overflow: auto; max-height: 320px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

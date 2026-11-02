@@ -75,6 +75,7 @@ The command interface supports the common controls used after work starts. Each 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
   - Superseded in part by: AC-CHECK-03 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
   - Superseded in part by: AC-LIVE-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (human-facing cancellation and pending/reached pause wording; existing deferred command semantics remain, live bot commands are a later phase).
+  - Superseded in part by: AC-WAIVE-05 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (its routine controls also include `kiln waive-and-advance`).
 
   | Person's intention | Observable behavior |
   |---|---|

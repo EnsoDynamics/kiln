@@ -1,7 +1,9 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { BILLING_CONTRACT } from "./contract.js";
 import type { BillingSummary, Inspection } from "./inspection.js";
-export interface BillingHold { phaseKey: string; action: "launch" | "resume"; sessionId?: string; reason: string; observed: BillingSummary; at: string; }
+export interface BillingHold { phaseKey: string; action: "launch" | "resume"; sessionId?: string; reason: string; observed: BillingSummary; at: string;
+  /** The hold's own check run and rows (waivers "Check Runs"); never a separate stop. */
+  run?: import("../state/records.js").CheckRun; checks?: import("../state/records.js").CheckResult[]; }
 export interface BillingState {
   version: 1;
   executionId: string;

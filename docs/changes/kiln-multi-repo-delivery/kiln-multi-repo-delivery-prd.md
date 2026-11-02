@@ -85,6 +85,7 @@ When a session finds it needs a repository nobody named, Kiln adds it and the ph
 - [ ] **AC-ADD-03 — An added repository is shown as added.** An added repository joins the PRD's repositories for every later phase and for the pull requests. It is listed with the others wherever they are shown, marked "added in phase <n>", with its base branch fixed. The terminal prints one line when it is added: `<time> <phase id> <title> added <repository>`.
   - Replaces in part: AC-START-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a terminal line when a repository is added)
 - [ ] **AC-ADD-04 — A repository named after Start is added before its phase.** When a phase about to start, or a split parent above it, names a repository the workspace doesn't have, because a session split its phase or a person edited the plan, Kiln adds it as AC-ADD-01 does before starting that phase's session. When it can't, the phase stops at Needs you as a broken plan does, naming the repository and the failed check; Check again and `kiln run` try the addition again.
+  - Superseded in part by: AC-WAIVE-04 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a repository Kiln cannot add can be waived, and the phase needing it is skipped).
   - Replaces in part: AC-RUN-04 and AC-STOP-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a named repository Kiln can't add is a broken-plan stop, including one a session's own split names)
 
 ### Stop When a Session Works Outside the Workspace
@@ -142,6 +143,7 @@ The PRD ends with each changed repository ready for review or already merged int
   - Superseded in part by: AC-AUDIT-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (startup, Check again and Resume require current successful completion audits before final completion).
   - Superseded in part by: AC-RECOVERY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (final-session resume eligibility uses the applicable completion result in AC-DELIVER-04).
   - Superseded in part by: AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (one open pull request per changed repository is replaced by the applicable final result for executions using authorized early delivery).
+  - Superseded in part by: AC-WAIVE-02/09 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a repository's pull-request check can be waived).
   - Replaces in part: AC-WORK-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (verified prior integration completes without another PR session).
   - Replaces in part: AC-PR-01, AC-PR-02 and AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (one pull request per repository that changed)
   - Replaces in part: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume is offered to a pull-request session whose check failed, not only to one with no pull request open)
@@ -186,6 +188,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (older mockup copy for delivery permissions, progress and completion gives way to this change’s outcomes; unaffected layout and visual style remain).
   - Superseded in part by: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (agent-specific information on existing screens).
   - Superseded in part by: AC-AUTO-04, AC-LIMIT-01 and AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Documents found and the settings while Kiln works gain the "Resume after a usage limit" row; Needs you after work outside the workspace, when its session hit a usage limit, gains the limit facts, choices and account; the terminal gains the wait and resume lines)
+  - Superseded in part by: AC-WAIVE-02/10 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Mark complete on the standard Needs you page and the waived markers follow this change's mockup; unaffected layout remains).
 
   | Screen | Follows |
   |---|---|

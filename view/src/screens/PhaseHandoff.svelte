@@ -3,7 +3,11 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { sameRecoveryTarget } from "../../../src/engine/phase-recovery.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
-  import { resumePhase, verifyPhase } from "../lib/api.js";
+  import { markComplete, resumePhase, verifyPhase } from "../lib/api.js";
+  import type { ItemChange } from "../../../src/engine/waivers.js";
+  import { checksWord, countsOf, passedOf, secondsTime, verdict } from "../lib/waivers.js";
+  import CheckFacts from "../components/CheckFacts.svelte";
+  import MarkComplete from "../components/MarkComplete.svelte";
   import { viewContext } from "../lib/view-context.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { endingFact } from "../lib/progress.js";
@@ -36,6 +40,15 @@
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const ending = $derived(endingFact(stop));
   const limit = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, agent) : undefined);
+  // Checking has its own section (AC-NEXT-02): when the checks ran, how many fail after a recheck,
+  // and Mark complete once a recheck still fails (AC-WAIVE-02). A pressed offer stays shown,
+  // reading Checking…, while its rerun runs (AC-WAIVE-06).
+  const counts = $derived(stop.counts ?? countsOf(stop.checks));
+  const rechecked = $derived(stop.checkRun ? stop.checkRun.origin === "recheck" && stop.checkRun.finished : !!page.rechecked);
+  const checkedLine = $derived(`${stop.checkedAt ? stop.checkRun?.origin === "recheck" || (!stop.checkRun && page.rechecked) ? `Checked again ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"} · ${passedOf(counts)}`);
+  const stillFailing = $derived(rechecked && counts.failed > 0 && !page.markChanges?.length && !stop.checking && !page.pending);
+  const offer = $derived(stop.markComplete?.offered ? stop.markComplete : page.pending === "mark" ? page.markOffer : undefined);
+  const VERDICT = { passed: "Passed", waived: "Waived", failed: "Not yet" } as const;
   let choiceHeading: HTMLHeadingElement | undefined = $state();
   let replyField: HTMLTextAreaElement | undefined = $state();
   let resumeButton: HTMLButtonElement | undefined = $state();
@@ -48,6 +61,7 @@
     state.pending = action;
     state.feedback = undefined;
     if (action === "reply" || action === "resume") lastAction = action;
+    if (action === "verify") { state.markChanges = undefined; state.markError = undefined; }
     const answer = action === "reply" || action === "resume"
       ? await resumePhase(config, target, action === "reply" ? state.draft : undefined)
       : await verifyPhase(config, target, action);
@@ -64,10 +78,26 @@
       await tick(); choiceHeading?.focus();
     } else if (answer.outcome === "still_stopped") {
       state.choice = false;
-      state.feedback = `${activity} is still unfinished. Finish it in your terminal, or resume it in Kiln.`;
+      state.rechecked = true;
     } else if (answer.outcome === "resume_requested") {
       state.feedback = "Resume requested. Kiln is checking launch readiness; reply delivery is not yet confirmed.";
     }
+  }
+
+  /** Mark complete (AC-WAIVE-03, AC-WAIVE-04): one click, on the check run it was offered on. */
+  async function mark() {
+    const current = stop.markComplete;
+    if (busy || !current?.offered) return;
+    const target = recovery.target;
+    const state = page;
+    state.pending = "mark"; state.markOffer = current;
+    state.markChanges = undefined; state.markError = undefined; state.feedback = undefined;
+    const answer = await markComplete(config, { checkRunId: current.checkRunId, ...(target.live ? { target: target.live } : {}), ...(savedUnsent.length ? { withoutSendingReply: true as const } : {}) });
+    state.pending = undefined; state.markOffer = undefined;
+    if (!sameRecoveryTarget(connection?.snapshot?.needsYou?.phaseRecovery?.target, target)) return;
+    if (!answer.ok) { state.markError = answer.reason; return; }
+    if (answer.outcome === "check_results_changed") state.markChanges = (answer.changes as ItemChange[] | undefined) ?? [];
+    else if (answer.outcome === "check_unavailable") state.markError = String(answer.reason ?? "The checks could not finish. Nothing was marked complete.");
   }
 
   async function back() {
@@ -80,7 +110,7 @@
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
-  <p>Resolve it here or in your terminal. Then choose who finishes {activity}.</p>
+  <p>Answer here, or talk it through in your terminal.</p>
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
       <span class="eyebrow">Last message from {agent}</span>
@@ -144,8 +174,8 @@
       </section>
       <section class="card">
         {#if stop.resumeCommand}
-          <h2>Open the conversation in your terminal</h2>
-          <p>For a back-and-forth with {agent}, or to finish the activity yourself. The full conversation comes with you.</p>
+          <h2>Talk it through in your terminal</h2>
+          <p>For a back-and-forth with {agent}. The full conversation comes with you.</p>
           <pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy resume command" />
         {:else}
           <h2>Start a fresh session in your terminal</h2>
@@ -154,37 +184,32 @@
         {/if}
         <details><summary>{stop.resumeCommand ? "Session cannot be opened? Use a fresh session" : "Fresh-session recovery prompt"}</summary><pre>{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" /></details>
         <p class="hint"><strong>Changed the plan?</strong> Ask {agent} to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
-        <p>When you’re done, exit {agent} and use <strong>Back from your terminal?</strong> below.</p>
+        {#if stop.resumeOffered}
+          <p>Got it back on track? Exit {agent}, then:</p>
+          <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Have Kiln resume {activity}</button>
+          <p class="hint">Kiln picks up the same conversation, including your terminal discussion, and finishes {activity}.</p>
+        {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {activity}, then check it again below.</p>{/if}
       </section>
     </div>
-    <section class="card return">
-      <h2>Back from your terminal?</h2>
-      {#if stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review />{/if}
-      {#if snapshot.liveControl?.reviewRequired?.length}<p>Review each uncertain message in the conversation before Resume or Verify. Acknowledgement alone keeps the execution held.</p>{/if}
-      <p>Exit the {agent} session first. Choose based on how much work you finished.</p>
-      <div class="peer-choices">
-        <section>
-          <h3>We resolved the question. Kiln can finish.</h3>
-          {#if stop.resumeOffered}
-            <p>Pick up the same conversation, including your terminal discussion, and finish the remaining work in {activity}. You don’t need to repeat your answer.</p>
-            <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Resume {activity} in Kiln</button>
-            <p class="hint">{activity} can still be unfinished, with uncommitted or unpushed work. Kiln finishes {activity} before following the rest of the plan.</p>
-          {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {activity}, then verify it.</p>{/if}
-        </section>
-        <section class="finished">
-          <h3>I finished the entire activity myself.</h3>
-          <p>Check that {activity} is complete, then move to the next step in the plan.</p>
-          <p class="hint" role="status">{stop.checkedAt ? `Checked ${new Date(stop.checkedAt).toLocaleString()}` : "Not yet checked"} · {stop.checks.filter(check => check.passed).length} of {stop.checks.length} requirements passed. Results are from that check.</p>
-          <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
-            {#each stop.checks as check (check.name)}
-              <li><div><strong>{check.name}</strong><span class:passed={check.passed}>{check.passed ? "Passed" : "Not yet"}</span></div>{#each check.facts as fact, index (index)}<p>{fact}</p>{/each}</li>
-            {/each}
-          </ul>
-          <button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Verify ${activity} & advance`}</button>
-          <p class="hint">Rechecks all applicable requirements. Advances only if all pass, respecting any requested pause. This does not finish, commit or push unfinished work.</p>
-          {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; use Verify to try again.</p>{/if}
-        </section>
-      </div>
+    {#if stop.sessionId && snapshot.liveControl}
+      <section class="card" aria-label="Messages to review">
+        <LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review />
+        {#if snapshot.liveControl.reviewRequired?.length}<p>Review each uncertain message in the conversation before resuming, checking again or marking {activity} complete. Acknowledgement alone keeps the execution held.</p>{/if}
+      </section>
+    {/if}
+    <section class="card return" aria-label={`Is ${activity} already done?`}>
+      <div class="between"><h2>Is {activity} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
+      <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {activity} and moves to the next step. Nothing is committed or pushed for you.</p>
+      <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
+        {#each stop.checks as check (check.name)}
+          {@const state = verdict(check)}
+          <li><div><strong>{check.name}</strong><span class={state}>{VERDICT[state]}</span></div><CheckFacts {snapshot} {check} changes={page.markChanges} /></li>
+        {/each}
+      </ul>
+      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${activity} again`}</button></div>
+      {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {activity} again to retry.</p>{/if}
+      {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
+      {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{/if}
     </section>
   {/if}
   {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
@@ -201,7 +226,9 @@
   .facts, .hint { font-size: 12.5px; color: var(--dim); }
   .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   .card, .peer-choices > section { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-  .finished { border-left: 1px solid var(--line); padding-left: 24px; }
+  .between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .feedback { font-size: 13px; border-left: 3px solid var(--amber); padding: 8px 12px; background: var(--deep); }
+  .feedback strong { color: var(--text); }
   textarea { width: 100%; box-sizing: border-box; background: var(--deep); color: var(--text); font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 12px; resize: vertical; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--mono); padding: 14px; background: var(--deep); border: 1px solid var(--line); border-radius: 8px; margin: 0; }
   .final { overflow-wrap: anywhere; line-height: 1.65; }
@@ -210,10 +237,11 @@
   .checks li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .checks li > div { display: flex; justify-content: space-between; gap: 12px; }
   .checks :global(p) { font-size: 12px; overflow-wrap: anywhere; }
-  .passed { color: var(--green); } .warning { color: var(--amber); }
+  .checks li > div > span { color: var(--amber); white-space: nowrap; }
+  .checks li > div > .passed { color: var(--green); } .checks li > div > .waived { font-weight: 600; } .warning { color: var(--amber); }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }
   .lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 10px; overflow-wrap: anywhere; font-size: 12px; }
   summary { cursor: pointer; } details pre { margin: 12px 0; }
-  @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } .finished { border-left: 0; border-top: 1px solid var(--line); padding: 24px 0 0; } }
+  @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
 </style>

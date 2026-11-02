@@ -72,7 +72,7 @@ it.each(["Phase 2b", "Test audit · Round 2"])("keeps %s held after uncertain-me
   const page = await chrome.open(server.address);
   try {
     await page.waitFor(`document.body.innerText.includes('I reviewed this message in the conversation')`);
-    const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Resume ${label} in Kiln')`;
+    const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Have Kiln resume ${label}')`;
     expect(await page.evaluate(`${resume}.disabled`)).toBe(true);
     await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='I reviewed this message in the conversation').click()`);
     await page.waitFor(`document.body.innerText.includes('Review acknowledged')`);

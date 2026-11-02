@@ -5,7 +5,9 @@
 import { runHelper } from "../platform/helper-process.js";
 import type { CheckResult, MergedBranchFacts, PullRequestFacts } from "../state/records.js";
 import { gitError, isAncestor, localBranchCommit, runGit, shortSha, type GitContext } from "./git-reads.js";
-import { judgedLeaf, readPlanAt, type PlanRead } from "./plan-reading.js";
+import { judgedLeaf, judgedPhase, readPlanAt, type PlanRead } from "./plan-reading.js";
+import type { PlannedPhase } from "../plan/phase-plan.js";
+import type { CheckItem } from "./waivers.js";
 import { joinNames } from "./worktree-setup.js";
 
 export const CHECK_NAMES = { closed: "Phase doc closed", committed: "Everything committed", pushed: "Pushed", pullRequest: "Pull request open", plan: "Phase plan reads" } as const;
@@ -37,6 +39,8 @@ export interface DoneCheckInput {
   branch: string;
   /** The leaf Kiln launched; when the session split it, its first leaf is judged instead. */
   launchedLeafId: string;
+  /** When the plan does not read: the phases Normal Order takes its order from (waivers "Failing Items"). */
+  orderSource?: () => PlannedPhase[] | undefined;
   originRetryMs?: number;
   /**
    * When the computer last woke, as Kiln's sleep readings found it (milliseconds since the
@@ -53,7 +57,7 @@ export interface DoneCheckOutcome {
   plan: PlanRead;
   /** The leaf judged, from this read: the launched leaf, or its first leaf after a split. */
   judgedLeafId: string;
-  /** Each repository's branch tip, when Pushed passed: matched on origin, or its base commit when it has no commits of its own. */
+  /** Each repository's branch tip where Pushed passed for it: matched on origin, or its base commit when it has no commits of its own. */
   pushedShas?: Record<string, string>;
 }
 
@@ -67,7 +71,7 @@ export interface DoneCheckOutcome {
  */
 export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutcome> {
   const plan = readPlanAt(input.prdWorktreePath, input.prdDirectoryFromRoot);
-  const closed = closedCheck(plan, input.launchedLeafId);
+  const closed = closedCheck(plan, input.launchedLeafId, input.orderSource?.());
   const multi = input.repositories.length > 1;
   const [committed, pushed] = await Promise.all([
     Promise.all(input.repositories.map((repository) => committedCheck(input, repository))),
@@ -80,6 +84,7 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
     passed: pushedPassed,
     // Passing, one line per repository; failing, the repositories that failed.
     facts: multi ? pushed.filter((one) => one.passed === pushedPassed).map((one) => `${one.name}: ${one.fact}`) : [pushed[0]!.fact],
+    ...(pushedPassed ? {} : { items: pushed.filter(one => !one.passed).map(one => workItem(one.name, multi ? `${one.name}: ${one.fact}` : one.fact)) }),
   };
   const checks = [closed.check, committedCheckResult, pushedCheckResult];
   return {
@@ -88,17 +93,33 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
     checks,
     plan,
     judgedLeafId: closed.judgedLeafId,
-    ...(pushedPassed ? { pushedShas: Object.fromEntries(pushed.map((one) => [one.name, one.sha!])) } : {}),
+    // Each repository whose push passed; a waived one has none (waivers "Mark Complete").
+    ...(pushed.some(one => one.passed) ? { pushedShas: Object.fromEntries(pushed.filter(one => one.passed).map((one) => [one.name, one.sha!])) } : {}),
   };
 }
 
-function closedCheck(plan: PlanRead, launchedLeafId: string): { check: CheckResult; judgedLeafId: string } {
+/** A Closed-line item matches by its phase whatever its text (waivers AC-WAIVE-09). */
+const closedItem = (phaseId: string, text: string): CheckItem => ({ kind: "phase_closed", subject: phaseId, text, against: phaseId });
+
+function closedCheck(plan: PlanRead, launchedLeafId: string, orderSource?: PlannedPhase[]): { check: CheckResult; judgedLeafId: string } {
   const name = CHECK_NAMES.closed;
-  if (!plan.ok) return { check: { name, passed: false, facts: [plan.problem] }, judgedLeafId: launchedLeafId };
+  if (!plan.ok) {
+    // Judged against the order source Normal Order uses: the leaf's own document, when it reads (waivers "Failing Items").
+    const leaf = orderSource && judgedPhase(orderSource, launchedLeafId);
+    if (leaf) {
+      return leaf.closed
+        ? { check: { name, passed: true, facts: [`Closed line in ${leaf.fileName}`] }, judgedLeafId: leaf.id }
+        : { check: { name, passed: false, facts: [`No Closed line in ${leaf.fileName}`], items: [closedItem(leaf.id, `No Closed line in ${leaf.fileName}`)] }, judgedLeafId: leaf.id };
+    }
+    return { check: { name, passed: false, facts: [plan.problem], items: [closedItem(launchedLeafId, plan.problem)] }, judgedLeafId: launchedLeafId };
+  }
   const leaf = judgedLeaf(plan.plan, launchedLeafId);
-  if (!leaf) return { check: { name, passed: false, facts: [`Phase ${launchedLeafId} is no longer in the plan`] }, judgedLeafId: launchedLeafId };
+  if (!leaf) {
+    const fact = `Phase ${launchedLeafId} is no longer in the plan`;
+    return { check: { name, passed: false, facts: [fact], items: [closedItem(launchedLeafId, fact)] }, judgedLeafId: launchedLeafId };
+  }
   return {
-    check: leaf.closed ? { name, passed: true, facts: [`Closed line in ${leaf.fileName}`] } : { name, passed: false, facts: [`No Closed line in ${leaf.fileName}`] },
+    check: leaf.closed ? { name, passed: true, facts: [`Closed line in ${leaf.fileName}`] } : { name, passed: false, facts: [`No Closed line in ${leaf.fileName}`], items: [closedItem(leaf.id, `No Closed line in ${leaf.fileName}`)] },
     judgedLeafId: leaf.id,
   };
 }
@@ -127,10 +148,14 @@ async function committedCheck(input: DoneCheckInput, repository: CheckedReposito
 function combineCommitted(results: RepositoryCommitted[], repositories: CheckedRepository[], multi: boolean): CheckResult {
   const name = CHECK_NAMES.committed;
   const passed = results.every((one) => one.passed);
-  if (!multi) return { name, passed, facts: [results[0]!.fact] };
+  if (!multi) return { name, passed, facts: [results[0]!.fact], ...(passed ? {} : { items: [workItem(repositories[0]!.name, results[0]!.fact)] }) };
   if (passed) return { name, passed, facts: [`Clean in ${joinNames(repositories.map((repository) => repository.name))}`] };
-  return { name, passed, facts: results.flatMap((one, index) => (one.passed ? [] : [`${repositories[index]!.name}: ${one.fact}`])) };
+  const failing = results.flatMap((one, index) => (one.passed ? [] : [{ repository: repositories[index]!.name, fact: `${repositories[index]!.name}: ${one.fact}` }]));
+  return { name, passed, facts: failing.map(one => one.fact), items: failing.map(one => workItem(one.repository, one.fact)) };
 }
+
+/** A repository's uncommitted or unpushed work, checked against its feature head and changes, which the engine fills in. */
+const workItem = (repository: string, text: string): CheckItem => ({ kind: "repository_work", subject: repository, text, against: "" });
 
 interface RepositoryPushed {
   unavailable?: true;
@@ -183,7 +208,7 @@ async function readOriginWithRetry(input: DoneCheckInput, repository: CheckedRep
 
 /** The plan check a `plan` stop shows: whether the plan reads (technical design, "A plan that breaks after Start"). */
 export function planCheck(plan: PlanRead): CheckResult {
-  return plan.ok ? { name: CHECK_NAMES.plan, passed: true, facts: ["The phase plan reads"] } : { name: CHECK_NAMES.plan, passed: false, facts: [plan.problem] };
+  return plan.ok ? { name: CHECK_NAMES.plan, passed: true, facts: ["The phase plan reads"] } : { name: CHECK_NAMES.plan, passed: false, facts: [plan.problem], items: [{ kind: "known_problem", subject: plan.problem, text: plan.problem, against: plan.problem }] };
 }
 
 export interface PullRequestCheckInput {
@@ -235,7 +260,9 @@ export async function runPullRequestChecks(inputs: PullRequestCheckInput[]): Pro
   const open = outcomes.length > 0 && outcomes.every((outcome) => outcome.passed);
   const facts =
     outcomes.length === 1 ? outcomes[0]!.check.facts : outcomes.map((outcome, index) => `${inputs[index]!.repository}: ${outcome.check.facts.join(" ")}`);
-  const check = { name, passed: open, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts };
+  const items: CheckItem[] = outcomes.length === 0 ? [{ kind: "other", subject: "No repository has commits of its own", text: "No repository has commits of its own", against: "" }]
+    : outcomes.flatMap((outcome, index) => outcome.passed ? [] : [{ kind: "other" as const, subject: inputs[index]!.repository, text: facts[index]!, against: "" }]);
+  const check: CheckResult = { name, passed: open, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts, ...(open ? {} : { items }) };
   const passed = open;
   return {
     passed,

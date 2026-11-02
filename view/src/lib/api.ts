@@ -79,6 +79,15 @@ export const billingApproval = (config: PageConfig, action: "approval" | "clear"
 export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => sendHandBack(config, target, "resume", note);
 export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => sendHandBack(config, target, intent);
 
+/**
+ * Mark complete (waivers AC-WAIVE-03, AC-WAIVE-04) on the check run it was offered on, with the
+ * page's status token like Check again. A live hand-back sends its live target.
+ *
+ *   markComplete(config, { checkRunId: offer.checkRunId })
+ *   // { ok: true, outcome: "check_results_changed", changes: [{ check: "Pushed", subject: "example-app", change: "newly_failing", after: "…" }] }
+ */
+export const markComplete = (config: PageConfig, body: { checkRunId: string; target?: import("../../../src/live/target.js").LiveTarget; withoutSendingReply?: true }) => send(config, "POST", "/api/mark-complete", body);
+
 /** Keep one instruction identity across uncertain HTTP retries of a takeover. */
 const takeoverIds = new Map<string, string>();
 export function takeOver(config: PageConfig, target: import("../../../src/live/target.js").LiveTarget): Promise<CommandAnswer> {

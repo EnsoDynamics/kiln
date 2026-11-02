@@ -94,6 +94,8 @@ New controller startup upgrades saved records under the existing exclusive PRD l
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Command line (adds `waive-and-advance`).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -204,6 +206,8 @@ Browser controls use the same admission/dispatch/effect mechanism, with browser-
 ### Manual phase outcomes
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Command line (a completion requirement can be waived, through `waive-and-advance` only).
 
 Reply and no-message Resume use the prerequisite's evaluate-then-act contract. An unfinished phase resumes the saved conversation with the reply first (or no reply), preserving terminal history. A completed phase yields `phase_already_complete`, starts nothing and does not advance. A reply's normalized text is retained in its private receipt as `not_sent`, not posted to provider history. Current status exposes the pending unsent receipt IDs and text for this exact stop; new attempts/stops never inherit it.
 

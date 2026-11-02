@@ -174,7 +174,7 @@ describe("the installed package", () => {
     const status = JSON.parse(help(["status"])).command;
     expect(status.result_fields.status_token).toContain("Opaque current");
     expect(status.result_fields.controls).toContain("live controller");
-    for (const name of ["message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings"]) {
+    for (const name of ["message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings"]) {
       const c = JSON.parse(help([name])).command;
       const text = help([name], false);
       for (const code of ["stale_status_token", "busy", "command_id_conflict", "operation_indeterminate"]) {
@@ -199,7 +199,7 @@ describe("the installed package", () => {
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
     const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string }[];
-    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit"];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit"];
     expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
     const root = help([]);
     for (const c of inventory) {

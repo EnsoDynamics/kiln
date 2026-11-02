@@ -84,7 +84,9 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       row.problems.push(`Phase ${phase.id}: splitting earlier completed work is not a new addition.`); continue;
     }
     if (old) {
-      row.classification = old.closed && phase.closed && !old.splitInto && completedPhaseScopeUnchanged(baseline.active, candidate, phase.id, baseline.completions[phase.id]?.scopeRepositories) ? "carried_completed" : "unresolved_earlier_work";
+      // A leaf completed or skipped on a waiver is carried while its scope is unchanged, Closed line or not (waivers "Continuation executions").
+      const waived = !!baseline.completions[phase.id]?.waiverId;
+      row.classification = (old.closed && phase.closed || waived) && !old.splitInto && completedPhaseScopeUnchanged(baseline.active, candidate, phase.id, baseline.completions[phase.id]?.scopeRepositories) ? "carried_completed" : "unresolved_earlier_work";
       if (row.classification === "unresolved_earlier_work") row.problems.push(`Phase ${phase.id}: Earlier work cannot be carried forward with this scope and closure.`);
       const completion = baseline.completions[phase.id];
       if (completion?.doneAt) row.completedAt = completion.doneAt;

@@ -88,7 +88,9 @@ describe("independent delivery evidence and continuation", () => {
     for (const action of ["resume", "verify"] as const) {
       const answer = action === "resume" ? await f.h.engine.resume({ target, note: "must remain unsent" }) : await f.h.engine.checkAgain({ target, intent: "verify" });
       expect(answer).toMatchObject({ ok: false, status: 503, code: "check_unavailable" });
-      expect(f.h.engine.record.phases["1"]!.stop).toEqual(stopped);
+      // The rows stay; the unfinished recheck is recorded as the stop's latest run, so Mark complete is not offered (waivers "Check Runs").
+      const { run, ...kept } = f.h.engine.record.phases["1"]!.stop!;
+      expect({ ...kept, run: stopped!.run }).toEqual(stopped); expect(run).toMatchObject({ origin: "recheck", finished: false });
       expect(f.h.claudeCalls()).toHaveLength(calls);
     }
     const status=f.h.engine.deliveryStatus();
@@ -147,7 +149,7 @@ describe("independent delivery evidence and continuation", () => {
     for (const recreated of [false,true]) {
       if (recreated) git(f.h.sandbox,f.h.repository,"push","origin",`${unrelated}:refs/heads/${feature}`);
       expect((await evaluateRepositories(f.context)).passed).toBe(false);
-      expect(f.h.engine.record.developmentDelivery!.repositoryResults[0]).toMatchObject({state:"unresolved",deliveredCheckpointIds:[f.checkpoint.id],reasons:["acme-shop: current feature head is not pushed to its assigned origin branch.","acme-shop: origin changed during completion reconciliation."]});
+      expect(f.h.engine.record.developmentDelivery!.repositoryResults[0]).toMatchObject({state:"unresolved",deliveredCheckpointIds:[f.checkpoint.id],reasons:["acme-shop: current feature head is not pushed to its assigned origin branch."]});
       expect(f.checkpoint.merge).toEqual(merge);
       expect(git(f.h.sandbox,f.context.prdWorktree,"rev-parse","HEAD").trim()).toBe(localHead);
     }

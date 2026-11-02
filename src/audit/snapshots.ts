@@ -1,3 +1,4 @@
+import type { PlannedPhase } from "../plan/phase-plan.js";
 import { readFileSync, realpathSync, lstatSync, readdirSync } from "node:fs";
 import { isAbsolute, posix, relative, resolve, sep } from "node:path";
 import { runGit, type GitContext } from "../engine/git-reads.js";
@@ -68,7 +69,8 @@ export function phaseScope(content: string): string {
 }
 
 /** `retainedClassification` re-reads a version-1 snapshot's test paths without re-checking their support. */
-export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; now: string; retainedClassification?: boolean }
+/** `planPhases`: while a waived plan problem stops the plan from reading, the phases Normal Order uses (waivers AC-WAIVE-04). */
+export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; now: string; retainedClassification?: boolean; planPhases?: PlannedPhase[] }
 
 export function fileInSnapshot(snapshot: WorkSnapshot, reference: FileReference): boolean {
   return !!reference && snapshot.repositories.find(r => r.repository === reference.repository)?.files[reference.path]?.blob === reference.blob;
@@ -86,7 +88,8 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const prds = readdirSync(folder).filter(name => name.endsWith("-prd.md"));
   requireAudit(prds.length === 1, `Expected exactly one governing PRD in ${record.prdDirectory}.`);
   const prdPath = `${record.prdDirectory}/${prds[0]!}`;
-  const plan = readPlanAt(prdRepo.worktreePath, record.prdDirectory);
+  const read = readPlanAt(prdRepo.worktreePath, record.prdDirectory);
+  const plan = !read.ok && !read.unavailable && context.planPhases ? { ok: true as const, plan: { phases: context.planPhases, problems: [] } } : read;
   requireAudit(plan.ok, plan.ok ? "" : plan.problem, "inconsistent_plan");
   const normalizedPlan = plan.plan.phases.map(p => ({ id: p.id, file: `${record.prdDirectory}/${p.fileName}`, closed: p.closed, content: phaseScope(readFileSync(assignedPath(prdRepo, `${record.prdDirectory}/${p.fileName}`), "utf8")), ...(p.splitInto ? { splitInto: p.splitInto } : {}) }));
   const repositories: WorkSnapshot["repositories"] = [];

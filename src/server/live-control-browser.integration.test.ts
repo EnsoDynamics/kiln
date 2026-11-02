@@ -52,12 +52,12 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
   const server = await serveViewFixture({ port: 42053, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1000 });
   try {
-    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Resume ${label} in Kiln`)})`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Have Kiln resume ${label}`)})`);
     const text = await page.evaluate<string>("document.body.innerText");
     for (const expected of [
-      `Then choose who finishes ${label}.`, `Verify ${label} & advance`,
-      `${label} can still be unfinished, with uncommitted or unpushed work. Kiln finishes ${label} before following the rest of the plan.`,
-      "Exit the Claude Code session first.", "No special handoff phrase is needed.", "record those decisions in the requirements before you exit",
+      "Got it back on track? Exit Claude Code, then:", `Check ${label} again`,
+      `If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out ${label} and moves to the next step.`,
+      "No special handoff phrase is needed.", "record those decisions in the requirements before you exit",
     ]) expect(text).toContain(expected);
     expect(await page.evaluate(`document.querySelector('ul.checks').getAttribute('aria-label')`)).toBe(`${label} completion requirements`);
     expect(text).not.toMatch(/finishes the phase|finish the phase|phase was already complete|The phase can still/);
@@ -67,7 +67,7 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
     await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`because ${label} was already complete`)})`);
     stop.resumeOffered = false;
     server.send("snapshot", snapshot);
-    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Use the terminal recovery instructions to finish ${label}, then verify it.`)})`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Use the terminal recovery instructions to finish ${label}, then check it again below.`)})`);
     expect(await page.evaluate("document.body.innerText")).not.toContain("finish the phase");
     snapshot.liveControl.takeover!.state = "pending";
     snapshot.liveControl.takeover!.reason = "The saved Claude conversation is missing or unreadable.";

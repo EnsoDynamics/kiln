@@ -292,7 +292,8 @@ describe("a phase that doesn't land", () => {
     expect(stop.checks).toEqual([
       { name: "Phase doc closed", passed: true, facts: ["Closed line in phase-1-return-intake.md"] },
       { name: "Everything committed", passed: true, facts: [expect.stringMatching(/^Latest commit [0-9a-f]{7}, tree clean$/)] },
-      { name: "Pushed", passed: false, facts: ["feature/customer-returns isn't on origin yet"] },
+      // Each failing item is listed, checked against the repository's head and changes (waivers AC-WAIVE-11).
+      { name: "Pushed", passed: false, facts: ["feature/customer-returns isn't on origin yet"], items: [{ kind: "repository_work", subject: "acme-shop", text: "feature/customer-returns isn't on origin yet", against: expect.stringMatching(/^[0-9a-f]{40}:clean$/) }] },
     ]);
 
     // AC-STOP-01, AC-STOP-08: no retry and no later phase, however long Kiln waits.
@@ -486,7 +487,7 @@ describe("the done check needs all three", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases["1"]!.stop!.checks[0]).toEqual({ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-1a-intake-form.md"] });
+    expect(h.engine.record.phases["1"]!.stop!.checks[0]).toEqual({ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-1a-intake-form.md"], items: [{ kind: "phase_closed", subject: "1a", text: "No Closed line in phase-1a-intake-form.md", against: "1a" }] });
     expect(phaseEvents(h).at(-1)).toBe("1a stopped");
     expect(buildSnapshot(h.engine).needsYou!.phaseId).toBe("1a");
     // The fresh-session prompt points at the leaf judged, the split's first child (AC-STOP-06).
@@ -815,7 +816,7 @@ describe("the pull request", () => {
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
-    expect(h.engine.record.phases.pr!.stop!.checks).toEqual([{ name: "Pull request open", passed: false, facts: ["No open pull request from feature/customer-returns into develop"] }]);
+    expect(h.engine.record.phases.pr!.stop!.checks).toEqual([{ name: "Pull request open", passed: false, facts: ["No open pull request from feature/customer-returns into develop"], items: [{ kind: "other", subject: "acme-shop", text: "No open pull request from feature/customer-returns into develop", against: expect.stringMatching(/^acme-shop=[0-9a-f]{40}$/) }] }]);
     expect(h.engine.record.completedAt).toBeUndefined();
     expect(phaseEvents(h).at(-1)).toBe("PR stopped");
   });
@@ -827,7 +828,7 @@ describe("the pull request", () => {
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(4);
-    expect(h.engine.record.phases.pr!.stop!.checks[0]).toEqual({ name: "Pull request open", passed: false, facts: ["HTTP 502: Bad Gateway"] });
+    expect(h.engine.record.phases.pr!.stop!.checks[0]).toMatchObject({ name: "Pull request open", passed: false, facts: ["HTTP 502: Bad Gateway"], items: [{ kind: "other", subject: "acme-shop", text: "HTTP 502: Bad Gateway" }] });
   });
 });
 
@@ -965,13 +966,19 @@ describe("the done check's facts", () => {
     const beforePlanFailure = structuredClone(h.engine.record.phases["1"]!.stop!);
     // AC-HANDBACK-04 retains accepted completion scope even when a live fact was reset.
     // Removing that completed identity now requires plan reconciliation, not a fresh receipt.
-    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable" });
+    // A plan that does not reconcile is a failing Phase plan reads row in a finished check run (waivers "Failing Items").
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true, outcome: "still_stopped" });
     const after = structuredClone(h.engine.record.phases["1"]!.stop!);
-    expect(after).toEqual(beforePlanFailure);
+    expect(after.at).toBe(beforePlanFailure.at);
+    expect(after.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false }));
+    expect(after.run).toMatchObject({ origin: "recheck", finished: true });
     expect(h.engine.record.planReconciliation?.check?.status).toBe("failed");
     git(h.sandbox, worktree, "remote", "set-url", "origin", join(h.sandbox.root, "missing.git"));
     expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable", reason: expect.stringMatching(/^Couldn't reach origin: /) });
-    expect(h.engine.record.phases["1"]!.stop).toEqual(after);
+    // A check that could not finish keeps the earlier rows and records an unfinished run, so Mark complete is not offered.
+    expect(h.engine.record.phases["1"]!.stop!.checks).toEqual(after.checks);
+    expect(h.engine.record.phases["1"]!.stop!.run).toMatchObject({ origin: "recheck", finished: false });
+    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: false });
   });
 
   it("saves every event as received with its arrival time, leaving out partial-message deltas", async () => {

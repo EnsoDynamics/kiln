@@ -218,6 +218,8 @@ An added repository's base is fixed as [Data Models](#data-models) gives.
 
 ### Named after Start (AC-ADD-04)
 
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Normal Order Under a Waived Problem (skipping a phase whose repository cannot be added).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (engine loop: names are added before a phase starts)
 
 In the engine loop, after the plan is re-read and the next leaf chosen, Kiln collects the names on that leaf and every split record above it that `PrdRecord.repositories` doesn't hold as an entry with `setupCompletedAt`, and adds each as above with `addedInPhase` the leaf's id, before spawning its session; the leaf about to launch is its own judged leaf. A failure records a `plan` stop on that leaf whose one check, Phase plan reads, carries the failed check's words prefixed with the repository (`storefront: That branch already exists in storefront…`). Check again and `kiln run` re-run the plan read, which re-tries the addition.
@@ -260,6 +262,8 @@ Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-chec
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Completion Evidence and Errors (manual phase evaluation/acceptance and unavailable-check display; completion predicates remain).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled delivery assessment and retained checkpoint obligations). Restricted execution behavior remains in force.
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (waivable checks, `waivedHead`).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check)
 
@@ -328,6 +332,8 @@ Wherever v1 resumes an interrupted session after its check fails (Ctrl+C, a clos
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (audits precede final repository evaluation), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled final repository results; restricted delivery history remains). Restricted execution behavior remains in force.
+
+Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (waivable checks, `waivedHead`).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request check, §The prompts (pull-request session), §Where a Feature Stands (engine loop's check before the session)
 

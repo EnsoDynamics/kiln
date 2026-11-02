@@ -176,7 +176,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});
@@ -265,7 +265,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','settings','message','take-over'].sort();
+    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','settings','message','take-over'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
     for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
@@ -410,7 +410,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     writeJsonAtomically(join(secondDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port:secondPort});
     const inventory=await command(['status','--json'],h.env,h.sandbox.root);expect(inventory.code).toBe(0);expect(inventory.json().counts).toMatchObject({live_controllers:2});
     expect((inventory.json().runs as Result[]).map(r=>r.prd_path)).toContain(f.path);
-    expect(inventory.json().runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:join(h.repository,`docs/prds/${FOLDER}`),prd:{name:'Customer returns',path:join(h.repository,`docs/prds/${FOLDER}`)},repositories:['acme-shop'],controller:'reachable',state:'not_started'}),expect.objectContaining({prd_path:f.path,prd:{name:'Customer returns',path:f.path},repositories:['second-real-repository'],controller:'reachable',state:'not_started'})]));
+    expect(inventory.json().runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:join(h.repository,`docs/prds/${FOLDER}`),prd:expect.objectContaining({name:'Customer returns',path:join(h.repository,`docs/prds/${FOLDER}`)}),repositories:['acme-shop'],controller:'reachable',state:'not_started'}),expect.objectContaining({prd_path:f.path,prd:expect.objectContaining({name:'Customer returns',path:f.path}),repositories:['second-real-repository'],controller:'reachable',state:'not_started'})]));
     for(const row of inventory.json().runs as Result[]){const date=(row.facts as {observed_at:string}).observed_at;expect(date).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);expect(Date.parse(date)).toBeGreaterThanOrEqual(Date.parse(inventory.json().collection_started_at as string));expect(Date.parse(date)).toBeLessThanOrEqual(Date.parse(inventory.json().observed_at));}
     secondEngine.record.completedAt='2026-01-02T00:00:00Z';writePrdRecord(secondDirectory,secondEngine.record);
     expect((await command(['status','--json'],h.env)).json().counts).toMatchObject({live_controllers:2});

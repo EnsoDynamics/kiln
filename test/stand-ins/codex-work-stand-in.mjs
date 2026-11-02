@@ -60,6 +60,12 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'windowsSandbox/readiness': result = { status: fixture.windowsReadiness ?? 'ready' }; break;
     case 'thread/start': case 'thread/resume': {
       if (fixture.missingThread && message.method === 'thread/resume') break;
+      // The launch-settings probe (waivers "Check Runs"): an ephemeral thread, never saved, with no launch intent.
+      if (message.method === 'thread/start' && params.ephemeral === true) {
+        const sandbox = { type: 'workspaceWrite', writableRoots: params.config.sandbox_workspace_write.writable_roots.filter(root => root !== params.cwd), networkAccess: true };
+        result = { model: fixture.mismatch ? 'different-model' : params.model, reasoningEffort: params.config.model_reasoning_effort, modelProvider: 'openai', cwd: params.cwd, approvalPolicy: 'on-request', approvalsReviewer: fixture.badReviewer ? 'user' : 'auto_review', sandbox, instructionSources: [fixture.skill], thread: { id: randomUUID(), ephemeral: true, path: null } };
+        break;
+      }
       if (message.method === 'thread/start' && !saved().runs.at(-1)?.codex?.intentAt) throw new Error('No durable launch intent');
       threadId = params.threadId ?? (fixture.dynamicRecord ? randomUUID() : threadId);
       mkdirSync(join(fixture.home, 'sessions'), { recursive: true });

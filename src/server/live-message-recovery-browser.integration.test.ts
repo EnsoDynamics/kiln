@@ -44,13 +44,13 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("retains exact uncert
     expect(await page.evaluate(`document.querySelector('.messages pre').textContent`)).toBe(text);
     const body = await page.evaluate<string>("document.body.innerText");
     expect(body).toContain("Delivery uncertain"); expect(body).toContain("View session output"); expect(body).not.toContain("Received by Claude");
-    expect(await page.evaluate(`${button("Resume Phase 1 in Kiln")}.disabled`)).toBe(true);
-    expect(await page.evaluate(`${button("Verify Phase 1 & advance")}.disabled`)).toBe(true);
+    expect(await page.evaluate(`${button("Have Kiln resume Phase 1")}.disabled`)).toBe(true);
+    expect(await page.evaluate(`${button("Check Phase 1 again")}.disabled`)).toBe(true);
     await page.evaluate(`${review}.click()`); await page.waitFor(`document.body.innerText.includes('Review acknowledged')`);
     expect(h.engine.record.liveControl).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
-    await page.waitFor(`!${button("Verify Phase 1 & advance")}.disabled`);
-    await page.evaluate(`${button("Verify Phase 1 & advance")}.click()`);
-    await page.waitFor(`!${button("Verify Phase 1 & advance")}.disabled`);
+    await page.waitFor(`!${button("Check Phase 1 again")}.disabled`);
+    await page.evaluate(`${button("Check Phase 1 again")}.click()`);
+    await page.waitFor(`!${button("Check Phase 1 again")}.disabled`);
     expect(h.engine.record.liveControl).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
     expect(h.engine.commands.all().find(r => r.command_id === "late-browser")?.message).toMatchObject({ text, delivery: "uncertain", reviewedAt: expect.any(String), resultAt: at });
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);

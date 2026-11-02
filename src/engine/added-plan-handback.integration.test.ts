@@ -202,14 +202,17 @@ it("requires committed and published evidence for a newly externally Closed leaf
   const baseline = h.engine.record.planReconciliation!.baselineId;
   const stopped = structuredClone(h.engine.record.phases["1"]);
   writeFileSync(join(h.engine.worktreePath, directory, extra), extraText.replace("\n", "\n\n**Closed:** 2026-10-27\n"));
-  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: false, code: "check_unavailable" });
+  // A plan that does not reconcile is a failing Phase plan reads row, which Mark complete can waive (waivers "Failing Items").
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "still_stopped" });
   expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline);
-  expect(h.engine.record.phases["1"]).toEqual(stopped);
+  expect(h.engine.record.phases["1"]).toMatchObject({ sessionIds: stopped!.sessionIds });
+  expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.stop!.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false }));
   const file = join(h.engine.worktreePath, directory, "phase-1-return-intake.md");
   writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-27\n"));
   git(h.sandbox, h.engine.worktreePath, "add", `${directory}/${extra}`, `${directory}/phase-1-return-intake.md`);
   git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test(comet): record externally finished lending");
-  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: false, code: "check_unavailable" });
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "still_stopped" });
   expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline);
   expect(h.claudeCalls()).toHaveLength(1);
   git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
@@ -225,7 +228,6 @@ it.each([false, true])("refuses externally Closed work with an unchecked reposit
   h = await createHarness({ sessions: [asking] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const baseline = h.engine.record.planReconciliation!.baselineId;
-  const stopped = structuredClone(h.engine.record.phases["1"]);
   const folder = join(h.engine.worktreePath, directory);
   const repos = "\n\n**Repositories:** comet-index\n";
   if (inherited) {
@@ -235,10 +237,11 @@ it.each([false, true])("refuses externally Closed work with an unchecked reposit
   git(h.sandbox, h.engine.worktreePath, "add", directory);
   git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test(comet): publish external scope naming unchecked index");
   git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", "feature/customer-returns");
-  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: false, code: "check_unavailable" });
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "advance"))).toMatchObject({ ok: true, outcome: "still_stopped" });
   expect(h.engine.record.planReconciliation!.check!.problem).toContain("comet-index");
   expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline);
-  expect(h.engine.record.phases["1"]).toEqual(stopped);
+  expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.stop!.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false }));
   expect(h.claudeCalls()).toHaveLength(1);
 });
 

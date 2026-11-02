@@ -27,7 +27,7 @@ it.each(cases)("pins the released takeover headline, exact last message and endi
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] .final').textContent.trim()`)).toBe(stop.finalMessage);
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] .facts').textContent`)).toContain("Claude Code · exit 0");
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] a').getAttribute('href')`)).toBe(`/customer-returns/phase/${key}`);
-    expect(await page.evaluate("document.body.innerText")).toContain(`Then choose who finishes ${label}.`);
+    expect(await page.evaluate("document.body.innerText")).toContain(`Is ${label} already done?`);
     expect(server.commands).toEqual([]); expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });
