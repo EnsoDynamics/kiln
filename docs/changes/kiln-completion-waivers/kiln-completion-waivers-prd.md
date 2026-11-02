@@ -102,7 +102,7 @@ Anyone looking later, in the browser, the terminal or a bot, must be able to tel
   | Valid, not accepted: it needs a person (**Audit work resolved**) or a repository or delivery check failed | Accepted, with needing a person counted as passed |
   | None usable: marked complete with no report, or with one Kiln could not read or refused, such as a test continuation that made no progress or a report its plan disagrees with | Passed, and Kiln moves on: delivery audit to test audit, test audit to final delivery as having changed only tests. Completion phases it already appended still run first, and the work they add is audited afresh, as after any audit that appended phases |
 
-  With no usable report, a warning marker, "no audit report: Kiln couldn't tell what this audit found", sits beside the audit's waived label wherever AC-WAIVE-10 shows it, and in the `kiln status` JSON as a field on the audit's waiver; the sentence above Mark complete (AC-WAIVE-03) says so first.
+  With no usable report, a warning marker, "no audit report: Kiln couldn't tell what this audit found", sits beside the audit's waived label wherever AC-WAIVE-10 shows it, and in the `kiln status` JSON as a field on the audit; the sentence above Mark complete (AC-WAIVE-03) says so first.
 
 Replaces in part:
 

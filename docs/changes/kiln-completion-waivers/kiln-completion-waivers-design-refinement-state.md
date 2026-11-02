@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-completion-waivers
 
-Started: 2026-11-02   Current pass: 2   Status: In progress
+Started: 2026-11-02   Current pass: 3   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 3381 · growth baseline 3381
@@ -18,6 +18,7 @@ Last updated: 2026-11-02
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 9 (+4 from conformance) | 9 | 9 | 0 | 0 | 0 | 0 |
+| 2 | 8 (+4 carried, +1 conformance) | 13 | 11 | 0 | 0 | 0 | 1 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -31,11 +32,20 @@ Last updated: 2026-11-02
 | Q7 | 1 | Side-effect-free computation of "next activity" for the preview sentence | Technical | MEDIUM | 75 → 90 | Resolved | TD §Mark Complete (forecast), §Interfaces |
 | Q8 | 1 | Recheck of a Codex launch-settings stop without dispatching a turn | Technical | MEDIUM | 60 → 85 | Resolved by decision | TD §Check Runs (probe); Open Question removed; proof in §Verification |
 | Q-C1 | 1 | AC-WAIVE-12 "None usable" includes a readable report Kiln refused | Business | MEDIUM | 95 → 97 | Resolved | PRD AC-WAIVE-12 |
-| Q9 | 1 (conformance) | TD §Check Runs says a waived launch item (Billing approval, Agent selection, Codex launch settings, Preparation permissions) never covers a later launch, but PRD AC-WAIVE-09 says a waived item counts wherever Kiln asks again (`other` row: until a feature head changes); PRD exception or design change? | Business | MEDIUM | — | Pending | |
-| Q10 | 1 (conformance) | PRD's Replaces in part is one list after the criteria, not a `Replaces in part:` line on each new criterion as prd-writing-standards specifies; distribute onto AC-WAIVE-xx? | Technical | LOW | — | Pending | |
-| Q11 | 1 (conformance) | TD §Upgrade lists the new saved fields but not final delivery's `waiverId` (§Mark Complete); say where it is saved | Technical | LOW | — | Pending | |
-| Q12 | 1 (conformance) | TD §Interfaces lists `check_unavailable` both as a response outcome and as a 503 refusal; which does the route return? | Technical | LOW | — | Pending | |
+| Q9 | 1 (conformance) | TD §Check Runs says a waived launch item (Billing approval, Agent selection, Codex launch settings, Preparation permissions) never covers a later launch, but PRD AC-WAIVE-09 says a waived item counts wherever Kiln asks again (`other` row: until a feature head changes); PRD exception or design change? | Business | MEDIUM | — | Resolved | TD §Failing Items `other` row, §Check Runs (launch item keyed by activity; no PRD exception needed) |
+| Q10 | 1 (conformance) | PRD's Replaces in part is one list after the criteria, not a `Replaces in part:` line on each new criterion as prd-writing-standards specifies; distribute onto AC-WAIVE-xx? | Technical | LOW | — | Dropped | — (each list entry already names its AC-WAIVE criterion; no implementer judgment call) |
+| Q11 | 1 (conformance) | TD §Upgrade lists the new saved fields but not final delivery's `waiverId` (§Mark Complete); say where it is saved | Technical | LOW | — | Resolved | TD §Upgrade |
+| Q12 | 1 (conformance) | TD §Interfaces lists `check_unavailable` both as a response outcome and as a 503 refusal; which does the route return? | Technical | LOW | — | Resolved | TD §Interfaces (503 with outcome) |
 
+| Q13 | 2 | Launch-check rule on an activity that already ran (billing hold with runs, Preparation permissions as done_check) | Technical | HIGH | 65 → 92 | Resolved | TD §Check Runs |
+| Q14 | 2 | Mark complete on a preparation stop: what happens to record.preparation | Technical | MEDIUM | 70 → 90 | Resolved | TD §Mark Complete (preparation bullet) |
+| Q15 | 2 | Where a billing hold on an unstarted activity keeps its run and saved row | Technical | MEDIUM | 75 → 85 | Resolved (proposal rejected; carried on the hold) | TD §Check Runs, §Upgrade |
+| Q16 | 2 | Journal identity of waive-and-advance without --confirm; `by` string input | Technical | MEDIUM | 75 → 85 | Resolved (proposal changed: no-confirm form journaled as its recheck) | TD §Interfaces |
+| Q17 | 2 | Closed row failing with plan-problem text: phase_closed item and leaf validity without a readable plan | Technical | MEDIUM | 80 → 88 | Resolved | TD §Failing Items, §Coverage |
+| Q18 | 2 | Audits completed under normal order on another activity's waiver: own AuditWaiverResult each | Technical | MEDIUM | 80 → 90 | Resolved | TD §Audits Marked Complete, §Snapshot, §Display |
+| Q19 | 2 | Continuation baseline revision when final delivery waived the PRD repo push (waivedHead fallback) | Technical | MEDIUM | 85 → 90 | Resolved | TD §Coverage (Continuation executions) |
+| Q20 | 2 | Display of a continued waiver on an already-complete activity | Technical (PRD decides) | LOW | 70 → 95 | Resolved (AC-WAIVE-10 decides) | TD §Display Contract |
+| Q21 | 2 (conformance) | TD §Check Runs: on a billing hold whose activity already ran, a recheck "replaces the hold's rows" with the done check's, and the snapshot reads the hold's rows rather than appending one, yet the same paragraph says the preview never counts "the Billing approval row the snapshot shows"; does the hold keep showing its Billing approval row after such a recheck (outside the waivable run), and where is it stored? | Technical | LOW | — | Resolved | TD §Check Runs |
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
 ## Question notes
@@ -58,4 +68,4 @@ Changed after pass 1: AC-WAIVE-12 (None usable row, Q-C1); AC-WAIVE-02 (other he
 |---|---|---|
 
 ## Next action
-Pass 2: Q9-Q12 (from pass 1 conformance) first, then pass 2 discovery.
+Pass 3 discovery.
