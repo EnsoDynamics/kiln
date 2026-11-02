@@ -3,7 +3,7 @@
 **Follow-on to:** [Kiln development deployments](../kiln-development-deployments/kiln-development-deployments-prd.md).
 **Source:** Doug's request, 2026-11-01, raised while Kiln refused a correct phase of another project.
 **Assumptions:** [kiln-completion-waivers-assumptions.md](kiln-completion-waivers-assumptions.md)
-**Business validation, 2026-11-01:** Doug directed that any failing step can be waived at any activity, that a waiver also counts at final delivery, and that bots must be able to waive through the command line (WAIVE-001 to 003). He then directed a plain button with no reason asked, since a person who has confirmed the work is done should not have to explain Kiln's cryptic refusals, and asked for resuming and checking to sit in separate places, with Mark complete offered only after a recheck still fails.
+**Business validation, 2026-11-01:** Doug directed that any failing step can be waived at any activity, that a waiver also counts at final delivery, and that bots must be able to waive through the command line (WAIVE-001 to 003). He then directed a plain button with no reason asked, since a person who has confirmed the work is done should not have to explain Kiln's cryptic refusals, and asked for resuming and checking to sit in separate places, with Mark complete offered only after a recheck still fails. He approved the mockup the same day; it governs the arrangement and wording of the Needs you page and the after-waiver displays.
 
 ## Summary
 
