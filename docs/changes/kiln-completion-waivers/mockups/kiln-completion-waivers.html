@@ -37,8 +37,9 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
 .kp-record{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin-top:14px;font-size:13px}.kp-record dt{color:var(--kp-muted)}.kp-record dd{margin:0;overflow-wrap:anywhere}
 .kp-term{background:#151410;color:#e8e3d6;border-radius:10px;padding:16px 18px;font:12.5px/1.7 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:12px}
 .kp-term .a{color:#d6b474}.kp-term .g{color:#a8bd9b}.kp-term .d{color:#8f897b}
+.kp-cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:24px;align-items:start}.kp-step{display:grid;grid-template-columns:30px minmax(0,1fr);gap:0 12px;margin-top:16px}.kp-num{width:30px;height:30px;border-radius:99px;border:1px solid var(--kp-line);display:inline-flex;align-items:center;justify-content:center;font:17px Georgia,serif}
 .kp-phase-rows{list-style:none;padding:0;margin:12px 0 0}.kp-phase-rows li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--kp-line);font-size:13px}
-@media(max-width:720px){.kp-body{padding:24px 18px}.kp-top{padding-left:18px}h1{font-size:30px}.kp-return-grid{grid-template-columns:1fr}.kp-finished{border-left:0;border-top:1px solid var(--kp-line);padding:22px 0 0}}
+@media(max-width:720px){.kp-cols{grid-template-columns:1fr}.kp-body{padding:24px 18px}.kp-top{padding-left:18px}h1{font-size:30px}.kp-return-grid{grid-template-columns:1fr}.kp-finished{border-left:0;border-top:1px solid var(--kp-line);padding:22px 0 0}}
 </style>
 </head>
 <body>
@@ -51,12 +52,15 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
    <option value="mixed">4 · Several kinds of failure, including Closed and Pushed</option>
    <option value="cli">5 · A bot doing it through the command line</option>
    <option value="after">6 · After marking complete</option>
+   <option value="final">7 · Final delivery: Mark complete on the standard Needs you page</option>
+   <option value="final-audits">8 · Final delivery while an audit is also required</option>
+   <option value="complete">9 · After final delivery is marked complete</option>
   </select></label>
  <span style="opacity:.75">Sample ids and revisions are illustrative.</span>
 </div>
 
 <section id="kiln-page" aria-label="Kiln completion waivers mockup">
-<header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Example feature / Phase 3</span><span class="kp-muted kp-small">Connected · Claude Code</span></header>
+<header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb" id="crumb">Example feature / Phase 3</span><span class="kp-muted kp-small">Connected · Claude Code</span></header>
 <main class="kp-body">
 
 <!-- ===== Needs you page (states 1-4) ===== -->
@@ -97,9 +101,9 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
   <p class="kp-muted">If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out Phase 3 and moves to the next step. Nothing is committed or pushed for you.</p>
   <ul class="kp-checks" style="margin-top:14px">
    <li><span><strong>Phase doc closed</strong><br><span class="kp-muted" id="closed-fact">phase-3-dev-delivery-fixes.md has a Closed line</span></span><span id="closed-state" class="kp-pass">Passed</span></li>
-   <li><span><strong>Committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Passed</span></li>
+   <li><span><strong>Everything committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Passed</span></li>
    <li><span><strong>Pushed</strong><br><span class="kp-muted" id="pushed-fact">example-app: no commits waiting to be pushed</span></span><span id="pushed-state" class="kp-pass">Passed</span></li>
-   <li><span><strong>Required development delivery verified</strong><br><span class="kp-muted" id="delivery-fact">phase3-dev-fixes-4 / dev-health-reports-merge: /deployed_sha does not match its declared target/artifact.</span></span><span class="kp-state">Not yet</span></li>
+   <li><span><strong>Required development delivery verified</strong><br><span class="kp-muted" id="delivery-fact">phase3-dev-fixes-4 / dev-health-reports-merge: /deployed_sha does not match its declared target/artifact.</span><span id="delivery-new" hidden><br><span class="kp-new">New</span> <span class="kp-muted">phase3-dev-fixes-4 / dev-deploy: Deployment has no independently observed historical successful status.</span></span></span><span class="kp-state">Not yet</span></li>
   </ul>
   <div class="kp-actions"><button class="js-busy" id="recheck">Check Phase 3 again</button></div>
   <p class="kp-feedback" id="still-failing" role="status" hidden><strong>Phase 3 still has 1 failing check.</strong> If the work isn’t finished, have Kiln resume it above.</p>
@@ -107,10 +111,20 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
   <div id="override" hidden style="margin-top:22px;padding-top:20px;border-top:1px solid var(--kp-line)">
    <h3>Phase 3 is done, and Kiln’s check is wrong?</h3>
    <p class="kp-muted" id="waive-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to the next step. Phase 3 will show as “Complete · 1 check waived”.</p>
-   <p class="kp-feedback" id="push-warning" hidden>Pushed is failing. Work that is not committed and pushed will be missing from the final pull request. To push it instead, have Kiln resume Phase 3.</p>
+   <p class="kp-feedback" id="push-warning" hidden>example-app has 1 commit not pushed. Work that is not committed and pushed will be missing from the final pull request. To push it instead, have Kiln resume Phase 3.</p>
    <div class="kp-actions"><button class="js-busy" id="waive">Mark Phase 3 complete</button></div>
-   <p class="kp-feedback" id="changed-note" role="status" hidden><strong>The results changed since your last check.</strong> Nothing was marked complete. A new check is failing; review the list above, then choose again.</p>
+   <p class="kp-feedback" id="changed-note" role="status" hidden><strong>The results changed since your last check.</strong> Nothing was marked complete. A new item, marked New above, is failing under Required development delivery verified. Review it, then choose again.</p>
   </div>
+ </section>
+
+ <section class="kp-card" aria-label="Billing">
+  <h3>Billing</h3>
+  <p class="kp-muted kp-small">Claude Code · subscription · the next launch is allowed</p>
+ </section>
+ <section class="kp-card" aria-label="Early merges">
+  <h3>Early merges allowed</h3>
+  <p class="kp-small">example-app · dev · Merge confirmed · #212 · Result eae98b13</p>
+  <p class="kp-small">verification (<code>dev-health-reports-merge</code>): not yet</p>
  </section>
 </div>
 
@@ -119,28 +133,39 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
  <p class="kp-muted kp-small">What a bot such as a chat bot runs on the Mac when asked “push Phase 3 along, the health check is fine”</p>
  <h1>Marking complete from the command line</h1>
  <section class="kp-card">
-  <h3>1 · Check again and see what would be waived (nothing is saved)</h3>
-  <div class="kp-term"><span class="d">$ kiln waive-and-advance ~/devel/example-app/docs/prds/example-feature</span>
-Phase 3 · Dev delivery fixes is at Needs you. Checked again 2026-11-01 19:14:05: 1 check failing.
+  <h3>1 · Check again; if it still fails, see what would be waived</h3>
+  <div class="kp-term"><span class="d">$ kiln waive-and-advance ~/devel/example-app/docs/prds/example-feature \
+    --only-if-status-matches 7f3c9a1e… --command-id grok-7c20</span>
+Operation op_51d1 accepted.
+
+<span class="d">$ kiln command-status ~/devel/example-app/docs/prds/example-feature --command-id grok-7c20</span>
+Operation op_51d1 completed. Phase 3 · Dev delivery fixes is still at Needs you.
+Checked again 2026-11-01 19:14:05 EST: 1 check failing.
 Marking it complete would waive:
   Required development delivery verified
     phase3-dev-fixes-4 / dev-health-reports-merge
     /deployed_sha does not match its declared target/artifact.
     example-app · dev · merge eae98b13
-Status token: 7f3c9a1e…
-To mark it complete, add --confirm --status-token 7f3c9a1e…</div>
+Phase 3 would then show as Complete · 1 check waived, and Kiln would start Phase 4 · Reporting views.
+To mark it complete, run again with --confirm --only-if-status-matches 7f3c9a1e… --command-id &lt;a new id&gt;.</div>
+  <p class="kp-note">Had every check passed, this would have closed out Phase 3 and started Phase 4, as kiln verify-and-advance does.</p>
  </section>
  <section class="kp-card">
   <h3>2 · Mark complete</h3>
   <div class="kp-term"><span class="d">$ kiln waive-and-advance ~/devel/example-app/docs/prds/example-feature \
-    --confirm --status-token 7f3c9a1e… --by grokbot</span>
-Operation op_51d2 accepted. Rechecking Phase 3…
-<span class="a">Phase 3 marked complete</span> (1 check waived · source: command line · alex · grokbot).
+    --confirm --only-if-status-matches 7f3c9a1e… --command-id grok-7c21 --by grokbot</span>
+Operation op_51d2 accepted.
+
+<span class="d">$ kiln command-status ~/devel/example-app/docs/prds/example-feature --command-id grok-7c21</span>
+Operation op_51d2 completed. <span class="a">Phase 3 marked complete</span> (1 check waived · source: command line · alex · grokbot).
 Phase 4 · Reporting views is starting.</div>
  </section>
  <section class="kp-card">
-  <h3>Refused when nothing is waiting at Needs you</h3>
-  <div class="kp-term"><span class="d">$ kiln waive-and-advance … --confirm …</span>
+  <h3>Refused before a recheck, or when nothing is waiting at Needs you</h3>
+  <div class="kp-term"><span class="d">$ kiln waive-and-advance … --confirm --only-if-status-matches … --command-id …</span>
+Refused: no check has run since Phase 3 stopped. Run without --confirm to check again first.
+
+<span class="d">$ kiln waive-and-advance … --confirm --only-if-status-matches … --command-id …</span>
 Refused: Phase 3 is running, not at Needs you. There is nothing to mark complete.</div>
  </section>
 </div>
@@ -165,7 +190,7 @@ Refused: Phase 3 is running, not at Needs you. There is nothing to mark complete
   <p class="kp-muted">3 passed · 1 waived. The waived check was not verified by Kiln.</p>
   <ul class="kp-checks">
    <li><span><strong>Phase doc closed</strong></span><span class="kp-pass">Passed</span></li>
-   <li><span><strong>Committed</strong></span><span class="kp-pass">Passed</span></li>
+   <li><span><strong>Everything committed</strong></span><span class="kp-pass">Passed</span></li>
    <li><span><strong>Pushed</strong></span><span class="kp-pass">Passed</span></li>
    <li><span><strong>Required development delivery verified</strong><br><span class="kp-muted">phase3-dev-fixes-4 / dev-health-reports-merge: /deployed_sha does not match its declared target/artifact.</span></span><span class="kp-waived">Waived</span></li>
   </ul>
@@ -175,7 +200,7 @@ Refused: Phase 3 is running, not at Needs you. There is nothing to mark complete
    <dt>Waived</dt><dd><code>phase3-dev-fixes-4 / dev-health-reports-merge</code> — /deployed_sha does not match its declared target/artifact.</dd>
    <dt>Checked against</dt><dd>example-app · dev · merge <code>eae98b13</code> · check at 7:16:20 PM</dd>
   </dl>
-  <p class="kp-note">Covers only this requirement at merge eae98b13. A replaced checkpoint, a new merge or any other failure needs its own check or waiver.</p>
+  <p class="kp-note">Covers only this item at merge eae98b13. A replaced checkpoint, a new merge or any other failure needs its own check or waiver.</p>
  </section>
 
  <section class="kp-card" aria-label="Early merges">
@@ -192,11 +217,89 @@ Refused: Phase 3 is running, not at Needs you. There is nothing to mark complete
   <div class="kp-term"><span class="d">$ kiln status</span>
 Example feature · example-app · docs/prds/example-feature
 Phase 2   Import pipeline        <span class="g">complete</span>
-Phase 3   Dev delivery fixes       <span class="g">complete</span> <span class="a">· 1 check waived 2026-11-01 19:16 · browser · alex</span>
+Phase 3   Dev delivery fixes       <span class="g">complete</span> <span class="a">· 1 check waived 2026-11-01 19:16 EST · browser · alex</span>
           3 passed · 1 waived
           waived  phase3-dev-fixes-4 / dev-health-reports-merge
                   /deployed_sha does not match its declared target/artifact.
 Phase 4   Reporting views      running</div>
+ </section>
+</div>
+
+<!-- ===== Final delivery on the standard Needs you page (state 7) ===== -->
+<div id="final" hidden>
+ <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
+ <div class="kp-between"><span class="kp-eyebrow">Needs you · Kiln is waiting</span></div>
+ <div class="kp-cols" style="margin-top:14px">
+  <div>
+   <section class="kp-card" style="margin-top:0">
+    <h1 style="font-size:30px;margin-top:0">The delivery finalization session ended before it was done.</h1>
+    <p class="kp-muted kp-small">Session ended · 7:38 PM · last skill seen: implement-from-requirements</p>
+    <p class="kp-muted kp-small" style="margin-top:14px">LAST MESSAGE FROM CLAUDE CODE</p>
+    <p>All source work in example-app is in merges <code>#212</code> and <code>#215</code>, both deployed to dev. Kiln still reports no complete delivery provenance for example-app.</p>
+   </section>
+   <section class="kp-card">
+    <span class="kp-eyebrow">Let Kiln carry on</span>
+    <h3 style="margin-top:8px">Reply and continue in Kiln</h3>
+    <p class="kp-muted">Kiln checks current delivery evidence first. If work remains, it picks up the same session with its full history and sends your reply.</p>
+    <label for="final-reply">Your reply to Claude Code <span class="kp-muted">Optional</span></label>
+    <textarea id="final-reply" placeholder="Give instructions, answer its question, or ask what you need to know before it continues."></textarea>
+    <div class="kp-actions"><button class="kp-primary">Resume</button></div>
+   </section>
+   <section class="kp-card">
+    <span class="kp-eyebrow">Or pick it up yourself</span>
+    <div class="kp-step"><span class="kp-num">1</span><div><strong>Open the same Claude Code session in a terminal</strong><div class="kp-term" style="background:var(--kp-inset);color:var(--kp-text)">cd &lt;saved-workspace&gt; &amp;&amp; claude --resume &lt;saved-session-id&gt;</div></div></div>
+    <div class="kp-step"><span class="kp-num">2</span><div><strong>Finish the remaining delivery and review work</strong></div></div>
+    <div class="kp-step"><span class="kp-num">3</span><div><strong>Come back and check again</strong></div></div>
+   </section>
+  </div>
+  <aside class="kp-card" style="margin-top:0">
+   <span class="kp-eyebrow">Kiln finishes when</span>
+   <ul class="kp-checks">
+    <li><span><strong>Development delivery and remaining review</strong><br><span class="kp-waived">Waived</span> <span class="kp-muted">phase3-dev-fixes-4 / dev-health-reports-merge · waived at Phase 3, 11/1/2026, 7:16 PM · browser · alex</span><br><span class="kp-muted">example-app: unresolved — no complete source-work delivery provenance.</span></span><span class="kp-state">Not yet</span></li>
+    <li id="audits-check" hidden><span><strong>Current completion audits</strong><br><span class="kp-muted">Test audit is required before final completion.</span></span><span class="kp-state">Not yet</span></li>
+   </ul>
+   <div class="kp-actions"><button class="kp-primary" style="width:100%">Check again</button></div>
+   <p class="kp-note">Checked again 7:41 PM.</p>
+   <p class="kp-note">These are the current delivery finalization checks.</p>
+   <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--kp-line)">
+    <h3>Final delivery is done, and Kiln’s check is wrong?</h3>
+    <p class="kp-muted" id="final-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · 1 check waived”.</p>
+    <div class="kp-actions"><button>Mark final delivery complete</button></div>
+   </div>
+  </aside>
+ </div>
+ <section class="kp-card" aria-label="Early merges">
+  <h3>Early merges allowed</h3>
+  <p class="kp-small">example-app · dev · Merge confirmed · #212 · Result eae98b13</p>
+  <p class="kp-small">example-app · dev · Merge confirmed · #215 · Result 9e04c7d2</p>
+  <p class="kp-small">verification (<code>dev-health-reports-merge</code>): <span class="kp-waived">waived</span> · 11/1/2026, 7:16 PM</p>
+ </section>
+ <section class="kp-card" aria-label="Billing">
+  <h3>Billing</h3>
+  <p class="kp-muted kp-small">Claude Code · subscription · the next launch is allowed</p>
+ </section>
+</div>
+
+<!-- ===== After final delivery is marked complete (state 9) ===== -->
+<div id="complete" hidden>
+ <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
+ <div class="kp-between"><span class="kp-eyebrow">Development delivered</span></div>
+ <h1>Example feature is complete.</h1>
+ <section class="kp-card" aria-label="Phases">
+  <h2>Phases</h2>
+  <ul class="kp-phase-rows">
+   <li><span>Phase 2 · Import pipeline</span><span class="kp-pass">Complete</span></li>
+   <li><span>Phase 3 · Dev delivery fixes</span><span><span class="kp-pass">Complete</span> <span class="kp-muted kp-small">· 1 check waived</span></span></li>
+   <li><span>Phase 4 · Reporting views</span><span class="kp-pass">Complete</span></li>
+   <li><span>Final delivery</span><span><span class="kp-pass">Complete</span> <span class="kp-muted kp-small">· 1 check waived</span></span></li>
+  </ul>
+ </section>
+ <section class="kp-card" aria-label="Terminal summary">
+  <h3>In the terminal</h3>
+  <div class="kp-term">Example feature  ·  3 of 3 phases done  ·  complete
+Phase 3          <span class="g">complete</span> <span class="a">· 1 check waived</span>
+Final delivery   <span class="g">complete</span> <span class="a">· 1 check waived 2026-11-01 19:42 EST · browser · alex</span>
+Kiln stopped. Example feature is complete.</div>
  </section>
 </div>
 
@@ -210,15 +313,19 @@ Phase 4   Reporting views      running</div>
  const busy=on=>{for(const b of document.querySelectorAll('.js-busy'))b.disabled=on;};
  function render(){
   const s=state.value;
-  $('needs-you').hidden=s==='after'||s==='cli'; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli';
+  const fin=s==='final'||s==='final-audits';
+  $('needs-you').hidden=s==='after'||s==='cli'||fin||s==='complete'; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli'; $('final').hidden=!fin; $('complete').hidden=s!=='complete';
+  $('crumb').textContent=fin?'Example feature / Final delivery':s==='complete'?'Example feature':'Example feature / Phase 3';
+  $('audits-check').hidden=s!=='final-audits';
+  $('final-hint').textContent=s==='final-audits'?'This does not complete final delivery yet: Kiln skips Development delivery and remaining review, records it as waived, never as passed, then runs the test audit and checks final delivery again.':'Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · 1 check waived”.';
   const mixed=s==='mixed', changed=s==='changed', rechecked=s!=='stopped';
   $('closed-state').textContent=mixed?'Not yet':'Passed'; $('closed-state').className=mixed?'kp-state':'kp-pass';
   $('closed-fact').textContent=mixed?'No Closed line in phase-3-dev-delivery-fixes.md':'phase-3-dev-delivery-fixes.md has a Closed line';
   $('pushed-state').textContent=mixed?'Not yet':'Passed'; $('pushed-state').className=mixed?'kp-state':'kp-pass';
   $('pushed-fact').textContent=mixed?'example-app: 1 commit not pushed (head 4c1a9e07)':'example-app: no commits waiting to be pushed';
-  $('delivery-fact').textContent=changed?'phase3-dev-fixes-4 / dev-health-reports-merge: /deployed_sha does not match its declared target/artifact. phase3-dev-fixes-4 / dev-deploy: Deployment has no independently observed historical successful status.':'phase3-dev-fixes-4 / dev-health-reports-merge: /deployed_sha does not match its declared target/artifact.';
-  const n=mixed?3:changed?2:1, plural=n>1?'s':'';
-  $('checked').textContent=(rechecked?'Checked again '+(changed?'7:16:20':'7:14:05')+' PM':'Checked when Kiln stopped, 7:12:40 PM')+' · '+(4-n)+' of 4 passed';
+  $('delivery-new').hidden=!changed;
+  const n=mixed?3:1, plural=n>1?'s':'';
+  $('checked').textContent=(rechecked?'Checked again '+(changed?'7:15:48':'7:14:05')+' PM':'Checked when Kiln stopped, 7:12:40 PM')+' · '+(4-n)+' of 4 passed';
   $('still-failing').hidden=!rechecked||changed;
   $('still-failing').innerHTML='<strong>Phase 3 still has '+n+' failing check'+plural+'.</strong> If the work isn’t finished, have Kiln resume it above.';
   $('override').hidden=!rechecked;
