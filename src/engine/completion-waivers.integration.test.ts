@@ -12,6 +12,9 @@ import { git } from "../test-support/git-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import type { Engine } from "./engine.js";
 import { checkCounts } from "./waivers.js";
+import { statusProjection } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot } from "../state/state-files.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -90,6 +93,24 @@ describe("Mark complete after a failed recheck (AC-WAIVE-01 to 04)", () => {
     expect(checkCounts(waiver.checks)).toMatchObject({ waived: 1, failed: 0 });
     // Kiln moved on to the next phase.
     expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
+  });
+
+  it("repeats Mark complete in status with --without-sending-reply while a reply was kept unsent at the stop (AC-WAIVE-05)", async () => {
+    const h = await stoppedOnPush();
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const preview = () => (statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine) as unknown as { stop: { mark_complete: { next_argv: string[] } } }).stop.mark_complete;
+    expect(preview().next_argv).not.toContain("--without-sending-reply");
+    // A reply kept unsent at this stop, as Resume at an already-complete phase leaves it.
+    h.engine.commands.submit({ command_id: "kept", execution_id: h.engine.record.executionId, status_token: "stale", action: "reply", inputs: { message: "Keep going" } }, "caller", true);
+    Object.assign(h.engine.commands.all().find(r => r.command_id === "kept")!, { state: "completed", outcome: "phase_already_complete", target: h.engine.controlView().target });
+    const argv = preview().next_argv;
+    expect(argv.slice(0, 4)).toEqual(["kiln", "waive-and-advance", expect.any(String), "--confirm"]);
+    expect(argv).toContain("--without-sending-reply");
+    // Following it, the acknowledgement is what lets Mark complete through.
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error("not offered");
+    expect((await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "command_line" })).outcome).toBe("unsent_reply_acknowledgement_required");
+    expect((await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "command_line", without_sending_reply: true })).outcome).toBe("marked_complete");
   });
 
   it("advances without a waiver when the rerun passes, and saves nothing when the results changed (AC-WAIVE-04)", async () => {

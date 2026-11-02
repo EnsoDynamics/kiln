@@ -469,7 +469,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const inputs: Record<string, unknown> = { check_run_id: body.checkRunId, via: "browser", ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}), ...(body.withoutSendingReply === true ? { without_sending_reply: true } : {}) };
     try {
       const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "waive-and-advance", inputs }, "caller", true);
-      if (!answer.ok) {
+      // A replay of a rerun that could not finish is that saved receipt: it answers as the first submission did, below.
+      if (!answer.ok && answer.errors[0]!.code !== "check_unavailable") {
         const refusal = answer.errors[0]!;
         // The token covers the check run, so a page that missed a newer run is refused as a stale check run.
         return c.json({ ok: false, code: refusal.code === "stale_status_token" ? "stale_check_run" : refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409);

@@ -164,3 +164,22 @@ it("marks complete from the browser route with the page's token, command id and 
   expect((await post("/api/mark-complete", pageToken, "browser-again", { checkRunId: offer.checkRunId })).status).toBe(409);
   expect(h.engine.record.waivers).toHaveLength(1);
 });
+
+it("answers a replayed Mark complete whose rerun could not finish exactly as the first time, outcome included", async () => {
+  const { origin } = await stopped();
+  const post = async (path: string, status: string, id: string, body: unknown) => {
+    const response = await fetch(`${origin}${path}`, { method: "POST", headers: { "X-Kiln-Token": h.engine.record.token, Origin: origin, "Content-Type": "application/json", "X-Kiln-Status": status, "X-Kiln-Command-Id": id }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
+  };
+  expect((await post("/api/check-again", h.engine.controlView().token, "recheck", { target: h.engine.phaseRecoveryTarget(), intent: "advance" })).status).toBe(200);
+  const offer = h.engine.markCompleteOffer();
+  if (!offer.offered) throw new Error(`Mark complete not offered after a failed recheck: ${offer.reason}`);
+  const engine = h.engine as unknown as { markComplete: (...args: unknown[]) => Promise<unknown> };
+  vi.spyOn(engine, "markComplete").mockResolvedValue({ ok: false, code: "check_unavailable", reason: "The worktree is missing.", status: 503 });
+  const pageToken = h.engine.controlView().token;
+  const first = await post("/api/mark-complete", pageToken, "unavailable", { checkRunId: offer.checkRunId });
+  expect(first).toMatchObject({ status: 503, body: { ok: false, outcome: "check_unavailable", code: "check_unavailable", command_id: "unavailable" } });
+  const replay = await post("/api/mark-complete", pageToken, "unavailable", { checkRunId: offer.checkRunId });
+  expect(replay).toMatchObject({ status: 503, body: { ok: false, outcome: "check_unavailable", code: "check_unavailable", reason: first.body.reason, command_id: "unavailable" } });
+  expect(h.engine.record.waivers ?? []).toEqual([]);
+});

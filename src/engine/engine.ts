@@ -598,6 +598,11 @@ export class Engine {
       const outcome = persisted.controlApplied.outcome;
       return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
     }
+    // Mark complete saves its waiver, completion and outcome in one write; with none of them saved and
+    // the stop still in place, an interrupted one applied nothing and settles so control is released.
+    if (receipt.instruction.action === "waive-and-advance" && receipt.stage === "applying" && !persisted.waivers?.some(w => w.operationId === receipt.id)) {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "not_applied", reason: "Mark complete was interrupted before anything was saved. Check again, then choose again.", effects: { ...receipt.effects, plan: "not_advanced" } };
+    }
     // Check again never directly dispatches a session. A verification interrupted
     // before settlement can fail honestly without retaining control forever.
     // Proven completion above wins; unknown plan effects are retained, not undone.
@@ -1407,14 +1412,16 @@ export class Engine {
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     this.checking = true;
     this.changed();
+    let verdict: Awaited<ReturnType<Engine["recheckStop"]>>;
     try {
-      await this.recheckStop(key);
+      verdict = await this.recheckStop(key);
     } finally {
       this.checking = false;
       this.changed();
     }
     this.kick();
-    return { ok: true };
+    // A recheck that still fails settles as completion_checks_failed, so its receipt carries the Mark complete preview (AC-WAIVE-05).
+    return { ok: true, ...(verdict === "still_stopped" && this.stoppedPhaseKey() === key ? { outcome: "still_stopped" as const } : {}) };
   }
 
   /** The stop's latest check run and its rows: a billing hold's own while it names the activity (waivers "Check Runs"). */
@@ -1537,10 +1544,13 @@ export class Engine {
       this.checking = true; this.changed();
       try {
         const verdict = await this.recheckStop(key, { routeAudits: false });
+        // A stop during the rerun means it did not run: nothing is compared or saved.
+        if (this.stopping) throw new CompletionCheckUnavailable("The completion check was interrupted. Nothing was marked complete.");
         answer = verdict === "still_stopped" ? await this.waiveStopped(key, request) : { ok: true, outcome: "checks_passed" };
       } catch (error) {
-        if (!(error instanceof CompletionCheckUnavailable)) throw error;
-        answer = { ok: false, code: "check_unavailable", reason: error.message, status: 503 };
+        if (refusedWhileFrozen(error) || this.commands.fault) throw error;
+        // waiveStopped restores the record before rethrowing, so a failure here saved nothing: settle it rather than hold control.
+        answer = error instanceof CompletionCheckUnavailable ? { ok: false, code: "check_unavailable", reason: error.message, status: 503 } : { ok: false, code: "mark_complete_failed", reason: `Nothing was marked complete: ${(error as Error).message}`, status: 500 };
       } finally { this.checking = false; this.changed(); }
     }
     if (answer.ok && answer.outcome !== "check_results_changed") {
@@ -1584,7 +1594,6 @@ export class Engine {
         this.save();
         return { ok: true, outcome: "continued", waiver_id: waiver.waiverId };
       }
-      this.record.controlApplied = { operationId: request.operationId, outcome: "marked_complete" };
       if (key === PR_PHASE_KEY) {
         const final = this.lastFinalCheck;
         const heads = await this.waivedWorkHeads(checks);
@@ -1622,8 +1631,8 @@ export class Engine {
    * completed at once on that waiver with no report, carrying both warnings (AC-WAIVE-04, AC-WAIVE-12).
    */
   private async completeAuditAtOnce(kind: AuditKind, continuation: boolean, waiver: Waiver): Promise<void> {
-    const activity = await this.allocateAudit(kind, continuation, true);
     const before = structuredClone(this.record);
+    const activity = await this.allocateAudit(kind, continuation, true);
     try {
       waiveUnstartedAudit(this.stateDirectory, activity, waiver.waiverId);
       const facts = this.record.phases[auditKey(activity)]!;
@@ -1632,7 +1641,7 @@ export class Engine {
       facts.waiverId = waiver.waiverId; facts.waiverWarning = { kind: "audit", waiverId: waiver.waiverId };
       this.record.completionAudits!.revision++;
       this.save();
-    } catch (error) { for (const field of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[field]; Object.assign(this.record, before); throw error; }
+    } catch (error) { for (const field of Object.keys(this.record)) delete (this.record as unknown as Record<string, unknown>)[field]; Object.assign(this.record, before); this.save(); throw error; }
     this.emitAudit(activity, "done");
   }
 
@@ -2945,9 +2954,12 @@ export class Engine {
   }
 
   /** Where the record cannot tell: the next of delivery audit, test audit, final delivery after the last settled audit. */
-  private auditStepAfterSettled(): "delivery_audit" | "test_audit" | "final_delivery" {
+  private auditStepAfterSettled(): "delivery_audit" | "test_audit" | "continue_test" | "final_delivery" {
     const settled = this.record.completionAudits?.activities.findLast(a => this.record.phases[auditKey(a)]?.doneAt);
-    return !settled ? "delivery_audit" : settled.kind === "delivery_audit" ? "test_audit" : "final_delivery";
+    if (!settled) return "delivery_audit";
+    if (settled.kind === "delivery_audit") return "test_audit";
+    // A settled test audit that counts as continue_test still gets its continuation.
+    return effectiveAudit(this.stateDirectory, settled)?.countedOutcome === "continue_test" ? "continue_test" : "final_delivery";
   }
 
   private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
@@ -3052,9 +3064,13 @@ export class Engine {
   }
 
   private async requireCurrentAudits(outcome: { passed: boolean; checks: CheckResult[] }): Promise<void> {
+    // Under a waived plan problem the audits are still judged, against the phases Normal Order uses (AC-WAIVE-04, AC-WAIVE-09).
+    const planRow = (read: PlanRead) => { if (read.ok) return false; outcome.checks.push(planCheck(read)); outcome.passed = false; return !!read.unavailable || !knownProblemWaiver(this.record.waivers, read.problem); };
+    let leaves: PhasePlan | undefined = this.plan;
     if (!this.record.completedAt) {
       const read = await this.readPlan();
-      if (!read.ok) { outcome.checks.push(planCheck(read)); outcome.passed = false; return; }
+      if (planRow(read)) return;
+      leaves = read.ok ? read.plan : { phases: this.orderSource(), problems: [] };
     }
     if (this.record.completedAt && this.record.completionAudits?.policy === "legacy_complete") return;
     try {
@@ -3062,9 +3078,12 @@ export class Engine {
       const next = await auditNext(this.admissionContext());
       if (!this.record.completedAt) {
         const read = await this.readPlan();
-        if (!read.ok) { outcome.checks.push(planCheck(read)); outcome.passed = false; return; }
+        if (!read.ok && !outcome.checks.some(check => check.name === CHECK_NAMES.plan) && planRow(read)) return;
+        if (!read.ok && !read.unavailable) leaves = { phases: this.orderSource(), problems: [] };
+        else if (read.ok) leaves = read.plan;
       }
-      if (next === "final_delivery" && !nextLeaf(effectivePlan(this.plan!, this.record, this.carriedWaived()).plan) && baseline === this.record.planReconciliation?.baselineId) {
+      leaves ??= { phases: this.orderSource(), problems: [] };
+      if (next === "final_delivery" && !nextLeaf(effectivePlan(leaves, this.record, this.carriedWaived()).plan) && baseline === this.record.planReconciliation?.baselineId) {
         // Met only because an audit counts on its waiver: a met row marked Waived, tagged with that audit's waiver (AC-WAIVE-10, AC-WAIVE-12).
         const audits = this.record.completionAudits?.activities ?? [];
         const relied = [audits.findLast(a => a.kind === "delivery_audit"), audits.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a?.waivedResult);
@@ -3927,10 +3946,11 @@ export class Engine {
     if (hold?.phaseKey === phaseKey) {
       if (this.latestSession(phaseKey)?.runs.length) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
-        if (outcome !== "stopping" && "unavailable" in outcome && outcome.unavailable) {
+        const unreadable = outcome !== "stopping" && ("unavailable" in outcome && outcome.unavailable || "ghError" in outcome && outcome.ghError && !outcome.passed) ? ("unavailable" in outcome && outcome.unavailable || "The final delivery evidence could not be read.") : undefined;
+        if (outcome !== "stopping" && unreadable) {
           if (!facts.stop) this.recordStop(phaseKey, "done_check", outcome.checks);
           this.unfinishedRecheck(phaseKey);
-          throw new CompletionCheckUnavailable(outcome.unavailable);
+          throw new CompletionCheckUnavailable(unreadable);
         }
         if (outcome !== "stopping" && outcome.passed) {
           delete this.record.billing!.hold;
@@ -3957,7 +3977,12 @@ export class Engine {
       // The scheduling decision and, when the next step is an audit, its skill resolution, without allocating an activity.
       try {
         const kind = await auditNext(this.admissionContext());
-        if (kind !== "final_delivery") await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+        if (kind !== "final_delivery") {
+          await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+          // What allocation needs beyond the skill: a continuation's predecessor and a work snapshot, read but never saved.
+          if (kind === "continue_test" && !continuablePredecessor({ record: this.record, stateDirectory: this.stateDirectory })) throw new Error("A test continuation requires its settled accepted predecessor.");
+          await captureSnapshot({ ...this.admissionContext(), activity: { activityId: "readiness-check", sequence: 0, kind: kind === "continue_test" ? "test_audit" : kind, round: 0, continuationIndex: 0, createdAt: this.now().toISOString(), sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-readiness-check.json`, snapshots: [], attempts: [] }, now: this.now().toISOString() });
+        }
       } catch (error) {
         if (this.stopping) return "still_stopped";
         const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }];
@@ -4040,6 +4065,8 @@ export class Engine {
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "still_stopped";
+      // GitHub or the delivery source could not be read: a check that could not finish, so Mark complete is not offered on it (AC-WAIVE-02).
+      if (!check.passed && check.ghError) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(check.check.facts.join(" ") || "The final delivery evidence could not be read."); }
       if (check.passed) {
         this.complete(check.pullRequests ?? [], true, check.mergedBranches, check.checks);
         return "complete";
@@ -4273,7 +4300,8 @@ export class Engine {
       if (this.record.billing?.hold?.phaseKey === phaseKey) delete this.record.billing.hold;
     };
     const waivedFacts = () => {
-      if (waiver) { (this.record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; }
+      // The receipt's outcome is saved in the same write as the waiver and its completion.
+      if (waiver) { (this.record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; this.record.controlApplied = { operationId: waiver.operationId, outcome: "marked_complete" }; }
       else if (outcome.checks.some(check => check.waived)) facts.completionChecks = structuredClone(outcome.checks);
     };
     // Backfilling development assessments does not rewrite historical completion/push facts.
@@ -4391,7 +4419,7 @@ export class Engine {
     const facts = (record.phases[PR_PHASE_KEY] ??= { sessionIds: [], finishedByPerson: false, repositories: {} });
     const at = this.now().toISOString();
     delete facts.stop;
-    if (waiver) { (record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; }
+    if (waiver) { (record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; record.controlApplied = { operationId: waiver.operationId, outcome: "marked_complete" }; }
     else if (checks.some(check => check.waived)) facts.completionChecks = structuredClone(checks);
     for (const [name, head] of Object.entries(waivedHeads)) (facts.repositories[name] ??= { startCommit: head }).waivedHead = head;
     facts.doneAt ??= at;
@@ -4497,7 +4525,8 @@ export class Engine {
 
   /** The leaves a Closed-line item is judged against: the plan as read, else the order source. */
   private isLeaf(phaseId: string): boolean {
-    const phases = this.plan?.phases ?? this.orderSource();
+    const read = readPlanAt(this.worktreePath, this.paths.prdDirectoryFromRoot);
+    const phases = read.ok ? read.plan.phases : this.orderSource();
     return phases.some(phase => phase.id === phaseId && phase.splitInto === undefined);
   }
 

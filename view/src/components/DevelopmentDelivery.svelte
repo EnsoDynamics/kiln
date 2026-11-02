@@ -62,7 +62,7 @@
     <p>Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     <ul>{#each delivery.authorization.grants as grant}<li>{grant.target.repository} · {grant.target.baseBranch}{#if grant.target.environment}{" · "}Existing scope: {grant.target.environment}{/if}</li>{/each}</ul>
     {#each delivery.checkpoints as checkpoint (checkpoint.id)}
-      {@const waived = waivedRequirements(snapshot, checkpoint.id)}
+      {@const waived = waivedRequirements(snapshot, checkpoint, delivery.checkpoints)}
       <article>
         <h4>{checkpoint.target.repository} · {checkpoint.target.environment}</h4>
         <p>{checkpoint.merge ? "Merge confirmed" : "Merge unresolved"}{#if checkpoint.merge} · <a href={checkpoint.merge.url} target="_blank" rel="noreferrer">#{checkpoint.merge.number}</a>{/if}</p>

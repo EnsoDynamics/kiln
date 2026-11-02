@@ -875,7 +875,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     return view;
   });
 
-  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => leaf.closed) && (record.phases[PR_PHASE_KEY]?.sessionIds.length || record.phases[PR_PHASE_KEY]?.stop || record.nextActivityKey === PR_PHASE_KEY && !engine.currentlyComplete || !deliveryEnabled(record) && (record.completionAudits?.policy === "legacy_complete" || record.completedAt))) {
+  if (recordedLeaves(plan).length > 0 && recordedLeaves(plan).every((leaf) => effectiveRecordedClosed(record, leaf)) && (record.phases[PR_PHASE_KEY]?.sessionIds.length || record.phases[PR_PHASE_KEY]?.stop || record.nextActivityKey === PR_PHASE_KEY && !engine.currentlyComplete || !deliveryEnabled(record) && (record.completionAudits?.policy === "legacy_complete" || record.completedAt))) {
     const facts = record.phases[PR_PHASE_KEY];
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;

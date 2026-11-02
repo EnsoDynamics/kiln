@@ -7,7 +7,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { runHelper } from "../platform/helper-process.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.js";
-import { emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
+import { checkpointAgainst, emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
@@ -474,8 +474,8 @@ export function checkpointSatisfied(state: DevelopmentLedger, checkpoint: Delive
   return !checkpoint.unresolvedReason && !!checkpoint.merge && checkpoint.operations.some(one => one.kind === "synchronize" && one.state === "observed") && checkpoint.requirements.filter(one => one.purpose !== "current_artifact").every(requirement => checkpoint.evidence.some(fact => fact.requirementId === requirement.id && fact.status === "success")) && checkpoint.dependsOn.every(id => { const dependency = state.checkpoints.find(one => one.id === id); return !!dependency && checkpointSatisfied(state, dependency, new Set(seen)); });
 }
 export const DELIVERY_CHECK = "Required development delivery verified";
-/** What a checkpoint's development items are checked against (AC-WAIVE-09): its id and merge result revision, so replacing it or a new merge ends a waiver. */
-export function checkpointAgainst(checkpoint: DeliveryCheckpoint): string { return `${checkpoint.id}@${checkpoint.merge?.resultSha ?? "unmerged"}`; }
+/** What a checkpoint's development items are checked against (AC-WAIVE-09); defined beside DeliveryCheckpoint so the view reads the same value. */
+export { checkpointAgainst };
 /** The obligations a checkpoint owes: its merge and every requirement but the current-artifact probe. */
 function obligationIds(checkpoint: DeliveryCheckpoint): string[] { return ["requiredMerge", ...checkpoint.requirements.filter(one => one.purpose !== "current_artifact").map(one => one.id)]; }
 /** Why one obligation is unmet, or undefined when its evidence is confirmed. */

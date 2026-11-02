@@ -375,16 +375,24 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
  */
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, readAudit?: AuditWaiverReader): string {
   const line = formatEventLine(event, record, colors);
-  const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? `audit-${event.activityId}` : event.kind === "pull_request" && event.event === "completed" ? "pr" : undefined;
+  const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? `audit-${event.activityId}` : event.kind === "pull_request" && (event.event === "completed" || event.event === "opened") ? "pr" : undefined;
   if (key === undefined || !record.phases?.[key]?.doneAt) return line;
   const { suffix, warnings } = terminalWaivers(record, key, readAudit);
   const notes = warnings.map(warning => `\n${" ".repeat(10)}${colors.amber(warning)}`).join("");
   if (!suffix) return `${line}${notes}`;
-  // A phase completed on a waiver pushed nothing of its own: it reads complete, never done · pushed.
-  if (event.kind === "phase" && !event.pushedSha && !event.pushes?.length) {
-    return `${formatPhaseLine(event.at, event.phaseId, event.title, { kind: "completed", summary: suffix.slice(2) }, planColumns(record.plan ?? []), colors)}${notes}`;
-  }
+  const complete = (at: Date, id: string, title: string) => `${formatPhaseLine(at, id, title, { kind: "completed", summary: "" }, planColumns(record.plan ?? []), colors)} ${colors.amber(suffix)}${notes}`;
+  // A phase completed on its own waiver, or one that pushed nothing, reads complete, never done · pushed.
+  if (event.kind === "phase" && (record.phases[key]?.waiverId || (!event.pushedSha && !event.pushes?.length))) return complete(event.at, event.phaseId, event.title);
+  // An audit completed with waived checks reads complete · 1 check waived, never Audit result recorded.
+  if (event.kind === "audit") return complete(event.at, "", auditTitle(event));
+  // A final delivery completed on a waiver with no pull request opened is Final delivery complete, never opened #0.
+  if (event.kind === "pull_request" && event.event === "opened" && !event.number && !event.opened?.length) return complete(event.at, "PR", "Final delivery");
   return `${line} ${colors.amber(suffix)}${notes}`;
+}
+
+/** An audit's title on its terminal line: "Delivery audit · Round 1", with its continuation after the first. */
+function auditTitle(event: Extract<TerminalEvent, { kind: "audit" }>): string {
+  return `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`;
 }
 
 function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
@@ -392,7 +400,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
   switch (event.kind) {
     case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
-    case "audit": return formatPhaseLine(event.at, "", `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`, event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
+    case "audit": return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":
       return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);

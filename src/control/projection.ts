@@ -26,7 +26,7 @@ import { chooseSession, readHistory, readInspectionSession, newestSession, worki
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
 import { markCompletePreview, progressRows, projectCheck, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
-import { checkCounts, type AuditWaiverResult } from "../engine/waivers.js";
+import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over"];
@@ -272,20 +272,26 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const stopRecord = savedStop?.[1].stop;
   let markComplete: Record<string, unknown> = { offered: false, reason: "Controller is disconnected; no executable controls." };
   if (engine) {
-    try { markComplete = markCompletePreview(engine.markCompleteOffer(), work.canonical, control?.token ?? null); }
+    // The repeated command acknowledges a reply kept unsent for this stop, as Mark complete requires (AC-WAIVE-05).
+    const unsentReply = !!control && engine.commands.unsent(control.target).length > 0;
+    try { markComplete = markCompletePreview(engine.markCompleteOffer(), work.canonical, control?.token ?? null, unsentReply); }
     catch { statusErrors.push(errorFact("state_unavailable", "Mark complete eligibility could not be read.")); markComplete = { offered: false, reason: "Mark complete eligibility could not be read." }; }
   }
+  // A billing hold that names the stopped activity carries its own check run and rows, as the engine reads them (waivers "Check Runs").
+  const hold = record.billing?.hold;
+  const heldRun = hold?.checks && (hold.phaseKey === stop?.phaseId || hold.phaseKey === savedStop?.[0]) ? { run: hold.run, checks: hold.checks } : undefined;
   const stopWaivers = (detail: Record<string, unknown>) => {
-    const checks = (detail.checks ?? stopRecord?.checks ?? []) as CheckResult[];
+    const checks = (detail.checks ?? heldRun?.checks ?? stopRecord?.checks ?? []) as CheckResult[];
+    const run = heldRun ? heldRun.run : stopRecord?.run;
     return { ...detail, checks: checks.map(projectCheck), failed_checks: checks.filter(c => !c.passed).map(projectCheck),
-      check_run: stopRecord?.run ? { id: stopRecord.run.id, at: stopRecord.run.at, origin: stopRecord.run.origin, finished: stopRecord.run.finished, counts: checkCounts(checks) } : null,
+      check_run: run ? { id: run.id, at: run.at, origin: run.origin, finished: run.finished, counts: checkCounts(checks) } : null,
       mark_complete: markComplete };
   };
   const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
-    state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => p.closed).length, total: view?.feature.phasesTotal ?? leaves.length },
+    state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => effectiveRecordedClosed(record, p)).length, total: view?.feature.phasesTotal ?? leaves.length },
     activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
     agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
     requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),

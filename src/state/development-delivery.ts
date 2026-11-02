@@ -58,6 +58,13 @@ export interface DeliveryCheckpoint extends DeliveryOwnership {
   references?: EvidenceReference[]; operations: DeliveryOperation[]; merge?: MergeFact; evidence: EvidenceFact[]; evidenceHistory?: EvidenceFact[];
   observedActivity?: { kind: "Deploying" | "Verifying"; at: string }; mergeUnresolvedReason?: string; unresolvedRequirements?: Record<string, string>; verificationProbeAfter?: string; checkedAt?: string; unresolvedReason?: string; supersededBy?: string;
 }
+/**
+ * What a waived development requirement was checked against: the checkpoint and its merge result,
+ * so a waiver stops covering it once the checkpoint is replaced or merged again (AC-WAIVE-09).
+ *
+ *   checkpointAgainst(checkpoint)  // "phase3-dev-fixes-4@eae98b13…", or "phase3-dev-fixes-4@unmerged"
+ */
+export function checkpointAgainst(checkpoint: Pick<DeliveryCheckpoint, "id" | "merge">): string { return `${checkpoint.id}@${checkpoint.merge?.resultSha ?? "unmerged"}`; }
 export interface DeliveryAssessment extends DeliveryOwnership { requirementManifestDigest?: string; documentsDigest: string; required: boolean; criteria: string[]; reason: string; checkpointIds: string[] }
 export interface SplitAssignment { checkpointId: string; requirementId: string; originPhaseId?: string; originOwner?: DeliveryOwner; criteria: string[]; leafIds: string[] }
 export interface DeliverySplit { phaseId: string; documentsDigest: string; revision: number; assignments: SplitAssignment[] }

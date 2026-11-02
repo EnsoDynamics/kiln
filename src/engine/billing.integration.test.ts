@@ -8,6 +8,9 @@ import { createHarness, landingSession, pullRequestSession, waitFor, type Harnes
 import { readPrdRecord } from "../state/records.js";
 import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
 import { buildSnapshot } from "./snapshot.js";
+import { statusProjection } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot } from "../state/state-files.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
 const approval = (h: Harness) => ({ executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
@@ -80,6 +83,11 @@ describe("Claude billing at the common dispatch boundary", () => {
     await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
     expect(h.engine.record.phases["1"]!.stop!.checks).toEqual(checks); expect(h.engine.record.billing!.hold?.sessionId).toBe(session.sessionId);
+    // Status reads the hold's own check run while it names the stopped phase, never the stop's earlier one (waivers "Check Runs").
+    const hold = h.engine.record.billing!.hold!;
+    expect(hold.run!.id).not.toBe(h.engine.record.phases["1"]!.stop!.run?.id);
+    const status = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine) as unknown as { stop: { check_run: { id: string } | null } };
+    expect(status.stop.check_run?.id).toBe(hold.run!.id);
     expect(buildSnapshot(h.engine).needsYou!.phaseRecovery!.attemptStartedAt).toBe(attempt.attemptStartedAt);
     expect(buildSnapshot(h.engine).needsYou!.phaseRecovery!.target.stoppedAt).not.toBe(attempt.target.stoppedAt);
     expect(existsSync(join(h.engine.worktreePath, "partial"))).toBe(true);

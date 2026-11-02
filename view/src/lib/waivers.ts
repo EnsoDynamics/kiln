@@ -6,6 +6,7 @@
 import type { CheckCounts, Snapshot, WaiverView } from "../../../src/engine/snapshot.js";
 import { checkCounts, checksWord, countsText, type CheckItem, type ItemChange, type WaiverRef, type WaiverSource } from "../../../src/engine/waivers.js";
 import type { CheckResult } from "../../../src/state/records.js";
+import { checkpointAgainst, type DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
 
 export { checksWord };
 /** "3 passed · 1 waived", with failing checks counted when there are any. */
@@ -103,9 +104,16 @@ export function changedNote(changes: readonly ItemChange[]): string {
   return parts.join(" ");
 }
 
-/** What a waived item was checked against, in words (AC-WAIVE-09's "Checked against"). */
-export function againstText(item: Pick<CheckItem, "kind" | "subject" | "against">, check: string): string {
-  const short = (text: string) => text.replace(/\b([0-9a-f]{8})[0-9a-f]{32}\b/g, "$1");
+/**
+ * What a waived item was checked against, in words (AC-WAIVE-09's "Checked against", waivers
+ * mockup state 6), never a raw fingerprint: a development requirement by its checkpoint's
+ * repository, environment and merge, repository work by its repository and short head.
+ *
+ *   againstText(item, check, checkpoints)  // "example-app · dev · merge eae98b13", "example-app · head 4c1a9e07"
+ */
+export function againstText(item: Pick<CheckItem, "kind" | "subject" | "against">, check: string, checkpoints: readonly Pick<DeliveryCheckpoint, "id" | "target">[] = []): string {
+  const short = (sha: string) => /^[0-9a-f]{12,}$/.test(sha) ? sha.slice(0, 8) : sha;
+  const heads = (against: string) => against.split(",").map(pair => { const [name = "", head = ""] = pair.split("="); return `${name} · head ${short(head)}`; }).join(", ");
   switch (item.kind) {
     case "phase_closed": return `Phase ${item.subject}, as a leaf of the plan`;
     case "repository_work": {
@@ -113,9 +121,22 @@ export function againstText(item: Pick<CheckItem, "kind" | "subject" | "against"
       return `${item.subject} · head ${short(head)}${dirty && dirty !== "clean" ? " with uncommitted changes" : ""}`;
     }
     case "known_problem": return check === "Completion audit readiness" ? "The saved completion audit state" : "The phase plan";
-    case "other": return item.against.includes("=") ? item.against.split(",").map(pair => short(pair.replace("=", " · head "))).join(", ") : short(item.against);
-    default: return short(item.against);
+    case "development_requirement": {
+      const at = item.against.lastIndexOf("@");
+      const id = at < 0 ? item.against : item.against.slice(0, at);
+      const result = at < 0 ? "unmerged" : item.against.slice(at + 1);
+      const target = checkpoints.find(one => one.id === id)?.target;
+      const where = target ? [target.repository.split("/").pop(), ...(target.environment ? [target.environment] : [])].join(" · ") : id;
+      return `${where} · ${result === "unmerged" ? "not merged" : `merge ${short(result)}`}`;
+    }
+    case "other": return item.against.includes("=") ? heads(item.against) : "The saved audit result";
   }
+}
+
+/** A waived item's own words, without the subject its name already gives ("…: /deployed_sha does not match…"). */
+export function waivedText(item: Pick<CheckItem, "kind" | "subject" | "text">): string {
+  const prefix = `${itemName(item)}: `;
+  return item.kind === "development_requirement" && item.text.startsWith(prefix) ? item.text.slice(prefix.length) : item.text;
 }
 
 /** When the waiver's coverage ends, by the kinds of item it waived (AC-WAIVE-09). */
@@ -140,12 +161,22 @@ export function ownWaivers(views: readonly WaiverView[] | undefined): WaiverView
 /**
  * A checkpoint's requirements met by waiver, each with its latest waiver, for the delivery
  * panel's "verification (id): waived · time" lines (waivers mockup, "After marking complete").
- * A waiver is never evidence of a deployment or verification (AC-WAIVE-09).
+ * A waiver counts only while its item's `against` is the checkpoint as it stands now (its merge
+ * result, or a prerequisite's), so a waiver a new merge or a replaced checkpoint ended no longer
+ * reads waived. A waiver is never evidence of a deployment or verification (AC-WAIVE-09).
  */
-export function waivedRequirements(snapshot: Snapshot, checkpointId: string): Map<string, WaiverView> {
+export function waivedRequirements(snapshot: Snapshot, checkpoint: Pick<DeliveryCheckpoint, "id" | "merge">, checkpoints: readonly Pick<DeliveryCheckpoint, "id" | "merge">[] = []): Map<string, WaiverView> {
   const found = new Map<string, WaiverView>();
+  const current = (requirementId: string) => {
+    const prerequisite = /^prerequisite:(.+)$/.exec(requirementId)?.[1];
+    if (prerequisite === undefined) return checkpointAgainst(checkpoint);
+    const owner = checkpoints.find(one => one.id === prerequisite);
+    return owner ? checkpointAgainst(owner) : `${prerequisite}@unmerged`;
+  };
   for (const waiver of snapshot.waivers ?? []) for (const item of waiver.items) {
-    if (item.kind === "development_requirement" && item.subject.startsWith(`${checkpointId}/`)) found.set(item.subject.slice(checkpointId.length + 1), waiver);
+    if (item.kind !== "development_requirement" || !item.subject.startsWith(`${checkpoint.id}/`)) continue;
+    const requirementId = item.subject.slice(checkpoint.id.length + 1);
+    if (item.against === current(requirementId)) found.set(requirementId, waiver);
   }
   return found;
 }

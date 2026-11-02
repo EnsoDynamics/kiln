@@ -95,9 +95,36 @@ describe("status waiver facts", () => {
     const line = formatTerminalEvent({ kind: "phase", at, phaseId: "3", title: "Dev delivery fixes", event: "done" }, record(), plain);
     expect(line).toContain("complete · 1 check waived 2026-11-01 19:16 EST · browser · alex");
     expect(line).not.toContain("pushed");
+    // The mockup's waived phase reads complete even when the session had pushed before it stopped.
     const pushed = formatTerminalEvent({ kind: "phase", at, phaseId: "3", title: "Dev delivery fixes", event: "done", pushedSha: "abc1234def" }, record(), plain);
-    expect(pushed).toMatch(/done · pushed abc1234 · 1 check waived 2026-11-01 19:16 EST · browser · alex$/);
+    expect(pushed).toMatch(/Dev delivery fixes +complete · 1 check waived 2026-11-01 19:16 EST · browser · alex$/);
+    expect(pushed).not.toContain("pushed");
     expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2", title: "Import pipeline", event: "done", pushedSha: "abc1234" }, record(), plain)).not.toContain("waived");
+  });
+
+  it("prints a waived audit as complete · 1 check waived with its no-report warning, never Audit result recorded", () => {
+    const audit = record({
+      waivers: [waiver, { ...waiver, waiverId: "w-a", at: "2026-11-02T00:34:10.000Z", activityKey: "audit-d1", activityKind: "delivery_audit", items: [{ check: "Audit result recorded", kind: "other", subject: "No audit report", text: "No audit report", against: "h" }], checks: [{ name: "Audit result recorded", passed: false, facts: ["No audit report"], items: [{ kind: "other", subject: "No audit report", text: "No audit report", against: "h" }] }] }],
+      completionAudits: { activities: [{ activityId: "d1", kind: "delivery_audit", round: 1, continuationIndex: 1, waivedResult: "r1" }] } as unknown as NonNullable<PrdRecord["completionAudits"]>,
+    });
+    audit.phases["audit-d1"] = { sessionIds: [], finishedByPerson: true, repositories: {}, doneAt: "2026-11-02T00:34:10.000Z", waiverId: "w-a" };
+    const read = (): AuditWaiverResult => ({ kind: "audit_waiver", activityId: "d1", waiverId: "w-a", report: "none", countedOutcome: "passed", snapshotRef: "s" });
+    const line = formatTerminalEvent({ kind: "audit", at: new Date("2026-11-02T00:34:10.000Z"), activityId: "d1", label: "Delivery audit", round: 1, event: "done" } as Parameters<typeof formatTerminalEvent>[0], audit, plain, read);
+    const [first, warning] = line.split("\n");
+    expect(first).toMatch(/Delivery audit · Round 1 +complete · 1 check waived 2026-11-01 19:34 EST · browser · alex$/);
+    expect(first).not.toContain("Audit result recorded");
+    expect(warning!.trim()).toBe("! no audit report: Kiln couldn’t tell what this audit found");
+  });
+
+  it("prints a final delivery completed on a waiver as Final delivery complete, never a pull request opened #0", () => {
+    const final = record({ waivers: [waiver, { ...waiver, waiverId: "w-pr", at: "2026-11-02T00:42:00.000Z", activityKey: "pr", activityKind: "final_delivery" }] } as Partial<PrdRecord>);
+    final.phases.pr = { sessionIds: [], finishedByPerson: true, repositories: {}, doneAt: "2026-11-02T00:42:00.000Z", waiverId: "w-pr" };
+    const at = new Date("2026-11-02T00:42:00.000Z");
+    const line = formatTerminalEvent({ kind: "pull_request", at, event: "opened" }, final, plain);
+    expect(line).toMatch(/PR +Final delivery +complete · 1 check waived 2026-11-01 19:42 EST · browser · alex$/);
+    expect(line).not.toMatch(/opened|#0/);
+    // A pull request that was opened still reads as opened, with the waiver after it.
+    expect(formatTerminalEvent({ kind: "pull_request", at, event: "opened", number: 12 }, final, plain)).toMatch(/opened #12 · 1 check waived 2026-11-01 19:42 EST/);
   });
 });
 

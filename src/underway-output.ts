@@ -5,6 +5,7 @@ import { developmentDeliverySummary } from "./state/development-delivery.js";
 
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
 import { recordedLeaves } from "./engine/plan-reading.js";
+import { effectiveRecordedClosed } from "./engine/waivers.js";
 import { PR_PHASE_KEY } from "./state/records.js";
 import { resetClock, type TerminalColors } from "./terminal-output.js";
 
@@ -39,7 +40,7 @@ export function whereItStands(engine: Engine): string {
 /** `Customer returns  ·  2 of 5 phases done  ·  phase 2b was interrupted` */
 export function formatSummaryLine(engine: Engine, colors: TerminalColors): string {
   const leaves = recordedLeaves(engine.record.plan ?? []);
-  const done = leaves.filter(leaf => leaf.closed && (!engine.record.developmentAuthorization?.enabled || !engine.record.phases[leaf.id]?.stop && !engine.record.phases[leaf.id]?.wait && engine.current?.phaseKey !== leaf.id)).length;
+  const done = leaves.filter(leaf => effectiveRecordedClosed(engine.record, leaf) && (!engine.record.developmentAuthorization?.enabled || !engine.record.phases[leaf.id]?.stop && !engine.record.phases[leaf.id]?.wait && engine.current?.phaseKey !== leaf.id)).length;
   return engine.paths.featureName + colors.grey(`  ·  ${done} of ${leaves.length} phases done  ·  ${whereItStands(engine)}`);
 }
 

@@ -269,7 +269,7 @@
         </ul>
         <div class="again">
           <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
-          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}

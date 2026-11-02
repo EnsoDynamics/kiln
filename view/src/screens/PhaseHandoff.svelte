@@ -30,6 +30,8 @@
   const stop = $derived(snapshot.needsYou!);
   const recovery = $derived(stop.phaseRecovery!);
   const activity = $derived(snapshot.liveControl?.label ?? `Phase ${stop.phaseId}`);
+  // Mid-sentence the activity reads as the mockup writes it: "Phase 3" keeps its capital, "delivery audit" and "final delivery" do not.
+  const inSentence = $derived(/^Phase /.test(activity) ? activity : activity.charAt(0).toLowerCase() + activity.slice(1));
   const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
@@ -45,7 +47,8 @@
   // reading Checking…, while its rerun runs (AC-WAIVE-06).
   const counts = $derived(stop.counts ?? countsOf(stop.checks));
   const rechecked = $derived(stop.checkRun ? stop.checkRun.origin === "recheck" && stop.checkRun.finished : !!page.rechecked);
-  const checkedLine = $derived(`${stop.checkedAt ? stop.checkRun?.origin === "recheck" || (!stop.checkRun && page.rechecked) ? `Checked again ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"} · ${passedOf(counts)}`);
+  // A recheck that could not finish keeps the earlier rows and their time, so it never reads Checked again.
+  const checkedLine = $derived(`${stop.checkedAt ? rechecked ? `Checked again ${secondsTime(stop.checkedAt)}` : stop.checkRun?.origin === "recheck" ? `Checked ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"} · ${passedOf(counts)}`);
   const stillFailing = $derived(rechecked && counts.failed > 0 && !page.markChanges?.length && !stop.checking && !page.pending);
   const offer = $derived(stop.markComplete?.offered ? stop.markComplete : page.pending === "mark" ? page.markOffer : undefined);
   const VERDICT = { passed: "Passed", waived: "Waived", failed: "Not yet" } as const;
@@ -137,7 +140,7 @@
   {#if savedUnsent.length}
     <section class="card" aria-label="Preserved unsent replies">
       <h2>Replies that were not sent</h2>
-      <p>These replies were preserved because {activity} was already complete. Advancing will leave them unsent.</p>
+      <p>These replies were preserved because {inSentence} was already complete. Advancing will leave them unsent.</p>
       {#each savedUnsent as reply (reply.id)}<pre>{reply.text}</pre>{/each}
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
@@ -161,11 +164,11 @@
       <section class="card">
         {#if stop.resumeOffered}
           <h2>Reply here and let Kiln finish</h2>
-          <p>For a straightforward answer. Your reply goes to the same {agent} conversation, and Kiln resumes {activity}.</p>
+          <p>For a straightforward answer. Your reply goes to the same {agent} conversation, and Kiln resumes {inSentence}.</p>
           <label for="phase-reply">Your reply to {agent}</label>
           <textarea id="phase-reply" bind:this={replyField} bind:value={page.draft} rows="4" maxlength="4000" placeholder="Your answer or instructions for the remaining work"></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your reply has not been sent.</p>{/if}
-          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume {activity}</button>
+          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume {inSentence}</button>
           <p class="hint">Kiln handles the remaining work, then follows the plan. Routine work continues unattended; an explicit hold or material decision can return control to you.</p>
         {:else}
           <h2>Conversation recovery unavailable</h2>
@@ -186,28 +189,28 @@
         <p class="hint"><strong>Changed the plan?</strong> Ask {agent} to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
         {#if stop.resumeOffered}
           <p>Got it back on track? Exit {agent}, then:</p>
-          <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Have Kiln resume {activity}</button>
-          <p class="hint">Kiln picks up the same conversation, including your terminal discussion, and finishes {activity}.</p>
-        {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {activity}, then check it again below.</p>{/if}
+          <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Have Kiln resume {inSentence}</button>
+          <p class="hint">Kiln picks up the same conversation, including your terminal discussion, and finishes {inSentence}.</p>
+        {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {inSentence}, then check it again below.</p>{/if}
       </section>
     </div>
     {#if stop.sessionId && snapshot.liveControl}
       <section class="card" aria-label="Messages to review">
         <LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review />
-        {#if snapshot.liveControl.reviewRequired?.length}<p>Review each uncertain message in the conversation before resuming, checking again or marking {activity} complete. Acknowledgement alone keeps the execution held.</p>{/if}
+        {#if snapshot.liveControl.reviewRequired?.length}<p>Review each uncertain message in the conversation before resuming, checking again or marking {inSentence} complete. Acknowledgement alone keeps the execution held.</p>{/if}
       </section>
     {/if}
-    <section class="card return" aria-label={`Is ${activity} already done?`}>
-      <div class="between"><h2>Is {activity} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
-      <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {activity} and moves to the next step. Nothing is committed or pushed for you.</p>
+    <section class="card return" aria-label={`Is ${inSentence} already done?`}>
+      <div class="between"><h2>Is {inSentence} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
+      <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {inSentence} and moves to the next step. Nothing is committed or pushed for you.</p>
       <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
         {#each stop.checks as check (check.name)}
           {@const state = verdict(check)}
           <li><div><strong>{check.name}</strong><span class={state}>{VERDICT[state]}</span></div><CheckFacts {snapshot} {check} changes={page.markChanges} /></li>
         {/each}
       </ul>
-      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${activity} again`}</button></div>
-      {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {activity} again to retry.</p>{/if}
+      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button></div>
+      {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {inSentence} again to retry.</p>{/if}
       {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
       {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{/if}
     </section>

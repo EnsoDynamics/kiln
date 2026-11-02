@@ -141,7 +141,8 @@ export function fillAgainst(checks: CheckResult[], fingerprints: RepositoryFinge
     if (item.against) continue;
     if (item.kind === "repository_work") {
       const one = fingerprints.find(f => f.name === item.subject);
-      item.against = one ? `${one.head}:${one.dirty}` : "unknown";
+      // A repository with no fingerprint never matches anything saved.
+      item.against = one ? `${one.head}:${one.dirty}` : `unknown:${Date.now()}:${Math.random()}`;
     } else item.against = heads;
   }
   return checks;
@@ -262,7 +263,8 @@ export function effectivePlan(plan: PhasePlan, record: Pick<PrdRecord, "waivers"
 
 /** The same closures over a recorded plan's leaves. */
 export function effectiveRecordedClosed(record: Pick<PrdRecord, "waivers" | "phases">, phase: { id: string; closed: boolean }): boolean {
-  return phase.closed || !!record.phases[phase.id]?.skippedByWaiver || !!closedWaiver(record.waivers, phase.id);
+  // A Done leaf counts too: under a waived plan problem the recorded plan cannot be re-read, so its Closed lines go stale.
+  return phase.closed || !!record.phases[phase.id]?.doneAt || !!record.phases[phase.id]?.skippedByWaiver || !!closedWaiver(record.waivers, phase.id);
 }
 
 export interface PreviewWording {

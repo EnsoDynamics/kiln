@@ -14,9 +14,12 @@ import { stateRoot } from "../state/state-files.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import type { Engine } from "./engine.js";
+import { formatTerminalEvent } from "../kiln-command.js";
+import { formatSummaryLine } from "../underway-output.js";
 import { buildSnapshot } from "./snapshot.js";
 import { checkCounts, countsText, NO_REPORT_WARNING, PLAN_WARNING } from "./waivers.js";
 
+const plain = { green: (s: string) => s, amber: (s: string) => s, red: (s: string) => s, grey: (s: string) => s, bold: (s: string) => s } as unknown as Parameters<typeof formatTerminalEvent>[2];
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.cleanup(); harness = undefined; });
 
@@ -99,7 +102,7 @@ describe("a waived broken plan: Kiln follows its normal order (AC-WAIVE-04)", ()
 describe("a launch stop on a phase that has not run (AC-WAIVE-02, AC-WAIVE-04, AC-WAIVE-09)", () => {
   it("marks the unstarted phase complete with its Closed item waived, never launches it, and still holds the next launch", async () => {
     const first = landingSession();
-    harness = await createHarness({ sessions: [{ actions: [{ sleepFor: 1000 }, ...first.actions] }, landingSession("src/dashboard.txt")] });
+    harness = await createHarness({ sessions: [{ actions: [{ sleepFor: 1000 }, ...first.actions] }, landingSession("src/dashboard.txt"), pullRequestSession()] });
     const h = harness;
     const modelsPath = join(h.sandbox.root, "current-models.json");
     const recorded = JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8")) as { models: { value: string }[] };
@@ -141,7 +144,18 @@ describe("a launch stop on a phase that has not run (AC-WAIVE-02, AC-WAIVE-04, A
     await reopened.agents.refresh();
     await reopened.prepare();
     expect(await reopened.decide()).toEqual({ kind: "start_phase", phaseId: "3" });
+    // 2b, closed only by its waiver, counts as done in the terminal summary and in a disconnected status.
+    expect(formatSummaryLine(reopened, plain)).toContain("3 of 4 phases done");
+    const disconnected = statusProjection(readWork(stateRoot(h.env), h.stateDirectory)) as unknown as { phases: { completed: number; total: number } };
+    expect(disconnected.phases).toEqual({ completed: 3, total: 4 });
     expect(reopened.record.phases["2b"]).toMatchObject({ doneAt: saved.phases["2b"]!.doneAt, waiverId: waiver.waiverId });
+
+    // 2b's document never gets a Closed line; closed by its waiver, it still lets final delivery show and run.
+    await reopened.continue();
+    await reopened.settled();
+    expect(reopened.record.plan!.find(phase => phase.id === "2b")!.closed).toBe(false);
+    expect(reopened.record.completedAt).toEqual(expect.any(String));
+    expect(buildSnapshot(reopened).phases.find(row => row.id === "pr")).toMatchObject({ state: "done" });
   });
 });
 
@@ -179,6 +193,11 @@ describe("final delivery marked complete (AC-WAIVE-10)", () => {
       expect(status(h).progress.find(r => r.key === "pr")).toMatchObject({ waived_checks: 1 });
     };
     check(h.engine);
+    // The terminal reads Final delivery complete · 1 check waived, never a pull request opened #0.
+    const done = h.events.filter(event => event.kind === "pull_request").at(-1)!;
+    const line = formatTerminalEvent(done, h.engine.record, plain);
+    expect(line).toMatch(/Final delivery +complete · 1 check waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · command line · /);
+    expect(line).not.toMatch(/opened|#0/);
     // Saved with the completion: the restarted Kiln reads the same waiver and the same counts (AC-WAIVE-08).
     const reopened = h.reopenFromDisk();
     await reopened.prepare();

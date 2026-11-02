@@ -75,6 +75,28 @@ describe("the hand-back page keeps resuming and checking apart (AC-NEXT-01/02)",
       "Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to the next step. Phase 2b will show as “Complete · 1 check waived”.", "Mark Phase 2b complete");
   });
 
+  it("never says Checked again after a recheck that could not finish, keeping the earlier rows' time", () => {
+    const snapshot = handBackSnapshot({ rechecked: true });
+    snapshot.needsYou!.checkedAt = "2026-10-17T15:52:00Z";
+    snapshot.needsYou!.checkRun = { id: "run-2b-unfinished", at: "2026-10-17T15:56:05Z", origin: "recheck", finished: false };
+    snapshot.needsYou!.markComplete = { offered: false, reason: "The last check could not finish." };
+    const words = text(handBack(snapshot));
+    expect(words).not.toContain("Checked again");
+    expect(words).toContain("Checked 11:52:00 AM · 3 of 4 passed");
+    expect(words).not.toContain("still has");
+  });
+
+  it("writes an audit's name in lower case mid-sentence, as the mockup does: Check delivery audit again", () => {
+    const snapshot = handBackSnapshot({ rechecked: true });
+    snapshot.liveControl = { ...(snapshot.liveControl ?? {}), label: "Delivery audit" } as NonNullable<Snapshot["liveControl"]>;
+    const html = handBack(snapshot);
+    const words = text(html);
+    expect(button(html, "Check delivery audit again")).toBeDefined();
+    expect(button(html, "Have Kiln resume delivery audit")).toBeDefined();
+    order(words, "Is delivery audit already done?", "Kiln closes out delivery audit and moves to the next step.", "Delivery audit still has 1 failing check.");
+    expect(words).not.toMatch(/Check Delivery audit again|resume Delivery audit/);
+  });
+
   it("adds the missing-work paragraph when a failing item is unpushed work", () => {
     const words = text(handBack(handBackSnapshot({ rechecked: true, mixed: true })));
     expect(words).toContain("Checked again 11:56:05 AM · 1 of 4 passed");
@@ -131,6 +153,15 @@ describe("Mark complete on the standard Needs you page (AC-WAIVE-02)", () => {
     expect(button(html, "Mark final delivery complete")).not.toContain("disabled");
   });
 
+  it("reads Checked again with the recheck's time, as the mockup does, and plain Checked before any recheck", () => {
+    expect(text(needsYou(finalDeliveryNeedsYouSnapshot()))).toContain("Check again Checked again 12:41 PM.");
+    const first = finalDeliveryNeedsYouSnapshot();
+    first.needsYou!.checkRun = { id: "run-pr-stop", at: "2026-10-17T16:41:00Z", origin: "stop", finished: true };
+    const words = text(needsYou(first));
+    expect(words).toContain("Check again Checked 12:41 PM.");
+    expect(words).not.toContain("Checked again");
+  });
+
   it("isn't offered before a recheck", () => {
     const snapshot = finalDeliveryNeedsYouSnapshot();
     snapshot.needsYou!.markComplete = { offered: false, reason: "No check has run since final delivery stopped." };
@@ -157,17 +188,36 @@ describe("a waived check reads Waived, never Passed (AC-WAIVE-10)", () => {
     expect(words).toContain("Complete · 1 check waived");
     expect(words).toContain("3 passed · 1 waived. The waived check was not verified by Kiln.");
     order(words, "Phase doc closed Passed", "Pushed Passed", "Required development delivery verified", "Waived api-checkpoint / verify · waived at Phase 2b", "Waived Source Browser · alex",
-      "When 10/17/2026, 11:58:22 AM", "Waived api-checkpoint / verify — api-checkpoint / verify: /deployed_sha does not match its declared target/artifact.", "Checked against", "Covers only this item as checked.");
+      "When 10/17/2026, 11:58:22 AM", "Waived api-checkpoint / verify — /deployed_sha does not match its declared target/artifact.", "Checked against api-checkpoint · merge abcdef12 · check at", "Covers only this item as checked.");
+    // Mockup state 6: the subject once, never the raw fingerprint.
+    expect(words).not.toContain("— api-checkpoint / verify:");
+    expect(words).not.toContain("api-checkpoint@");
     expect(words).not.toContain("Required development delivery verified Passed");
   });
 
-  it("lists the delivery panel's waived verification with its time", () => {
+  /** The waived phase with one delivery checkpoint whose merge result is `resultSha`. */
+  const withCheckpoint = (resultSha: string) => {
     const snapshot = waivedPhaseSnapshot();
-    const checkpoint = { id: "api-checkpoint", target: { repository: "github.com/acme/returns-api", baseBranch: "develop", environment: "returns-api-dev" }, headSha: "1".repeat(40), operations: [], evidence: [{ requirementId: "verify", revision: "2".repeat(40), environment: "returns-api-dev", observedAt: "2026-10-17T15:40:00Z", status: "unresolved", rawDigest: "b".repeat(64) }], requirements: [{ id: "verify", purpose: "verification" }] } as unknown as DeliveryCheckpoint;
+    const checkpoint = { id: "api-checkpoint", target: { repository: "github.com/acme/returns-api", baseBranch: "develop", environment: "returns-api-dev" }, headSha: "1".repeat(40), merge: { number: 212, url: "https://github.com/acme/returns-api/pull/212", resultSha }, operations: [], evidence: [{ requirementId: "verify", revision: "2".repeat(40), environment: "returns-api-dev", observedAt: "2026-10-17T15:40:00Z", status: "unresolved", rawDigest: "b".repeat(64) }], requirements: [{ id: "verify", purpose: "verification" }] } as unknown as DeliveryCheckpoint;
     snapshot.developmentDelivery = { executionId: "display-execution", phaseId: "3", revision: 3, authorization: { revision: 1, enabled: true, grants: [] }, assessments: [], checkpoints: [checkpoint], splits: [], repositoryResults: [] } as unknown as NonNullable<Snapshot["developmentDelivery"]>;
-    const words = text(running(snapshot));
+    return snapshot;
+  };
+
+  it("names the checkpoint's repository, environment and merge under Checked against, as mockup state 6 does", () => {
+    const words = text(detail(withCheckpoint("abcdef123456"), "2b"));
+    expect(words).toContain("Checked against returns-api · returns-api-dev · merge abcdef12 · check at");
+  });
+
+  it("lists the delivery panel's waived verification with its time", () => {
+    const words = text(running(withCheckpoint("abcdef123456")));
     expect(words).toContain("verification ( verify ): waived · 10/17/2026, 11:58 AM");
     expect(words).not.toContain("verification: unresolved");
+  });
+
+  it("drops the waived mark once a new merge ends the waiver, showing the live failing evidence again (AC-WAIVE-09)", () => {
+    const words = text(running(withCheckpoint("fedcba654321")));
+    expect(words).not.toContain("waived · 10/17/2026");
+    expect(words).toContain("verification: unresolved · returns-api-dev");
   });
 
   it("marks final delivery and the waived phase on the Complete screen", () => {
