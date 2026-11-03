@@ -1,93 +1,184 @@
 # Kiln
 
-Kiln runs an [Enso Method](https://github.com/EnsoDynamics/enso-method) phase plan end to end. Given an already-written PRD, technical design and phase plan, it starts a fresh Claude Code or Codex session for each phase, checks in Git that each phase landed, and shows progress in a local web view. The sessions do the implementation, quality gates and Git delivery through the Enso Method skills, unchanged; Kiln owns the order and the visibility. When a phase doesn't land, Kiln hands it back to you with the command to resume that exact session.
+**Plan it together. Then walk away.**
 
-If a subprocess, test run or reviewer is still needed to finish the task, the session waits for it and then carries on. A progress message saying “waiting” does not itself mean Kiln needs you. Claude sessions disable the provider’s default ten-minute background cutoff; Codex sessions retain their child-agent settlement checks. Both receive the same instruction to finish required background work before ending the task. See the [subprocess completion validation](docs/design/kiln-required-subprocess-completion-validation.md) for the checks and their limits.
+Kiln builds a PRD you already planned with the [Enso Method](https://github.com/EnsoDynamics/enso-method), one phase after another, with nobody sitting in the loop. Every phase gets a fresh Claude Code or Codex session. Git confirms the phase landed before the next one starts. When the last phase closes, delivery and test audits check the whole PRD, and the work waits for you as pull requests.
 
-The Enso Method works without Kiln. Kiln automates the loop a person otherwise runs by hand.
+You come back when it's done, or when a phase genuinely needs you.
+
+[ensomethod.org/kiln](https://ensomethod.org/kiln/) · [Install](#install) · [Quick start](#quick-start) · [Update](#update) · [How it works](#how-it-works)
+
+![Kiln's browser view while a phase is being implemented](docs/assets/kiln-running-screen.webp)
+
+## Why Kiln
+
+The Enso Method puts the hard thinking first. A PRD in business language, a technical design checked against the real code, open questions answered or written down as assumptions, and a plan cut into phases small enough for one AI session each. That half deserves your attention.
+
+The other half used to need a babysitter. Start a session for phase 1, wait, start a fresh one for phase 2, wait, then run the delivery and test audits and act on what they find. A dozen phases meant a dozen interruptions across a day, and none of it ran overnight. Kiln runs that loop for you.
+
+Kiln is optional. Everything it does, a person can do by hand with the same skills. It never edits the skills, and nothing in your repository depends on it.
+
+## Requirements
+
+| | |
+| --- | --- |
+| Node.js | 22.15 or later |
+| Git | 2.29 or later |
+| [GitHub CLI](https://cli.github.com/) | Signed in to github.com (`gh auth login`). The repository's `origin` must be on GitHub. |
+| An agent | [Claude Code](https://docs.claude.com/en/docs/claude-code) signed in, or Codex (stable `codex-cli` 0.162.1 or later) signed in through ChatGPT |
+| [Enso Method](https://github.com/EnsoDynamics/enso-method#get-started) skills | Installed in that agent |
+| Platform | macOS is validated. Linux and Windows are best effort; please [open an issue](https://github.com/EnsoDynamics/kiln/issues) if something breaks. |
+
+Codex details and limits are in [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
 
 ## Install
 
-Kiln requires Node 22 or later, Git 2.29 or later, the [GitHub CLI](https://cli.github.com/) signed in, and either [Claude Code](https://docs.claude.com/en/docs/claude-code) or Codex signed in with the [Enso Method](https://github.com/EnsoDynamics/enso-method) skills installed. Codex requires **stable codex-cli 0.162.1 or later**, authenticated through ChatGPT. Newer stable releases are accepted subject to the same required metadata and permission checks. See [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
-
-macOS is the natively validated platform. Linux and Windows remain best-effort targets: their native agent, console and sleep behavior is untested, and compatibility issues will be investigated from user reports. Native Windows/Linux proof is not a first-release gate. The [public release readiness review](docs/release/kiln-public-release-readiness-review.md) tracks validation evidence and the remaining publication gates.
-
-From its first release on npm, one command installs the `kiln` command and its browser view:
-
-```
+```sh
 npm install -g @ensodynamics/kiln
 ```
 
-Until that release, install it from a clone of this repository, exactly as npm will publish it:
+This installs the `kiln` command along with its browser view. Check it worked:
 
-```
-npm ci
-npm pack
-npm install -g ./ensodynamics-kiln-1.0.0.tgz
+```sh
+kiln --help
 ```
 
-## Run
+If you don't have the Enso Method skills yet, install them in your agent too:
 
-In a repository whose PRD has been refined and split into phases with the Enso Method:
+```sh
+# Claude Code
+claude plugin marketplace add EnsoDynamics/enso-method
+claude plugin install enso-method@enso-method
 
+# Codex
+codex plugin marketplace add EnsoDynamics/enso-method
+codex plugin add enso-method@enso-method
 ```
+
+## Quick start
+
+Kiln starts where planning ends. You need a PRD that has been written, refined, given a technical design and split into phases with the Enso Method skills ([how that works](https://github.com/EnsoDynamics/enso-method#get-started)). Commit those documents, then from the repository root run:
+
+```sh
 kiln run docs/prds/<name>
 ```
 
 The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) or the PRD file in it.
 
-1. Kiln checks the documents and opens its browser view on what it found: the phase documents, the base branch and the feature branch it will use.
-2. Confirm the PRD has been refined, choose the agent, model and effort, and press **Start**.
-3. Kiln runs one session per phase and checks in Git that each phase landed. Work can span several repositories, with a pull request for each. Whole-PRD delivery and test audits run before completion. Keep its terminal open; Ctrl+C interrupts the current session.
-4. When a phase doesn't land, **Needs you** shows the session’s message and what remains. Send a reply to let Kiln finish, or copy the command to discuss it in that same conversation in your terminal. Exit the terminal session, then resume in Kiln without repeating the answer. If you finished the entire phase yourself, use **Verify Phase … & advance**. A Resume that finds the phase already complete asks before advancing and preserves any unsent reply.
+1. **Review.** Kiln checks the documents and opens its browser view on what it found, with the phase documents, the base branch and the feature branch it will use. Nothing runs yet.
+2. **Start.** Confirm the PRD has been refined, choose the agent, model and effort, and press **Start**.
+3. **Walk away.** Kiln runs one session per phase in the feature's own worktree and checks in Git that each phase landed. Keep the terminal open. Ctrl+C interrupts the current session, and `kiln run` again picks up where it stopped.
+4. **Come back to pull requests.** When every phase is done and the whole PRD has passed its delivery and test audits, the feature branch is pushed with its pull request waiting for your review.
 
-`kiln run` again, after Ctrl+C or a restart, checks the saved work and opens the phase overview without starting model work. Review completed and planned phases, then press **Resume Kiln**. Unresolved Needs you and intentional pauses retain their existing controls.
+## When a phase needs you
 
-Completion checks use the assigned worktrees’ Git state and required audit/delivery receipts. Kiln does not audit session transcripts for outside-workspace changes or ask users to accept workspace uncertainty. Other checkouts and worktrees may change normally while Kiln runs.
+When a phase doesn't land, the **Needs you** screen shows the session's last message word for word and each check that failed, with the fact behind it. Then you choose.
 
-For terminal or bot orchestration, `kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved agent, model, effort and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the existing status-bound `kiln continue` command.
+- **Reply** in the browser. Kiln sends it to that same session, with its full history, and carries on.
+- **Open the session yourself.** Copy the command Kiln shows to continue that exact conversation in your terminal. When you're done, exit it and press Resume in Kiln. You won't need to repeat your answer.
+- **Finished it by hand?** Use **Verify Phase … & advance**. Kiln runs the same checks and moves on only if they pass.
 
-For an unfinished run, Kiln rereads the PRD and phase plan in its assigned worktree when control returns. Appended phases and split leaves in that worktree join the remaining plan automatically after the current activity passes its completion checks; a notice shows their identifiers and remaining count. Once the worktree is created, changes in the original checkout or other branches do not pause the run or produce requirements-update notices. To adopt those changes, deliberately integrate them into the assigned worktree under the normal execution rules. Finished-run discovery still checks current sources for new phases.
+A Resume that finds the phase already complete asks before advancing and keeps any reply you hadn't sent.
 
-By default, work stays on feature branches for review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may merge there early when a PRD criterion needs deployment or verification; the repository’s existing CI/CD controls deployment. No environment name or non-production declaration is needed. Required checks and reviews still apply, and remaining work ends in a review PR. Other branches, separate release workflows and destructive actions remain unauthorized.
+## Update
 
-`kiln run` starts or reopens the controller. The browser and documented local CLI can control existing work. Use `kiln status --json` to discover runs, `kiln status <PRD-path> --json` to inspect one, and command-specific `--help` for replies, no-message resume, verification, pause and settings. Help is available without a running controller. Sessions also use helper commands for repository setup, audit evidence and delivery.
+Stop any running Kiln first. Kiln reads its prompts and hooks from the installed package while it works, so replacing the package underneath a live run can mix two versions. List what's running with
 
-Existing-run control commands require a caller-generated command ID and the status token returned by a fresh status read. Keep both when retrying the same instruction; inspect `kiln command-status <PRD-path> --command-id <id> --json` after a lost response. A new intention needs a new ID. Reply accepts a literal UTF-8 file or stdin. A reply or resume that discovers an already-complete phase never advances it: use explicit `verify-and-advance`, acknowledging any retained unsent reply with `--without-sending-reply`. See `kiln reply --help` and `kiln verify-and-advance --help` for complete examples and error handling.
+```sh
+kiln status
+```
 
-For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from
-`--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude
-reads it at its next opportunity; the current tool may finish first. `kiln take-over
-<PRD-path>` holds progression and waits for the next safe stopping point. Both require
-the same command ID and fresh status-token flags above. Use `kiln handoff` only after
-status reports safe release; it reads instructions and never opens a terminal.
+then press Ctrl+C in each Kiln terminal. To avoid interrupting a phase, use **Pause after this phase** and stop Kiln once the phase finishes. Then update:
 
-`reply` resumes a stopped conversation. `request-pause` lets the entire phase/audit
-and its completion checks finish first. These remain separate from live messaging
-and takeover. If delivery is uncertain, inspect the message receipt and conversation,
-then use `resume` or `verify-and-advance` with `--message-reviewed <receipt-id>` for
-each reviewed uncertain message. Review never resends or confirms provider receipt;
-only successful explicit hand-back releases the hold. See each command's `--help`.
+```sh
+npm install -g @ensodynamics/kiln@latest
+```
 
-## Audit document references
+Run `kiln run <PRD-path>` again for each unfinished PRD. Its saved progress carries forward automatically, and Kiln opens the phase overview so you can review it before pressing **Resume Kiln**.
 
-Audit snapshots require the PRD, design, assumptions, phases and their local Markdown
-links recursively. Links can reach other requirements directories and roadmap contracts.
-Missing required targets stop the audit and report the document chain.
+To see which version you have and whether a newer one exists:
 
-For provenance or historical background that does not define requirements or required
-evidence, give the inline link the exact title `kiln:reference`:
+```sh
+npm ls -g @ensodynamics/kiln
+npm outdated -g @ensodynamics/kiln
+```
+
+Saved runs move forward only. Once a newer Kiln has opened a run, an older Kiln refuses to read it and asks you to update, so don't downgrade in the middle of a PRD. Never delete saved state to get around that message.
+
+Keep the Enso Method skills current too, since Kiln's sessions run whatever version you have installed:
+
+```sh
+# Claude Code, then restart it
+claude plugin marketplace update enso-method
+claude plugin update enso-method@enso-method
+
+# Codex
+codex plugin marketplace upgrade enso-method
+```
+
+Release notes for each version are on the [GitHub Releases](https://github.com/EnsoDynamics/kiln/releases) page.
+
+## Uninstall
+
+```sh
+npm uninstall -g @ensodynamics/kiln
+```
+
+That removes the command. Two things stay behind on purpose.
+
+- **Saved run history** lives in `~/.local/state/kiln` (or `$XDG_STATE_HOME/kiln`) on macOS and Linux, and `%LOCALAPPDATA%\kiln` on Windows. Delete that folder if you no longer need it.
+- **Worktrees and branches** Kiln created for your PRDs stay in your repositories, with your work in them. The default worktree location is a `.worktrees` folder beside your checkout. Remove them with `git worktree remove` once their pull requests are merged.
+
+## How it works
+
+Each phase runs the same way.
+
+1. **A fresh session.** Kiln starts a new agent session in the feature's worktree, pointed at the next phase document. It says only what you would have typed yourself.
+2. **The skills do the work.** Build, deliverable review, test hardening, commit, refactor pass and push, all by the Enso Method skills exactly as published.
+3. **Git says if it's done.** The phase document is closed, everything is committed and the branch matches origin. All three pass or the phase isn't done, whatever the session said about itself.
+4. **Then the next one.** Kiln rereads the plan and starts the next phase. When the last one closes, delivery and test audits check the whole PRD, and any repairs they require get another audit cycle before Kiln finishes.
+
+A few things worth knowing:
+
+- **Interruptions.** Ctrl+C, a closed terminal, a restart or a laptop that slept. Running `kiln run` again checks the saved work and opens the phase overview without starting model work. Review it, then press **Resume Kiln**.
+- **Usage limits.** When a session hits your plan's limit, Kiln waits for usage to come back and resumes that same session.
+- **Background work.** If a subprocess, test run or reviewer is still needed, the session waits for it and carries on. A progress message saying "waiting" does not mean Kiln needs you. The [subprocess completion validation](docs/design/kiln-required-subprocess-completion-validation.md) describes the checks and their limits.
+- **Plans that grow.** Phases appended or split in the assigned worktree join the remaining plan once the current activity passes its checks, with a notice. Changes made in your original checkout or on other branches don't affect a running PRD until you deliberately integrate them into its worktree.
+- **Several repositories.** When a PRD spans repositories, each gets its own worktree, feature branch and pull request.
+- **Pause.** **Pause after this phase** lets the current phase finish, commit and push, then starts nothing new until you press Start.
+- **Watch live.** Follow each tool call and message as it happens, with the session's model, effort and commits, and your account's usage beside it.
+
+Completion checks use the assigned worktrees' Git state and the audit and delivery receipts. Other checkouts and worktrees can change normally while Kiln runs.
+
+### What Kiln may do with your code
+
+By default Kiln commits and pushes only to feature branches and leaves pull requests for your review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may then merge there early when a PRD criterion needs deployment or verification, and the repository's existing CI/CD controls the deployment. Required checks and reviews still apply, and remaining work still ends in a review pull request. Other branches, separate release workflows and destructive actions stay unauthorized.
+
+### Billing in brief
+
+Before every model run, Kiln shows how the next session will be billed, either your Claude subscription or ChatGPT account with its email and plan, or a detected API key or alternate provider. API billing needs your explicit approval for that PRD before any work starts. Kiln never changes your provider settings or spending limits, and it is not a spending cap. [Billing](#billing) below has the details for Claude and Codex.
+
+### Driving Kiln from the terminal or a bot
+
+The browser view is the main interface, but every control for existing work is also a command, so a script or a bot on the same machine can report progress and answer stops. Start with `kiln status --json` and `kiln <command> --help`. [Kiln command line and bot control](docs/kiln-command-line-and-bot-control.md) covers command IDs, status tokens, live messages and takeover.
+
+## Writing requirements for Kiln
+
+Kiln's audits snapshot the PRD, design, assumptions, phases and every local Markdown link in them, recursively. Links can reach other requirements directories and roadmap contracts. A missing required target stops the audit and reports the document chain.
+
+For a link that is background only (provenance or history, not requirements or required evidence), give it the exact title `kiln:reference` and Kiln won't follow it.
 
 ```markdown
 [Original handoff](../../../source-material/handoff/index.md "kiln:reference")
 ```
 
-Kiln does not traverse that link or require its target. Governing documents and explicit
-`Superseded by:` / `Replaces:` pointers remain mandatory, even when a reference-only link
-also points to them. Existing files still participate in repository fingerprints, and
-reports must still supply all required evidence. No directory is automatically excluded.
+Governing documents and explicit `Superseded by:` / `Replaces:` pointers stay mandatory even when a reference-only link also points at them. Existing files still count in repository fingerprints, reports must still supply all required evidence, and no directory is excluded automatically.
 
-## Claude billing
+## Billing
+
+Before every model run, Kiln shows how the next session will be billed and blocks separately charged access until you approve it. The details differ by agent.
+
+### Claude
 
 Before Start or Resume, Kiln shows billing for the next Claude run. A confirmed subscription says **Claude subscription**, with the account email directly below it. Billing follows your Claude account settings. If Claude reports that paid overflow is enabled for that same account, Kiln shows a factual notice and links to [Claude usage settings](https://claude.ai/settings/usage); it does not ask for another approval or change your spending limits. Missing overflow details do not mean paid usage is disabled.
 
@@ -99,7 +190,7 @@ When authentication works but additional billing details cannot be established a
 
 These checks run before each model-consuming launch or resume, including recovery, audits and final delivery. They inspect settings without making a model request and preserve local completion checks. They detect observable overrides; they are not a per-request billing firewall or a spending cap. A running CLI may reread settings or rotate credentials, and a helper can rotate its secret without Kiln observing it. Kiln does not interrupt an active session over a later settings change and makes no zero-cost guarantee. Set spending limits with [Anthropic](https://console.anthropic.com/settings/limits), [Claude](https://claude.ai/settings/usage), or the configured provider.
 
-## Codex billing
+### Codex
 
 Kiln shows **ChatGPT account**, the reported account email and plan, and “Billing follows your ChatGPT account settings.” Check your [ChatGPT usage and spending settings](https://chatgpt.com/codex/settings/usage). ChatGPT sign-in does not guarantee included-only or zero-extra-cost usage: eligible work may use account or workspace credits under those settings.
 
@@ -109,23 +200,54 @@ Running screens retain the account and credit facts recorded at launch; a differ
 
 Codex requires ChatGPT sign-in and the OpenAI provider before every launch and resume, including after restart. API-key-only or missing authentication requires `codex login`, then refresh Codex information. A different provider requires changing the provider in Codex settings and refreshing; Kiln never rewrites it. Required authentication/configuration errors remain blockers. Claude billing approval never authorizes Codex API-key access.
 
-## Requirements
+## Troubleshooting
 
-- [Kiln v1 PRD](docs/prds/kiln-v1/kiln-v1-prd.md): what v1 delivers and its acceptance criteria.
+`kiln run` prints every problem it finds before starting. The common ones:
 
-## Design documents
+| Message | Fix |
+| --- | --- |
+| `gh isn't signed in to github.com` | `gh auth login`, then run the same command again |
+| `The checkout … has uncommitted changes` | Commit or stash them. Kiln starts from a clean checkout. |
+| `The checkout has no origin remote` or origin isn't on GitHub | Kiln pushes branches and opens pull requests on GitHub, so `origin` must point there |
+| This PRD already has a running Kiln | Use the browser address it prints, or `kiln status` |
+| Port unavailable | Kiln uses ports 4700 to 4799. Free the reported port or stop a Kiln you no longer need. |
+| Written by a newer Kiln | [Update Kiln](#update) |
+| Claude or Codex sign-in fails | `claude auth login` or `codex login`, then press Recheck in the browser |
 
-- [Architecture proposal](docs/design/kiln-architecture-proposal.md): principles, v1 scope, the done check, the stop path, and open questions.
-- [Interface scenarios](docs/design/kiln-interface-scenarios.md) and the [mockups](docs/design/mockups/): the v1 screens, which are the design of record.
-- [Kiln roadmap](docs/kiln-roadmap.md): future feature ideas, with a separate note for each.
-- [Future-feature index](docs/design/kiln-after-v1-ideas.md): links to individual idea notes and existing-feature references.
+For anything else, `kiln status <PRD-path>` shows the full state of a run, and issues are welcome on [GitHub](https://github.com/EnsoDynamics/kiln/issues).
+
+## Documentation
+
+- [Kiln v1 PRD](docs/prds/kiln-v1/kiln-v1-prd.md), what v1 delivers and its acceptance criteria. Later changes are in [docs/changes](docs/changes/) and [docs/prds](docs/prds/).
+- [Architecture proposal](docs/design/kiln-architecture-proposal.md), with principles, the done check and the stop path.
+- [Interface scenarios](docs/design/kiln-interface-scenarios.md) and the [mockups](docs/design/mockups/), the design of record for the screens.
+- [Kiln roadmap](docs/kiln-roadmap.md) and the [future feature index](docs/design/kiln-after-v1-ideas.md).
+
+Kiln was built with the Enso Method, so its own requirements, designs and phase plans in `docs/` are a working example of the method.
 
 ## Development
 
-Node 22 or later and Git 2.29 or later. `npm install`, then `npm run verify`: dependency audit, lint, typecheck, the unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the tarball globally into a temporary folder and runs that `kiln`. Development CI runs audit, lint, types, unit/contract tests, build and pack on Ubuntu. Main/release candidates additionally require full macOS verification and installation of the exact candidate archive, plus Windows build/pack; Linux/Windows native runtime remains unconfirmed. Run `npm run hooks:install` in the shared checkout for the local version gate, and `npm run release:prepare` before a release merge. Approved main releases publish the checked archive to npm and attach it to a GitHub Release: [release setup and steps](docs/release/kiln-npm-release-steps.md).
+Requires Node 22.15 or later and Git 2.29 or later.
 
-`npm run test:live-proof` is the authenticated live-control provider test tier. It requires macOS, Claude Code 2.1.311 and an already signed-in account, and fails when those prerequisites are unavailable. It creates synthetic disposable conversations and local Git repositories to check literal live input, fresh turn context, natural foreground/background/subagent checkpoint yield and terminal-history hand-back. The normal offline integration suite also checks the packaged hook, real process ownership and a recorded, verified provider message contract; those checks do not claim a fresh model run. This provider tier spends model usage and runs separately from credential-free CI.
+```sh
+npm install
+npm run verify
+```
+
+`verify` runs the dependency audit, lint, typecheck, unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the archive globally into a temporary folder and runs that `kiln`.
+
+To try a local build exactly as npm would install it:
+
+```sh
+npm ci
+npm pack
+npm install -g ./ensodynamics-kiln-*.tgz
+```
+
+Development CI runs audit, lint, types, unit and contract tests, build and pack on Ubuntu. Release candidates also require full macOS verification with installation of the exact candidate archive, plus Windows build and pack. Run `npm run hooks:install` in the shared checkout for the local version gate, and `npm run release:prepare` before a release merge. Approved releases on `main` publish the checked archive to npm and attach it to a GitHub Release, as described in [Kiln npm release setup and operation](docs/release/kiln-npm-release-steps.md).
+
+`npm run test:live-proof` is the authenticated live control tier. It requires macOS, Claude Code 2.1.311 and a signed-in account, and fails when those are unavailable. It creates disposable conversations and local Git repositories to check live input, fresh turn context, checkpoint yield and terminal hand-back. It spends model usage and runs separately from credential-free CI. The normal offline integration suite checks the packaged hook, real process ownership and a recorded provider message contract without a fresh model run.
 
 ## License
 
-Kiln is [MIT licensed](LICENSE), copyright Enso Dynamics. Bundled browser libraries and fonts retain their own licenses; their copyright and license texts are in [Kiln third-party notices](view/public/kiln-third-party-notices.txt), also shipped as `dist/view/kiln-third-party-notices.txt` in the npm package.
+Kiln is [MIT licensed](LICENSE), copyright Enso Dynamics. Bundled browser libraries and fonts keep their own licenses. Their texts are in [Kiln third-party notices](view/public/kiln-third-party-notices.txt), also shipped as `dist/view/kiln-third-party-notices.txt` in the npm package.
