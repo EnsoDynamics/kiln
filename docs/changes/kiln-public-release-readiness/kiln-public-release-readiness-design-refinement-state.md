@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln public release readiness
 
-Started: 2026-11-03   Current pass: 3   Status: In progress
+Started: 2026-11-03   Current pass: 4   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 2674 · growth baseline 2674
@@ -19,6 +19,7 @@ Last updated: 2026-11-03 (pass 1 checkpoint)
 |---|---|---|---|---|---|---|---|
 | 1 | 12 | 12 | 10 | 0 | 2 | 0 | 0 |
 | 2 | 8 | 12 (5 carried + 7) | 12 | 0 | 0 | 0 | 0 |
+| 3 | 3 | 6 (3 carried + 3) | 6 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -45,9 +46,13 @@ Last updated: 2026-11-03 (pass 1 checkpoint)
 | E5 | 2 | Where the AC-REPO-07 client-name list lives without leaking a path into the public TD | Technical | MEDIUM | 75 → 93 | Resolved (the repo's pre-commit hook already runs the maintainer's client-terms checker) | TD §Candidate scan |
 | E6 | 2 | README-linked docs (Codex macOS validation, command-line/bot control) become false | Technical | MEDIUM | 70 → 95 | Resolved | TD §README and minimums |
 | E7 | 2 | "Each command's usage error" would degrade helper usage lines | Technical | LOW | 75 → 90 | Resolved (only kiln run changes) | TD §Usage errors |
-| E8 | 2 | README test must require every minimum present (Claude Code absent today; engines.node) | Technical | LOW | 80 → 80 | Deferred (cap) | — |
-| F1 | 2 | PowerShell blocker only at pre-launch check; does Documents found also show it when Codex is selected on Windows (AC-AGENT-05 "when that agent is selected")? | Technical | LOW | 70 → 70 | Pending | — |
-| F2 | 2 | AC-SYNC-01 lists Node, Git, Claude Code, Codex but not PowerShell, which the README now states: does the website state it? | Technical | LOW | 70 → 70 | Pending | — |
+| E8 | 2 | README test must require every minimum present (Claude Code absent today; engines.node) | Technical | LOW | 80 → 95 | Resolved (pass 3) | TD §README and minimums |
+| F1 | 2 | PowerShell blocker only at pre-launch check; does Documents found also show it when Codex is selected on Windows (AC-AGENT-05 "when that agent is selected")? | Technical | LOW | 70 → 92 | Resolved (pass 3: pre-launch check satisfies "starts no session"; Documents found would add scope) | TD §PowerShell (Codex on Windows) |
+| F2 | 2 | AC-SYNC-01 lists Node, Git, Claude Code, Codex but not PowerShell, which the README now states: does the website state it? | Technical | LOW | 70 → 92 | Resolved by decision (pass 3: AC-SYNC-01 unchanged; the website need not state PowerShell, Windows is best effort and the README states it) | — |
+| G1 | 3 | When does the takeover hook contract (and Codex command evidence) become recognised, so its notice clears? | Technical | MEDIUM | 65 → 90 | Resolved by decision (moot under G2: notices clear on a different version, no recognised event needed) | TD §Compatibility notices, Data Models |
+| G2 | 3 | Does an unrecognised contract carry over to later attempts on the same Claude Code version (panel vs composer; launch args)? | Technical | MEDIUM | 60 → 90 | Resolved by decision (investigator 85: residual is the false-positive trade-off, stated in the TD rationale; no fact left to investigate) | TD §Compatibility notices, §Live message recognition, §Takeover hook recognition, §Live launch arguments, Data Models, Proving |
+| G3 | 3 | Per-command text help keeps the bot guidance paragraph? | Technical | LOW | 80 → 95 | Resolved (only top-level text help drops it; bot-control test audit pins per-command guidance) | TD §Text help |
+| H1 | 3 | Notice lifecycle with an unparseable Claude Code version: does `unrecognised` match itself? | Technical | LOW | 80 → 95 | Resolved (conformance follow-up) | TD §Compatibility notices |
 
 ## Question notes
 
@@ -74,4 +79,4 @@ Completion:
 |---|---|---|
 
 ## Next action
-Pass 3: discovery (carry E8, F1, F2 first).
+Pass 4: discovery (no carried questions).
