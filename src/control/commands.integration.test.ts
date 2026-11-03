@@ -378,7 +378,7 @@ it("retains a proven Check again result when only receipt settlement was interru
   h.engine.commands.submit(instruction("check-again", "checked-before-crash")); await h.engine.commands.settled();
   const operation = h.engine.record.controlApplied!.operationId;
   failure.mockRestore(); h.engine.close(); h.engine = h.reopenFromDisk();
-  expect(h.engine.commands.lookup("checked-before-crash").operation).toMatchObject({ id: operation, state: "completed", outcome: "completed" });
+  expect(h.engine.commands.lookup("checked-before-crash").operation).toMatchObject({ id: operation, state: "completed", outcome: "completion_checks_failed" });
   expect(h.engine.commands.busy).toBe(false); expect(h.claudeCalls()).toHaveLength(1);
 });
 it.each([

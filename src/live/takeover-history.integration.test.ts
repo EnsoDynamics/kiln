@@ -15,6 +15,8 @@ import { findTranscripts } from "../session/transcripts.js";
 import type { LiveTarget } from "./target.js";
 import type { Receipt } from "../control/commands.js";
 import * as ownership from "./ownership.js";
+/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
+const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 
 let h: Harness;
 let server: LocalServer | undefined;
@@ -220,7 +222,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       for (const bytes of [legacy, originalHistory + '{"type":']) { writeFileSync(historyFile, bytes); await released(); expect(h.engine.record.liveControl?.takeover.state).toBe("released"); }
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(calls);
       page = await chrome.open(server.address, { width: 390, height: 1100 });
-      await page.waitFor(`${button(`Check ${label} again`)} && !${button(`Check ${label} again`)}.disabled`);
+      await page.waitFor(`${button(`Check ${inSentence(label)} again`)} && !${button(`Check ${inSentence(label)} again`)}.disabled`);
       expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(true);
       // Observe the real Verify response rather than impose a separate 20-second
       // polling deadline on the full report/currentness/ownership evaluation.
@@ -249,7 +251,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         };
       })()`);
       proofStage = `awaiting the browser Verify response, clicked after ${Date.now() - testStarted} ms of assertions`;
-      await page.evaluate(`${button(`Check ${label} again`)}.click()`);
+      await page.evaluate(`${button(`Check ${inSentence(label)} again`)}.click()`);
       const answer = await page.evaluate<{ status: number; body: { ok: boolean; outcome?: string } }>("window.__historyVerifyDone");
       expect(answer).toMatchObject({ status: 200, body: { ok: true, outcome: "advanced" } });
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();

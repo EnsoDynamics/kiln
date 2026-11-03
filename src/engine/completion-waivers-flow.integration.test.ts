@@ -241,10 +241,10 @@ describe("a recheck at the final delivery stop (AC-WAIVE-02, AC-WAIVE-05)", () =
     const offer = h.engine.markCompleteOffer();
     if (!offer.offered) throw new Error(`Mark complete not offered: ${offer.reason}`);
 
-    // GitHub cannot be read at the next recheck: a check that could not finish, recorded as an unfinished run, with no offer.
+    // GitHub cannot be read at the next recheck: Check again settles as before, but the run is recorded unfinished, with no offer.
     h.setPulls({ fail: "gh: could not reach api.github.com" });
     const unreadable = await submit(h.engine, "check-again");
-    expect(unreadable).toMatchObject({ state: "failed", outcome: "check_unavailable" });
+    expect(unreadable).toMatchObject({ state: "completed", outcome: "completion_checks_failed" });
     const run = h.engine.record.phases.pr!.stop!.run!;
     expect(run).toMatchObject({ origin: "recheck", finished: false });
     expect(run.id).not.toBe(offer.checkRunId);

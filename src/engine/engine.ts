@@ -1569,6 +1569,8 @@ export class Engine {
   private async waiveStopped(key: string, request: WaiveRequest, outcome?: DoneCheckOutcome, takeoverMaterial?: string): Promise<WaiveAnswer> {
     const rerun = this.stopRun(key);
     const changes = changedItems(request.offered, rerun.checks);
+    // A rerun that could not finish, such as GitHub being unreadable, is never waived on (AC-WAIVE-02, AC-WAIVE-04).
+    if (rerun.run && !rerun.run.finished) return { ok: false, code: "check_unavailable", reason: "The completion check could not read its evidence. Nothing was marked complete; check again when it can be read.", status: 503 };
     if (changes.length) return { ok: true, outcome: "check_results_changed", changes };
     const items = unmetItems(rerun.checks);
     const audit = this.auditActivity(key);
@@ -3946,7 +3948,8 @@ export class Engine {
     if (hold?.phaseKey === phaseKey) {
       if (this.latestSession(phaseKey)?.runs.length) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
-        const unreadable = outcome !== "stopping" && ("unavailable" in outcome && outcome.unavailable || "ghError" in outcome && outcome.ghError && !outcome.passed) ? ("unavailable" in outcome && outcome.unavailable || "The final delivery evidence could not be read.") : undefined;
+        if (outcome !== "stopping" && "ghError" in outcome && outcome.ghError && !outcome.passed) { this.unfinishedRecheck(phaseKey); return "still_stopped"; }
+        const unreadable = outcome !== "stopping" && "unavailable" in outcome ? outcome.unavailable : undefined;
         if (outcome !== "stopping" && unreadable) {
           if (!facts.stop) this.recordStop(phaseKey, "done_check", outcome.checks);
           this.unfinishedRecheck(phaseKey);
@@ -4066,7 +4069,8 @@ export class Engine {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "still_stopped";
       // GitHub or the delivery source could not be read: a check that could not finish, so Mark complete is not offered on it (AC-WAIVE-02).
-      if (!check.passed && check.ghError) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(check.check.facts.join(" ") || "The final delivery evidence could not be read."); }
+      // Resume and Check again carry on as before; the run is only marked unfinished.
+      if (!check.passed && check.ghError) { this.unfinishedRecheck(phaseKey); return "still_stopped"; }
       if (check.passed) {
         this.complete(check.pullRequests ?? [], true, check.mergedBranches, check.checks);
         return "complete";

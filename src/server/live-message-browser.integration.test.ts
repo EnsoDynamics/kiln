@@ -6,6 +6,8 @@ import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { Receipt } from "../control/commands.js";
 import type { LiveTarget } from "../live/target.js";
+/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
+const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
 afterAll(async () => { await chrome?.close(); });
@@ -72,7 +74,7 @@ it.each(["Phase 2b", "Test audit · Round 2"])("keeps %s held after uncertain-me
   const page = await chrome.open(server.address);
   try {
     await page.waitFor(`document.body.innerText.includes('I reviewed this message in the conversation')`);
-    const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Have Kiln resume ${label}')`;
+    const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Have Kiln resume ${inSentence(label)}')`;
     expect(await page.evaluate(`${resume}.disabled`)).toBe(true);
     await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='I reviewed this message in the conversation').click()`);
     await page.waitFor(`document.body.innerText.includes('Review acknowledged')`);

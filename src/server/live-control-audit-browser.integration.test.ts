@@ -3,6 +3,8 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { runningSnapshot, pausedSnapshot, needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
+/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
+const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
 afterAll(async () => { await chrome?.close(); });
@@ -27,7 +29,7 @@ it.each(cases)("pins the released takeover headline, exact last message and endi
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] .final').textContent.trim()`)).toBe(stop.finalMessage);
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] .facts').textContent`)).toContain("Claude Code · exit 0");
     expect(await page.evaluate(`document.querySelector('section[aria-label="Stopped session"] a').getAttribute('href')`)).toBe(`/customer-returns/phase/${key}`);
-    expect(await page.evaluate("document.body.innerText")).toContain(`Is ${label} already done?`);
+    expect(await page.evaluate("document.body.innerText")).toContain(`Is ${inSentence(label)} already done?`);
     expect(server.commands).toEqual([]); expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });

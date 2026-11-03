@@ -5,6 +5,8 @@ import { runningSnapshot, needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "..
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { LiveTarget } from "../live/target.js";
+/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
+const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
 afterAll(async () => { await chrome?.close(); });
@@ -52,11 +54,11 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
   const server = await serveViewFixture({ port: 42053, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1000 });
   try {
-    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Have Kiln resume ${label}`)})`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Have Kiln resume ${inSentence(label)}`)})`);
     const text = await page.evaluate<string>("document.body.innerText");
     for (const expected of [
-      "Got it back on track? Exit Claude Code, then:", `Check ${label} again`,
-      `If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out ${label} and moves to the next step.`,
+      "Got it back on track? Exit Claude Code, then:", `Check ${inSentence(label)} again`,
+      `If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out ${inSentence(label)} and moves to the next step.`,
       "No special handoff phrase is needed.", "record those decisions in the requirements before you exit",
     ]) expect(text).toContain(expected);
     expect(await page.evaluate(`document.querySelector('ul.checks').getAttribute('aria-label')`)).toBe(`${label} completion requirements`);
@@ -64,10 +66,10 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     snapshot.unsentReplies = [{ id: "saved", text: "retained instruction" }];
     server.send("snapshot", snapshot);
-    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`because ${label} was already complete`)})`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`because ${inSentence(label)} was already complete`)})`);
     stop.resumeOffered = false;
     server.send("snapshot", snapshot);
-    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Use the terminal recovery instructions to finish ${label}, then check it again below.`)})`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Use the terminal recovery instructions to finish ${inSentence(label)}, then check it again below.`)})`);
     expect(await page.evaluate("document.body.innerText")).not.toContain("finish the phase");
     snapshot.liveControl.takeover!.state = "pending";
     snapshot.liveControl.takeover!.reason = "The saved Claude conversation is missing or unreadable.";
