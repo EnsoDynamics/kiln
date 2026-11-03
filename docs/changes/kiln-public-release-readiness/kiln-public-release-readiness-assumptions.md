@@ -36,6 +36,23 @@
 
 ---
 
+### PUB-004. Accept that live messages on a newer Claude Code are trusted to arrive as typed, without retesting each version? — ⏳ PENDING (Added 2026-11-03 — new question; 75% confidence)
+
+**Assumption**: **Message Claude** and `kiln message` work on **every Claude Code version at or above the minimum**, and Kiln keeps asking Claude Code to treat each message as **plain text**, as it does on 2.1.311 today. Kiln turns messaging off for a session when Claude Code's echo of a message differs from what was sent. **The remaining risk is accepted**: a future Claude Code could stop honouring that request and treat a message starting with `/` or containing `@file` as a command or file reference while still echoing it unchanged, and Kiln could not tell.
+
+**Example**: a phone message `/clear and carry on` arrives in the conversation as that text on 2.1.311. On an affected future version it could instead clear the conversation.
+
+**Evidence**: The live control requirements say a message reaches Claude literally (AC-MSG-04). The plain-text request is an internal Claude Code field, not part of its public interface, so the earlier design offered messaging only on the one version tested. Doug ruled on 2026-11-03 that Kiln must work with the latest versions. Each new version can still be checked by hand.
+
+**Confirm or Correct**:
+- [ ] Correct — offer live messages on any supported version, as stated
+- [ ] Wrong — offer live messages only on versions Kiln has been tested with
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 75% | **Impact if Wrong**: 🟡 MEDIUM
+
+---
+
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
