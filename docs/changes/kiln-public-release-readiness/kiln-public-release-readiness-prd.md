@@ -43,8 +43,9 @@ Claude Code and Codex release often and update themselves. Kiln must work with w
 - [ ] **AC-AGENT-02 — Billing details work on current Claude Code.** On every supported Claude Code version, with any Agent SDK version Kiln's package accepts, Kiln shows the same billing details it shows on 2.1.307 today: the confirmed subscription and account email, a detected override with its approval requirement, and the paid overflow notice. Kiln confirms a subscription only from settings and credential information it recognises. Anything it doesn't recognise leads to the neutral **Claude Code settings** summary (AC-BILL-02 in `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md`), never to **Claude subscription**. The version number alone never causes that fallback (PUB-003).
 - [ ] **AC-AGENT-03 — Live messaging and takeover work on current Claude Code.** **Message Claude**, `kiln message`, **Pause & take over** and `kiln take-over` are available on every supported Claude Code version on macOS, not only on 2.1.311. Kiln still asks Claude Code to take each message as plain text, but it can't guarantee how a newer Claude Code handles a message. That risk is accepted (PUB-004).
   - Replaces in part: AC-MSG-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (a message reaching Claude literally is best effort above the tested version, not a guarantee)
-- [ ] **AC-AGENT-04 — A real incompatibility is reported, not hidden.** When a feature finds the agent information it needs missing or in a form Kiln doesn't recognise, that feature is marked unavailable. The browser view and `kiln status` name the feature and the agent version, and the rest of the run keeps working. Billing is the exception that stays as it is: unrecognised billing information follows AC-BILL-02, as in AC-AGENT-02.
-- [ ] **AC-AGENT-05 — Minimums are chosen, enforced and stated.** Each minimum is the oldest version on which every Kiln feature has been proven. Today that is Claude Code 2.1.311, where live control was proven (the technical design confirms billing details there too), Codex 0.162.1, Node.js 22.15 and Git 2.29. `kiln run`'s start checks report any of these below its minimum, naming the minimum and how to update. The README's requirements state the same minimums.
+- [ ] **AC-AGENT-04 — A real incompatibility is reported, not hidden.** When a feature finds the agent information it needs missing or in a form Kiln doesn't recognise, that feature is marked unavailable. An accepted **Pause & take over** keeps its hold and waits for the attempt to end (AC-TAKE-02); only new takeovers become unavailable. The browser view and `kiln status` name the feature and the agent version, and the rest of the run keeps working. Billing is the exception that stays as it is: unrecognised billing information follows AC-BILL-02, as in AC-AGENT-02.
+  - Replaces in part: AC-LIVE-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (a running Claude attempt whose message or takeover information Kiln doesn't recognise shows that action unavailable with a compatibility reason; the rest of the table remains)
+- [ ] **AC-AGENT-05 — Minimums are chosen, enforced and stated.** Each minimum is the oldest version on which every Kiln feature has been proven. Today that is Claude Code 2.1.311, where live control was proven (the technical design confirms billing details there too), Codex 0.162.1, Node.js 22.15 and Git 2.29. `kiln run`'s start checks report Node.js or Git below its minimum. An agent below its minimum is not ready: Kiln reports it when that agent is selected and starts no session with it (AC-AGENT-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`). An agent that isn't selected doesn't matter. Each report names the minimum and how to update. The README's requirements state the same minimums.
 - **AC-AGENT-06 — Retired 2026-11-03.** Release testing on the newest agents is not an acceptance criterion. Doug tests the published release himself before announcing it (PUB-001; see Out of Scope).
 
 ### `kiln --help` works for people and for bots
@@ -81,7 +82,7 @@ Someone landing on the GitHub repository should see how to use Kiln, how to repo
 
 People decide whether Kiln will work for them from the README and the website. Version numbers and requirements there must be the ones the code enforces.
 
-- [ ] **AC-SYNC-01 — Stated requirements match enforced requirements.** The README and the source of the Kiln page on ensomethod.org (in the `enso-method-website` repository) state the same minimum Node.js, Git, Claude Code and Codex versions that Kiln's start checks enforce, and describe the same platform support (macOS validated, Linux and Windows best effort). Each version requirement, including those in the README's development instructions, is worded as a minimum ("or later"), never as an exact version.
+- [ ] **AC-SYNC-01 — Stated requirements match enforced requirements.** The README and the source of the Kiln page on ensomethod.org (in the `enso-method-website` repository) state the same minimum Node.js, Git, Claude Code and Codex versions that Kiln enforces, and describe the same platform support (macOS validated, Linux and Windows best effort). Each version requirement, including those in the README's development instructions, is worded as a minimum ("or later"), never as an exact version.
 - [ ] **AC-SYNC-02 — Feature claims match supported versions.** The website's description of answering Kiln from a phone, and the README's description of live messaging, are true for every Claude Code version at or above the stated minimum on macOS.
 
 ### A green candidate, without a CI rewrite
@@ -98,6 +99,16 @@ The first GitHub Release will be many people's introduction to Kiln, and automat
 
 - [ ] **AC-NOTES-01 — 1.0.0 has written release notes.** Release notes for 1.0.0 say what Kiln is, how to install it, what it requires and where to report problems. The release workflow is set up to publish them on the GitHub Release instead of generating notes, shown by the workflow definition and by the release pull request's checks, which find the notes and stop before publishing.
 - [ ] **AC-NOTES-02 — No release goes out without notes.** Every release version needs written notes. The release preflight rejects a version that has none, before the expensive platform checks start, and the release guide says where the notes go.
+
+## Mockup states
+
+The [standalone mockup](mockups/kiln-public-release-readiness.html) keeps the live session control mockup's look. Its preview selector is outside the product UI; all sample names, versions and details are illustrative.
+
+| Preview | Criteria illustrated |
+|---|---|
+| Running · Message Claude unavailable | AC-AGENT-03, AC-AGENT-04 |
+| Running · Pause & take over unavailable | AC-AGENT-03, AC-AGENT-04 |
+| Paused between activities · Codex command evidence unavailable | AC-AGENT-04 |
 
 ## Out of Scope
 
