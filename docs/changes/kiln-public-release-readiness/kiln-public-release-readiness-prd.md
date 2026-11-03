@@ -44,7 +44,7 @@ Claude Code and Codex release often and update themselves. Kiln must work with w
 - [ ] **AC-AGENT-03 — Live messaging and takeover work on current Claude Code.** **Message Claude**, `kiln message`, **Pause & take over** and `kiln take-over` are available on every supported Claude Code version on macOS, not only on 2.1.311.
 - [ ] **AC-AGENT-04 — A real incompatibility is reported, not hidden.** When a feature finds the agent information it needs missing or in a form Kiln doesn't recognise, that feature is marked unavailable. The browser view and `kiln status` name the feature and the agent version, and the rest of the run keeps working. Billing is the exception that stays as it is: unrecognised billing information follows AC-BILL-02, as in AC-AGENT-02.
 - [ ] **AC-AGENT-05 — Minimums are chosen, enforced and stated.** Each minimum is the oldest version on which every Kiln feature has been proven. Today that is Claude Code 2.1.311, where live control was proven (the technical design confirms billing details there too), Codex 0.162.1, Node.js 22.15 and Git 2.29. `kiln run`'s start checks report any of these below its minimum, naming the minimum and how to update. The README's requirements state the same minimums.
-- [ ] **AC-AGENT-06 — The release is checked on the newest agents.** Before the release, one real Kiln run per agent, each of at least two phases, is completed on macOS with the newest stable Claude Code and the newest stable Codex available that day. It uses billing details, a live message and a takeover with hand-back on Claude. The versions and results are recorded in this change's directory (PUB-001).
+- **AC-AGENT-06 — Retired 2026-11-03.** Release testing on the newest agents is not an acceptance criterion. Doug tests the published release himself before announcing it (PUB-001; see Out of Scope).
 
 ### `kiln --help` works for people and for bots
 
@@ -88,8 +88,8 @@ People decide whether Kiln will work for them from the README and the website. V
 The release needs a candidate whose checks pass. Making the whole test suite immune to timing on shared CI runners isn't part of this release, and a test that fails once and passes on rerun doesn't block it.
 
 - [ ] **AC-CI-01 — Only low-risk test fixes.** Tests that listen on fixed network ports use ports the operating system assigns, so two tests can't collide. Other intermittent failures are fixed in this change only when the cause is understood and the fix is confined to test code. Product timeouts and deadlines don't change to make a test pass.
-- [ ] **AC-CI-02 — The candidate's CI is green.** The release candidate's development CI passes, rerunning failed jobs at most twice (PUB-002). Every test that needed a rerun is listed with its failure in this change's directory.
-- [ ] **AC-CI-03 — The expensive checks run once, last.** After every other criterion here is met, the candidate checks run once on the release candidate, started deliberately rather than on every push, and pass under the same rerun rule as AC-CI-02. Opening the release pull request into `main` only at this point counts as starting them deliberately.
+- [ ] **AC-CI-02 — The candidate's CI is green.** The release candidate's development CI ends green: every job and test passes. A failed job may be rerun, and the candidate counts as green once a run ends with everything passing (validated 2026-11-03). Every test that needed a rerun is listed with its failure in this change's directory.
+- [ ] **AC-CI-03 — The expensive checks run once, last.** After every other criterion here is met, the candidate checks run once on the release candidate, started deliberately rather than on every push, and end green under the same rule as AC-CI-02. Opening the release pull request into `main` only at this point counts as starting them deliberately.
 
 ### Release notes are ready
 
@@ -101,6 +101,7 @@ The first GitHub Release will be many people's introduction to Kiln, and automat
 ## Out of Scope
 
 - **The release act:** merging to `main`, enabling publication, publishing to npm, creating the version tag, making the repository public, turning on branch protection, and deploying and listing the website page. Each needs Doug's explicit approval at release time, under `AGENTS.md` and the release guide.
+- **Testing the published release.** Once CI is green, the release goes to `main` and npm without being announced. Doug tests that published version himself, and anything wrong is fixed in a patch release before anyone is told Kiln is live (decided 2026-11-03).
 - **Rewriting git history** or moving to a new repository.
 - **Making the full test suite reliable on shared runners**, beyond AC-CI-01.
 - **The `feature/ui-clarity` interface ideas** (check explanations, bounded messages). Any that still matter come back as new feedback once Kiln is in use.
