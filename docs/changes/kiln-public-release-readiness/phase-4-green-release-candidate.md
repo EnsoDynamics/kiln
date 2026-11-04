@@ -18,4 +18,5 @@ The release act: merging to `main`, enabling publication, publishing, tags, visi
 
 ## Phase-specific notes
 - Develop CI was last red at `1b8cc28` (2026-11-03), with no run after it.
-- Opening the release pull request into `main` waits for Doug's go; the repository's `AGENTS.md` governs everything after it.
+- This phase opens the release pull request into `main` itself once every other criterion is met, and never merges it; the repository's `AGENTS.md` governs everything after it.
+- The candidate scan stops for Doug only on a real concern (AC-REPO-07); otherwise it records a clean result and moves on.

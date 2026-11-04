@@ -43,7 +43,7 @@
 <p id="criteria" class="preview-note"></p><footer class="kp-footer"><span id="footer-agent"></span><span>Completion and delivery checks still apply.</span></footer></main></section>
 <script>
 const q=id=>document.getElementById(id),state=q('state');
-const notices={message:'Message Claude unavailable with Claude Code 2.1.320: replayed message text did not match what was sent',takeover:'Pause & take over unavailable with Claude Code 2.1.320: PostToolBatch did not fire after admitted tools',codex:'Codex command evidence unavailable with Codex 0.168.0: a command using unrecognised exec_command parameter environment_id has no receipt'};
+const notices={message:'Message Claude unavailable with Claude Code 2.1.320: user_message_uuids was not a list of message IDs',takeover:'Pause & take over unavailable with Claude Code 2.1.320: hook input had no tool_use_id',codex:'Codex command evidence unavailable with Codex 0.168.0: a command using unrecognised exec_command parameter environment_id has no receipt'};
 function draw(){
 const s=state.value,codex=s==='codex',agent=codex?'Codex':'Claude Code';document.querySelectorAll('.activity').forEach(e=>e.textContent='Phase 4b');
 q('compat-line').textContent=notices[s];q('connection').textContent='Connected · '+agent;q('footer-agent').textContent=codex?agent:agent+' · same saved conversation';
