@@ -5,7 +5,7 @@ import { leavesOf } from "../plan/phase-plan.js";
 import type { PrdRecord } from "../state/records.js";
 import { judgedPhase, recordedPlan } from "./plan-reading.js";
 import type { GitContext } from "./git-reads.js";
-import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
+import { gitRead, HISTORICAL_PLAN_READ, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
@@ -52,14 +52,14 @@ const semantic = (source: PlanSource) => hash({ phases: source.plan.phases.map(p
 /** Today's source is never used as yesterday's baseline. */
 async function completedBaseline(context: DiscoveryContext): Promise<PlanBaseline> {
   const { record, directory, shared, git } = context;
-  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, record.prdDirectory, revision) });
+  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, record.prdDirectory, revision, HISTORICAL_PLAN_READ) });
   const revision = record.phases.pr?.repositories[record.repository.name]?.pushedSha
     ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit
     // Final delivery completed on waived work: the plan at its waived head, from the local repository (waivers "Continuation executions").
     ?? record.phases.pr?.repositories[record.repository.name]?.waivedHead;
   if (!revision || !record.plan?.length) throw new Error("baseline_unavailable: No retained accepted plan or recorded completion revision. Restore the original completion record and its Git revision, then check again; today's checkout cannot prove the earlier scope.");
   let source: PlanSource;
-  try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
+  try { source = await observeGitPlan(git, shared, record.prdDirectory, revision, HISTORICAL_PLAN_READ); }
   catch (error) { if (error instanceof PlanCapacityError) throw error; throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
   if (JSON.stringify(recordedPlan(source.plan)) !== JSON.stringify(record.plan)) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
@@ -72,7 +72,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   }
   for (const [id, completion] of Object.entries(completions)) {
     const workRevision = completion.repositories?.[record.repository.name]?.revision ?? completion.revision!;
-    const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision);
+    const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision, HISTORICAL_PLAN_READ);
     if (!historical.plan.phases.some(phase => phase.id === id && (phase.closed || completion.waiverId) && !phase.splitInto) || !completedPhaseScopeUnchanged(historical, source, id)) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
     completion.scopeRepositories = phaseRepositories(historical, id);
   }

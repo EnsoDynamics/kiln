@@ -132,7 +132,7 @@ import { compareToMinimum } from "../agents/tooling-minimums.js";
 type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][number];
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
-import { observeGitPlan } from "./completed-plan-sources.js";
+import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
@@ -5471,7 +5471,7 @@ export class Engine {
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
-      const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision) }) : undefined;
+      const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision, HISTORICAL_PLAN_READ) }) : undefined;
       const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
       // Once set up, the assigned worktree owns this execution's documents.
       // Other checkouts are considered only by completed-run discovery.
@@ -5503,7 +5503,7 @@ export class Engine {
               if (!revision && waiverId) scopeRepositories = phaseRepositories(active, phase.id);
               else {
                 if (!revision) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-                const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision!);
+                const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision!, HISTORICAL_PLAN_READ);
                 if (!original.plan.phases.find(p => p.id === phase.id)?.closed && !this.waiverClosed(phase.id) || !completedPhaseScopeUnchanged(original, active, phase.id)) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
                 scopeRepositories = phaseRepositories(original, phase.id);
               }
