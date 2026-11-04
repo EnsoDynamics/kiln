@@ -102,7 +102,13 @@ function safeFile(root: string, path: string): string {
   const target = resolve(root, path);
   // Reject every symlink, including a directory link that happens to lead back inside.
   let cursor = root;
-  for (const part of path.split("/")) { cursor = join(cursor, part); if (lstatSync(cursor).isSymbolicLink()) throw new Error(`Document symlink is not allowed: ${path}`); }
+  try {
+    for (const part of path.split("/")) { cursor = join(cursor, part); if (lstatSync(cursor).isSymbolicLink()) throw new Error(`Document symlink is not allowed: ${path}`); }
+  } catch (error) {
+    // A document the plan links to that is not in the repository is a plan problem, which can be waived, not a read that could not happen (waivers "Failing Items").
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new Error(`Linked document is missing: ${path}`, { cause: error });
+    throw error;
+  }
   const physical = realpathSync(target);
   if (!physical.startsWith(root + sep) || !lstatSync(target).isFile()) throw new Error(`Document is not a repository file: ${path}`);
   return target;
