@@ -89,7 +89,9 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("preserves elapsed wa
     // Fresh dated history advances activity immediately and resets elapsed waiting.
     const freshAt = new Date(clock).toISOString();
     appendJsonLine(history, { ...result("blocker"), timestamp: freshAt });
-    await h.engine.reconcileTakeover();
+    // The takeover's one-second timer may already be reading history; a call
+    // joins that read, so only a later one is sure to see the appended result.
+    for (let i = 0; i < 3; i++) await h.engine.reconcileTakeover();
     expect(unsettled(readGate(directory))).toEqual([]);
     expect(h.engine.record.liveControl!.takeover.latestActivityAt).toBe(freshAt);
     await page.waitFor(`!document.body.innerText.includes('seconds since the last observed activity')`);
