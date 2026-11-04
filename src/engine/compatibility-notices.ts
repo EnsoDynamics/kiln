@@ -2,7 +2,7 @@
 // feature found the information it needs missing or changed. At most one per feature; a later
 // failure replaces it, and the feature's next use on a different version of that agent removes it
 // unless that use writes its own (technical design, Compatibility notices row).
-import { AGENT_NAMES, type CompatibilityNotice, type CompatibilityFeature, type LiveContract, type PrdRecord, type SessionRecord } from "../state/records.js";
+import { AGENT_NAMES, type CompatibilityNotice, type CompatibilityFeature, type LiveContract, type LiveRunFacts, type PrdRecord, type SessionRecord } from "../state/records.js";
 
 const featureNames: Record<CompatibilityFeature, string> = { live_messages: "Message Claude", takeover: "Pause & take over", codex_history: "Codex command evidence" };
 
@@ -73,3 +73,7 @@ export function liveNoticeReason(record: PrdRecord, feature: "live_messages" | "
   const notice = record.compatibility?.find(one => one.feature === feature);
   return notice ? `${noticeText(notice)}.` : undefined;
 }
+
+/** A Message Claude or Pause & take over notice for a live Claude attempt, naming its Claude Code version. */
+export const liveNotice = (live: Pick<LiveRunFacts, "agentVersion" | "attemptId">, feature: "live_messages" | "takeover", detail: string, observedAt: string): CompatibilityNotice =>
+  ({ feature, agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail, attemptId: live.attemptId, observedAt });

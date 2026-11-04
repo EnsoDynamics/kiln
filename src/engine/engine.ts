@@ -127,7 +127,7 @@ import { readPhasePlan } from "../plan/phase-plan.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation } from "../session/codex-evidence.js";
-import { applyCodexHistoryReadings, liveContractAtLaunch, liveNoticeReason, noticeText, writeNotice } from "./compatibility-notices.js";
+import { applyCodexHistoryReadings, liveContractAtLaunch, liveNotice, liveNoticeReason, noticeText, writeNotice } from "./compatibility-notices.js";
 import { compareToMinimum } from "../agents/tooling-minimums.js";
 type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][number];
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
@@ -759,7 +759,7 @@ export class Engine {
     const problem = messageContractProblem(event);
     if (!problem) return true;
     live.messageContract = "unrecognised";
-    writeNotice(this.record, { feature: "live_messages", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: problem, attemptId: live.attemptId, observedAt: this.now().toISOString() });
+    writeNotice(this.record, liveNotice(live, "live_messages", problem, this.now().toISOString()));
     const target = readGate(live.gateDirectory).target;
     for (const r of this.messageReceipts(target)) if (r.message!.writeStartedAt && !r.message!.resultAt && !r.message!.resolvedBy) { this.holdMessage(r); this.commands.checkpoint(r); }
     // Recorded in the gate too, so admission refuses under the same lock that accounts the inputs.
@@ -783,7 +783,7 @@ export class Engine {
     try { contract = readGate(live.gateDirectory).contract; } catch { return; }
     if (!contract) return;
     live.hookContract = "unrecognised";
-    writeNotice(this.record, { feature: "takeover", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: contract.detail, attemptId: live.attemptId, observedAt: contract.at });
+    writeNotice(this.record, liveNotice(live, "takeover", contract.detail, contract.at));
     writeSessionRecord(this.stateDirectory, session);
     this.save(); this.changed();
   }
@@ -791,7 +791,7 @@ export class Engine {
   /** Live launch arguments: Claude Code exited at launch naming one; both live features are off for this version. */
   private recordRejectedLiveArgument(live: LiveRunFacts, argument: string): void {
     const observedAt = this.now().toISOString();
-    for (const feature of ["live_messages", "takeover"] as const) writeNotice(this.record, { feature, agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: `${argument} was rejected at launch`, attemptId: live.attemptId, observedAt });
+    for (const feature of ["live_messages", "takeover"] as const) writeNotice(this.record, liveNotice(live, feature, `${argument} was rejected at launch`, observedAt));
     this.save(); this.changed();
   }
 
@@ -807,7 +807,7 @@ export class Engine {
   }
 
   private takeoverNotice(live: LiveRunFacts, detail: string | undefined): string {
-    return detail ? `${noticeText({ feature: "takeover", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail, observedAt: "" })}.` : liveNoticeReason(this.record, "takeover") ?? "Pause & take over is unavailable for this attempt.";
+    return detail ? `${noticeText(liveNotice(live, "takeover", detail, ""))}.` : liveNoticeReason(this.record, "takeover") ?? "Pause & take over is unavailable for this attempt.";
   }
 
   private endLiveMessages(target: LiveTarget): void {
