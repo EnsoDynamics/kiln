@@ -9,7 +9,7 @@ afterAll(async () => { await chrome?.close(); });
 it("shows accepted additions and an active-plan integrity failure without launching work", async () => {
   const snapshot = needsYouMessageSnapshot();
   snapshot.continuation = { handback: { source: "/fictional/comet-library/.worktrees/catalog/comet-library", addedPhaseIds: ["9", "10"], remainingCount: 2, acceptedAt: "2026-10-27T15:00:00Z" } };
-  const server = await serveViewFixture({ port: 41987, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   try {
     for (const width of [1200, 390]) {
       delete snapshot.continuation.planCheck;

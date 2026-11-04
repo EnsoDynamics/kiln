@@ -11,10 +11,10 @@ import { readGate, withGate, unsettled } from "../live/gate.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { sessionFiles } from "../session/claude-session.js";
 import { findTranscripts } from "../session/transcripts.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { appendJsonLine } from "../state/state-files.js";
 import { createHarness, waitFor } from "../test-support/engine-harness.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { startLocalServer } from "./local-server.js";
 
 let chrome: HeadlessChrome;
@@ -36,10 +36,9 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("preserves elapsed wa
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ text: "Current operation output retained" }, { touch: ready }, { waitForFile: release }, { result: "Yielded with unfinished work" }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(ready));
-    let port = 44140;
-    while (!await isPortFree(port)) port++;
+    let port = 0;
     const serve = () => startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
-    controller = await serve();
+    controller = await serve(); port = boundPort(controller.address);
     const target = h.engine.liveTarget()!;
     const response = await fetch(new URL("/api/live/take-over", controller.address), { method: "POST", headers: { Origin: new URL(controller.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: JSON.stringify({ instructionId: "activity-time", target }) });
     expect(response.status).toBe(202);

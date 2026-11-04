@@ -6,7 +6,7 @@ import { once } from "node:events";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort, reservePort } from "../test-support/os-ports.js";
 import { readGate } from "./gate.js";
 import { readReceipts, type Receipt } from "../control/commands.js";
 import { buildSnapshot } from "../engine/snapshot.js";
@@ -19,7 +19,7 @@ async function setup(actions: object[]) {
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...actions.map(a => (a as { waitForFile?: string }).waitForFile === "release" ? { waitForFile: join(h.sandbox.root, "release") } : a)] }, { actions: [{ result: "Continued." }] }] }));
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready));
   await waitFor(() => h.engine.liveView()?.input?.available === true);
-  for (let port = 43020; port < 43050; port++) if (await isPortFree(port)) { origin = `http://127.0.0.1:${port}`; server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token }); break; }
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token }); origin = `http://127.0.0.1:${boundPort(server.address)}`;
   return h.engine.liveTarget()!;
 }
 async function post(path: string, body: unknown, token = h.engine.record.token) {
@@ -111,7 +111,7 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...(boundary === "intent" || boundary === "write_started" || boundary === "write_completed" ? [] : [{ liveMessages: boundary.includes("partial_review") || boundary.startsWith("saved_") ? 2 : 1, ...(boundary.startsWith("saved_") ? { ...(boundary === "saved_crossEvent" ? { consumptionEvents: [{ type: "result", indices: [1] }, { type: "result", indices: [0] }] } : { [boundary.slice(6)]: true }) } : boundary === "evidence" ? {} : { uncorrelated: true }), ...(boundary.endsWith("review") ? { exitAfter: true } : {}) }]), { waitForFile: release }, { result: "Old attempt ended naturally." }, { exitNow: 0 }] }] }));
   const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url");
   const { readPrdRecord } = await import("../state/records.js"); const { git } = await import("../test-support/git-repositories.js"); const { isProcessLive } = await import("../platform/process-start-time.js");
-  let port = 43060; while (!await isPortFree(port)) port++;
+  const port = await reservePort();
   const optionsPath = join(h.sandbox.root, "options.json"); writeFileSync(optionsPath, JSON.stringify({ paths: h.engine.paths, tools: h.tools, record: h.engine.record, stateDirectory: h.stateDirectory, prdTree: git(h.sandbox, h.repository, "rev-parse", "HEAD:docs/prds/customer-returns").trim() }));
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url)); const journalPath = fileURLToPath(new URL("../../dist/control/commands.js", import.meta.url));
   // Freeze only the disposable supervisor immediately around real durable writes.

@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { runningSnapshot, needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { LiveTarget } from "../live/target.js";
 /** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
@@ -14,7 +15,7 @@ const target: LiveTarget = { executionId: "execution", activityId: "activity", a
 it.each([1200, 390])("shows paired timing, exact target and pending/disconnected safety at width %i", async width => {
   const snapshot = runningSnapshot();
   snapshot.liveControl = { target, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready" };
-  let server = await serveViewFixture({ port: width === 1200 ? 42051 : 42052, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
+  let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(server.address, { width, height: 1000 });
   try {
     await page.waitFor(`document.body.textContent.includes('When should Kiln pause?')`);
@@ -40,7 +41,7 @@ it.each([1200, 390])("shows paired timing, exact target and pending/disconnected
     await server.close();
     await page.waitFor(`document.body.innerText.includes('Disconnected from Kiln')`, 20000);
     expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(e=>e.textContent.includes('Pause & take over')&&!e.disabled)`)).toBe(false);
-    server = await serveViewFixture({ port: width === 1200 ? 42051 : 42052, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
+    server = await serveViewFixture({ port: boundPort(server.address), folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
     await page.waitFor(`document.body.innerText.includes('Connected to Kiln')`, 20000);
     expect(await page.evaluate("document.body.innerText")).toContain("Wait before opening Claude");
   } finally { await page.close(); await server.close(); }
@@ -51,7 +52,7 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
   stop.phaseId = auditTarget.activityKey;
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: auditTarget.activityKey, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: auditTarget }, completion: "incomplete" };
   snapshot.liveControl = { target: auditTarget, label, observedAt: stop.stoppedAt, available: false, reason: "Released", takeover: { target: auditTarget, instructionId: "i", operationId: "o", requestedAt: stop.stoppedAt, state: "released", observedAt: stop.stoppedAt, reason: "Paused for terminal takeover." } };
-  const server = await serveViewFixture({ port: 42053, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1000 });
   try {
     await page.waitFor(`document.body.innerText.includes(${JSON.stringify(`Have Kiln resume ${inSentence(label)}`)})`);
@@ -85,7 +86,7 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
 it("uses a new instruction after a conclusive busy refusal while preserving the exact target", async () => {
   const snapshot = runningSnapshot(); snapshot.liveControl = { target, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready" };
   let attempts = 0;
-  const server = await serveViewFixture({ port: 42054, folder: "customer-returns", snapshot, respond: async () => ++attempts === 1 ? { status: 409, body: { ok: false, reason: "Another request is busy." } } : { status: 202, body: { ok: true } } });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async () => ++attempts === 1 ? { status: 409, body: { ok: false, reason: "Another request is busy." } } : { status: 202, body: { ok: true } } });
   const page = await chrome.open(server.address);
   try {
     await page.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Pause & take over')`);
@@ -102,7 +103,7 @@ it("explains Claude-only live controls for running Codex while preserving deferr
   snapshot.current!.agent = "Codex";
   snapshot.settings.agent = "Codex";
   delete snapshot.liveControl;
-  const server = await serveViewFixture({ port: 42055, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(`${server.address}/phase/2b`, { width: 390, height: 1000 });
   try {
     await page.waitFor(`document.querySelector('#pause-h')`);
@@ -129,7 +130,7 @@ it.each(["Phase 2b", "Delivery audit · Round 3", "Test audit · Round 2"].flatM
   snapshot.pause.pending = false;
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: liveTarget.activityKey, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: liveTarget }, completion: "incomplete" };
   snapshot.liveControl = { target: liveTarget, label, available: false, reason: "Released", observedAt: stop.stoppedAt, takeover: { target: liveTarget, instructionId: "i", operationId: "o", requestedAt: stop.stoppedAt, observedAt: stop.stoppedAt, state: "released", reason: "Paused for terminal takeover." } };
-  const server = await serveViewFixture({ port: 42056, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1100 });
   const choice = `Array.from(document.querySelectorAll('.choices > section')).find(s => s.querySelector('h3')?.textContent.startsWith('Let '))`;
   const explanation = `This session is already stopped. Hand it back to Kiln before requesting an end-of-${audit ? "audit" : "phase"} pause.`;

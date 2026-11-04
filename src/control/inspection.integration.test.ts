@@ -1,4 +1,5 @@
 import { request as httpRequest, createServer as httpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createHmac } from "node:crypto";
 import { appendFileSync, chmodSync, copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, dirname, delimiter } from "node:path";
@@ -20,7 +21,7 @@ import { serialize, type Result } from "./result.js";
 import { commandContracts, parseCommand } from "./help.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort, reservePort } from "../test-support/os-ports.js";
 import { readHistory } from "./history.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { accountFacts, cacheSnapshot, inspectionSnapshot, handoffProjection } from "./projection.js";
@@ -80,7 +81,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(browser).toMatchObject({kind:agent==='codex'?'selection':'plan',resumeOffered:false});
     expect(h.engine.sessionFolder).toBe(agent==='codex'?h.sandbox.root:h.repository);
     expect(browser.freshSessionCommand).toContain(agent==='codex'?'codex':'claude');
-    const port=await freePort(); server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});const port=boundPort(server.address);
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const path=join(h.repository,`docs/prds/${FOLDER}`);
     const expected={session_id:null,provider_session_id:null,agent,phase_key:browser.phaseId,working_directory:h.engine.sessionFolder,resumable:false,reason:'No saved session.',resume_command:null,resume_argv:null,continuation_prompt:null,fresh_session_instructions:{command:browser.freshSessionCommand,prompt:browser.freshSessionPrompt}};
@@ -131,7 +132,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     if(state==='paused') h.engine.record.pause.activeSince=transition;
     else h.engine.record.completedAt=transition;
     writePrdRecord(h.stateDirectory,h.engine.record);
-    const port=await freePort(); server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});const port=boundPort(server.address);
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const path=join(h.repository,`docs/prds/${FOLDER}`);
     const expected={observed_at:transition,description:state==='paused'?'Run paused.':'Run completed.'};
@@ -230,9 +231,9 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     f.record.schemaVersion=8;writeJsonAtomically(join(f.directory,'prd.json'),f.record);const original=tree(root);answer=await command(['status','--json']);expect(answer.code).toBe(0);expect(tree(root)).toEqual(original);expect(answer.stdout).not.toContain(f.record.token);expect(answer.stdout).not.toContain(f.record.billing!.key);
   });
   it('refuses old protocols, reused ports and partial probe timeouts instead of treating them as no work',async()=>{
-    sandbox=createSandbox();const f=fixture();const port=await freePort();let mode='old';let posts=0;
+    sandbox=createSandbox();const f=fixture();let mode='old';let posts=0;
     const old=httpServer((req,res)=>{if(req.method!=='GET')posts++;if(mode==='timeout')return;res.setHeader('Content-Type','application/json');if(mode==='old'){res.writeHead(404);res.end('{}');}else res.end(JSON.stringify({protocol_major:1,execution_id:'another-execution',prd_path:f.path,instance:{pid:process.pid,process_start_time:null},features:[]}));});
-    await new Promise<void>(resolve=>old.listen(port,'127.0.0.1',resolve));
+    await new Promise<void>((resolve,reject)=>{old.once('error',reject);old.listen(0,'127.0.0.1',resolve);});const port=(old.address() as AddressInfo).port;
     try{
       writeJsonAtomically(join(f.directory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
       for(mode of ['old','reused','timeout']){
@@ -277,7 +278,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('returns the exact browser stop, account observations and provider-specific terminal instructions without starting work',async()=>{
     sandbox=createSandbox();h=await createHarness({sessions:[{actions:[{result:'Literal final question: "UPS?"\nDo not run $(anything).'}]}]});
     await h.engine.start({refinementConfirmed:true});await h.engine.settled();
-    const port=await freePort();server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});const port=boundPort(server.address);
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const path=join(h.repository,`docs/prds/${FOLDER}`);const browser=buildSnapshot(h.engine).needsYou!;
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
@@ -311,7 +312,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     sandbox=createSandbox();const gate=join(sandbox.root,'release-agent');
     h=await createHarness({sessions:[{actions:[{waitForFile:gate},{result:'finished'}]}]});
     await h.engine.start({refinementConfirmed:true});await waitFor(()=>!!h!.engine.current?.processRunning);
-    const port=await freePort();server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});
+    server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:h.engine.record.token});const port=boundPort(server.address);
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const path=join(h.repository,`docs/prds/${FOLDER}`);
     expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:1,waiting:0,needs_you:0,paused:0,stopped_unfinished:0,unknown:0});
@@ -415,16 +416,14 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(existsSync('/tmp/no')).toBe(false);
   });
   it('authenticates two live repositories and rechecks identity rather than trusting ports; preserves token/Host/Origin restrictions',async()=>{
-    sandbox=createSandbox();h=await createHarness({sessions:[]});const port=await freePort();
-    server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Customer returns',token:h.engine.record.token});
+    sandbox=createSandbox();h=await createHarness({sessions:[]});server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Customer returns',token:h.engine.record.token});const port=boundPort(server.address);
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const origin=`http://127.0.0.1:${port}`;const headers={'X-Kiln-Token':h.engine.record.token};
     const f=fixture('second-real-repository');
     const secondDirectory=prdStateDirectory(stateRoot(h.env),f.repository,'second-real-repository',f.record.prdDirectory);
     writePrdRecord(secondDirectory,f.record);
     secondEngine=new Engine({paths:{mainCheckoutPath:f.repository,repositoryName:'second-real-repository',folderName:FOLDER,prdDirectoryFromRoot:f.record.prdDirectory,featureName:'Second PRD'},tools:h.tools,env:h.env,stateDirectory:secondDirectory,record:f.record});
-    const secondPort=await freePort();
-    secondServer=await startLocalServer({engine:secondEngine,port:secondPort,folderName:FOLDER,featureName:'Second PRD',token:f.record.token});
+    secondServer=await startLocalServer({engine:secondEngine,port:0,folderName:FOLDER,featureName:'Second PRD',token:f.record.token});const secondPort=boundPort(secondServer.address);
     writeJsonAtomically(join(secondDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port:secondPort});
     const inventory=await command(['status','--json'],h.env,h.sandbox.root);expect(inventory.code).toBe(0);expect(inventory.json().counts).toMatchObject({live_controllers:2});
     expect((inventory.json().runs as Result[]).map(r=>r.prd_path)).toContain(f.path);
@@ -443,7 +442,6 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect((await command(['status','--json'],h.env)).code).toBe(4); // process still live but no matching controller
   });
 });
-async function freePort(){for(let p=41480;p<41500;p++)if(await isPortFree(p))return p;throw new Error('No free test port');}
 
 
 describe('completion of truthful and resource-bounded inspection', () => {
@@ -557,14 +555,15 @@ it('does not claim an earlier conversation while an unrelated settings command i
 });
 
 it('removes the CLI response spool after a real HTTP body fails mid-read', async () => {
-  sandbox = createSandbox(); const f = fixture(); const port = await freePort(); const started = await processStartTime(process.pid);
+  sandbox = createSandbox(); const f = fixture(); const started = await processStartTime(process.pid);
   const peer = httpServer((req, res) => {
     if (req.url?.endsWith('/capabilities')) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ protocol_major: 1, execution_id: f.record.executionId, prd_path: f.path, instance: { pid: process.pid, process_start_time: started }, features: ['status'] })); return; }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '10000000', 'X-Kiln-Exit': '0', 'X-Kiln-Execution': f.record.executionId!, 'X-Kiln-Prd': encodeURIComponent(f.path) });
     res.write('{"schema_version":"1","ok":true,"unfinished":');
     setTimeout(() => res.destroy(), 100);
   });
-  await new Promise<void>(resolve => peer.listen(port, '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => { peer.once('error', reject); peer.listen(0, '127.0.0.1', resolve); });
+  const port = (peer.address() as AddressInfo).port;
   const temporary = join(sandbox.root, 'client-temporary'); mkdirSync(temporary);
   writeJsonAtomically(join(f.directory, 'instance.lock'), { pid: process.pid, processStartTime: started, port });
   try {
@@ -719,7 +718,7 @@ it('guards audit result and work-snapshot sidecars through real controller/CLI s
   const unsafe = store.put({ repositories: [], unsafe: true }); chmodSync(store.path(unsafe), 0o666);
   const missing = 'd'.repeat(64);
   const activity = { activityId: 'inspection-audit', kind: 'delivery_audit', round: 1, continuationIndex: 1, sequence: 1, createdAt: h.engine.record.startedAt, sessionIds: [], reportPath: 'fixture.json', skill: { name: 'delivery-audit', path: 'fixture', digest: valid }, attempts: [], snapshots: [valid], acceptedResult: resultId };
-  const port = await freePort(); const path = join(h.repository, `docs/prds/${FOLDER}`);
+  const port = await reservePort(); const path = join(h.repository, `docs/prds/${FOLDER}`);
   const script = `
     import { Engine } from ${JSON.stringify(new URL('../../dist/engine/engine.js', import.meta.url).href)};
     import { startLocalServer } from ${JSON.stringify(new URL('../../dist/server/local-server.js', import.meta.url).href)};
@@ -761,7 +760,7 @@ it('guards audit result and work-snapshot sidecars through real controller/CLI s
 it.each(['claude_code', 'codex'] as const)('withholds rejected %s session facts in live basic/full status and inventory', async agent => {
   sandbox = createSandbox(); h = await createHarness({ sessions: [{ actions: [{ result: 'Owned stop' }] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  const port = await freePort(); server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: 'Returns', token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: 'Returns', token: h.engine.record.token }); const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, 'instance.lock'), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
   const path = join(h.repository, `docs/prds/${FOLDER}`); const saved = h.engine.latestSession('1')!;
   const valid = await command(['status', path, '--json'], h.env, h.sandbox.root); expect(valid.code).toBe(0); expect(valid.json().stop).toMatchObject({ final_message: 'Owned stop' });
@@ -830,7 +829,7 @@ async function boundedCli(args: string[], env = sandbox.env) {
   } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }
 }
 async function isolatedInspectionController(f: ReturnType<typeof fixture>) {
-  const port = await freePort();
+  const port = await reservePort();
   const script = `
     import { Engine } from ${JSON.stringify(new URL('../../dist/engine/engine.js', import.meta.url).href)};
     import { readWork } from ${JSON.stringify(new URL('../../dist/control/private-state.js', import.meta.url).href)};
@@ -990,7 +989,7 @@ it('publishes exact plan, start, pause and completion facts live and retained',a
   record.plan=plan;record.startedAt=started;record.setupCompletedAt=started;record.settings.worktreePath=h.repository;
   record.pause={requestedAt:'2026-01-01T03:00:00.000Z',activeSince:'2026-01-01T04:00:00.000Z'};
   record.completedAt=completed;record.pullRequests=[{repository:'acme-shop',url:'https://github.com/example/disposable/pull/7',number:7,title:'Disposable work',head:'kiln/returns',base:'develop',commits:1,additions:1,deletions:0}];record.mergedBranches=[{repository:'acme-shop',head:'kiln/returns',base:'develop',featureCommit:'feature',baseCommit:'base',url:'https://github.com/example/disposable'}];record.nextActivityKey='pr';writePrdRecord(h.stateDirectory,record);
-  const port=await freePort();server=await startLocalServer({engine:h.engine,port,folderName:FOLDER,featureName:'Returns',token:record.token});
+  server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:record.token});const port=boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
   const path=join(h.repository,record.prdDirectory);
   const expected={agent:'claude_code',started_at:started,phases:{completed:1,total:2},pause:{requestedAt:'2026-01-01T03:00:00.000Z',activeSince:'2026-01-01T04:00:00.000Z'},completion:{completed_at:completed,pull_requests:[{repository:'acme-shop',url:'https://github.com/example/disposable/pull/7',number:7}],merged_branches:[{repository:'acme-shop',head:'kiln/returns',base:'develop',featureCommit:'feature',baseCommit:'base',url:'https://github.com/example/disposable'}]}};

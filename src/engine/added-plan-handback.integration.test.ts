@@ -8,6 +8,7 @@ import { readBaseline } from "./plan-reconciliation.js";
 import { buildSnapshot } from "./snapshot.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { takeInstanceLock } from "../state/instance-lock.js";
+import { reservePort } from "../test-support/os-ports.js";
 import { writePrdRecord } from "../state/records.js";
 import { stateRoot } from "../state/state-files.js";
 let server: LocalServer | undefined; let releaseLock: (() => void) | undefined;
@@ -121,7 +122,7 @@ it("reconciles work appended as an audit settles before selecting another audit 
   } } });
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
   git(h.sandbox, h.repository, "add", ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test(comet): ignore transient audit requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
-  const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory);
+  const port = await reservePort(); const lock = await takeInstanceLock(stateRoot(h.env), h.stateDirectory, { range: { first: port, last: port } });
   if (!lock.taken) throw new Error("Comet audit fixture controller is unavailable.");
   releaseLock = lock.release;
   server = await startLocalServer({ engine: h.engine, port: lock.port, folderName: "customer-returns", featureName: "Comet catalog", token: h.engine.record.token });

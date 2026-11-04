@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { runningSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 
 let chrome: HeadlessChrome;
@@ -20,8 +21,7 @@ it.each([
   delete snapshot.current.seenInSession;
   snapshot.feature.currentPhaseId = "pr";
   snapshot.phases.push({ id: "pr", title: "Open pull request", file: "", state: "implementing", finishedByPerson: false });
-  const port = 44260 + (agent === "Codex" ? 2 : 0) + (width === 390 ? 1 : 0);
-  const options = { port, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES };
+  const options = { port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES };
   let server = await serveViewFixture(options);
   const page = await chrome.open(server.address, { width, height: 1000 });
   const explanation = "Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.";
@@ -67,7 +67,7 @@ it.each([
     expect(await page.evaluate(forbidden)).toBe(false);
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     writeFileSync(`/tmp/kiln-final-delivery-disconnected-overview-${agent}-${width}.png`, await page.screenshot());
-    server = await serveViewFixture(options);
+    server = await serveViewFixture({ ...options, port: boundPort(server.address) });
     await page.waitFor(`document.body.innerText.includes('Connected to Kiln')`, 20000);
     expect(await page.evaluate("document.body.innerText")).toContain(explanation);
     expect(await page.evaluate(`Array.from(document.querySelectorAll('a')).some(a => a.textContent === 'Watch live')`)).toBe(true);

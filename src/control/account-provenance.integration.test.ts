@@ -14,7 +14,7 @@ import { prdTreeAtHead } from "../engine/worktree-setup.js";
 import { readSessionRecord, writePrdRecord, writeSessionRecord } from "../state/records.js";
 import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { cacheSnapshot, inspectionSnapshot } from "./projection.js";
 import * as durable from "./durable-file.js";
@@ -27,9 +27,8 @@ let port: number;
 afterEach(async () => { vi.restoreAllMocks(); await server?.close(); server = undefined; await h?.cleanup(); await peer?.sandbox.cleanup(); peer = undefined; });
 
 async function serve() {
-  for (port = 41920; port < 41970; port++) if (await isPortFree(port)) break;
-  if (port === 41970) throw new Error("No free account-provenance test port");
-  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Customer returns", token: h.engine.record.token });
+  port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
 }
 async function cli(args: string[]) {

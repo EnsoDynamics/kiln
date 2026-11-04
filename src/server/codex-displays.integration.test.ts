@@ -17,7 +17,7 @@ const codex = (snapshot: Snapshot): Snapshot => {
 
 it("Complete shows the selected agent in single and multiple repositories, including when disconnected", async () => {
   for (const width of [360, 1280]) {
-    const server = await serveViewFixture({ port: 41477, folder: "customer-returns", snapshot: codex(completeSnapshot()) });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: codex(completeSnapshot()) });
     const page = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW });
     try {
       for (const make of [completeSnapshot, completeRepositoriesSnapshot]) {
@@ -48,7 +48,7 @@ it("Documents found and both recovery screens explicitly label each missing Code
     { email: "display@example.test", plan: "pro", expected: "display@example.test · pro" },
   ];
   for (const width of [360, 1280]) {
-    const server = await serveViewFixture({ port: 41478, folder: "customer-returns", snapshot: codex(documentsFoundSnapshot()) });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: codex(documentsFoundSnapshot()) });
     const page = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
     try {
       await page.waitFor(`document.querySelector('#agent')`);
@@ -89,7 +89,7 @@ it("keeps Codex session facts, next choices and account guidance distinct across
     { line: 4, at: "2026-10-17T15:46:00Z", source: "codex" as const, text: "Codex screen final" },
   ];
   for (const width of [360, 1280]) {
-    const server = await serveViewFixture({ port: 41479, folder: "customer-returns", snapshot: running, output });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: running, output });
     const page = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
     try {
       await page.waitFor(`document.querySelector('.now .meta')?.textContent.includes('Codex')`);

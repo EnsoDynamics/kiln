@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { git } from "../test-support/git-repositories.js";
@@ -21,9 +21,8 @@ async function setup() {
   const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release");
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, { waitForFile: release }, { result: "Unfinished under takeover." }] }] }));
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready));
-  let port = 44960; while (!await isPortFree(port)) port++;
-  origin = `http://127.0.0.1:${port}`;
-  server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address); origin = `http://127.0.0.1:${port}`;
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
   return { target: h.engine.liveTarget()!, release };
 }

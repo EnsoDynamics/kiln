@@ -10,10 +10,10 @@ import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { writePrdRecord } from "../state/records.js";
 import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { cacheSnapshot, inspectionSnapshot } from "./projection.js";
 
 let h: Harness;
@@ -29,10 +29,8 @@ async function setup(initial: Record<string, unknown>) {
   writePrdRecord(h.stateDirectory, h.engine.record);
   h.engine = new Engine({ paths: h.engine.paths, record: h.engine.record, tools: { ...h.tools, ...(initial.missingExecutable ? {} : { codex: fixture.executable }) }, env: h.env, stateDirectory: h.stateDirectory });
   await h.engine.agents.refresh();
-  let port = 42170;
-  while (port < 42220 && !await isPortFree(port)) port++;
-  if (port === 42220) throw new Error("No free Codex observation test port");
-  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
 }
 async function cli(args: string[]) {

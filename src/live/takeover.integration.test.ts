@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { git } from "../test-support/git-repositories.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort, reservePort } from "../test-support/os-ports.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { readGate, createGate, withGate, unsettled, observeGate } from "./gate.js";
 import type { LiveTarget } from "./target.js";
@@ -25,10 +25,8 @@ async function setup(version = "2.1.311") {
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, { waitForFile: release }, { result: "Yielded with unfinished work." }] }, { actions: [{ result: "Continued the same activity." }] }] }));
   await h.engine.start({ refinementConfirmed: true });
   await waitFor(() => existsSync(ready));
-  for (let port = 42030; port < 42050; port++) if (await isPortFree(port)) {
-    origin = `http://127.0.0.1:${port}`;
-    server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token }); break;
-  }
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  origin = `http://127.0.0.1:${boundPort(server.address)}`;
   return { release, target: h.engine.liveTarget()! };
 }
 async function waitForRelease(): Promise<void> {
@@ -300,7 +298,7 @@ it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through act
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, { waitForFile: release }, { result: "Operation finished after controller death." }] }] }));
   const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url");
   const { isProcessLive } = await import("../platform/process-start-time.js");
-  const port = 42061;
+  const port = await reservePort();
   const optionsPath = join(h.sandbox.root, "controller-options.json");
   writeFileSync(optionsPath, JSON.stringify({ paths: h.engine.paths, tools: h.tools, record: h.engine.record, stateDirectory: h.stateDirectory, prdTree: git(h.sandbox, h.repository, "rev-parse", "HEAD:docs/prds/customer-returns").trim() }), { mode: 0o600 });
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url));

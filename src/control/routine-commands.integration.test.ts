@@ -8,7 +8,7 @@ import { createHarness, landingSession, waitFor, type Harness } from '../test-su
 import { git } from '../test-support/git-repositories.js';
 import { FOLDER } from '../test-support/fixture-documents.js';
 import { startLocalServer, type LocalServer } from '../server/local-server.js';
-import { isPortFree } from '../state/instance-lock.js';
+import { boundPort } from '../test-support/os-ports.js';
 import { processStartTime } from '../platform/process-start-time.js';
 import { writeJsonAtomically } from '../state/state-files.js';
 import { buildSnapshot } from '../engine/snapshot.js';
@@ -20,9 +20,8 @@ let server: LocalServer | undefined;
 afterEach(async () => { await server?.close(); server = undefined; await h?.cleanup(); });
 const target = () => join(h.repository, `docs/prds/${FOLDER}`);
 async function serve() {
-  let port = 42300; while (port < 42350 && !await isPortFree(port)) port++;
-  if (port === 42350) throw new Error('No free routine-control fixture port');
-  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: 'Returns', token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: 'Returns', token: h.engine.record.token });
+  const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, 'instance.lock'), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
 }
 async function cli(args: string[]) {
@@ -96,8 +95,7 @@ it('keeps two concurrent PRDs distinct through terminal resume, literal reply, r
   const other=await h.engineFor('other-bot-work');let otherServer:LocalServer|undefined;
   try{
     await other.start({refinementConfirmed:true});await waitFor(()=>!!other.current?.processRunning&&h.claudeCalls().length===2);
-    let port=42350;while(port<42400&&!await isPortFree(port))port++;if(port===42400)throw new Error('No free second workflow port');
-    otherServer=await startLocalServer({engine:other,port,folderName:'other-bot-work',featureName:'Other work',token:other.record.token});
+    otherServer=await startLocalServer({engine:other,port:0,folderName:'other-bot-work',featureName:'Other work',token:other.record.token});const port=boundPort(otherServer.address);
     writeJsonAtomically(join(other.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const inventory=await cli(['status','--json']);expect(inventory.code,inventory.stdout).toBe(0);expect(inventory.json()).toMatchObject({inventory_complete:true,counts:{live_controllers:2,working:1,needs_you:1}});
     expect(inventory.json().runs).toEqual(expect.arrayContaining([expect.objectContaining({prd_path:target(),state:'needs_you'}),expect.objectContaining({prd_path:join(h.repository,'docs/prds/other-bot-work'),working_sessions:1})]));

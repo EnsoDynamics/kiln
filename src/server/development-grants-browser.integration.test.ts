@@ -6,7 +6,6 @@ import { readPlanAt } from "../engine/plan-reading.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 import { join } from "node:path";
 let h: Harness | undefined; let engine: Engine | undefined; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
@@ -22,8 +21,7 @@ describe("current PRD targets and grant browser controls", () => {
     await engine.agents.refresh();
     const plan = readPlanAt(h.repository, engine.paths.prdDirectoryFromRoot); if (!plan.ok) throw new Error(plan.problem);
     const documents = documentsFound(join(h.repository, engine.paths.prdDirectoryFromRoot), "customer-returns", plan.plan, { designFile: "technical-design.md", phaseDocCount: 1, repositories: named }, "acme-shop");
-    for (let port = 41800; port < 41850; port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, documents, port, folderName: "customer-returns", featureName: "Customer returns", token: engine.record.token }); break; }
-    if (!server) throw new Error("No browser proof port");
+    server = await startLocalServer({ engine, documents, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: engine.record.token });
     chrome = await launchChrome(); let page = await chrome.open(server.address);
     await page.waitFor(`document.body.innerText.includes('Allow early merges')`);
     expect(await page.evaluate(`document.querySelector('.delivery input[type=text]') === null && !document.querySelector('.delivery').innerText.includes('non-production')`)).toBe(true);

@@ -8,7 +8,6 @@ import * as records from "../state/records.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 
 let h: Harness;
@@ -18,10 +17,8 @@ afterEach(async () => { vi.restoreAllMocks(); await server?.close(); await h?.cl
 async function setup() {
   h = await createHarness({ sessions: [{ actions: [{ result: "Use the blue option?" }] }, { actions: [{ result: "Resumed with the answer." }] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  for (let port = 41960; port < 41980; port++) if (await isPortFree(port)) {
-    origin = `http://127.0.0.1:${port}`;
-    server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token }); break;
-  }
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  origin = new URL(server.address).origin;
 }
 const target = () => buildSnapshot(h.engine).needsYou!.phaseRecovery!.target;
 /** Each request opens its own connection: a pooled keep-alive socket must not outlive the controller restart below. */

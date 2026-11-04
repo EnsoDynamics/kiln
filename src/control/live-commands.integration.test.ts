@@ -11,7 +11,7 @@ import { createHarness, waitFor, type Harness } from "../test-support/engine-har
 import { git } from "../test-support/git-repositories.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { cacheSnapshot } from "./projection.js";
 import { newPrdRecord } from "../state/new-record.js";
@@ -25,9 +25,9 @@ const path = () => join(h.repository, h.engine.record.prdDirectory);
 const receipt = (id: string) => h.engine.commands.lookup(id).operation as Receipt;
 const input = () => existsSync(`${h.scenarioPath}.live-inputs.jsonl`) ? readFileSync(`${h.scenarioPath}.live-inputs.jsonl`, "utf8").trim().split("\n").map(s => JSON.parse(s) as { message: { content: string } }) : [];
 async function serve() {
-  let port = 43210; while (!await isPortFree(port)) port++;
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   origin = `http://127.0.0.1:${port}`;
-  server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
 }
 async function setup(actions: object[]) {

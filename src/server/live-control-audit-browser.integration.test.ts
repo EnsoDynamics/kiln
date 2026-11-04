@@ -21,7 +21,7 @@ it.each(cases)("pins the released takeover headline, exact last message and endi
   stop.phaseId = key; stop.agent = "Claude Code"; stop.finalMessage = "The first operation finished. The remaining work is unfinished.";
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: key, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: target }, completion: "incomplete" };
   snapshot.liveControl = { target, label, available: false, reason: "Released", observedAt: stop.stoppedAt, takeover: { target, instructionId: "held", operationId: "hold", requestedAt: stop.stoppedAt, observedAt: stop.stoppedAt, state: "released", reason: "Paused for terminal takeover." } };
-  const server = await serveViewFixture({ port: 44952, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1100 });
   try {
     await page.waitFor(`document.querySelector('.handoff > h1')`);
@@ -38,7 +38,7 @@ it.each(cases)("pins output/composer/facts order and both complete pause consequ
   const snapshot = runningSnapshot(); const current = snapshot.current!; current.phaseId = key;
   snapshot.activities = [{ ...snapshot.phases.find(p => p.id === "2b")!, id: key, title: label, kind, state: "implementing" }];
   snapshot.liveControl = { target: { executionId: "execution", activityId: key, activityKey: key, sessionId: current.sessionId!, providerSessionId: current.sessionId!, attemptId: "attempt" }, label, observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
-  const server = await serveViewFixture({ port: 44950, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(`${server.address}/phase/${key}`, { width, height: 1100 });
   try {
     await page.waitFor(`document.querySelector('#live-message')`);
@@ -66,7 +66,7 @@ it.each(["Delivery audit · Round 3", "Test audit · Round 2"])("names the finis
   const snapshot = pausedSnapshot();
   const key = label.startsWith("Delivery") ? "audit-delivery-3" : "audit-test-2";
   snapshot.activities = [{ ...snapshot.phases[0]!, id: key, kind: label.startsWith("Delivery") ? "delivery_audit" : "test_audit", title: label, state: "done", doneAt: new Date().toISOString() }, { ...snapshot.phases.find(p => p.id === "2b")!, state: "next" }];
-  const server = await serveViewFixture({ port: 44951, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width: 390 });
   try {
     await page.waitFor(`document.body.innerText.includes('Paused before the next activity.')`);

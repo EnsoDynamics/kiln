@@ -47,7 +47,7 @@ it("shows a refused first launch at Needs you without scanning nonexistent histo
   expect(session.runs[0]?.codex?.dispatch).toBeUndefined();
   expect(buildSnapshot(h.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { kind: "selection", resumeOffered: false, checks: [{ facts: [expect.stringContaining("protected launch profile")] }] } });
   expect(f.calls().some(call => ["turn/start", "thread/read", "thread/turns/list"].includes(call.method ?? ""))).toBe(false);
-  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome();
   const page = await chrome.open(server.address);
   await page.waitFor(`document.body.textContent.includes('no work was dispatched')`);
@@ -173,7 +173,7 @@ it("refreshes terminal recovery messages and separate observed settings on Check
   for (const line of reader.read({ method: "item/completed", params: { threadId: "browser-child", turnId: "child-turn", item: { id: "child-message", type: "agentMessage", text: "Saved child review." } } }, "2026-10-23T18:26:40Z", "recovery").lines) appendJsonLine(sessionFiles(h.stateDirectory, session).output, line);
   h.reopenFromDisk();
   expect(h.engine.latestSession("1")?.codex?.recoveryObserved).toMatchObject([{ turnId: "manual-turn", model: "manual-model" }]);
-  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome();
   const page = await chrome.open(server.address + "/phase/1", { width: 360 });
   await page.waitFor(`document.body.textContent.includes('Saved child review.')`);
@@ -190,7 +190,7 @@ it("shows independent work and cleanup failures in the browser and blocks contin
   const snapshot = buildSnapshot(h.engine);
   expect(snapshot.needsYou).toMatchObject({ agent: "Codex", resumeOffered: false, failure: expect.stringContaining("observed turn"), cleanupFailure: expect.stringContaining("inventory failure") });
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
-  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome();
   for (const width of [1280, 360]) {
     const page = await chrome.open(server.address, { width });
@@ -311,7 +311,7 @@ it("shows model access refusal without substituting a model or conversation on l
   expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(1);
   expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "high"]]);
   expect(h.claudeCalls()).toEqual([]);
-  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome(); const page = await chrome.open(server.address);
   try { await page.waitFor(`document.body.textContent.includes(${JSON.stringify(error.message)})`); expect(page.problems).toEqual([]); }
   finally { await page.close(); }
@@ -336,7 +336,7 @@ it("shows the full stopped Codex question at Needs you and keeps prior edits rec
   expect(readSessionRecord(h.stateDirectory, "1", session.sessionId)?.runs[0]?.codex?.humanRequests).toEqual(session.runs[0]?.codex?.humanRequests);
   expect(readFileSync(join(h.engine.worktreePath, "prior-work.txt"), "utf8")).toBe("Keep this work.\n");
   expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
-  server = await startLocalServer({ engine: h.engine, port: 41447, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome(); const page = await chrome.open(server.address, { width: 360 });
   try {
     await page.waitFor(`document.querySelector('.codex-facts pre')`);

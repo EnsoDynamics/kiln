@@ -93,7 +93,7 @@ it("requires every affected repository and preserves earlier results when a requ
 
 it("shows distinct external accounting above history in the actual browser at desktop and narrow widths", async () => {
   const f = await createCometContinuation(); h = f.h;
-  const server = await startLocalServer({ engine: h.engine, port: 41986, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
   const chrome = await launchChrome();
   try {
     for (const width of [1200, 390]) {

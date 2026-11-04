@@ -4,7 +4,6 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { runDelivery } from "../delivery-command.js";
 import { readPrdRecord } from "../state/records.js";
 import * as records from "../state/records.js";
@@ -12,7 +11,7 @@ import { git } from "../test-support/git-repositories.js";
 let h:Harness|undefined;let server:LocalServer|undefined;
 afterEach(async()=>{await server?.close();server=undefined;await h?.cleanup();h=undefined;});
 const target={repository:"github.com/acme/acme-shop",baseBranch:"develop",environment:"test-development"};
-async function setup(){h=await createHarness({sessions:[landingSession()]});for(let port=41600;port<41630;port++)if(await isPortFree(port)){server=await startLocalServer({engine:h.engine,port,folderName:"customer-returns",featureName:"Customer returns",token:h.engine.record.token});return{h,origin:`http://127.0.0.1:${port}`,port};}throw new Error("No test port");}
+async function setup(){h=await createHarness({sessions:[landingSession()]});server=await startLocalServer({engine:h.engine,port:0,folderName:"customer-returns",featureName:"Customer returns",token:h.engine.record.token});const origin=new URL(server.address).origin;return{h,origin,port:Number(new URL(origin).port)};}
 describe("development delivery HTTP and CLI authority",()=>{
   it("authenticates every delivery route and atomically persists revisions through the real CLI",async()=>{
     const{h,origin,port}=await setup();

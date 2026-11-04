@@ -22,11 +22,18 @@ import { prdStateDirectory, readJsonLines, stateRoot } from "./state/state-files
 import { landingSession, pullRequestSession, waitFor, type ScenarioSession } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, installStandIns, type Sandbox } from "./test-support/git-repositories.js";
+import { reservePortRange } from "./test-support/os-ports.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 const time = String.raw`[ \d]\d:\d\d`;
-/** This file's ports: test files run at once, each sandbox with its own port registry. */
-const PORTS = "41100-41119";
+/**
+ * Each PRD's port, reserved from the operating system for each test; two tests serve two PRDs at
+ * once. A one-port range per PRD, because a range of neighbours collides on macOS, so here the
+ * checks that two PRDs get different ports and keep them only confirm the range reaches Kiln.
+ * Assigning and keeping ports is proved in `state/instance-lock.integration.test.ts`.
+ */
+let PORTS: Record<string, string> = {};
+beforeEach(async () => { PORTS = { [FOLDER]: await reservePortRange(), "gift-cards": await reservePortRange() }; });
 
 interface Feature {
   sandbox: Sandbox;
@@ -82,7 +89,7 @@ function createFeature(sessions: ScenarioSession[], folders = [FOLDER]): Feature
   writeFileSync(scenarioPath, JSON.stringify({ sessions }));
   writeFileSync(ghStatePath, JSON.stringify({ pulls: [] }));
   const base = Object.fromEntries(Object.entries(sandbox.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  const env = { ...base, PATH: [bin, sandbox.env.PATH ?? sandbox.env.Path ?? ""].join(delimiter), KILN_STANDIN_SCENARIO: scenarioPath, KILN_STANDIN_GH_STATE: ghStatePath, KILN_PORT_RANGE: PORTS };
+  const env = { ...base, PATH: [bin, sandbox.env.PATH ?? sandbox.env.Path ?? ""].join(delimiter), KILN_STANDIN_SCENARIO: scenarioPath, KILN_STANDIN_GH_STATE: ghStatePath, KILN_PORT_RANGE: PORTS[FOLDER] };
   feature = { sandbox, repository, env, scenarioPath };
   return feature;
 }
@@ -106,7 +113,7 @@ function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) 
   let finished = false;
   const done = runKilnCommand(["run", `docs/prds/${folder}/`], {
     cwd: f.repository,
-    env: f.env,
+    env: { ...f.env, KILN_PORT_RANGE: PORTS[folder] ?? f.env.KILN_PORT_RANGE },
     stdout: { write: (text: string) => (stdout += text) },
     stderr: { write: (text: string) => (stdout += text) },
     signals,
@@ -183,7 +190,8 @@ describe("kiln run on a feature not started", () => {
     await waitFor(() => kiln.lines().length >= 3);
 
     // AC-START-09: the feature name, what Kiln found, the address, and to keep the terminal open.
-    expect(address).toMatch(/^http:\/\/127\.0\.0\.1:411\d\d\/customer-returns$/);
+    expect(address).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/customer-returns$/);
+    expect(new URL(address).port).toBe(PORTS[FOLDER]!.split("-")[0]);
     expect(kiln.lines().slice(0, 3)).toEqual([
       "Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed",
       `● Opened ${address}. Review it there and press Start.`,

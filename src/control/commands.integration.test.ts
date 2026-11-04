@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startLocalServer } from "../server/local-server.js";
 import { processStartTime } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import * as durable from "./durable-file.js";
 import * as records from "../state/records.js";
@@ -163,8 +163,8 @@ it("a failed completion acceptance preserves the stop and starts no following ac
 
 it("the built CLI transports file/stdin literally, replays through HTTP, and refuses malformed inputs before dispatch", async () => {
   await setup();
-  let port = 41820; while (!(await isPortFree(port))) port++;
-  const server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   try {
     writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
     const path = join(h.repository, h.engine.record.prdDirectory);
@@ -239,8 +239,8 @@ it("does not reconcile an unsaved settings effect from mutable memory", async ()
 });
 it("browser retries return the original receipt before evaluating the new stop", async () => {
   await setup();
-  let port = 41840; while (!(await isPortFree(port))) port++;
-  const server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   const target = h.engine.phaseRecoveryTarget(); const token = h.engine.controlView().token;
   const post = () => fetch(`http://127.0.0.1:${port}/api/resume`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": token, "X-Kiln-Command-Id": "browser-retry", "Content-Type": "application/json" }, body: JSON.stringify({ target, note: "Use blue" }) });
   try {
@@ -268,8 +268,8 @@ it("automatic restart recovery excludes browser and API resume and persists one 
   await h.engine.stop("sigint"); h.engine = h.reopenFromDisk(); await h.engine.prepare();
   expect((await h.engine.decide()).kind).toBe("resume");
   const gate = join(h.sandbox.root, "release-automatic-preflight"); h.env.KILN_STANDIN_VERSION_WAIT = gate;
-  let port = 41860; while (!(await isPortFree(port))) port++;
-  const server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   const origin = `http://127.0.0.1:${port}`;
   const recovery = h.engine.continue();
   try {

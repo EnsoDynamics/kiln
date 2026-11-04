@@ -16,7 +16,7 @@ it.each([1200, 390])("preserves an exact attempt's draft through navigation and 
   const snapshot = runningSnapshot(); const t = target(snapshot.current!.sessionId!); const text = "  /literal @file\n$(no-shell)  ";
   snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
   let saved: Receipt | undefined;
-  const server = await serveViewFixture({ port: width === 1200 ? 43051 : 43052, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES, respond: async (command, body) => {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES, respond: async (command, body) => {
     if (command === "POST /api/live/message") { const request = JSON.parse(body) as { instructionId: string; text: string }; saved = { id: "receipt", command_id: request.instructionId, accepted_at: "2026-10-28T12:34:56.000Z", message: { text: request.text, uuid: "uuid", delivery: "submitted" } } as Receipt; return { status: 202, body: { ok: true, receipt: saved } }; }
     return { status: 200, body: { ok: true, receipts: saved ? [saved] : [] } };
   } });
@@ -67,7 +67,7 @@ it.each(["Phase 2b", "Test audit · Round 2"])("keeps %s held after uncertain-me
   stop.phaseId = key; stop.phaseRecovery = { target: { executionId: "execution", phaseKey: key, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: t }, completion: "incomplete" };
   const r = { id: "receipt", command_id: "message", accepted_at: stop.stoppedAt, message: { text: "  review exact instruction\n", uuid: "uuid", delivery: "uncertain" } } as Receipt;
   snapshot.liveControl = { target: t, label, observedAt: stop.stoppedAt, available: false, reason: "Review required", takeover: { kind: "delivery_recovery", target: t, operationId: "o", instructionId: "message", requestedAt: stop.stoppedAt, observedAt: stop.stoppedAt, state: "released", reason: "Released" }, reviewRequired: [r.id], messages: [{ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: "uncertain" }] };
-  const server = await serveViewFixture({ port: label.startsWith("Test") ? 43054 : 43053, folder: "customer-returns", snapshot, respond: async command => {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => {
     if (command === "POST /api/live/message-review") { r.message!.reviewedAt = new Date().toISOString(); snapshot.liveControl!.reviewRequired = []; snapshot.liveControl!.messages![0]!.reviewedAt = r.message!.reviewedAt; server.send("snapshot", snapshot); }
     return { status: 200, body: { ok: true, receipts: [r] } };
   } });
@@ -90,7 +90,7 @@ it("retains the original instruction after a lost POST and a receipt-lookup 404,
   snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
   let original: { instructionId: string; text: string } | undefined; let lookups = 0;
   const r = { id: "uncertain", command_id: "", accepted_at: new Date().toISOString(), message: { text: "", uuid: "uuid", delivery: "uncertain" } } as Receipt;
-  const server = await serveViewFixture({ port: 43055, folder: "customer-returns", snapshot, respond: async (command, body) => {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async (command, body) => {
     if (command === "POST /api/live/message") { original = JSON.parse(body) as typeof original; r.command_id = original!.instructionId; r.message!.text = original!.text; return null; }
     if (command.startsWith("GET /api/live/instructions/")) {
       if (++lookups === 1) return { status: 404, body: { ok: false, reason: "Receipt lookup unavailable" } };
@@ -121,7 +121,7 @@ it("disables Send and takeover throughout a pending HTTP submission and pending 
   snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
   let release!: () => void;
   const r = { id: "pending", command_id: "pending", accepted_at: new Date().toISOString(), message: { text: "message pending", uuid: "uuid", delivery: "submitting" } } as Receipt;
-  const server = await serveViewFixture({ port: 43056, folder: "customer-returns", snapshot, respond: async command => {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => {
     if (command === "POST /api/live/message") { r.command_id = JSON.parse(server.commands.at(-1)!.split("POST /api/live/message ")[1]!).instructionId; await new Promise<void>(resolve => { release = resolve; }); return { status: 202, body: { ok: true, receipt: r } }; }
     return { status: 200, body: { ok: true, receipts: [r] } };
   } });
@@ -150,7 +150,7 @@ it("shows active audit identity, gives a successor an empty draft, and excludes 
   current.phaseId = t.activityKey;
   snapshot.activities = [{ ...snapshot.phases[0]!, id: "1", state: "done", details: { sessionId: "historical-session", from: current.startedAt!, model: "Sonnet", worktree: "/fixture/worktree", branch: "fixture" } }, { ...snapshot.phases[0]!, id: t.activityKey, kind: "test_audit", round: 3, title: "Test audit · Round 3", state: "implementing" }];
   snapshot.liveControl = { target: t, label: "Test audit · Round 3", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
-  const server = await serveViewFixture({ port: 43057, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(`${server.address}/phase/${t.activityKey}`);
   try {
     await page.waitFor(`document.querySelector('#live-message')`);
@@ -169,7 +169,7 @@ it("shows active audit identity, gives a successor an empty draft, and excludes 
 it.each([1200, 390])("explains invalid literal drafts without rewriting them at %i", async width => {
   const snapshot = runningSnapshot(); const t = target(snapshot.current!.sessionId!);
   snapshot.liveControl = { target: t, label: "Phase 2b", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
-  const server = await serveViewFixture({ port: width === 1200 ? 44320 : 44321, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(`${server.address}/phase/2b`, { width, height: 1100 });
   try {
     await page.waitFor(`document.querySelector('#live-message')`);

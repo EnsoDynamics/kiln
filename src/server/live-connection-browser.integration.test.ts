@@ -7,7 +7,6 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { createHarness, waitFor } from "../test-support/engine-harness.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { isProcessLive } from "../platform/process-start-time.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { startLocalServer } from "./local-server.js";
 
 let chrome: HeadlessChrome;
@@ -65,9 +64,7 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("retains last-known s
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(ready));
     const run = h.engine.latestSession("1")!.runs.at(-1)!;
-    let port = 44120;
-    while (!await isPortFree(port)) port++;
-    controller = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+    controller = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
     proxy = await transportProxy(new URL(controller.address));
     page = await chrome.open(`${proxy.address}/phase/1`, { width, height: 1000 });
     await page.waitFor(`document.querySelector('#live-message')`);

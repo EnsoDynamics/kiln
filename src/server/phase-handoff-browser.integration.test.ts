@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
 import { serveViewFixture, type ViewFixtureServer } from "../test-support/view-fixture-server.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
@@ -26,8 +27,7 @@ function fixture(agent: "Claude Code" | "Codex") {
 it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates payloads, focuses completion choice and retries Verify", async agent => {
   const snapshot = fixture(agent); const stop = snapshot.needsYou!; const target = stop.phaseRecovery!.target;
   let outcome = "already_complete"; let failed = false; let gate: Promise<void> | undefined;
-  const port = agent === "Codex" ? 41982 : 41981;
-  const options = { port, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES, respond: async () => { await gate; return { status: failed ? 503 : 200, body: failed ? { ok: false, reason: "Repository unavailable" } : { ok: true, outcome, target } }; } };
+  const options = { port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES, respond: async () => { await gate; return { status: failed ? 503 : 200, body: failed ? { ok: false, reason: "Repository unavailable" } : { ok: true, outcome, target } }; } };
   let server: ViewFixtureServer = await serveViewFixture(options);
   const page = await chrome.open(server.address, { width: 1200, height: 1000 });
   try {
@@ -86,7 +86,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "advance", withoutSendingReply: true });
     await server.close(); await words(page, "Disconnected");
     expect(await page.evaluate("document.querySelector('textarea') === null")).toBe(true);
-    server = await serveViewFixture(options); await words(page, "Reply here and let Kiln finish");
+    server = await serveViewFixture({ ...options, port: boundPort(server.address) }); await words(page, "Reply here and let Kiln finish");
     expect(await page.evaluate("document.querySelector('textarea').value")).toBe(reply);
     // Deferred launch refusal changes the target but never started a new provider turn.
     stop.phaseRecovery!.target = { ...target, stoppedAt: "2026-10-26T21:01:00Z" };
@@ -115,8 +115,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
 
 it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens and retains fresh-session recovery with no history", async agent => {
   const snapshot = fixture(agent); const stop = snapshot.needsYou!;
-  const port = agent === "Codex" ? 41984 : 41983;
-  const server = await serveViewFixture({ port, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "already_complete", target: stop.phaseRecovery!.target } }) });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "already_complete", target: stop.phaseRecovery!.target } }) });
   const page = await chrome.open(server.address, { width: 390, height: 844 });
   try {
     await words(page, `Is Phase ${stop.phaseId} already done?`);
@@ -143,7 +142,7 @@ it.each(["Claude Code", "Codex"] as const)("stacks %s choices on narrow screens 
 it("reuses the same browser instruction after an accepted response is lost and the token changes", async () => {
   const snapshot = fixture("Claude Code"); snapshot.controlToken = "execution:original-token";
   const requests: { id: string; token: string }[] = []; const effects = new Set<string>();
-  const server = await serveViewFixture({ port: 41985, folder: "customer-returns", snapshot, respond: async (_command, _body, headers) => {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async (_command, _body, headers) => {
     const request = { id: String(headers["x-kiln-command-id"]), token: String(headers["x-kiln-status"]) }; requests.push(request); effects.add(request.id);
     return { status: 200, body: { ok: true, outcome: "already_complete", target: snapshot.needsYou!.phaseRecovery!.target } };
   } });
@@ -162,7 +161,7 @@ it("shows no workspace controls in either recovery layout", async () => {
   for (const handoff of [true, false]) {
     const snapshot = fixture("Codex"); const stop = snapshot.needsYou!;
     if (!handoff) delete stop.phaseRecovery;
-    const server = await serveViewFixture({ port: handoff ? 41983 : 41984, folder: "customer-returns", snapshot });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     const page = await chrome.open(server.address, { width: 390, height: 900 });
     try {
       await words(page, "Everything committed");
@@ -180,7 +179,7 @@ it("advances without creating a persistent verification success notice", async (
   const snapshot = fixture("Claude Code");
   const target = snapshot.needsYou!.phaseRecovery!.target;
   snapshot.billing!.executionId = target.executionId;
-  const server = await serveViewFixture({ port: 41983, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "advanced", target } }) });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "advanced", target } }) });
   const page = await chrome.open(server.address, { width: 1200, height: 900 });
   try {
     await words(page, "Check Phase 2b again");
@@ -197,7 +196,7 @@ it("advances without creating a persistent verification success notice", async (
 it.each(["Claude Code", "Codex"] as const)("opens legacy %s terminal recovery without a second prompt and preserves fresh-session setup", async agent => {
   const snapshot = fixture(agent); const stop = snapshot.needsYou!;
   delete stop.phaseRecovery;
-  const server = await serveViewFixture({ port: agent === "Codex" ? 41987 : 41986, folder: "customer-returns", snapshot });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address);
   try {
     await words(page, `Open the same ${agent} session in a terminal`);

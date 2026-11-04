@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
 import { SessionOutputReader, type OutputLine } from "../session/session-output.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { git } from "../test-support/git-repositories.js";
 import { createHarness, landingSession, waitFor } from "../test-support/engine-harness.js";
@@ -113,17 +113,7 @@ const SESSIONS_ADD = "Sessions can add a repository they find they need. There K
 const AMBER = "rgb(230, 180, 80)";
 const GREEN = "rgb(156, 196, 154)";
 const TIME_ZONE = "America/New_York";
-let port = 41200;
 let chrome: HeadlessChrome;
-
-/** The next free port in this file's range, 41200 to 41299. */
-async function nextPort(): Promise<number> {
-  while (port < 41300) {
-    const candidate = port++;
-    if (await isPortFree(candidate)) return candidate;
-  }
-  throw new Error("No free port for the browser tests in 41200-41299.");
-}
 
 beforeAll(async () => {
   chrome = await launchChrome();
@@ -187,7 +177,7 @@ const words = async (page: BrowserPage) => flat(await page.evaluate<string>("doc
 const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
 
 async function openScreen(snapshot: Snapshot, path = "", clock = RUNNING_NOW, output = PHASE_DETAIL_LINES, refuse?: Record<string, string>) {
-  const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot, output, ...(refuse ? { refuse } : {}) });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output, ...(refuse ? { refuse } : {}) });
   const page = await chrome.open(`${server.address}${path}`, { clock, timeZone: TIME_ZONE });
   await page.waitFor(`document.querySelector("h1")`);
   return { server, page };
@@ -582,7 +572,7 @@ const SCREENS: {
 describe("each screen in a real browser, from its mockup's sample data", () => {
   it("renders already-merged completion at desktop and narrow widths without a fictitious PR", async () => {
     const snapshot = completeDeliveryHistorySnapshot();
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     try {
       for (const width of [1280, 390]) {
         const page = await chrome.open(server.address, { width, clock: RUNNING_NOW, timeZone: TIME_ZONE });
@@ -671,7 +661,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
 
   it("lays out disconnected as drawn, once Kiln stops while a phase works (AC-LOOK-01)", async () => {
     const mockup = await mockupLayout("kiln-screen-disconnected.html", RUNNING_NOW, WITH_LIMIT_SETTING);
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
@@ -739,8 +729,8 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
 
 describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
   it("says plainly it is disconnected, keeps the last snapshot with the phase labeled last known, and restores the live view when Kiln returns", async () => {
-    const thePort = await nextPort();
-    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+    let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 500 });
+    const thePort = boundPort(server.address);
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
@@ -777,7 +767,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
   });
 
   it("shows a waiting phase as last known in the Disconnected layout, with no Resume now (usage-limit recovery AC-LIMIT-04)", async () => {
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: waitingSnapshot(), heartbeatMs: 500 });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: waitingSnapshot(), heartbeatMs: 500 });
     const page = await chrome.open(server.address, { clock: USAGE_LIMIT_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Resume now")`);
@@ -796,9 +786,9 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
   });
 
   it("turns Needs you into the Disconnected layout, with no Check again, and back when Kiln returns (UI-006)", async () => {
-    const thePort = await nextPort();
     const clock = Date.parse("2026-10-17T15:53:00Z");
-    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: needsYouMessageSnapshot(), heartbeatMs: 500 });
+    let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: needsYouMessageSnapshot(), heartbeatMs: 500 });
+    const thePort = boundPort(server.address);
     const page = await chrome.open(server.address, { clock, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Check again")`);
@@ -822,8 +812,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
   });
 
   it("keeps live detail output and disables the paired pause controls on disconnect (AC-LIVE-03/04)", async () => {
-    const thePort = await nextPort();
-    const server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("LIVE")`);
@@ -854,7 +843,7 @@ describe("the bounded terminal viewer", () => {
       { line: 3, at: "2026-10-17T15:40:02Z", source: "subagent", threadId: "child-7", timestampSource: "recovery", text: "A detailed child report. ".repeat(40) },
       { line: 4, at: "2026-10-17T15:40:03Z", source: "out", text: "Result details. ".repeat(40) },
     ];
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), output });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), output });
     const page = await chrome.open(`${server.address}/phase/2b`, { width: 390, height: 844, clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.querySelector('[data-output-entry="1"] .expand')`);
@@ -962,7 +951,7 @@ describe("the bounded terminal viewer", () => {
       type: "user", message: { content: [{ type: "tool_result", content: `Exit code 0\n${result}\n` }] },
     }, "2026-10-17T15:46:58Z");
     snapshot.current!.latestLine = lines[0]!;
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot, output: lines });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: lines });
     const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.querySelector('.latest .result')`);
@@ -983,7 +972,7 @@ describe("the bounded terminal viewer", () => {
   it.each([1280, 390])("formats the main preview like the detail viewer at %ipx", async (width) => {
     const snapshot = runningSnapshot();
     snapshot.current!.latestLine = { line: 1284, at: "2026-10-17T15:46:58Z", source: "tool", text: "Bash npm run build" };
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.querySelector('.latest .tool-name')`);
@@ -1041,11 +1030,11 @@ describe("the bounded terminal viewer", () => {
   });
 
   it("refreshes only the latest tail after a long disconnection", async () => {
-    const port = await nextPort();
     const snapshot = runningSnapshot();
     const many: OutputLine[] = Array.from({ length: 500 }, (_, i) => ({ line: i + 1, at: "2026-10-17T15:40:00Z", source: "out", text: `reconnect entry ${i + 1}` }));
     snapshot.current!.latestLine = many[99]!;
-    let server = await serveViewFixture({ port, folder: "customer-returns", snapshot, output: many.slice(0, 100) });
+    let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: many.slice(0, 100) });
+    const port = boundPort(server.address);
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.querySelector('[data-output-entry="100"]')`);
@@ -1124,8 +1113,8 @@ describe("live output and the phase route", () => {
   });
 
   it("fetches the lines it missed while the event stream was down, once Kiln is back (AC-WATCH-05)", async () => {
-    const thePort = await nextPort();
-    let server = await serveViewFixture({ port: thePort, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
+    let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), output: PHASE_DETAIL_LINES, heartbeatMs: 500 });
+    const thePort = boundPort(server.address);
     const page = await chrome.open(`${server.address}/phase/2b`, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Read(src/returns/models.py)")`);
@@ -1594,7 +1583,7 @@ describe("the look (AC-LOOK-04)", () => {
 
 describe("a Kiln that hangs with the stream open (AC-VIEW-07)", () => {
   it("shows Disconnected once no heartbeat has come for 15 seconds", async () => {
-    const server = await serveViewFixture({ port: await nextPort(), folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 0 });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot(), heartbeatMs: 0 });
     const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);
@@ -1619,7 +1608,7 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
     ] }));
     await harness.engine.start({ refinementConfirmed: true });
     await harness.engine.settled();
-    const server = await startLocalServer({ engine: harness.engine, port: await nextPort(), folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
+    const server = await startLocalServer({ engine: harness.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
     const page = await chrome.open(server.address, { timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.querySelector("textarea")`);
@@ -1660,7 +1649,7 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
     writeFileSync(harness.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }] }));
     await harness.engine.start({ refinementConfirmed: true });
     await waitFor(() => harness.claudeCalls().length === 1);
-    const server = await startLocalServer({ engine: harness.engine, port: await nextPort(), folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
+    const server = await startLocalServer({ engine: harness.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token });
     const page = await chrome.open(server.address, { timeZone: TIME_ZONE });
     try {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`);

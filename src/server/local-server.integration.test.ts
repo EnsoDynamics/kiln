@@ -9,7 +9,6 @@ import { networkInterfaces } from "node:os";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { isPortFree } from "../state/instance-lock.js";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
@@ -24,17 +23,11 @@ afterEach(async () => {
   await harness?.cleanup();
 });
 
-/** The next free port in this file's range, 41180 to 41199; kiln-run-repositories takes 41160 to 41179. */
-async function freePort(): Promise<number> {
-  for (let port = 41180; port < 41200; port++) if (await isPortFree(port)) return port;
-  throw new Error("No free port for the test.");
-}
-
 async function serve(sessions = [landingSession()]) {
   harness = await createHarness({ sessions });
-  const port = await freePort();
-  server = await startLocalServer({ engine: harness.engine, port, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token, heartbeatMs: 100 });
-  return { h: harness, port, origin: `http://127.0.0.1:${port}`, token: harness.engine.record.token };
+  server = await startLocalServer({ engine: harness.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token, heartbeatMs: 100 });
+  const origin = new URL(server.address).origin;
+  return { h: harness, port: Number(new URL(origin).port), origin, token: harness.engine.record.token };
 }
 
 /** A raw request, so a test can send any Host and Origin a browser or another page might. */

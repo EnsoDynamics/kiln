@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchChrome } from "./test-support/headless-chrome.js";
 import { recoveryRequest } from "./test-support/phase-recovery-request.js";
 import { buildSnapshot } from "./engine/snapshot.js";
@@ -16,15 +16,18 @@ import { endProcessTree } from "./platform/helper-process.js";
 import { isProcessLive } from "./platform/process-start-time.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "./test-support/engine-harness.js";
 import { git } from "./test-support/git-repositories.js";
+import { reservePortRange } from "./test-support/os-ports.js";
 import { readPrdRecord, writePrdRecord } from "./state/records.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
+let ports = "";
+beforeEach(async () => { ports = await reservePortRange(); });
 
 function kilnEnv(h: Harness): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(h.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  return { ...env, PATH: [join(h.sandbox.root, "bin"), h.env.PATH ?? h.env.Path ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41140-41159" };
+  return { ...env, PATH: [join(h.sandbox.root, "bin"), h.env.PATH ?? h.env.Path ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: ports };
 }
 
 /**

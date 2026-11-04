@@ -189,7 +189,7 @@ it("preserves independent allowance observations through waiting, failed refresh
   const usageAt = h.engine.agents.state.account!.limitsObservedAt!;
   expect(initial.allowancesObservation).toEqual({ observedAt: usageAt, state: "current", reason: null });
   expect(initial.allowances).toEqual([expect.objectContaining({ percent: 85 })]);
-  server = await startLocalServer({ engine: h.engine, port: 41449, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
   const status = async () => {
     const response = await fetch(`${new URL(server!.address).origin}/api/control/v1/status?detail=full`, { headers: { "X-Kiln-Token": h.engine.record.token } });
     expect(response.status).toBe(200);
@@ -251,7 +251,7 @@ it("shows Codex wait and unknown recovery, account allowances and native cleanup
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitName: "Ordinary allowance", primary: { usedPercent: 85, resetsAt: 1793000000 }, secondary: { usedPercent: 12 } } } };
   await setup({ usage });
   const usageAt = h.engine.agents.state.account!.limitsObservedAt;
-  server = await startLocalServer({ engine: h.engine, port: 41448, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token }); chrome = await launchChrome();
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token }); chrome = await launchChrome();
   for (const state of ["waiting", "unknown"]) {
     if (state === "unknown") await refresh({ ordinaryUsageAllowed: null });
     for (const width of [360, 1280]) {

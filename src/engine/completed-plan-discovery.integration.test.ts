@@ -9,6 +9,7 @@ import type { CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { recordedPlan } from "./plan-reading.js";
 import { buildSnapshot } from "./snapshot.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
+import { reservePortRange } from "../test-support/os-ports.js";
 import { formatDecisionLine } from "../underway-output.js";
 import { terminalColors } from "../terminal-output.js";
 import { writePrdRecord } from "../state/records.js";
@@ -47,7 +48,7 @@ it("checks restart, HTTP and repeated reads without work; persists history and j
   expect(h.engine.record.completedAt).toBe(completed); expect(h.engine.record.planReconciliation?.baselineId).toBe(baseline);
   expect(h.engine.record.plan?.map(p => p.id)).toEqual(["1"]);
   publish();
-  server = await startLocalServer({ engine: h.engine, port: 41985, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
   const response = await fetch(`${new URL(server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
   expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ check: { status: "available", result: { added: [{ id: "9" }] } } });
   expect(buildSnapshot(h.engine).continuation?.check?.result?.source.revision).toBe(git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
@@ -169,7 +170,7 @@ it("does not establish legacy scope from today's checkout when completion eviden
 it("checks page mount, reload and button through the real browser while preserving history and no-launch", async () => {
   await fixture(); add(); publish();
   const { launchChrome } = await import("../test-support/headless-chrome.js");
-  server = await startLocalServer({ engine: h.engine, port: 41985, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
   const chrome = await launchChrome();
   try {
     for (const width of [1200, 390]) {
@@ -232,7 +233,7 @@ it("kiln run checks completed work before printing a conclusion and starts no se
   git(h.sandbox, h.repository, "remote", "set-url", "origin", url);
   let stdout = ""; let stderr = "";
   const signals = new EventEmitter();
-  const result = runKilnCommand(["run", directory], { cwd: h.repository, env: { ...h.env, PATH: `${join(h.sandbox.root, "bin")}${delimiter}${process.env.PATH}`, KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41980-41984" }, stdout: { write: (text: string) => { stdout += text; } }, stderr: { write: (text: string) => { stderr += text; } }, signals });
+  const result = runKilnCommand(["run", directory], { cwd: h.repository, env: { ...h.env, PATH: `${join(h.sandbox.root, "bin")}${delimiter}${process.env.PATH}`, KILN_NO_BROWSER: "1", KILN_PORT_RANGE: await reservePortRange() }, stdout: { write: (text: string) => { stdout += text; } }, stderr: { write: (text: string) => { stderr += text; } }, signals });
   try {
     await waitFor(() => stdout.includes("http://127.0.0.1:") || !!stderr);
     expect(stderr).toBe(""); expect(stdout).toContain("1 new unfinished phase found");
@@ -242,7 +243,7 @@ it("kiln run checks completed work before printing a conclusion and starts no se
 
 
 async function checkHttp() {
-  server ??= await startLocalServer({ engine: h.engine, port: 41987, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
+  server ??= await startLocalServer({ engine: h.engine, port: 0, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
   return fetch(`${new URL(server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
 }
 it.each(["saved", "git", "baseline", "baseline publication", "accounting", "proposal", "phases"])("returns typed capacity through HTTP for %s without faulting mutation ownership or losing earlier evidence", async boundary => {

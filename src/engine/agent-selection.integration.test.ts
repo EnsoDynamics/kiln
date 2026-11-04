@@ -52,7 +52,7 @@ describe("agent selection before work", () => {
     expect(stopped.needsYou).toMatchObject({ phaseId: "2b", kind: "selection", resumeOffered: false });
     expect(stopped.needsYou).not.toHaveProperty("sessionId");
     expect(h.claudeCalls()).toHaveLength(1);
-    server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 41426, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+    server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
     chrome = await launchChrome(); const page = await chrome.open(server.address, { width: 360 });
     await page.waitFor(`document.querySelector('#change-model')`);
     const text = await page.evaluate<string>(`document.body.textContent`);
@@ -141,7 +141,7 @@ describe("agent selection before work", () => {
   });
   it("renders and operates the chooser, dynamic efforts and account warnings in a real browser", async () => {
     const fixture = await setup();
-    server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 41426, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+    server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
     chrome = await launchChrome(); const page = await chrome.open(server.address, { timeZone: "America/New_York" });
     await page.waitFor(`document.querySelector('#agent')`);
     await page.evaluate(`(() => { const e=document.querySelector('#agent'); e.value='codex'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);

@@ -19,7 +19,7 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths, record, tools: { ...h.tools, codex: f.executable }, env: f.env, stateDirectory: h.stateDirectory });
   await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
-  server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 41971, folderName: "customer-returns", featureName: "Customer returns", token: record.token });
+  server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: record.token });
   chrome = await launchChrome();
   for (const width of [360, 1280]) {
     const page = await chrome.open(server.address, { width });
@@ -90,7 +90,7 @@ it("keeps launched identity/credits separate from the next account and freezes t
   snapshot.billing = { executionId: "fixture", selectionGeneration: 1, pending: false, canLaunch: true, lastLaunch, next: { ...next, email: "next@example.test", accountId: "next-workspace", readingId: "", canApprove: false, canClear: false } };
   chrome = await launchChrome();
   for (const width of [360, 1280]) {
-    const fixture = await serveViewFixture({ port: 41972, folder: "customer-returns", snapshot });
+    const fixture = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     const page = await chrome.open(fixture.address, { width });
     try {
       await page.waitFor(`${panel}?.innerText.includes('launch@example.test')`);

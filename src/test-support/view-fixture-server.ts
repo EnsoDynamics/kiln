@@ -24,8 +24,8 @@ export interface ViewFixtureServer {
 }
 
 /**
- *   const server = await serveViewFixture({ port: 41250, folder: "customer-returns", snapshot: runningSnapshot() });
- *   server.address  // "http://127.0.0.1:41250/customer-returns"
+ *   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot() });
+ *   server.address  // "http://127.0.0.1:52714/customer-returns", on the port the system chose
  */
 export async function serveViewFixture(options: {
   port: number;

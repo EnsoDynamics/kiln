@@ -59,7 +59,7 @@ it.skipIf(process.platform !== "darwin")("offers seven phases with local prepara
   expect(ready.result?.leaves?.find(row => row.id === "8")?.classification).toBe("externally_unverified");
   const { startLocalServer } = await import("../server/local-server.js");
   const { launchChrome } = await import("../test-support/headless-chrome.js");
-  const server = await startLocalServer({ engine: h.engine, port: 41987, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
   const chrome = await launchChrome();
   try {
     for (const width of [1200, 390]) {

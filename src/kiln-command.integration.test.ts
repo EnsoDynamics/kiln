@@ -11,6 +11,7 @@ import { findExecutable } from "./platform/helper-process.js";
 import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
+import { reservePortRange } from "./test-support/os-ports.js";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
 let sandbox: Sandbox;
@@ -20,7 +21,7 @@ let pathWithStandIns: string;
 /** Windows spells it Path; a copied environment must carry exactly one PATH key. */
 function envWithPath(path: string): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(sandbox.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  return { ...env, PATH: path, KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41120-41139" };
+  return { ...env, PATH: path, KILN_NO_BROWSER: "1", KILN_PORT_RANGE: ports };
 }
 
 function kiln(args: string[], cwd = repository, path = pathWithStandIns) {
@@ -39,6 +40,8 @@ async function kilnUntilServing(args: string[], cwd = repository, path = pathWit
   return { exitCode: await done, stdout, stderr };
 }
 
+let ports = "";
+beforeAll(async () => { ports = await reservePortRange(); });
 beforeAll(() => {
   sandbox = createSandbox();
   repository = createRepository(sandbox, "acme-shop", createGithubOrigin(sandbox, "acme", "acme-shop").url);

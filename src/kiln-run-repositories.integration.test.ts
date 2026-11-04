@@ -22,9 +22,11 @@ import { prdStateDirectory, readJsonLines, stateRoot } from "./state/state-files
 import { waitFor, type ScenarioSession } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, installKiln, installStandIns, type Sandbox } from "./test-support/git-repositories.js";
+import { reservePortRange } from "./test-support/os-ports.js";
 
-/** This file's ports: test files run at once, each sandbox with its own port registry. */
-const PORTS = "41160-41179";
+/** The PRD's port, reserved from the operating system for each test. */
+let PORTS = "";
+beforeEach(async () => { PORTS = await reservePortRange(); });
 const BRANCH = "feature/customer-returns";
 
 interface Feature {

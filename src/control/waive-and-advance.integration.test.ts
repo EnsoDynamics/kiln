@@ -9,7 +9,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
-import { isPortFree } from "../state/instance-lock.js";
+import { boundPort } from "../test-support/os-ports.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { Receipt } from "./commands.js";
@@ -24,9 +24,8 @@ async function stopped() {
   h = await createHarness({ sessions: [{ actions: [{ result: "I think this is done." }] }, { actions: [{ result: "Phase 2 has a question." }] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   expect(h.engine.stoppedPhaseKey()).toBe("1");
-  let port = 45300; while (port < 45320 && !await isPortFree(port)) port++;
-  if (port === 45320) throw new Error("No free waive-and-advance fixture port");
-  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
   return { origin: `http://127.0.0.1:${port}` };
 }
@@ -191,9 +190,8 @@ it("at a standard Needs you stop, rechecks as check-again without --confirm and 
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   expect(h.engine.stoppedPhaseKey()).toBe("pr");
   expect(h.engine.phaseRecoveryTarget()).toBeUndefined();
-  let port = 45320; while (port < 45340 && !await isPortFree(port)) port++;
-  if (port === 45340) throw new Error("No free waive-and-advance fixture port");
-  server = await startLocalServer({ engine: h.engine, port, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
 
   const first = await token();

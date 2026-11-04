@@ -5,16 +5,12 @@ import { describe, expect, it } from "vitest";
 import { launchChrome } from "../test-support/headless-chrome.js";
 import { waitingSnapshot, USAGE_LIMIT_NOW } from "../test-support/sample-snapshots.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
-import { isPortFree } from "../state/instance-lock.js";
 
 describe("automatic usage resume in the browser", () => {
   it("counts down live, explains checks after the deadline, and places billing last at desktop and phone widths", async () => {
     const snapshot = waitingSnapshot();
     snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: snapshot.waiting!.since, approved: true, sources: [], diagnostics: [] } };
-    let port = 42160;
-    while (port < 42200 && !await isPortFree(port)) port++;
-    if (port === 42200) throw new Error("No free automatic-resume proof port");
-    const server = await serveViewFixture({ port, folder: "customer-returns", snapshot });
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     const chrome = await launchChrome();
     try {
       for (const width of [1280, 360]) {

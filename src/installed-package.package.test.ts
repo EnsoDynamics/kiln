@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
+import { reservePortRange } from "./test-support/os-ports.js";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const windows = process.platform === "win32";
@@ -53,6 +54,8 @@ function end(child: ChildProcess): void {
   else child.kill("SIGINT");
 }
 
+let ports = "";
+beforeAll(async () => { ports = await reservePortRange(); });
 beforeAll(() => {
   sandbox = createSandbox();
   let archive = process.env.KILN_PACKAGE_TARBALL;
@@ -76,7 +79,7 @@ beforeAll(() => {
   writeStandIn(standIns, "gh", 0);
   writeStandIn(standIns, "claude", 0);
   const base = Object.fromEntries(Object.entries(sandbox.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  env = { ...base, PATH: [dirname(kilnCommand), standIns, sandbox.env.PATH ?? sandbox.env.Path ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: "41140-41149" };
+  env = { ...base, PATH: [dirname(kilnCommand), standIns, sandbox.env.PATH ?? sandbox.env.Path ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: ports };
 });
 afterAll(() => sandbox?.cleanup());
 

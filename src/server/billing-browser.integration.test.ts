@@ -7,15 +7,13 @@ import { git } from "../test-support/git-repositories.js";
 import { documentsFound } from "../engine/snapshot.js";
 import { readPlanAt } from "../engine/plan-reading.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
-import { isPortFree } from "../state/instance-lock.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 let h: Harness | undefined; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
 afterEach(async () => { await chrome?.close(); await server?.close(); await h?.cleanup(); chrome = undefined; server = undefined; h = undefined; });
 async function open(width = 1280) {
   const plan = readPlanAt(h!.repository, h!.engine.paths.prdDirectoryFromRoot); if (!plan.ok) throw new Error(plan.problem);
   const documents = documentsFound(join(h!.repository, h!.engine.paths.prdDirectoryFromRoot), "customer-returns", plan.plan, { designFile: "technical-design.md", phaseDocCount: 5, repositories: [] }, "acme-shop");
-  for (let port = 41920; port < 41970; port++) if (await isPortFree(port)) { server = await startLocalServer({ engine: h!.engine, documents, port, folderName: "customer-returns", featureName: "Customer returns", token: h!.engine.record.token }); break; }
-  if (!server) throw new Error("No local billing proof port");
+  server = await startLocalServer({ engine: h!.engine, documents, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h!.engine.record.token });
   chrome = await launchChrome(); const page = await chrome.open(server.address, { width });
   await page.waitFor(`document.querySelector('[aria-label="Claude billing"]')`); return page;
 }

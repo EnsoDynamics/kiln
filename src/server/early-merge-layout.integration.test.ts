@@ -1,5 +1,4 @@
 // Built browser UI: shared wording, mobile layout and inactive controls.
-import { isPortFree } from "../state/instance-lock.js";
 import { afterEach, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,8 +18,7 @@ it.each([390, 1280])("shows branch cards without environment inputs at %s pixels
   const unavailable = { ...setup.repositories[0]!, name: "unavailable", baseBranch: "" };
   delete unavailable.github;
   setup.repositories.push(unavailable);
-  for (let port = 41960; port < 42000; port++) if (await isPortFree(port)) { server = await serveViewFixture({ port, folder: "customer-returns", snapshot: setup }); break; }
-  if (!server) throw new Error("No local browser proof port available");
+  server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: setup });
   chrome = await launchChrome();
   const page = await chrome.open(server.address, { width, height: 900, clock: RUNNING_NOW });
   await page.waitFor(`document.querySelector('.merge-target h4')`);

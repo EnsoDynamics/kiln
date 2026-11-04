@@ -4,7 +4,6 @@ import { afterEach, expect, it } from "vitest";
 import { completeRepositoriesSnapshot, runningRepositoriesSnapshot, RUNNING_NOW } from "../test-support/sample-snapshots.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { serveViewFixture, type ViewFixtureServer } from "../test-support/view-fixture-server.js";
-import { isPortFree } from "../state/instance-lock.js";
 let chrome: HeadlessChrome | undefined;
 let server: ViewFixtureServer | undefined;
 afterEach(async () => { await chrome?.close(); await server?.close(); chrome = undefined; server = undefined; });
@@ -19,8 +18,7 @@ it("renders saved authority and observed activity, then distinct merged and revi
     assessments: [], splits: [], checkpoints: [], repositoryResults: [],
   };
   running.current!.deliveryActivity = { label: "Verifying", repository: target.repository, environment: target.environment };
-  for (let port = 41900; port < 41950; port++) if (await isPortFree(port)) { server = await serveViewFixture({ port, folder: "customer-returns", snapshot: running }); break; }
-  if (!server) throw new Error("No development-display browser proof port available");
+  server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: running });
   chrome = await launchChrome();
   const page = await chrome.open(server.address, { clock: RUNNING_NOW, timeZone: "America/New_York" });
   await page.waitFor(`document.body.innerText.includes('Early merges allowed')`);
