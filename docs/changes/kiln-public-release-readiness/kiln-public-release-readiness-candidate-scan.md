@@ -20,3 +20,5 @@ Listed on 2026-11-04, before any deletion, against `origin/develop` at `9237508`
 | `wt/early-merge-authorization` | Merged; delete |
 | `feature/ui-clarity` | Abandoned, named in the PRD (3 commits not on `develop`, tip `026c96e`); delete, with its local branch and worktree |
 | `wt/completiona-kiln-design` | Abandoned, named in the PRD (1 commit not on `develop`, tip `fe4c279`); delete, with its local branch and worktree |
+
+All ten were deleted from GitHub on 2026-11-04, with the two abandoned branches' local worktrees and branches; GitHub now holds only `main` and `develop`.
