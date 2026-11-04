@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { linuxStartTimeFromStat, processStartTime } from "../platform/process-start-time.js";
 import { takeInstanceLock, viewAddress } from "./instance-lock.js";
+import { reservePort } from "../test-support/os-ports.js";
 
 let root: string;
 const servers: Server[] = [];
@@ -26,13 +27,30 @@ const writeLock = (directory: string, content: unknown) => {
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "instance.lock"), typeof content === "string" ? content : JSON.stringify(content));
 };
-const listenOn = (port: number) =>
-  new Promise<void>((resolve, reject) => {
+const listen = (port: number) =>
+  new Promise<Server>((resolve, reject) => {
     const server = createServer();
-    servers.push(server);
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => resolve());
+    server.listen({ port, host: "127.0.0.1", exclusive: true }, () => resolve(server));
   });
+const listenOn = async (port: number) => { servers.push(await listen(port)); };
+const closed = (server: Server) => new Promise<void>(resolve => server.close(() => resolve()));
+/**
+ * Two neighbouring ports, held by listeners until the test releases them: a port range is
+ * contiguous, so this is the one place a test needs neighbours, against os-ports.ts's rule.
+ * The first comes from the operating system; the second is retried until its neighbour is
+ * free (AC-CI-01). Each is released only just before Kiln is to take it, a far smaller window
+ * than a fixed range that any other test or program may already hold.
+ */
+async function heldNeighbours(): Promise<[Server, Server]> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const first = await listen(0);
+    const port = (first.address() as import("node:net").AddressInfo).port;
+    try { return [first, await listen(port + 1)]; } catch { await closed(first); }
+  }
+  throw new Error("No two neighbouring loopback ports were free.");
+}
+const portOf = (server: Server) => (server.address() as import("node:net").AddressInfo).port;
 
 describe("takeInstanceLock", () => {
   it("lets one Kiln hold a PRD; a second, while the holder is live, gets the holder's port and starts nothing", async () => {
@@ -83,20 +101,25 @@ describe("takeInstanceLock", () => {
   });
 
   it("refuses to move the address when the PRD's port is held by another program", async () => {
-    const lock = await takeInstanceLock(root, prd("customer-returns"));
+    const port = await reservePort();
+    const lock = await takeInstanceLock(root, prd("customer-returns"), { range: { first: port, last: port } });
     if (!lock.taken) throw new Error("not taken");
     lock.release();
     await listenOn(lock.port);
-    expect(await takeInstanceLock(root, prd("customer-returns"))).toEqual({ taken: false, reason: "port_in_use", port: lock.port });
+    expect(await takeInstanceLock(root, prd("customer-returns"), { range: { first: port, last: port } })).toEqual({ taken: false, reason: "port_in_use", port: lock.port });
   });
 
   it("skips ports in use when assigning, and takes the least recently served stopped PRD's port when the range is full", async () => {
-    const range = { first: 4790, last: 4791 };
+    const [low, high] = await heldNeighbours();
+    const range = { first: portOf(low), last: portOf(high) };
     const at = (iso: string) => () => new Date(iso);
+    // The range's first port is in use by another program, so "one" skips it.
+    await closed(high);
     const one = await takeInstanceLock(root, prd("one"), { range, now: at("2026-10-01T00:00:00Z") });
+    await closed(low);
     const two = await takeInstanceLock(root, prd("two"), { range, now: at("2026-10-02T00:00:00Z") });
     if (!one.taken || !two.taken) throw new Error("not taken");
-    expect([one.port, two.port].sort()).toEqual([4790, 4791]);
+    expect([one.port, two.port]).toEqual([range.last, range.first]);
     one.release();
     two.release();
 

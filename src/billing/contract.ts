@@ -24,29 +24,35 @@ export interface Inventory {
 }
 export const emptyInventory = (code: string): Inventory => ({ complete: false, env: {}, sources: {}, helpers: {}, diagnostics: [code] });
 const sources: Source[] = ["user", "project", "local", "flag", "managed"];
-const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-/** Extract only the defined map, with per-key precedence rather than top-level env provenance. */
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const object = (value: unknown): Record<string, unknown> => isRecord(value) ? value : {};
+/** Extract only the defined map, with per-key precedence rather than top-level env provenance. Every object Kiln
+ * reads must be an object when present (technical design, Billing recognition); a wrong type leaves the inventory
+ * incomplete so billing shows Claude Code settings, never Claude subscription. */
 export function extractInventory(raw: unknown): Inventory {
-  const input = object(raw); const effective = object(input.effective);
+  if (!isRecord(raw) || !Array.isArray(raw.sources) || !isRecord(raw.effective) || !raw.sources.every(isRecord)) return emptyInventory("inventory_malformed");
+  const input = raw; const effective = raw.effective;
   const result: Inventory = { complete: true, env: {}, sources: {}, helpers: {}, diagnostics: [] };
-  if (!Array.isArray(input.sources) || !input.effective) return emptyInventory("inventory_malformed");
-  const tiers = input.sources.map(object).sort((a, b) => sources.indexOf(a.source as Source) - sources.indexOf(b.source as Source));
+  const malformed = () => { result.complete = false; result.diagnostics.push("inventory_field_malformed"); };
+  const optionalObject = (value: unknown): Record<string, unknown> => { if (value !== undefined && !isRecord(value)) malformed(); return object(value); };
+  const tiers = (input.sources as Record<string, unknown>[]).slice().sort((a, b) => sources.indexOf(a.source as Source) - sources.indexOf(b.source as Source));
   for (const tier of tiers) {
     if (!sources.includes(tier.source as Source)) { result.complete = false; result.diagnostics.push("inventory_source_unknown"); continue; }
-    const settings = object(tier.settings);
-    for (const key of BILLING_KEYS) if (Object.hasOwn(object(settings.env), key)) result.sources[key] = `${tier.source} settings · ${key}`;
+    const settings = optionalObject(tier.settings); const tierEnv = optionalObject(settings.env);
+    for (const key of BILLING_KEYS) if (Object.hasOwn(tierEnv, key)) result.sources[key] = `${tier.source} settings · ${key}`;
     if (tier.source === "managed" || settings.policyHelper !== undefined) { result.complete = false; result.diagnostics.push("managed_policy_partial"); }
     for (const key of HELPERS) if (Object.hasOwn(settings, key) && typeof settings[key] === "string") result.helpers[key] = { value: settings[key], source: `${tier.source} settings · ${key}` };
   }
-  for (const key of BILLING_KEYS) if (Object.hasOwn(object(effective.env), key)) {
-    const value = object(effective.env)[key];
+  const effectiveEnv = optionalObject(effective.env);
+  for (const key of BILLING_KEYS) if (Object.hasOwn(effectiveEnv, key)) {
+    const value = effectiveEnv[key];
     if (typeof value === "string") result.env[key] = value;
-    else { result.complete = false; result.diagnostics.push("inventory_field_malformed"); }
+    else malformed();
   }
   for (const key of HELPERS) {
     const value = effective[key];
     if (typeof value === "string") result.helpers[key] = { value, source: result.helpers[key]?.source ?? `Claude Code ${key}` };
-    else if (value !== undefined) { result.complete = false; result.diagnostics.push("inventory_field_malformed"); }
+    else if (value !== undefined) malformed();
     else delete result.helpers[key];
   }
   if (effective.policyHelper !== undefined) { result.complete = false; result.diagnostics.push("managed_policy_partial"); }

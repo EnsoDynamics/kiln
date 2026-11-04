@@ -1,5 +1,7 @@
 # Phase 5: Complete billing recognition, compatibility notices and test ports
 
+**Closed:** 2026-11-04
+
 **Added by delivery audit:** 2026-11-04, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln public release readiness](kiln-public-release-readiness-prd.md)
 **Technical design:** [technical design](kiln-public-release-readiness-technical-design.md) — Design Decisions rows Billing recognition, Version comparison, Takeover hook recognition, Compatibility notices, Test ports; Repository, Package and Documentation Changes (CI evidence).
@@ -23,3 +25,9 @@ AC-AGENT-02 (completes it; owned by phase 1), AC-AGENT-04 (completes it; owned b
 ## Phase-specific notes
 - This phase changes product code after the candidate checks ran on release pull request #2, so the release candidate becomes this phase's last commit. AC-CI-02 and AC-CI-03 hold again only once that candidate's development CI and pull request #2's next candidate run end green, recorded as the technical design's CI evidence bullet says (`kiln-public-release-readiness-ci-reruns.md`, the pull request description). The candidate scan is repeated only if the fix touches files other than code and tests.
 - Every push to `develop` reruns the candidate checks on pull request #2. Push only when Doug says so.
+
+## Outcome
+- AC-AGENT-02: `extractInventory` requires the resolver result, `effective` and every source entry to be objects, and `effective.env`, a tier's `settings` and `settings.env` to be objects when present; anything else leaves inventory incomplete (`src/billing/inspection.test.ts`).
+- AC-AGENT-04: an unreadable or failing `claude --version` writes a **Message Claude** and a **Pause & take over** notice giving `unrecognised`, shown as the attempt's live reasons, in the panel and in `kiln status`. A `gate.contract` the checkpoint hook wrote while no controller watched is read when Kiln restarts, from `decideQuietly` for an exited attempt and on each recovered-attempt check for a running one (`src/live/live-compatibility.integration.test.ts`, `src/live/takeover.integration.test.ts`).
+- AC-CI-01: both instance lock tests take their ports from the operating system, and the handoff proof listens on port 0. Its disposable PRD also gained the `## Acceptance Criteria` heading the audit snapshot requires, without which `npm run test:live-proof` already failed before this phase; it passed on Claude Code 2.1.318.
+- Owed once Doug says push: the new candidate's development CI and pull request #2's next candidate run, recorded as the first phase-specific note says. Until then AC-CI-02 and AC-CI-03 rest on the candidate before this phase.

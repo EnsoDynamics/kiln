@@ -275,15 +275,23 @@ it.skipIf(process.platform !== "darwin").each(["complete", "terminal"] as const)
 });
 
 // AC-AGENT-03: live control is offered on every Claude Code at or above the minimum; a version
-// Kiln can't parse gets neither control, with a reason naming the requirement and no version.
-it.skipIf(process.platform !== "darwin")("offers takeover on a newer Claude Code and refuses it before any hold when the version is unrecognised", async () => {
+// Kiln can't parse gets neither control, and AC-AGENT-04's notices name the version as unrecognised.
+it.skipIf(process.platform !== "darwin")("offers takeover on a newer Claude Code and refuses it before any hold, naming the unrecognised version, when the version is unrecognised", async () => {
   const newer = await setup("2.1.999");
   expect(h.engine.liveView()).toMatchObject({ available: true, input: { available: true } });
   expect(h.engine.latestSession("1")!.runs.at(-1)!.live).toMatchObject({ profile: "claude-code-2.1.999/darwin", agentVersion: "2.1.999", messageContract: "unproven", hookContract: "unproven" });
   writeFileSync(newer.release, "done"); await h.engine.settled(); await server?.close(); server = undefined; await h.cleanup();
   const { release, target } = await setup("stand-in");
-  expect(h.engine.liveView()).toMatchObject({ available: false, reason: "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available.", input: { available: false, reason: "Live messages need a supported Claude Code on macOS." } });
+  // Version comparison: an unreadable version turns live control off with a notice per feature (AC-AGENT-04).
+  const detail = "its --version output is not a version Kiln recognises";
+  expect(h.engine.liveView()).toMatchObject({ available: false, reason: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
   expect(h.engine.latestSession("1")!.runs.at(-1)!.live).toBeUndefined();
+  const attemptId = h.engine.latestSession("1")!.runs.at(-1)!.control!.attemptId;
+  expect(h.engine.record.compatibility).toEqual([
+    expect.objectContaining({ feature: "live_messages", agentId: "claude_code", agentVersion: "unrecognised", detail, attemptId }),
+    expect.objectContaining({ feature: "takeover", agentId: "claude_code", agentVersion: "unrecognised", detail, attemptId }),
+  ]);
+  expect(buildSnapshot(h.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause & take over unavailable with Claude Code unrecognised: ${detail}`]);
   expect((await post("live/take-over", { instructionId: "unsupported", target })).status).toBe(409);
   expect(h.engine.record.liveControl).toBeUndefined();
   writeFileSync(release, "done"); await h.engine.settled();

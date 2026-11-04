@@ -788,6 +788,16 @@ export class Engine {
     this.save(); this.changed();
   }
 
+  /**
+   * After a restart no launching controller observes the attempt, so its checkpoint hook's
+   * `gate.contract` is read here, whether the process still runs or has exited (Compatibility
+   * notices row): the notice reaches the record before any later attempt launches.
+   */
+  private observeSavedHookContract(session: SessionRecord | undefined): void {
+    const live = session?.runs.at(-1)?.live;
+    if (session && live) this.observeHookContract(session, live);
+  }
+
   /** Live launch arguments: Claude Code exited at launch naming one; both live features are off for this version. */
   private recordRejectedLiveArgument(live: LiveRunFacts, argument: string): void {
     const observedAt = this.now().toISOString();
@@ -884,6 +894,8 @@ export class Engine {
     const hold = this.record.liveControl?.takeover;
     const run = this.latestSession(target.activityKey)?.runs.at(-1);
     const capable = process.platform === "darwin" && (!!run?.live || this.recoveredLive);
+    // An attempt launched without live control because its Claude Code version was unreadable shows that notice.
+    const unreadVersion = (feature: "live_messages" | "takeover") => !run?.live && this.record.compatibility?.some(one => one.feature === feature && one.agentVersion === "unrecognised" && one.attemptId === target.attemptId) ? liveNoticeReason(this.record, feature) : undefined;
     const messages = this.messageReceipts(target);
     let sealed = true; let gate: GateState | undefined;
     try { gate = run?.live ? readGate(run.live.gateDirectory) : undefined; sealed = !gate || !!gate.sealed; } catch { /* unknown input is unavailable */ }
@@ -894,8 +906,8 @@ export class Engine {
     const uncertain = messages.some(r => r.message?.delivery === "uncertain");
     const submitting = messages.some(r => r.message?.delivery === "submitting");
     const inputAvailable = !submitting && !!run?.live?.literalInput && !messageOff && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
-    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
@@ -922,6 +934,7 @@ export class Engine {
     if (!this.recoveredLive || !this.current?.session) return;
     const session = this.current.session; const key = this.current.phaseKey;
     const run = session.runs.at(-1)!;
+    this.observeSavedHookContract(session);
     try { await requireExited(run); }
     catch { this.changed(); return; }
     // This is an observed exit, never a success or activity completion.
@@ -2719,6 +2732,7 @@ export class Engine {
   }
 
   private async decideQuietly(): Promise<UnderwayDecision> {
+    if (!this.current) this.observeSavedHookContract(this.latestSessionOverall()?.session);
     // A preparation whose phase was marked complete holds nothing (waivers "Mark Complete").
     if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && !this.record.phases[this.record.preparation.phaseId]?.doneAt && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
@@ -3658,6 +3672,15 @@ export class Engine {
           const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
           args = [...args, "--settings", JSON.stringify({ hooks })];
         }
+      } else if (reading?.state !== "below_minimum") {
+        // Version comparison: a version Kiln can't read turns live control off for this attempt
+        // with a notice for each feature, giving the version as `unrecognised` (AC-AGENT-04).
+        const detail = version.exitCode === 0 ? "its --version output is not a version Kiln recognises" : "claude --version failed";
+        const unread = { agentVersion: "unrecognised", attemptId: dispatchedControl!.attempt_id! };
+        const observedAt = this.now().toISOString();
+        let changed = false;
+        for (const feature of ["live_messages", "takeover"] as const) changed = writeNotice(this.record, liveNotice(unread, feature, detail, observedAt)) || changed;
+        if (changed) { this.save(); this.changed(); }
       }
     }
     if (this.record.liveControl) {

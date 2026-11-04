@@ -149,6 +149,14 @@ describe("billing evidence classification", () => {
     expect(viaResolver({ effective: { env: { ANTHROPIC_BASE_URL: 42 } }, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
     expect(viaResolver({ effective: { env: {}, apiKeyHelper: { command: "x" } }, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
     expect(viaResolver(recognised, { ...auth, authMethod: "future_login_method" }).route).toBe("settings");
+    // Objects Kiln reads must be objects: an array, string or number is never read as an empty map (AC-AGENT-02).
+    for (const effective of [[], "settings", 7, true]) expect(viaResolver({ effective, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_malformed"] });
+    for (const raw of [[], "x", null]) expect(viaResolver(raw)).toMatchObject({ route: "settings", diagnostics: ["inventory_malformed"] });
+    expect(viaResolver({ effective: { env: {} }, sources: ["user"] })).toMatchObject({ route: "settings", diagnostics: ["inventory_malformed"] });
+    for (const env of [[], "ANTHROPIC_API_KEY=x", 0]) expect(viaResolver({ effective: { env }, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
+    for (const settings of [[], "s", 1]) expect(viaResolver({ effective: { env: {} }, sources: [{ source: "user", settings }] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
+    for (const env of [[], "e", 1]) expect(viaResolver({ effective: { env: {} }, sources: [{ source: "user", settings: { env } }] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
+    expect(viaResolver({ effective: {}, sources: [{ source: "user" }] })).toMatchObject({ route: "subscription", diagnostics: [] });
   });
   it("reads no inventory from an Agent SDK that doesn't provide the settings resolver, and passes the launch directory to one that does", async () => {
     expect(await resolveInventory({}, "/repo")).toEqual(emptyInventory("inventory_resolver_unavailable"));

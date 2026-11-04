@@ -1633,7 +1633,8 @@ describe("the view against Kiln's own server and engine (AC-VIEW-04, AC-VIEW-06)
       expect(harness.engine.latestSession("1")!.runs).toHaveLength(1);
       expect(await words(page)).not.toContain(flat("Phase 1 verified and accepted"));
       expect(page.problems).toEqual([]);
-      expect(await page.evaluate(`document.querySelector(".command-notice")`)).toBeNull();
+      // No command notice. The stand-in's unparseable version shows the Agent compatibility panel, which isn't one.
+      expect(await page.evaluate(`document.querySelector('.command-notice:not([aria-label="Agent compatibility"])')`)).toBeNull();
     } finally {
       await page.close();
       await server.close();

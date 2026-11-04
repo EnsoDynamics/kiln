@@ -15,7 +15,6 @@ import { readSessionRecord, writeSessionRecord } from '../../dist/state/records.
 import { runSessionProcess, launchArguments } from '../../dist/session/claude-session.js';
 import { runCodexSession } from '../../dist/session/codex-session.js';
 import { startLocalServer } from '../../dist/server/local-server.js';
-import { isPortFree } from '../../dist/state/instance-lock.js';
 
 const agentId = process.argv[2];
 assert.ok(['claude_code', 'codex'].includes(agentId));
@@ -29,7 +28,7 @@ git('remote', 'add', 'origin', join(root, 'origin.git'));
 const directory = 'docs/prds/handoff-proof'; mkdirSync(join(repository, directory), { recursive: true });
 const prompt = readFileSync(new URL('./phase-handoff-proof-prompt.txt', import.meta.url), 'utf8');
 writeFileSync(join(repository, 'AGENTS.md'), prompt); writeFileSync(join(repository, 'CLAUDE.md'), prompt);
-writeFileSync(join(repository, directory, 'handoff-proof-prd.md'), '# PRD: Disposable handoff proof\n\n- [ ] **AC-PROOF-01** Preserve conversation history.\n');
+writeFileSync(join(repository, directory, 'handoff-proof-prd.md'), '# PRD: Disposable handoff proof\n\n## Acceptance Criteria\n\n- [ ] **AC-PROOF-01** Preserve conversation history.\n');
 writeFileSync(join(repository, directory, 'handoff-proof-technical-design.md'), '# Technical design: Disposable handoff proof\nConversation only; the driver owns file writes.\n');
 const phase = join(repository, directory, 'phase-1-conversation.md');
 writeFileSync(phase, '# Phase 1: Conversation\n\n## Acceptance criteria covered\nAC-PROOF-01\n');
@@ -70,8 +69,9 @@ let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
   for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
-  for (let port = 41940; port < 41959; port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
-  assert.ok(server);
+  // The operating system assigns the port, so this proof can't collide with another listener (AC-CI-01).
+  server = await startLocalServer({ engine, port: 0, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token });
+  server.proofOrigin = new URL(server.address).origin;
   const post = async (path, body, expectedStatus = 200) => { const response = await globalThis.fetch(`${server.proofOrigin}/api/${path}`, { method: 'POST', headers: { Origin: server.proofOrigin, 'X-Kiln-Token': record.token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); console.log(JSON.stringify({ path, result })); assert.equal(response.status, expectedStatus, JSON.stringify(result)); return result; };
   assert.equal((await post('resume', { target: engine.phaseRecoveryTarget() })).outcome, 'resume_requested');
   await engine.settled();

@@ -61,7 +61,7 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 // Billing contract qualification is passive and never consumes a scenario.
-if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "stand-in"}\n`); process.exit(0); }
+if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); if (process.env.KILN_STANDIN_VERSION_FAILS) { process.stderr.write("version unavailable\n"); process.exit(1); } process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "stand-in"}\n`); process.exit(0); }
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
 // A waiting stand-in gives up once the test's sandbox is gone, or once the Kiln that launched
 // it is: a test run killed before its cleanup leaves the sandbox behind, and would otherwise

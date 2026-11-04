@@ -5,14 +5,21 @@
 // completes, a later attempt on that version starts without it, another version clears it, and
 // an accepted takeover keeps its hold until the attempt ends. The stand-in runs the packaged
 // checkpoint hook for each tool call, as Claude Code does with --settings.
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, landingSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { canonicalLiveTarget, type LiveTarget } from "./target.js";
 import { readGate } from "./gate.js";
 import type { Receipt } from "../control/commands.js";
+import { git } from "../test-support/git-repositories.js";
+import { isProcessLive } from "../platform/process-start-time.js";
+import { readPrdRecord } from "../state/records.js";
+import { statusCompatibility } from "../engine/compatibility-notices.js";
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
@@ -204,3 +211,76 @@ darwin("Live launch arguments: an exit before the first event that names no live
   expect(h!.engine.record.phases["1"]!.doneAt).toBeUndefined();
   expect(h!.engine.record.phases["1"]!.stop).toBeDefined();
 });
+
+darwin("Version comparison: a failing claude --version launches without live control, names both features with the version unrecognised, and a readable version clears them", async () => {
+  const detail = "claude --version failed";
+  await start("2.1.320", () => [landing("src/one.txt", paused("one")), landing("src/two.txt", paused("two"))], { KILN_STANDIN_VERSION_FAILS: "1" });
+  await waitFor(() => existsSync(file("one-ready")));
+  expect(run("1").live).toBeUndefined();
+  expect(h!.claudeCalls()[0]!.args).not.toContain("--replay-user-messages"); expect(h!.claudeCalls()[0]!.args).not.toContain("--settings");
+  expect(h!.engine.record.compatibility?.map(notice => [notice.feature, notice.agentVersion, notice.detail, notice.attemptId])).toEqual([["live_messages", "unrecognised", detail, run("1").control!.attemptId], ["takeover", "unrecognised", detail, run("1").control!.attemptId]]);
+  expect(h!.engine.liveView()).toMatchObject({ available: false, reason: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
+  await idle(); expect(refusal(submit("take-over", "refused", h!.engine.liveTarget()!))).toEqual({ code: "control_unavailable", message: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.` });
+  expect(buildSnapshot(h!.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause & take over unavailable with Claude Code unrecognised: ${detail}`]);
+  // kiln status reads the saved record, so it names both with the controller stopped.
+  expect(statusCompatibility(readPrdRecord(h!.stateDirectory)!)).toEqual(["live_messages", "takeover"].map(feature => ({ feature, agent: "claude_code", agent_version: "unrecognised", detail, attempt_id: run("1").control!.attemptId, observed_at: expect.any(String) })));
+  // The run keeps working, and an attempt on a version Kiln reads drops both notices and offers live control again.
+  delete h!.env.KILN_STANDIN_VERSION_FAILS;
+  writeFileSync(file("one-release"), "");
+  await waitFor(() => existsSync(file("two-ready")));
+  expect(h!.engine.record.phases["1"]!.doneAt).toEqual(expect.any(String));
+  expect(h!.engine.record.compatibility).toBeUndefined();
+  expect(run("2b").live).toMatchObject({ agentVersion: "2.1.320", messageContract: "unproven", hookContract: "unproven" });
+  writeFileSync(file("two-release"), ""); await h!.engine.settled();
+});
+
+for (const when of ["still running", "exited"] as const) {
+  darwin(`Pause & take over after a restart: a hook input first seen once Kiln has restarted, with the attempt ${when}, writes its notice and marks the attempt's hook contract unrecognised`, async () => {
+    const detail = "PreToolUse hook input had no tool_use_id";
+    h = await createHarness({ sessions: [] }); h.engine.close();
+    // The provider must survive the killed controller, but not its owning test worker.
+    Object.assign(h.env, { KILN_STANDIN_VERSION: "2.1.320", KILN_STANDIN_HOOK_MUTATION: "no-tool-use-id", KILN_STANDIN_OWNER_PID: String(process.pid) });
+    mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [...paused("one"), { bash: `echo FIRST > ${JSON.stringify(file("first.txt"))}` }, ...paused("two"), { result: "Done after the restart." }] }] }));
+    // A controller in its own process, so it can die without observing the hook's gate write.
+    const optionsPath = file("controller-options.json");
+    writeFileSync(optionsPath, JSON.stringify({ paths: h.engine.paths, tools: h.tools, record: h.engine.record, stateDirectory: h.stateDirectory, prdTree: git(h.sandbox, h.repository, "rev-parse", "HEAD:docs/prds/customer-returns").trim() }), { mode: 0o600 });
+    const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url));
+    const code = `import{readFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();const result=await engine.start({refinementConfirmed:true});if(!result.ok)throw new Error(JSON.stringify(result));`;
+    const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit");
+    let diagnostic = ""; controller.stderr!.on("data", chunk => { diagnostic += String(chunk); });
+    try {
+      await waitFor(() => { if (controller.exitCode !== null) throw new Error(diagnostic || `Controller exited ${controller.exitCode}`); return existsSync(file("one-ready")); }, 30000);
+      controller.kill("SIGKILL"); await exited;
+      const key = readPrdRecord(h.stateDirectory)!.activities!.find(a => a.kind === "implementation")!.key;
+      const saved = () => h!.engine.sessionRecord(key, readPrdRecord(h!.stateDirectory)!.phases[key]!.sessionIds.at(-1)!)!.runs.at(-1)!;
+      const attempt = saved();
+      expect(attempt.live).toMatchObject({ agentVersion: "2.1.320", hookContract: "unproven" });
+      // The checkpoint hook meets the unrecognised input with no controller watching: before the
+      // restart for an attempt that then exits, after it for one Kiln recovers still running.
+      const hookMeetsInput = async () => {
+        writeFileSync(file("one-release"), "");
+        await waitFor(() => existsSync(file("two-ready")));
+        expect(readGate(attempt.live!.gateDirectory).contract).toMatchObject({ state: "unrecognised", detail });
+      };
+      if (when === "exited") {
+        await hookMeetsInput();
+        expect(readPrdRecord(h.stateDirectory)!.compatibility).toBeUndefined();
+        writeFileSync(file("two-release"), ""); await waitFor(async () => !await isProcessLive(attempt.pid!, attempt.processStartTime));
+      }
+      h.engine = h.reopenFromDisk(); await h.engine.prepare(); await h.engine.decide();
+      if (when === "still running") {
+        expect(h.engine.record.compatibility).toBeUndefined();
+        await hookMeetsInput();
+      }
+      await waitFor(() => saved().live?.hookContract === "unrecognised");
+      const notice = { feature: "takeover", agentId: "claude_code", agentVersion: "2.1.320", detail, attemptId: attempt.live!.attemptId };
+      expect(h.engine.record.compatibility).toEqual([expect.objectContaining(notice)]);
+      // Saved, so the panel and kiln status name it with the controller stopped.
+      expect(readPrdRecord(h.stateDirectory)!.compatibility).toEqual([expect.objectContaining(notice)]);
+      expect(statusCompatibility(readPrdRecord(h.stateDirectory)!)).toEqual([expect.objectContaining({ feature: "takeover", agent: "claude_code", agent_version: "2.1.320", detail })]);
+      expect(buildSnapshot(h.engine).compatibility).toEqual([`Pause & take over unavailable with Claude Code 2.1.320: ${detail}`]);
+      if (when === "still running") { writeFileSync(file("two-release"), ""); await waitFor(async () => !await isProcessLive(attempt.pid!, attempt.processStartTime)); }
+    } finally { if (controller.exitCode === null && controller.signalCode === null) controller.kill("SIGKILL"); await exited; }
+  });
+}
