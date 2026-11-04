@@ -2,7 +2,25 @@
   "name": "@ensodynamics/kiln",
   "version": "1.0.0",
   "description": "Runs an Enso Method phase plan with Claude Code or Codex, Git completion checks and a local browser view.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "ai-agents",
+    "coding-agents",
+    "enso-method",
+    "prd",
+    "automation",
+    "cli"
+  ],
+  "homepage": "https://ensomethod.org/kiln/",
+  "bugs": {
+    "url": "https://github.com/EnsoDynamics/kiln/issues"
+  },
   "license": "MIT",
+  "author": {
+    "name": "Enso Dynamics",
+    "email": "doug@ensodynamics.com"
+  },
   "type": "module",
   "bin": {
     "kiln": "dist/cli.js"
@@ -23,7 +41,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && vite build --config view/vite.config.ts --logLevel warn",
+    "build": "node scripts/clean-build-output.mjs && tsc -p tsconfig.build.json && vite build --config view/vite.config.ts --logLevel warn",
     "prepack": "npm run build",
     "lint": "eslint",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig view/tsconfig.json --threshold warning",

@@ -1,0 +1,54 @@
+name: Bug report
+description: Kiln did something wrong or broke.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please redact credentials, account emails and anything confidential from your project. For a suspected security vulnerability, email doug@ensodynamics.com instead of opening an issue (see SECURITY.md).
+  - type: input
+    id: kiln-version
+    attributes:
+      label: Kiln version
+      description: The output of `kiln --version`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Codex
+        - Both
+        - Not related to an agent
+    validations:
+      required: true
+  - type: input
+    id: agent-version
+    attributes:
+      label: Agent version
+      description: The output of `claude --version` or `codex --version`. Leave it empty if the problem isn't related to an agent.
+    validations:
+      required: false
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: For example macOS 15.5, Ubuntu 24.04 or Windows 11.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what Kiln did, and any message it showed. `kiln status <PRD-path>` output helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true

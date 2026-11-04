@@ -21,3 +21,12 @@ Test port fixes, the candidate scan, green candidate CI and the candidate checks
 - AC-NOTES-01's proof by the release pull request's checks lands with that run in Phase 4; this phase proves the workflow definition and the preflight.
 - Branch deletion (AC-REPO-05) stops for Doug on any branch the PRD doesn't name or that isn't verified merged or equivalent.
 - What Phase 2 left for the README's `test:live-proof` paragraph and live messaging description (AC-SYNC-01, 02): the tier runs on any Claude Code at or above the minimum on macOS. Under `npm run`, `claude` resolves to the development dependency pinned at the minimum, so `KILN_LIVE_PROOF_CLAUDE=<path>` names another installed CLI. The first run on a version records its message and hook contract fixtures in `test/fixtures/live-control/`, and the offline integration suite replays every recorded contract. The `kiln message` and `kiln take-over` contract text in `prompts/kiln-command-contracts.json` already names no version.
+
+## Pending human actions
+- Doug: delete the ten branches the [candidate scan's branch list](kiln-public-release-readiness-candidate-scan.md#remote-branches-ac-repo-05) marks for deletion, and the two abandoned branches' local worktrees and branches (AC-REPO-05). The session's `git push origin --delete` was refused by the agent's permission classifier as a destructive Git action. Every branch was verified merged into `develop` or is named abandoned in the PRD, none has an open pull request, and both worktrees are clean. From the kiln checkout:
+  ```sh
+  git push origin --delete feat/resume-overview feature/codex-cleanup-diagnostics feature/codex-compaction-recovery feature/usage-resume-countdown feature/wait-for-subprocesses feature/workspace-uncertainty fix/claude-optional-five-hour-limit wt/early-merge-authorization feature/ui-clarity wt/completiona-kiln-design
+  git worktree remove ../.worktrees/ui-clarity-kiln/kiln && git worktree remove ../.worktrees/completiona-kiln-design/kiln
+  git branch -D feature/ui-clarity wt/completiona-kiln-design
+  ```
+  Once done, add `**Closed:**` under this phase's title; every other criterion is verified.

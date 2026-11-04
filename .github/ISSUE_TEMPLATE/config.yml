@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/EnsoDynamics/kiln/blob/main/SECURITY.md
+    about: Email doug@ensodynamics.com rather than opening a public issue.

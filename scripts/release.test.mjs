@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { afterEach, test } from 'node:test';
 import { parse } from 'yaml';
-import { checkRelease, compareVersions, installHooks, metadata, packageName, prepareRelease, publishedVersions, publishingReadiness, versionParts } from './release.mjs';
+import { checkRelease, compareVersions, installHooks, metadata, packageName, prepareRelease, publishedVersions, publishingReadiness, releaseNotesPath, versionParts } from './release.mjs';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cleanups = [];
@@ -94,9 +94,13 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-function writeVersion(root, version) {
+function writeVersion(root, version, notes = `# Kiln ${version}\n\nWhat changed.\n`) {
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: packageName, version, publishConfig: { access: 'public' }, repository: { url: 'git+https://github.com/EnsoDynamics/kiln.git' } }));
   writeFileSync(join(root, 'package-lock.json'), JSON.stringify({ name: packageName, version, lockfileVersion: 3, packages: { '': { name: packageName, version } } }));
+  if (notes === null) return ['package.json', 'package-lock.json'];
+  mkdirSync(join(root, 'docs/release/notes'), { recursive: true });
+  writeFileSync(join(root, releaseNotesPath(version)), notes);
+  return ['package.json', 'package-lock.json', releaseNotesPath(version)];
 }
 
 function fixture(version = '1.0.0') {
@@ -105,13 +109,11 @@ function fixture(version = '1.0.0') {
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Release fixture');
   git(root, 'config', 'user.email', 'fixture@example.test');
-  if (version) writeVersion(root, version); else writeFileSync(join(root, 'initial.txt'), 'Before application scaffolding.');
-  git(root, 'add', '--', ...(version ? ['package.json', 'package-lock.json'] : ['initial.txt']));
+  git(root, 'add', '--', ...(version ? writeVersion(root, version) : (writeFileSync(join(root, 'initial.txt'), 'Before application scaffolding.'), ['initial.txt'])));
   git(root, 'commit', '-m', 'Initial release fixture');
   const base = git(root, 'rev-parse', 'HEAD');
-  const save = next => {
-    writeVersion(root, next);
-    git(root, 'add', '--', 'package.json', 'package-lock.json');
+  const save = (next, notes) => {
+    git(root, 'add', '--', ...writeVersion(root, next, notes));
     git(root, 'commit', '-m', `Prepare ${next}`);
     return git(root, 'rev-parse', 'HEAD');
   };
@@ -185,6 +187,35 @@ test('accepts an advanced version and rejects duplicates, regression and existin
   await assert.rejects(checkRelease({ root: f.root, registryUrl: later.url }), /newer than every/);
   git(f.root, 'tag', 'v1.0.1');
   await assert.rejects(checkRelease({ root: f.root, registryUrl: npm.url }), /already exists/);
+});
+
+// AC-NOTES-02: a version without written notes is refused before the registry or any platform check.
+test('rejects a version with missing or empty release notes before consulting the registry', async () => {
+  for (const notes of [null, '', ' \n\t\n']) {
+    const f = fixture(); f.save('1.0.1', notes);
+    const npm = await registry({ body: { name: packageName, versions: { '1.0.0': {} } } });
+    await assert.rejects(checkRelease({ root: f.root, base: f.base, registryUrl: npm.url }), new RegExp(`no written release notes\\. Write ${releaseNotesPath('1.0.1').replace(/\./g, '\\.')}`));
+    assert.equal(npm.requests(), 0);
+  }
+  // Notes only in the working tree do not count: the check reads the candidate commit.
+  const f = fixture(); f.save('1.0.1', null);
+  writeFileSync(join(f.root, releaseNotesPath('1.0.1')), '# Kiln 1.0.1\n');
+  await assert.rejects(checkRelease({ root: f.root, base: f.base, registryUrl: (await registry()).url }), /no written release notes/);
+  const done = fixture(); done.save('1.0.1');
+  assert.equal((await checkRelease({ root: done.root, base: done.base, registryUrl: (await registry({ body: { name: packageName, versions: { '1.0.0': {} } } })).url })).notesPath, releaseNotesPath('1.0.1'));
+});
+
+test('the release workflow publishes the written notes instead of generating them, and the repository has notes for its version', () => {
+  const release = parse(readFileSync(join(sourceRoot, '.github/workflows/release.yml'), 'utf8'));
+  const create = release.jobs.publish.steps.find(step => step.run?.startsWith('gh release create '));
+  assert.ok(create);
+  assert.doesNotMatch(create.run, /--generate-notes/);
+  assert.match(create.run, /--notes-file "docs\/release\/notes\/kiln-release-notes-\$RELEASE_VERSION\.md"/);
+  assert.equal(releaseNotesPath('$RELEASE_VERSION'), 'docs/release/notes/kiln-release-notes-$RELEASE_VERSION.md');
+  const checkout = release.jobs.publish.steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
+  assert.ok(checkout >= 0 && checkout < release.jobs.publish.steps.indexOf(create), 'the notes file is read from the release commit checked out before the release is created');
+  const { version } = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8'));
+  assert.ok(readFileSync(join(sourceRoot, releaseNotesPath(version)), 'utf8').trim());
 });
 
 test('registry failures and unexpected contracts never imply an unpublished version', async () => {

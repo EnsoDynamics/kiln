@@ -81,4 +81,4 @@ jobs:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
           CHECKSUM_FILE: ${{ runner.temp }}/kiln-package/SHA256SUMS
-        run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --generate-notes
+        run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --notes-file "docs/release/notes/kiln-release-notes-$RELEASE_VERSION.md"

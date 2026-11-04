@@ -83,6 +83,8 @@ New controller startup upgrades saved records under the existing exclusive PRD l
 
 ### Discovering commands
 
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Text help (`kiln --help` is a grouped one-screen guide rather than the whole command tree, and the bot guidance leaves top-level text help; `kiln --help --json` and per-command help keep both).
+
 - `kiln` prints a short description, `Use kiln --help to see commands; kiln <command> --help for complete details.`, then exits 2 without starting work.
 - `kiln --help` and `kiln -h` exit 0 with the command tree, one-line purposes, read/change distinction, common flags and directions to detailed help. Include existing `run`, `add-repository`, `audit` and `delivery`, their actual subcommands and context requirements (`audit status/snapshot/submit`; `delivery status/assess/prepare/evidence`). An unknown command/flag prints a specific error and the appropriate help invocation, exit 2.
 - Every command and nested group supports `--help`/`-h` without Git, saved state, a controller, provider sign-in, network or TTY. Detailed command help is complete; no `--verbose-help` flag is needed. Root/group help points to each leaf.

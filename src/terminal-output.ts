@@ -28,25 +28,6 @@ export function terminalColors(stream: { isTTY?: boolean }, env: NodeJS.ProcessE
   };
 }
 
-export const USAGE = [
-  "Usage: kiln run <PRD directory or PRD file> [--resume]",
-  "       kiln add-repository <folder name>",
-  "       kiln delivery status | assess|prepare|evidence <JSON file>",
-  "",
-  "  kiln run opens one PRD for review; --resume immediately continues started work.",
-  "  The path is one PRD's directory,",
-  "  docs/prds/<name>/ or docs/changes/<name>/, or the PRD file in it. Everything",
-  "  else happens in the browser view.",
-  "",
-  "  kiln add-repository, run from a PRD's workspace while kiln run works on it,",
-  "  adds the repository of that folder name beside the PRD's repository to the",
-  "  workspace, on the feature branch, and prints where its worktree is.",
-  "",
-  "  kiln delivery reads saved execution authority and records bounded delivery",
-  "  assessments, operation intents and independently checked evidence. Run it",
-  "  inside the assigned workspace. It cannot grant authority or execute delivery.",
-].join("\n");
-
 /**
  * The start-check failure, as drawn:
  *

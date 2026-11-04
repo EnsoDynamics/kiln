@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { commandText, ControlFailure } from "./result.js";
+export type CommandGroup = "start" | "answer" | "live" | "inspect" | "kiln-sessions";
 export interface CommandContract {
-  path: string[]; purpose: string; side_effect: string; implemented: boolean; availability: string; usage: string;
+  path: string[]; group: CommandGroup; purpose: string; side_effect: string; implemented: boolean; availability: string; usage: string;
   arguments: { name: string; required: boolean; source: string }[];
   flags: Record<string, { value: string | null; source: string; repeatable?: boolean }>;
   required_exclusive_groups: { exactly_one?: string[]; required?: string[] }[];
@@ -16,8 +17,7 @@ export function commandHelp(path: string[], json: boolean): string {
   if (path.length && !contract) throw new ControlFailure("command_not_found", "Unknown command. Use kiln --help.", 2);
   const data = path.length ? { schema_version: "1", command: contract, subcommands: commandContracts.filter(c => c.path.length > path.length && path.every((p, i) => c.path[i] === p)), guidance: reference.guidance } : reference;
   if (json) return `${JSON.stringify(data)}\n`;
-  const selected = path.length ? [contract!] : commandContracts;
-  if (!path.length) return `Kiln — inspect existing work and run an Enso Method plan.\nUse kiln <command> --help for complete details.\n\n${selected.map(c => `${c.path.join(" ")} — ${c.purpose} [${c.availability}]`).join("\n")}\n\nCommon flags: --help (-h), --json. Existing helpers retain their execution formats.\n${reference.guidance}\n`;
+  if (!path.length) return topLevelHelp();
   const c = contract!;
   return [c.usage, c.purpose, `Availability: ${c.availability}`, `Side effects: ${c.side_effect}`,
     ...c.arguments.map(a => `${a.name}${a.required ? " (required)" : " (optional)"}: ${a.source}`),
@@ -29,6 +29,37 @@ export function commandHelp(path: string[], json: boolean): string {
     ...c.examples.flatMap(e => [`Request: ${e.request}`, ...(e.preparation ? [`Preparation: ${e.preparation}`] : []), ...Object.entries(e.files ?? {}).map(([path, content]) => `File ${path}:\n${JSON.stringify(content, null, 2)}`), `Invocation: ${commandText(e.argv)}`, `Invocation argv: ${JSON.stringify(e.argv)}`, ...(e.stdin ? [`Standard input: ${e.stdin}`] : [])]),
     ...commandContracts.filter(child => child.path.length > c.path.length && c.path.every((p, i) => child.path[i] === p)).map(child => `Subcommand: kiln ${child.path.join(" ")} --help`), reference.guidance, ""].join("\n");
 }
+/** The task headings of top-level text help, in the order they print; `start` and `kiln-sessions` print as lines of their own. */
+const TASK_HEADINGS: [CommandGroup, string][] = [["answer", "Answer a stopped phase"], ["live", "Message, pause or take over"], ["inspect", "Look closer"]];
+
+/**
+ * Top-level text help: a one-screen guide for people (AC-HELP-01). The full reference, helpers
+ * included, stays in `kiln --help --json` and `kiln <command> --help` (AC-HELP-02).
+ *
+ *   Kiln runs an Enso Method phase plan with Claude Code or Codex.
+ *
+ *   Start:        kiln run <PRD-path>
+ *   See work:     kiln status
+ *   …
+ */
+function topLevelHelp(): string {
+  const names = (group: CommandGroup) => commandContracts.filter(c => c.group === group).map(c => c.path.join(" "));
+  const helpers = commandContracts.filter(c => c.group === "kiln-sessions" && c.side_effect !== "group").length;
+  return [
+    "Kiln runs an Enso Method phase plan with Claude Code or Codex.",
+    "",
+    "Start:        kiln run <PRD-path>",
+    "See work:     kiln status",
+    "",
+    ...TASK_HEADINGS.flatMap(([group, heading]) => [heading, `  ${names(group).join(", ")}`]),
+    "",
+    "Use kiln <command> --help for what a command does and its flags.",
+    `Used by Kiln's sessions: ${helpers} helper commands (kiln <command> --help for each).`,
+    "Bots and scripts: kiln --help --json lists every command with full metadata.",
+    "",
+  ].join("\n");
+}
+
 export interface ParsedCommand { contract: CommandContract; positionals: string[]; flags: Record<string, string | true | string[]> }
 export function parseCommand(args: string[]): ParsedCommand {
   const contract = [...commandContracts].sort((a, b) => b.path.length - a.path.length).find(c => c.path.every((p, i) => args[i] === p));

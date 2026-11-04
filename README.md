@@ -25,11 +25,12 @@ Kiln is optional. Everything it does, a person can do by hand with the same skil
 | Node.js | 22.15 or later |
 | Git | 2.29 or later |
 | [GitHub CLI](https://cli.github.com/) | Signed in to github.com (`gh auth login`). The repository's `origin` must be on GitHub. |
-| An agent | [Claude Code](https://docs.claude.com/en/docs/claude-code) signed in, or Codex (stable `codex-cli` 0.162.1 or later) signed in through ChatGPT |
+| An agent | [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.311 or later, signed in, or Codex 0.162.1 or later, signed in through ChatGPT |
+| PowerShell | 7.5.2 or later, for Codex on Windows only |
 | [Enso Method](https://github.com/EnsoDynamics/enso-method#get-started) skills | Installed in that agent |
 | Platform | macOS is validated. Linux and Windows are best effort; please [open an issue](https://github.com/EnsoDynamics/kiln/issues) if something breaks. |
 
-Codex details and limits are in [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
+Kiln accepts every version at or above these minimums and checks them before it starts work. If a newer Claude Code or Codex changes what **Message Claude**, **Pause & take over** or Codex command evidence relies on, that feature turns off with a compatibility notice in the browser view and `kiln status`, and the rest of the run carries on. Billing details Kiln doesn't recognise show the neutral **Claude Code settings** summary instead ([Billing](#billing)). Codex details and limits are in [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
 
 ## Install
 
@@ -147,6 +148,7 @@ A few things worth knowing:
 - **Several repositories.** When a PRD spans repositories, each gets its own worktree, feature branch and pull request.
 - **Pause.** **Pause after this phase** lets the current phase finish, commit and push, then starts nothing new until you press Start.
 - **Watch live.** Follow each tool call and message as it happens, with the session's model, effort and commits, and your account's usage beside it.
+- **Message or take over.** On macOS with Claude Code 2.1.311 or later, **Message Claude** sends the running session a note it reads at its next opportunity, and **Pause & take over** stops it at the next safe point so you can carry on in that conversation yourself. Kiln asks Claude Code to take each message as plain text but can't guarantee how every version handles it. If Kiln stops recognising what a newer Claude Code sends back, that control turns off with a compatibility notice and the phase carries on.
 
 Completion checks use the assigned worktrees' Git state and the audit and delivery receipts. Other checkouts and worktrees can change normally while Kiln runs.
 
@@ -216,6 +218,10 @@ Codex requires ChatGPT sign-in and the OpenAI provider before every launch and r
 
 For anything else, `kiln status <PRD-path>` shows the full state of a run, and issues are welcome on [GitHub](https://github.com/EnsoDynamics/kiln/issues).
 
+## Contributing
+
+Issues, feedback and forks are welcome; pull requests generally aren't accepted. [CONTRIBUTING](CONTRIBUTING.md) explains why, and [SECURITY](SECURITY.md) says how to report a vulnerability privately.
+
 ## Documentation
 
 - [Kiln v1 PRD](docs/prds/kiln-v1/kiln-v1-prd.md), what v1 delivers and its acceptance criteria. Later changes are in [docs/changes](docs/changes/) and [docs/prds](docs/prds/).
@@ -227,7 +233,7 @@ Kiln was built with the Enso Method, so its own requirements, designs and phase 
 
 ## Development
 
-Requires Node 22.15 or later and Git 2.29 or later.
+Requires Node.js 22.15 or later and Git 2.29 or later.
 
 ```sh
 npm install
@@ -246,7 +252,7 @@ npm install -g ./ensodynamics-kiln-*.tgz
 
 Development CI runs audit, lint, types, unit and contract tests, build and pack on Ubuntu. Release candidates also require full macOS verification with installation of the exact candidate archive, plus Windows build and pack. Run `npm run hooks:install` in the shared checkout for the local version gate, and `npm run release:prepare` before a release merge. Approved releases on `main` publish the checked archive to npm and attach it to a GitHub Release, as described in [Kiln npm release setup and operation](docs/release/kiln-npm-release-steps.md).
 
-`npm run test:live-proof` is the authenticated live control tier. It requires macOS, Claude Code 2.1.311 and a signed-in account, and fails when those are unavailable. It creates disposable conversations and local Git repositories to check live input, fresh turn context, checkpoint yield and terminal hand-back. It spends model usage and runs separately from credential-free CI. The normal offline integration suite checks the packaged hook, real process ownership and a recorded provider message contract without a fresh model run.
+`npm run test:live-proof` is the authenticated live control tier. It runs on macOS with Claude Code 2.1.311 or later and a signed-in account, and fails when those are unavailable. Under `npm run`, `claude` resolves to the development dependency pinned at the minimum, so set `KILN_LIVE_PROOF_CLAUDE=<path>` to prove another installed Claude Code. It creates disposable conversations and local Git repositories to check live input, fresh turn context, checkpoint yield and terminal hand-back. The first run on a Claude Code version records its message and hook contract fixtures in `test/fixtures/live-control/`. It spends model usage and runs separately from credential-free CI. The normal offline integration suite checks the packaged hook, real process ownership and every recorded message and hook contract without a fresh model run.
 
 ## License
 

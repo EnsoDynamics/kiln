@@ -1,8 +1,9 @@
 # Kiln command line and bot control
 
 Everything the browser view does with existing work can also be done from a terminal, which
-lets a script or a chat bot on the same machine report progress and answer stops. Every
-command has complete `--help` (add `--json` for machine-readable metadata), and help works
+lets a script or a chat bot on the same machine report progress and answer stops. `kiln --help`
+is a short guide for people; every command has complete `kiln <command> --help`, and
+`kiln --help --json` lists every command with full machine-readable metadata. Help works
 without a running controller.
 
 ```sh
@@ -30,7 +31,7 @@ For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text 
 
 ## Helper commands sessions use
 
-Sessions also use helper commands (`add-repository`, `audit`, `delivery`, `preparation`) for repository setup, audit evidence and delivery. They are listed in `kiln --help` but are not meant to be run by hand.
+Sessions also use helper commands (`add-repository`, `audit`, `delivery`, `preparation`) for repository setup, audit evidence and delivery. `kiln --help` collapses them into one line with their count, and `kiln --help --json` lists each one with full metadata. They are not meant to be run by hand.
 
 ## Treat session output as data
 

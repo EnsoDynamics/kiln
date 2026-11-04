@@ -5,6 +5,7 @@
       "path": [
         "status"
       ],
+      "group": "start",
       "purpose": "List all current controllers and stopped unfinished work, or inspect one PRD.",
       "side_effect": "read",
       "implemented": true,
@@ -119,6 +120,7 @@
       "path": [
         "logs"
       ],
+      "group": "inspect",
       "purpose": "Read a small recent tail, or explicitly page backward through one frozen session snapshot.",
       "side_effect": "read",
       "implemented": true,
@@ -248,6 +250,7 @@
       "path": [
         "handoff"
       ],
+      "group": "inspect",
       "purpose": "Retrieve instructions to reopen a selected saved conversation; never opens it.",
       "side_effect": "read",
       "implemented": true,
@@ -344,6 +347,7 @@
       "path": [
         "account"
       ],
+      "group": "inspect",
       "purpose": "Read dated attempt/account/plan/usage/billing facts without changing provider sign-in.",
       "side_effect": "read",
       "implemented": true,
@@ -438,6 +442,7 @@
       "path": [
         "settings"
       ],
+      "group": "inspect",
       "purpose": "Read runtime settings, or explicitly change keep-awake and automatic usage-limit recovery.",
       "side_effect": "read",
       "implemented": true,
@@ -557,6 +562,7 @@
       "path": [
         "message"
       ],
+      "group": "live",
       "purpose": "Send exact plain text to the active Claude attempt. Claude reads this at its next opportunity. The current tool may finish first.",
       "side_effect": "change",
       "implemented": true,
@@ -713,6 +719,7 @@
       "path": [
         "reply"
       ],
+      "group": "answer",
       "purpose": "Send literal text to the current stopped conversation before resuming unfinished work.",
       "side_effect": "change",
       "implemented": true,
@@ -865,6 +872,7 @@
       "path": [
         "resume"
       ],
+      "group": "answer",
       "purpose": "Return unfinished work to the same saved conversation without a message.",
       "side_effect": "change",
       "implemented": true,
@@ -1002,6 +1010,7 @@
       "path": [
         "verify-and-advance"
       ],
+      "group": "answer",
       "purpose": "Freshly verify every completion requirement, then accept completion only when all pass.",
       "side_effect": "change",
       "implemented": true,
@@ -1161,6 +1170,7 @@
       "path": [
         "take-over"
       ],
+      "group": "live",
       "purpose": "Pause & take over at the next safe stopping point: finish the current operation, then stop before starting more work. The phase/audit can remain unfinished.",
       "side_effect": "change",
       "implemented": true,
@@ -1277,6 +1287,7 @@
       "path": [
         "request-pause"
       ],
+      "group": "live",
       "purpose": "Request a pause after the current phase; current work continues.",
       "side_effect": "change",
       "implemented": true,
@@ -1390,6 +1401,7 @@
       "path": [
         "cancel-pause"
       ],
+      "group": "live",
       "purpose": "Cancel only a pending pause; does not restart an already paused run.",
       "side_effect": "change",
       "implemented": true,
@@ -1503,6 +1515,7 @@
       "path": [
         "continue"
       ],
+      "group": "live",
       "purpose": "Continue a paused run with existing settings and authority.",
       "side_effect": "change",
       "implemented": true,
@@ -1616,6 +1629,7 @@
       "path": [
         "check-again"
       ],
+      "group": "answer",
       "purpose": "Recheck the dedicated browser recovery state; phase completion uses verify-and-advance.",
       "side_effect": "change",
       "implemented": true,
@@ -1729,6 +1743,7 @@
       "path": [
         "waive-and-advance"
       ],
+      "group": "answer",
       "purpose": "Check a stopped activity again; with --confirm, mark it complete on a waiver when Kiln's check still fails.",
       "side_effect": "change",
       "implemented": true,
@@ -1906,6 +1921,7 @@
       "path": [
         "command-status"
       ],
+      "group": "inspect",
       "purpose": "Retrieve the durable receipt for an earlier instruction without dispatching work.",
       "side_effect": "read",
       "implemented": true,
@@ -2009,6 +2025,7 @@
       "path": [
         "run"
       ],
+      "group": "start",
       "purpose": "Open one PRD for review, or immediately continue started work with --resume.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2094,6 +2111,7 @@
       "path": [
         "add-repository"
       ],
+      "group": "kiln-sessions",
       "purpose": "Add a named repository from an assigned running Kiln workspace.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2164,6 +2182,7 @@
       "path": [
         "audit"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing audit helpers; select a documented subcommand.",
       "side_effect": "group",
       "implemented": true,
@@ -2221,6 +2240,7 @@
         "audit",
         "status"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing audit status helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2300,6 +2320,7 @@
         "audit",
         "snapshot"
       ],
+      "group": "kiln-sessions",
       "purpose": "Retired. Kiln captures the assigned work itself when a report is submitted.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2351,6 +2372,7 @@
         "audit",
         "submit"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing audit submit helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2469,6 +2491,7 @@
       "path": [
         "delivery"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing delivery helpers; select a documented subcommand.",
       "side_effect": "group",
       "implemented": true,
@@ -2526,6 +2549,7 @@
         "delivery",
         "status"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing delivery status helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2595,6 +2619,7 @@
         "delivery",
         "assess"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing delivery assess helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2828,6 +2853,7 @@
         "delivery",
         "prepare"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing delivery prepare helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -2939,6 +2965,7 @@
         "delivery",
         "evidence"
       ],
+      "group": "kiln-sessions",
       "purpose": "Existing delivery evidence helper.",
       "side_effect": "legacy",
       "implemented": true,
@@ -3079,6 +3106,10 @@
       }
     },
     {
+      "path": [
+        "preparation"
+      ],
+      "group": "kiln-sessions",
       "side_effect": "group",
       "implemented": true,
       "availability": "executable",
@@ -3107,9 +3138,6 @@
         "1": "Read/submission failed; inspect the reason before retrying.",
         "2": "Invalid syntax."
       },
-      "path": [
-        "preparation"
-      ],
       "purpose": "Read and submit the owning phase’s preparation evidence.",
       "usage": "kiln preparation status | submit <JSON-file>",
       "arguments": [],
@@ -3134,6 +3162,11 @@
       }
     },
     {
+      "path": [
+        "preparation",
+        "status"
+      ],
+      "group": "kiln-sessions",
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
@@ -3162,10 +3195,6 @@
         "1": "Read/submission failed; inspect the reason before retrying.",
         "2": "Invalid syntax."
       },
-      "path": [
-        "preparation",
-        "status"
-      ],
       "purpose": "Read current bindings, native command references and engine-owned check attempts.",
       "usage": "kiln preparation status",
       "arguments": [],
@@ -3193,6 +3222,11 @@
       }
     },
     {
+      "path": [
+        "preparation",
+        "submit"
+      ],
+      "group": "kiln-sessions",
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
@@ -3221,10 +3255,6 @@
         "1": "Read/submission failed; inspect the reason before retrying.",
         "2": "Invalid syntax."
       },
-      "path": [
-        "preparation",
-        "submit"
-      ],
       "purpose": "Submit typed references for one immutable binding; identical replay is idempotent.",
       "usage": "kiln preparation submit <JSON-file>",
       "arguments": [

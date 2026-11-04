@@ -130,12 +130,33 @@ describe("the installed package", () => {
     expect(typeof evidence.auditCodexConversation).toBe("function");
   });
 
-  it("puts kiln on the PATH, which prints how to use it", async () => {
+  it("puts kiln on the PATH, which prints how to use it and its version", async () => {
     const help = collect(runInstalled(["--help"], sandbox.root));
     expect(await help.exit).toBe(0);
-    expect(help.text()).toContain("Use kiln <command> --help");
-    expect(help.text()).toContain("status —");
-    expect(help.text()).toContain("audit —");
+    expect(help.text()).toContain("Start:        kiln run <PRD-path>");
+    expect(help.text()).toContain("Bots and scripts: kiln --help --json");
+    const version = collect(runInstalled(["--version"], sandbox.root));
+    expect(await version.exit).toBe(0);
+    expect(version.text()).toBe(`${(JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version}\n`);
+  });
+
+  // AC-PKG-02: no source maps, and no JavaScript pointing at one.
+  it("ships no source maps and no references to them", () => {
+    expect(packedFiles.filter((path) => path.endsWith(".map"))).toEqual([]);
+    const scripts = packedFiles.filter((path) => /\.(?:m?js|cjs)$/.test(path));
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const path of scripts) expect(readFileSync(join(installedPackage, path), "utf8"), path).not.toMatch(/sourceMappingURL/);
+  });
+
+  // AC-PKG-01: the package page links home, to issues, and names its author and keywords.
+  it("carries its homepage, issue link, author and keywords", () => {
+    const installed = JSON.parse(readFileSync(join(installedPackage, "package.json"), "utf8")) as Record<string, unknown>;
+    expect(installed).toMatchObject({
+      homepage: "https://ensomethod.org/kiln/",
+      bugs: { url: "https://github.com/EnsoDynamics/kiln/issues" },
+      author: { name: "Enso Dynamics", email: "doug@ensodynamics.com" },
+    });
+    expect(installed.keywords).toEqual(expect.arrayContaining(["claude-code", "codex", "ai-agents", "enso-method"]));
   });
 
   it("ships inspection and complete structured help usable from an unrelated directory", async () => {
@@ -198,12 +219,15 @@ describe("the installed package", () => {
       const child = spawnSync(process.execPath, [join(installedPackage, "dist/cli.js"), ...path, "--help", ...(json ? ["--json"] : [])], { cwd: sandbox.root, env: { ...sandbox.env, PATH: "" }, encoding: "utf8" });
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
-    const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string }[];
+    const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string; group: string; side_effect: string }[];
     const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit"];
     expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
+    // AC-HELP-01/02: root text names each people-facing command and counts the sessions' helpers;
+    // the JSON and per-command help keep every command with its purpose.
     const root = help([]);
+    expect(root).toContain(`Used by Kiln's sessions: ${inventory.filter(c => c.group === "kiln-sessions" && c.side_effect !== "group").length} helper commands`);
     for (const c of inventory) {
-      expect(root).toContain(`${c.path.join(" ")} — ${c.purpose}`);
+      if (c.group !== "kiln-sessions") expect(root).toMatch(new RegExp(`(?<![\\w-])${c.path.join(" ")}(?![\\w-])`));
       expect(help(c.path)).toContain(c.purpose);
       expect(JSON.parse(help(c.path, true)).command.path).toEqual(c.path);
     }

@@ -26,7 +26,7 @@ GitHub's default branch is still `main` at `99b8fd4`, before the application and
 - An unauthenticated registry lookup returned E404 for `@ensodynamics/kiln`. No public release was found. Local authenticated organization queries returned E401; account permissions and publishing access have not been proved.
 - MIT is already declared in `package.json`, with a complete root `LICENSE` naming Enso Dynamics. Creating another MIT license is unnecessary.
 - The original archive omitted license notices for bundled fonts and browser libraries. This preparation adds `view/public/kiln-third-party-notices.txt`; Vite copies it into the published `dist/view/` directory. It reproduces the installed license texts for the 12 packages in the browser build's module inventory, including the fonts' OFL-1.1 notices and the JavaScript components' MIT/BSD notices. Recheck the inventory after dependency changes.
-- No password or npm token is needed to finish this preparation. The existing workflow uses a short-lived npm token for its initial publish, followed by OIDC trusted publishing. Configure either only at the approved release step; [release instructions](kiln-npm-release-steps.md) cover the sequence.
+- No password or npm token is needed to finish this preparation. Publication uses a scoped npm token kept in the maintainer's password manager until OIDC trusted publishing replaces it. Configure either only at the approved release step; [release instructions](kiln-npm-release-steps.md) cover the sequence, including where each version's release notes go.
 
 ## Public content and secret review
 

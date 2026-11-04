@@ -81,8 +81,21 @@ export async function publishedVersions(registryUrl = registry) {
   return Object.keys(body.versions);
 }
 
+/** Where each version's written release notes live; the release publishes them on its GitHub Release. */
+export const releaseNotesPath = version => `docs/release/notes/kiln-release-notes-${version}.md`;
+
+/** Every release needs written notes at the candidate commit (AC-NOTES-02), read from Git objects as the hook checks. */
+function requireReleaseNotes(root, { version, sha }) {
+  const path = releaseNotesPath(version);
+  const listed = git(root, 'ls-tree', '--name-only', sha ?? commit(root, 'HEAD'), '--', path);
+  const notes = listed ? git(root, 'show', `${sha ?? commit(root, 'HEAD')}:${path}`) : '';
+  if (!notes.trim()) throw new Error(`Release ${version} has no written release notes. Write ${path} and commit it.`);
+  return path;
+}
+
 export async function checkRelease({ root, ref = 'HEAD', base, registryUrl = registry, tag }) {
   const current = metadata(root, ref);
+  current.notesPath = requireReleaseNotes(root, current);
   const previous = baseVersion(root, base);
   if (previous && compareVersions(current.version, previous) <= 0) {
     throw new Error(`Release version ${current.version} must be greater than main's ${previous}. Run npm run release:prepare and commit both package files.`);

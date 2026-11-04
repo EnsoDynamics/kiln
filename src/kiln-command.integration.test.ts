@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { symlinkSync } from "node:fs";
+import { readFileSync, symlinkSync } from "node:fs";
 import { dirname, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -110,8 +110,12 @@ describe("kiln run", () => {
     for (const args of [["run"], ["run", "a", "b"], ["run", "docs/prds/"], ["run", "docs/prds/customer-returns", "--phase", "2"]]) {
       const result = kiln(args);
       expect(result.exitCode, args.join(" ")).toBe(2);
-      expect(result.stderr, args.join(" ")).toContain("Usage: kiln run <PRD directory or PRD file>");
+      // AC-HELP-04: the usage of kiln run alone, after the one-line reason when there is one.
+      expect(result.stderr, args.join(" ")).toMatch(/(?:^|\n)Usage: kiln run <PRD-path> \[--resume\]\nUse kiln run --help for details\.\n$/);
+      for (const other of ["add-repository", "delivery", "audit", "status"]) expect(result.stderr, args.join(" ")).not.toContain(other);
     }
+    expect(kiln(["run"]).stderr).toBe("Usage: kiln run <PRD-path> [--resume]\nUse kiln run --help for details.\n");
+    expect(kiln(["run", "a", "b"]).stderr).toBe("kiln: kiln run takes one path and an optional --resume.\nUsage: kiln run <PRD-path> [--resume]\nUse kiln run --help for details.\n");
     // Bot control AC-ACT-01 supersedes the browser-only command restriction.
     expect(kiln([])).toMatchObject({ exitCode: 2, stderr: "" });
     expect(kiln([]).stdout).toContain("kiln --help");
@@ -121,5 +125,13 @@ describe("kiln run", () => {
       expect(JSON.parse(result.stdout).errors[0].code).toBe("command_not_found");
     }
     expect(kiln(["--help"])).toMatchObject({ exitCode: 0, stderr: "" });
+  });
+});
+
+describe("kiln --version", () => {
+  // AC-HELP-03: no controller, Git repository or sign-in; an empty PATH and a folder outside any repository.
+  it("prints the installed package version and exits successfully, with -v too", () => {
+    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    for (const flag of ["--version", "-v"]) expect(kiln([flag], sandbox.root, ""), flag).toEqual({ exitCode: 0, stdout: `${version}\n`, stderr: "" });
   });
 });

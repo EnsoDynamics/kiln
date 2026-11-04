@@ -89,11 +89,12 @@ See work:     kiln status
 
 Answer a stopped phase
   <command names in this group, comma separated>
-Pause and take over
+Message, pause or take over
   <command names in this group, comma separated>
 Look closer
   <command names in this group, comma separated>
 
+Use kiln <command> --help for what a command does and its flags.
 Used by Kiln's sessions: <count> helper commands (kiln <command> --help for each).
 Bots and scripts: kiln --help --json lists every command with full metadata.
 ```

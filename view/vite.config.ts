@@ -13,6 +13,8 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL("../dist/view", import.meta.url)),
     emptyOutDir: true,
+    // The published package ships no source maps (AC-PKG-02).
+    sourcemap: false,
     // Fonts and the marks stay files: the Content Security Policy allows only Kiln's own origin.
     assetsInlineLimit: 0,
   },

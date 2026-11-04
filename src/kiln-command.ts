@@ -4,6 +4,8 @@ import { readWork, retainedAliases } from "./control/private-state.js";
 import { runInspectionCommand } from "./control/client.js";
 import { runDelivery } from "./delivery-command.js";
 import { runAudit } from "./audit-command.js";
+import { commandContracts } from "./control/help.js";
+import { readFileSync } from "node:fs";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
@@ -27,7 +29,7 @@ import { newPrdRecord } from "./state/new-record.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, USAGE, type TerminalColors } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
 import { formatCompletedPlanCheck, formatDecisionLine, formatSummaryLine } from "./underway-output.js";
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
@@ -124,19 +126,19 @@ class StopControl {
  *   await runKilnCommand(["run", "docs/prds/customer-returns/"], context)  // 0 when every start check passes
  */
 export async function runKilnCommand(args: string[], context: CommandContext): Promise<number> {
+  // AC-HELP-03: answered before anything else, so it needs no controller, Git or sign-in.
+  if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
+    context.stdout.write(`${KILN_VERSION}\n`);
+    return 0;
+  }
+  // Help, the no-argument answer and unknown commands are answered here from the command contracts.
   const inspection = await runInspectionCommand(args, context);
   if (inspection !== undefined) return inspection;
   const [command, ...rest] = args;
-  if (command === "--help" || command === "-h") {
-    context.stdout.write(`${USAGE}\n`);
-    return 0;
-  }
-  if (command === undefined) return usageError(context);
   if (command === "preparation") return runPreparation(rest, context);
   if (command === "delivery") return runDelivery(rest, context);
   if (command === "audit") return runAudit(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
-  if (command !== "run") return usageError(context, `kiln: unknown command "${command}". The commands are kiln run, kiln add-repository and kiln delivery.`);
   if (rest.length === 0) return usageError(context);
   const resumeImmediately = rest.includes("--resume");
   const paths = rest.filter(arg => arg !== "--resume");
@@ -460,8 +462,20 @@ function kilnBinDirectory(): { kilnBinDirectory?: string } {
   return { kilnBinDirectory: dirname(script) };
 }
 
+/** The installed package's version, from Kiln's own `package.json`. */
+const KILN_VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+
+const RUN_USAGE = `Usage: ${commandContracts.find(c => c.path.join(" ") === "run")!.usage}`;
+
+/**
+ * A `kiln run` usage error shows only `kiln run`'s usage (AC-HELP-04):
+ *
+ *   kiln: kiln run takes one path and an optional --resume.
+ *   Usage: kiln run <PRD-path> [--resume]
+ *   Use kiln run --help for details.
+ */
 function usageError(context: CommandContext, message?: string): number {
-  context.stderr.write(`${message ? `${message}\n\n` : ""}${USAGE}\n`);
+  context.stderr.write(`${message ? `${message}\n` : ""}${RUN_USAGE}\nUse kiln run --help for details.\n`);
   return EXIT_USAGE;
 }
 
