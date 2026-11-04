@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { observePlan, retainBaseline, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
+import { observePlan, retainBaseline, BASELINE_LIMIT, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
 import * as gitReads from "./git-reads.js";
 import type { CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { recordedPlan } from "./plan-reading.js";
@@ -54,6 +54,14 @@ it("checks restart, HTTP and repeated reads without work; persists history and j
   expect(h.claudeCalls()).toEqual([]);
   expect(h.kilnGitCalls().some(call => /^(checkout|switch|reset|worktree add|merge|push)(?: |$)/.test(call))).toBe(false);
   expect(h.reopenFromDisk().record.completedPlanCheck?.status).toBe("available");
+});
+it("retains a baseline whose three document sets exceed one candidate's limit together", async () => {
+  // A large but valid plan: each document set fits PLAN_LIMIT; active plus both sources do not.
+  await fixture(); add();
+  writeFileSync(join(h.repository, directory, "comet-technical-design.md"), "<!--" + "x".repeat(3 * 1024 * 1024) + "-->\n"); publish();
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.errors).toEqual([]); expect(check.status).toBe("available"); expect(check.result?.added.map(p => p.id)).toEqual(["9"]);
+  expect(statSync(join(h.stateDirectory, "plans", `${check.result!.candidateId}.json`)).size).toBeGreaterThan(PLAN_LIMIT);
 });
 it("selects remote additions over a baseline shared copy and detects divergent scope", async () => {
   await fixture(); const original = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim(); add(); publish();
@@ -246,10 +254,10 @@ it.each(["saved", "git", "baseline", "baseline publication", "accounting", "prop
     writeFileSync(file, "x".repeat(PLAN_LIMIT));
     if (boundary === "git") { publish(); writeFileSync(file, small); }
   } else if (boundary === "baseline") {
-    writeFileSync(join(h.stateDirectory, "plans", `${h.engine.record.planReconciliation!.baselineId}.json`), " ".repeat(PLAN_LIMIT + 1));
+    writeFileSync(join(h.stateDirectory, "plans", `${h.engine.record.planReconciliation!.baselineId}.json`), " ".repeat(BASELINE_LIMIT + 1));
   } else if (boundary === "baseline publication") {
-    // Candidate fits; the retained baseline includes active plus both source observations.
-    writeFileSync(join(h.repository, directory, "comet-technical-design.md"), "<!--" + "x".repeat(3 * 1024 * 1024) + "-->\n"); publish();
+    // Candidate fits; the retained baseline carries active plus both source observations, and JSON escaping doubles each quote.
+    writeFileSync(join(h.repository, directory, "comet-technical-design.md"), "<!--" + "\"".repeat(5 * 1024 * 1024) + "-->\n"); publish();
   } else if (boundary === "phases") {
     for (let id = 10; id < PHASE_LIMIT + 10; id++) writeFileSync(join(h.repository, directory, `phase-${id}-extra.md`), `# Phase ${id}: Extra\n\n## Acceptance criteria covered\nAC-COMET-01\n`);
   } else {
@@ -265,7 +273,7 @@ it.each(["saved", "git", "baseline", "baseline publication", "accounting", "prop
   }
   try {
     const response = await checkHttp(); expect(response.status).toBe(413);
-    const body = await response.json() as { check: CompletedPlanCheck; reason: string }; expect(body).toMatchObject({ ok: false, code: "plan_too_large", limit: boundary === "phases" ? PHASE_LIMIT : PLAN_LIMIT, check: { status: "failed", earlierResult: success.result, lastSuccessfulAt: success.lastSuccessfulAt } });
+    const body = await response.json() as { check: CompletedPlanCheck; reason: string }; expect(body).toMatchObject({ ok: false, code: "plan_too_large", limit: boundary === "phases" ? PHASE_LIMIT : boundary.startsWith("baseline") ? BASELINE_LIMIT : PLAN_LIMIT, check: { status: "failed", earlierResult: success.result, lastSuccessfulAt: success.lastSuccessfulAt } });
     expect(body.reason).toContain("check again"); expect(body.check.result).toBeUndefined();
     expect(h.engine.commands.fault).toBeUndefined(); expect(h.engine.record.completedAt).toBe("2026-10-01T12:00:00Z"); expect(h.claudeCalls()).toEqual([]);
     expect(h.reopenFromDisk().record.completedPlanCheck).toEqual(body.check);

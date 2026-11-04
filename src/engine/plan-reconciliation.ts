@@ -13,6 +13,8 @@ import { dependencyIds, leavesOf, readPhasePlan, planStartProblems, type PhasePl
 import type { RecordedPlanPhase } from "../state/records.js";
 
 export const PLAN_LIMIT = 8 * 1024 * 1024;
+/** A retained baseline carries the active document set plus the shared-checkout and delivery-base sets it was chosen from, each bounded by PLAN_LIMIT. */
+export const BASELINE_LIMIT = 3 * PLAN_LIMIT;
 export const PHASE_LIMIT = 10_000;
 export const PLAN_NORMALIZER_VERSION = 4;
 export class PlanBaselineWriteFailure extends Error {}
@@ -208,7 +210,7 @@ export function completedScopeProblems(previous: PlanSource, current: PlanSource
 export function retainBaseline(directory: string, baseline: Omit<PlanBaseline, "id">): PlanBaseline {
   if (baseline.normalizerVersion === PLAN_NORMALIZER_VERSION && Object.values(baseline.completions).some(receipt => !Array.isArray(receipt.scopeRepositories))) throw new Error("baseline_unavailable: Restore the immutable completed repository scope before retaining this plan.");
   const value: PlanBaseline = { ...baseline, id: digest(baseline) };
-  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "retained baseline bytes");
+  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > BASELINE_LIMIT) throw new PlanCapacityError(BASELINE_LIMIT, "retained baseline bytes");
   const path = join(directory, "plans", `${value.id}.json`);
   if (!existsSync(path)) {
     try { writeDurableMetadata(path, value); }
@@ -219,7 +221,7 @@ export function retainBaseline(directory: string, baseline: Omit<PlanBaseline, "
 export function readBaseline(directory: string, id: string): PlanBaseline {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid retained plan identity.");
   const path = join(directory, "plans", `${id}.json`);
-  if (statSync(path).size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "retained baseline bytes");
+  if (statSync(path).size > BASELINE_LIMIT) throw new PlanCapacityError(BASELINE_LIMIT, "retained baseline bytes");
   const value = JSON.parse(readFileSync(path, "utf8")) as PlanBaseline;
   const { id: stored, ...body } = value;
   if (value.formatVersion !== 1 || ![1, 2, 3, PLAN_NORMALIZER_VERSION].includes(value.normalizerVersion) || digest(body) !== stored || stored !== id) throw new Error("Retained plan is damaged or requires a newer Kiln.");

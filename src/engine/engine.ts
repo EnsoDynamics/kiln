@@ -133,7 +133,7 @@ type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][numbe
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, PLAN_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -5552,7 +5552,7 @@ export class Engine {
       added = addedLeaves(previous ? recordedPlan(previous.active.plan) : this.record.plan, active.plan);
       // Publish sidecar before its record pointer; never roll back an uncertain durable write.
       baseline = { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active, sources: [], completions };
-      if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > PLAN_LIMIT) throw new Error(`plan_too_large: maximum ${PLAN_LIMIT} retained baseline bytes.`);
+      if (Buffer.byteLength(JSON.stringify({ ...baseline, id: "0".repeat(64) }, null, 2)) + 1 > BASELINE_LIMIT) throw new Error(`plan_too_large: maximum ${BASELINE_LIMIT} retained baseline bytes.`);
     } catch (error) {
       if (error instanceof PlanBaselineWriteFailure) { this.commands.fault = error.message; throw error; }
       const problem = (error as Error).message;
