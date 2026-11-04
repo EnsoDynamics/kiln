@@ -7,11 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CodexMetadataRpc } from '../../dist/agents/codex-metadata-rpc.js';
 import { codexCredits } from '../../dist/agents/codex-metadata.js';
+import { belowMinimumProblem, compareToMinimum } from '../../dist/agents/tooling-minimums.js';
 const executable = process.argv[2] ?? 'codex';
 const output = process.argv[3];
 if (!output) throw new Error('Usage: node scripts/exploration/codex-billing-contract.mjs <codex> <output.json>');
 const version = execFileSync(executable, ['--version'], { encoding: 'utf8' }).trim();
-if (version !== 'codex-cli 0.162.1') throw new Error('The billing contract requires codex-cli 0.162.1.');
+// Any Codex at or above Kiln's minimum; the result records the version that ran.
+const reading = compareToMinimum('codex', version);
+if (reading.state === 'below_minimum') throw new Error(belowMinimumProblem('codex', reading.version));
 const directory = mkdtempSync(join(tmpdir(), 'kiln-billing-schema-'));
 try {
   execFileSync(executable, ['app-server', 'generate-json-schema', '--out', directory]);

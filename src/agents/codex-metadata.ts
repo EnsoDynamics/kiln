@@ -4,7 +4,7 @@ import type { AgentAccount } from "./metadata.js";
 import { runHelper } from "../platform/helper-process.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 
-import { CODEX_VERSION_REQUIREMENT, supportedCodexVersion } from "./codex-version.js";
+import { belowMinimumProblem, compareToMinimum, requirement } from "./tooling-minimums.js";
 export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
 export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
@@ -12,7 +12,7 @@ interface Window { usedPercent?: number | null; windowDurationMins?: number | nu
 interface Bucket { credits?: { balance?: string | null; hasCredits?: boolean; unlimited?: boolean } | null; limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
 export interface CodexLimits { accountId?: string; ordinaryUsageAllowed?: boolean | null; rateLimitsByLimitId?: Record<string, Bucket> | null; rateLimits?: Bucket | null }
 interface Skill { name: string; path: string; enabled: boolean }
-export interface CodexMetadata { models?: ModelEntry[]; modelListError?: string; account: AgentAccount; blockers: string[]; version?: string; skills: { cwd: string; entries: Skill[] }[] }
+export interface CodexMetadata { models?: ModelEntry[]; modelListError?: string; account: AgentAccount; blockers: string[]; /** As Codex reported it: the parsed version, or `unrecognised`. */ version?: string; /** The raw `--version` output. */ versionOutput?: string; skills: { cwd: string; entries: Skill[] }[] }
 
 export function codexModels(data: CodexModel[]): ModelEntry[] {
   return data.filter((m) => !m.hidden && m.selectable !== false).map((m) => ({
@@ -102,10 +102,14 @@ export async function readCodexMetadata(options: { executable: string | undefine
   const deadline = Date.now() + 30_000;
   const unavailable = (reason: string): AgentAccount => ({ agentId: "codex", startedAt, updatedAt: new Date().toISOString(), limits: [], error: reason, limitsError: "Codex usage is unavailable because account metadata could not be read." });
   const result: CodexMetadata = { account: unavailable("Codex account metadata has not been read."), blockers: [], skills: [] };
-  if (!options.executable) { result.account = unavailable(`Codex is not on PATH. Install ${CODEX_VERSION_REQUIREMENT} and sign in with codex login.`); result.blockers.push(result.account.error!); return result; }
+  if (!options.executable) { result.account = unavailable(`Codex is not on PATH. Install ${requirement("codex")} and sign in with codex login.`); result.blockers.push(result.account.error!); return result; }
   const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: 30_000 });
-  result.version = version.stdout.trim();
-  if (version.exitCode !== 0 || !supportedCodexVersion(result.version)) { result.account = unavailable(`Codex ${result.version || "version unavailable"} is incompatible. Kiln requires ${CODEX_VERSION_REQUIREMENT}.`); result.blockers.push(result.account.error!); return result; }
+  // Below the minimum is a readiness blocker (AC-AGENT-05). A version Kiln can't read blocks
+  // nothing: Codex's own protocol reads below decide (technical design, Version comparison).
+  const reading = compareToMinimum("codex", version.exitCode === 0 ? version.stdout : undefined);
+  result.versionOutput = version.stdout.trim();
+  result.version = reading.version ?? "unrecognised";
+  if (reading.state === "below_minimum") { result.account = unavailable(belowMinimumProblem("codex", reading.version!)); result.blockers.push(result.account.error!); return result; }
   const rpc = new CodexMetadataRpc(options.executable, options.cwd, options.env, options.signal, Math.max(1, deadline - Date.now()));
   try {
     await rpc.initialize();

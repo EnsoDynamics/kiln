@@ -49,6 +49,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Dependencies, §Des
 
 ### Codex process and version contract
 
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Version comparison (prereleases above the minimum and unrecognised versions are accepted; the minimum lives in the agent tooling minimums module).
+
 Use `codex app-server --listen stdio://` with Kiln's own child process, not the desktop or a shared daemon. `initialize` identifies Kiln and enables the experimental fields this integration requires, followed by `initialized`. Newline-delimited RPC requests are correlated by ID; server requests and notifications have separate handling. No network listener or external Codex host is enabled.
 
 Accept stable **codex-cli 0.162.1 or later** for metadata, new/resumed sessions and workspace-evidence reading. The minimum is the first validated integration baseline; routine stable updates require no Kiln version-list edit. Reject older, prerelease or unparseable versions with the observed value and the minimum stable version needed. Record the actual installed version in each new launch profile; preserve historical versions on saved attempts.
@@ -153,6 +155,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Sessions, §Stoppin
 ## Workspace Evidence, Output and Progress
 
 ### Authoritative evidence
+
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Codex compaction (only a missing or changed field Kiln reads leaves compaction inconclusive), and PowerShell (Codex on Windows) (the native PowerShell reader and launch profile accept PowerShell 7.5.2 or later instead of the pinned 7.5.2).
 
 Superseded in part by: `docs/changes/kiln-completion-checks/kiln-completion-checks-technical-design.md`, §Completion and recovery and §Interfaces and saved records (workspace auditing, confirmation controls and phase success banner only; independent receipt authentication remains).
 

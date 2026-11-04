@@ -22,7 +22,7 @@ test('recorded image inspection is read-only, literal and opaque', () => {
     const input = { path: '/PROOF/image.png', ...(detail ? { detail } : {}) };
     assert.deepEqual(decodeRawCall({type:'function_call', namespace:'functions', name:'view_image', call_id:'direct', arguments:JSON.stringify(input)}), {callId:'direct', operations:[{name:'view_image', input}], coverage:'complete'});
   }
-  for (const input of [null, [], {}, {path:''}, {path:'relative.png'}, {path:'/PROOF/image.png', detail:'low'}, {path:'/PROOF/image.png', command:'git push'}]) {
+  for (const input of [null, [], {}, {path:''}, {path:'relative.png'}, {path:'/PROOF/image.png', detail:'low'}]) {
     assert.equal(decodeWrapper('bad', `image(await tools.view_image(${JSON.stringify(input)}));`).coverage, 'inconclusive');
     assert.equal(decodeRawCall({type:'function_call', name:'view_image', arguments:JSON.stringify(input)}).coverage, 'inconclusive');
   }
@@ -35,6 +35,14 @@ test('recorded image inspection is read-only, literal and opaque', () => {
   ]) assert.equal(decodeWrapper('bad', program).coverage, 'inconclusive', program);
   assert.equal(decodeRawCall({type:'function_call',namespace:'collaboration',name:'view_image',arguments:'{"path":"/PROOF/image.png"}'}).coverage,'inconclusive');
   assert.equal(decodeRawCall({type:'custom_tool_call',name:'view_image',input:'{"path":"/PROOF/image.png"}'}).coverage,'inconclusive');
+  // Parameters Kiln doesn't read are ignored (0.166.0 adds environment_id); the path checks stand.
+  for (const input of [{path:'/PROOF/image.png', environment_id:'local'}, {path:'/PROOF/image.png', environment_id:'local', future_option:true}]) {
+    assert.equal(decodeRawCall({type:'function_call', name:'view_image', call_id:'extra', arguments:JSON.stringify(input)}).coverage, 'complete');
+    const cell = decodeWrapper('extra', `image(await tools.view_image(${JSON.stringify(input)})); text(await tools.exec_command({cmd:"git status"}));`);
+    assert.equal(cell.coverage, 'complete', cell.reason);
+    assert.deepEqual(cell.operations.map(op=>op.name), ['view_image','exec_command']);
+  }
+  assert.equal(decodeRawCall({type:'function_call', name:'view_image', arguments:JSON.stringify({path:'relative.png', environment_id:'local'})}).coverage, 'inconclusive');
   const nested = decodeWrapper('nested', 'image(await tools.view_image({path:"/PROOF/image.png"}), await tools.exec_command({cmd:"git push",workdir:"/outside"}));');
   assert.equal(nested.coverage,'complete',nested.reason);
   assert.deepEqual(nested.operations.map(op=>op.name),['view_image','exec_command']);
@@ -150,11 +158,16 @@ test('opaque output cannot hide a later operation inside a display template', ()
   assert.deepEqual(result.operations.map(o => o.input.cmd), ['pwd', 'git push']);
 });
 
-test('observed yielded-exec wait is read-only; extra executable or unqualified forms remain unresolved', () => {
+test('observed yielded-exec wait is read-only; unqualified forms remain unresolved and unread parameters are ignored', () => {
   const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/codex-audit-proof/yielded-exec-wait-0.162.1.json', import.meta.url), 'utf8'));
   const raw = fixture.raw.payload;
   assert.deepEqual(decodeRawCall(raw), {callId:raw.call_id, operations:[{name:'wait',input:{cell_id:'38',yield_time_ms:20000,max_tokens:2000}}],coverage:'complete'});
-  for (const change of [{namespace:'unverified_provider'},{type:'custom_tool_call'},{arguments:'{}'},{arguments:'{"cell_id":38}'},{arguments:'{"cell_id":"38","cmd":"git push"}'},{arguments:'{"cell_id":"38","terminate":true}'},{arguments:'{"cell_id":"38","yield_time_ms":-1}'},{arguments:'{"cell_id":"38","max_tokens":0}'}]) assert.equal(decodeRawCall({...raw,...change}).coverage,'inconclusive');
+  for (const change of [{namespace:'unverified_provider'},{type:'custom_tool_call'},{arguments:'{}'},{arguments:'{"cell_id":38}'},{arguments:'{"cell_id":"38","yield_time_ms":-1}'},{arguments:'{"cell_id":"38","max_tokens":0}'},{arguments:'{"cell_id":"38","terminate":true,"yield_time_ms":-1}'}]) assert.equal(decodeRawCall({...raw,...change}).coverage,'inconclusive');
+  // wait only polls or stops a cell: parameters Kiln doesn't read (0.166.0 adds terminate) are ignored.
+  for (const extra of [{terminate:true}, {terminate:true, future_option:'opaque'}]) {
+    const input = {cell_id:'38', ...extra};
+    assert.deepEqual(decodeRawCall({...raw, arguments:JSON.stringify(input)}), {callId:raw.call_id, operations:[{name:'wait',input}], coverage:'complete'});
+  }
   assert.equal(decodeRawCall({type:'custom_tool_call',name:'exec',input:'const r=await tools.exec_command({cmd: hiddenCommand}); text(r);'}).coverage,'inconclusive');
 });
 
@@ -305,6 +318,14 @@ test('workspace policy accounts for rename endpoints, failed calls and verified 
     entry.completed = [];
     assert.equal(auditEntries([entry, child], [inside]).passed, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the proof policy recognises the same exec_command parameters as Kiln', () => {
+  const entry = (input) => ({ id: 'parent', turns: [{ id: 'turn', status: 'completed', itemsView: 'full' }], started: ['turn'], completed: ['turn'], startEvidence: [], contexts: [{ turnId: 'turn', cwd: '/proof', sha256: 'context' }], calls: [{ callId: 'call', turnId: 'turn', at: '2026-10-23T00:00:00Z', coverage: 'complete', shell: 'zsh', operations: [{ name: 'exec_command', input }] }], nativeCommands: [], childRefs: [] });
+  assert.equal(auditEntries([entry({ cmd: 'git status', sandbox_permissions: 'with_additional_permissions', additional_permissions: { file_system: { write: ['/proof'] } } })], ['/proof']).coverage, 'complete');
+  const unknown = auditEntries([entry({ cmd: 'git status', environment_id: 'remote' })], ['/proof']);
+  assert.equal(unknown.coverage, 'inconclusive');
+  assert.ok(unknown.problems.includes('Unrecognized exec parameter'));
 });
 
 test('missing recorded shell context cannot pass; known default context audits literal failed Git calls', () => {

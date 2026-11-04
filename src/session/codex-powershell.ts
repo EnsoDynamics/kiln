@@ -2,6 +2,7 @@
 import { fileURLToPath } from "node:url";
 import { posix, win32 } from "node:path";
 import { spawnDetached, endProcessTree } from "../platform/helper-process.js";
+import { compareToMinimum, requirement } from "../agents/tooling-minimums.js";
 import { gitCommandsIn, gitChange, type GitCommandSeen, type PathContext } from "./outside-workspace.js";
 
 interface Ast {
@@ -11,7 +12,6 @@ interface Ast {
   left?: Ast; right?: Ast; operator?: string; branches?: { condition: Ast; body: Ast }[]; otherwise?: Ast;
 }
 export interface ShellEffects { paths: string[]; git: GitCommandSeen[] }
-export const POWERSHELL_VERSION = "7.5.2";
 const NESTED_SHELLS = new Set(["powershell", "powershell.exe", "pwsh", "pwsh.exe", "bash", "bash.exe", "sh", "sh.exe", "zsh", "zsh.exe", "cmd", "cmd.exe"]);
 
 export async function readPowerShell(body: string, options: { executable: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal; context: PathContext }): Promise<ShellEffects> {
@@ -31,7 +31,7 @@ export async function readPowerShell(body: string, options: { executable: string
     if (options.signal.aborted) abort();
   });
   const parsed = JSON.parse(result) as { version: string; aliases: string[]; ast: Ast };
-  if (parsed.version !== POWERSHELL_VERSION) throw new Error(`PowerShell ${parsed.version} is unqualified; parser profile requires ${POWERSHELL_VERSION}.`);
+  if (compareToMinimum("powershell", parsed.version).state !== "supported") throw new Error(`PowerShell ${parsed.version} can't read this command; Kiln's parser needs ${requirement("powershell")}.`);
   if (!Array.isArray(parsed.aliases) || !parsed.aliases.every(alias => typeof alias === "string")) throw new Error("PowerShell alias inventory is unavailable.");
   return powerShellEffects(parsed.ast, options.cwd, options.context, new Set(parsed.aliases.map(alias => alias.toLowerCase())));
 }

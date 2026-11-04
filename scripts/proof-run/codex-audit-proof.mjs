@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexRpc } from './codex-rpc.mjs';
+import { belowMinimumProblem, compareToMinimum } from '../../dist/agents/tooling-minimums.js';
 
 const [mode, suppliedRoot, promptFile] = process.argv.slice(2);
 if (!['seed', 'run', 'resume'].includes(mode) || mode !== 'seed' && !suppliedRoot || mode === 'resume' && !promptFile) throw new Error('Usage: seed | run <proof folder> | resume <proof folder> <prompt file>');
@@ -45,7 +46,10 @@ if (mode === 'seed') {
 } else {
   const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
   if (manifest.root !== root || manifest.purpose !== 'Kiln Codex gate 1 only') throw new Error('Not an owned proof folder');
-  if (execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim() !== 'codex-cli 0.162.1') throw new Error('Proof is pinned to codex-cli 0.162.1');
+  // Any Codex at or above Kiln's minimum; the proof records the version that ran.
+  const codexVersion = execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim();
+  const reading = compareToMinimum('codex', codexVersion);
+  if (reading.state === 'below_minimum') throw new Error(belowMinimumProblem('codex', reading.version));
   const rpc = new CodexRpc(join(workspace, 'kiln-proof-api'), event => appendFileSync(join(root, 'rpc.jsonl'), JSON.stringify(event) + '\n', { mode: 0o600 }));
   try {
     await rpc.initialize();
@@ -62,12 +66,12 @@ if (mode === 'seed') {
     if (result.model !== profile.model || result.reasoningEffort !== 'high' || result.approvalPolicy !== 'on-request' || result.approvalsReviewer !== 'auto_review' || result.sandbox?.type !== 'workspaceWrite') throw new Error('Effective profile mismatch');
     const threadId = result.thread.id;
     writeFileSync(join(root, 'thread-id.txt'), threadId + '\n', { mode: 0o600 });
-    save('effective-profile.json', { model: result.model, effort: result.reasoningEffort, sandbox: result.sandbox, approvalPolicy: result.approvalPolicy, approvalsReviewer: result.approvalsReviewer, instructionSources: result.instructionSources });
+    save('effective-profile.json', { codexVersion, model: result.model, effort: result.reasoningEffort, sandbox: result.sandbox, approvalPolicy: result.approvalPolicy, approvalsReviewer: result.approvalsReviewer, instructionSources: result.instructionSources });
     const text = readFileSync(promptFile ?? join(source, 'codex-method-proof-prompt.txt'), 'utf8').replaceAll('{{ROOT}}', root).replaceAll('{{WORKSPACE}}', workspace).replaceAll('{{KILN_SOURCE}}', resolve(source, '../..'));
     save('dispatch-intent.json', { threadId, at: new Date().toISOString(), mode });
     const started = await rpc.call('turn/start', { threadId, model: profile.model, effort: 'high', input: [{ type: 'text', text }] });
-    save('dispatch.json', { threadId, turnId: started.turn.id });
-    console.log('THREAD', threadId, 'ROOT', root);
+    save('dispatch.json', { codexVersion, threadId, turnId: started.turn.id });
+    console.log('CODEX', codexVersion, 'THREAD', threadId, 'ROOT', root);
     const terminal = await rpc.waitTurn(started.turn.id);
     save('terminal.json', terminal);
     if (terminal.status !== 'completed' || rpc.humanStops.length) throw new Error(`Proof turn stopped: ${terminal.status}; human requests ${rpc.humanStops.length}`);

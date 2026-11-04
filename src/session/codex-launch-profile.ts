@@ -1,12 +1,11 @@
 // Validate before allocating an implementation attempt. No thread or turn is created here.
 import { realpathSync } from "node:fs";
 import { readCodexMetadata } from "../agents/codex-metadata.js";
-import { supportedCodexVersion } from "../agents/codex-version.js";
+import { belowMinimumProblem, compareToMinimum, POWERSHELL_MISSING } from "../agents/tooling-minimums.js";
 import { CodexMetadataRpc } from "../agents/codex-metadata-rpc.js";
 import { comparable } from "../engine/worktree-setup.js";
 import { findExecutable, runHelper } from "../platform/helper-process.js";
 import type { AgentChoice, CodexAccountProvenance, CodexExecutionProfile } from "../state/records.js";
-import { POWERSHELL_VERSION } from "./codex-powershell.js";
 import { codexWindowsJob } from "../platform/codex-windows-job.js";
 import type { AgentAccount } from "../agents/metadata.js";
 
@@ -32,7 +31,7 @@ export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<P
   if (!model || metadata.modelListError) throw new Error("Codex's requested model is unavailable. Refresh and confirm a valid choice.");
   if (model.supportsEffort ? !options.choice.effort || !model.supportedEffortLevels.includes(options.choice.effort) : options.choice.effort !== undefined) throw new Error("Codex's requested reasoning effort is unavailable for this model.");
   if (metadata.account.error || metadata.account.stale) throw new Error("Fresh Codex ChatGPT authentication is required before work.");
-  const profile: CodexExecutionProfile = { version: supportedCodexVersion(metadata.version!)!, cwd, writableRoots, repositories: options.repositories.map((repository, i) => ({ ...repository, path: paths[i]! })), skills: metadata.skills.find(entry => entry.cwd === cwd)!.entries.filter(skill => skill.enabled).map(({ name, path }) => ({ name, path })) };
+  const profile: CodexExecutionProfile = { version: metadata.version!, cwd, writableRoots, repositories: options.repositories.map((repository, i) => ({ ...repository, path: paths[i]! })), skills: metadata.skills.find(entry => entry.cwd === cwd)!.entries.filter(skill => skill.enabled).map(({ name, path }) => ({ name, path })) };
   if (process.platform === "win32") {
     const deadline = Date.now() + 30_000;
     const rpc = new CodexMetadataRpc(options.executable, cwd, options.env, options.signal, 30_000, codexServerArguments());
@@ -43,16 +42,27 @@ export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<P
     } finally { await rpc.close(); }
     const startup = await runHelper(options.executable, ["-c", "windows.sandbox=mxc", "sandbox", "--include-managed-config", "--permission-profile", ":workspace", "--", "cmd.exe", "/d", "/c", "echo", "MXC_OK"], { cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: Math.max(1, deadline - Date.now()) });
     if (startup.exitCode !== 0 || !startup.stdout.split(/\r?\n/).includes("MXC_OK")) throw new Error("Codex Windows MXC startup check failed. Resolve sandbox readiness in Codex before starting Kiln work.");
-    const executable = findExecutable("pwsh", options.env);
-    if (!executable) throw new Error(`Codex Windows evidence requires pwsh ${POWERSHELL_VERSION}. Install it before starting work.`);
-    const version = await runHelper(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"], { cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: Math.max(1, deadline - Date.now()) });
-    if (version.exitCode !== 0 || version.stdout.trim() !== POWERSHELL_VERSION) throw new Error(`Codex Windows parser requires pwsh ${POWERSHELL_VERSION}; found ${version.stdout.trim() || "unknown"}.`);
+    const { executable, version: powerShellVersion } = await readPowerShellForCodex({ cwd, env: options.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: Math.max(1, deadline - Date.now()) });
     const job = codexWindowsJob(options.executable, ["--version"], cwd, executable, options.env);
     const supervised = await runHelper(job.executable, job.args, { cwd, env: job.env, ...(options.signal ? { signal: options.signal } : {}), timeoutMs: Math.max(1, deadline - Date.now()) });
-    if (supervised.exitCode !== 0 || supervised.stdout.trim() !== metadata.version) throw new Error("Codex Windows Job Object startup failed. Resolve PowerShell/application restrictions in a terminal before work; Kiln will not bypass them.");
-    profile.powerShell = { executable, version: POWERSHELL_VERSION };
+    if (supervised.exitCode !== 0 || supervised.stdout.trim() !== metadata.versionOutput) throw new Error("Codex Windows Job Object startup failed. Resolve PowerShell/application restrictions in a terminal before work; Kiln will not bypass them.");
+    profile.powerShell = { executable, version: powerShellVersion };
   }
   return { profile, choice: { ...options.choice }, usage: metadata.account, account: { at: metadata.account.updatedAt, ...(metadata.account.accountId ? { accountId: metadata.account.accountId } : {}), ...(metadata.account.email ? { email: metadata.account.email } : {}), ...(metadata.account.plan ? { plan: metadata.account.plan } : {}) } };
+}
+
+/**
+ * The PowerShell check before each Codex launch on Windows (AC-AGENT-05): `pwsh` missing or below
+ * its minimum refuses the launch as a Codex readiness blocker; a version Kiln can't read proceeds,
+ * and the supervised Job Object startup check decides (technical design, PowerShell row).
+ */
+export async function readPowerShellForCodex(options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number }): Promise<{ executable: string; version: string }> {
+  const executable = findExecutable("pwsh", options.env);
+  if (!executable) throw new Error(POWERSHELL_MISSING);
+  const read = await runHelper(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"], options);
+  const reading = compareToMinimum("powershell", read.exitCode === 0 ? read.stdout : undefined);
+  if (reading.state === "below_minimum") throw new Error(belowMinimumProblem("powershell", reading.version!));
+  return { executable, version: reading.version ?? "unrecognised" };
 }
 
 export interface CodexEffectiveSettings {

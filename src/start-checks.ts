@@ -11,6 +11,7 @@ import { namedRepositories, readPhasePlan, planStartProblems, type PhasePlan } f
 import { displayPath } from "./engine/worktree-setup.js";
 import { isPhaseFileName } from "./plan/phase-ids.js";
 import { runHelper } from "./platform/helper-process.js";
+import { belowMinimumProblem, compareToMinimum } from "./agents/tooling-minimums.js";
 import type { PrdLocation } from "./prd-location.js";
 
 export interface Tools {
@@ -69,7 +70,7 @@ export function startChecksPassed(report: StartCheckReport): boolean {
  * Runs every start check, in the checkout the path is in, and reports all failures together
  * so the person can fix them in one pass.
  */
-export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv): Promise<StartCheckReport> {
+export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node): Promise<StartCheckReport> {
   const fileNames = readdirSync(location.prdDirectory);
   const phaseFileNames = fileNames.filter(isPhaseFileName);
 
@@ -119,7 +120,8 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     else problems.push(lookup.problem);
   }
 
-  const [status, originUrl, ghAuth] = await Promise.all([
+  const [gitVersion, status, originUrl, ghAuth] = await Promise.all([
+    runHelper(tools.git, ["--version"], { cwd: location.checkoutRoot, env }),
     runHelper(tools.git, ["status", "--porcelain", "--untracked-files=all"], { cwd: location.checkoutRoot, env }),
     runHelper(tools.git, ["remote", "get-url", "origin"], { cwd: location.checkoutRoot, env }),
     tools.gh ? runHelper(tools.gh, ["auth", "status", "--hostname", "github.com"], { cwd: location.checkoutRoot, env }) : undefined,
@@ -132,6 +134,12 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     if (changed.length > 0) problems.push(uncommittedChangesProblem(location.checkoutRoot, changed));
   }
 
+  // Node.js and Git below their minimums are start problems (AC-AGENT-05). A version Kiln can't
+  // read is not: each feature then decides for itself (technical design, Version comparison).
+  const node = compareToMinimum("node", nodeVersion);
+  if (node.state === "below_minimum") problems.push(belowMinimumProblem("node", node.version!));
+  const git = compareToMinimum("git", gitVersion.exitCode === 0 ? gitVersion.stdout : undefined);
+  if (git.state === "below_minimum") problems.push(belowMinimumProblem("git", git.version!));
 
   if (!tools.gh) problems.push("gh isn't on the PATH.");
   if (ghAuth && ghAuth.exitCode === null) problems.push(`Couldn't check gh's sign-in: ${ghAuth.failure}`);

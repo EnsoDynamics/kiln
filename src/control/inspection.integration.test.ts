@@ -99,6 +99,21 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(Object.values(h.engine.record.phases).every(p=>p.sessionIds.length===0)).toBe(true);
     expect((await command(['handoff',path,'--session-id','missing','--json'],h.env)).code).toBe(2);
   });
+  it('reports the saved record\'s compatibility notices in status with the controller stopped, in text and JSON (AC-AGENT-04)',async()=>{
+    sandbox=createSandbox(); const f=fixture();
+    expect((await command(['status',f.path,'--json'])).json()).toMatchObject({compatibility:[]});
+    f.record.compatibility=[{feature:'codex_history',agentId:'codex',agentVersion:'0.167.0',detail:'exec_command parameter environment_id is not recognised, so that command has no receipt',observedAt:'2026-11-03T20:00:00.000Z'}];
+    writePrdRecord(f.directory,f.record); const before=tree(stateRoot(sandbox.env));
+    const answer=await command(['status',f.path,'--json']);
+    expect(answer.code).toBe(0); expect(answer.json()).toMatchObject({controller:'stopped',compatibility:[{feature:'codex_history',agent:'codex',agent_version:'0.167.0',detail:'exec_command parameter environment_id is not recognised, so that command has no receipt',attempt_id:null,observed_at:'2026-11-03T20:00:00.000Z'}]});
+    const inventory=await command(['status','--json']);
+    expect((inventory.json().runs as Record<string,unknown>[]).find(run=>run.prd_path===answer.json().prd_path)).toMatchObject({compatibility:[{feature:'codex_history',agent_version:'0.167.0'}]});
+    const text=await command(['status',f.path]);
+    for (const value of ['codex_history','codex','0.167.0','exec_command parameter environment_id is not recognised, so that command has no receipt']) expect(text.stdout).toContain(value);
+    const help=await command(['status','--help','--json']);
+    expect(JSON.stringify(help.json())).toContain('"compatibility":"Agent compatibility notices from the saved record');
+    expect(tree(stateRoot(sandbox.env))).toEqual(before);
+  });
   it('reports absent fresh instructions explicitly when no conversation or browser recovery was saved',async()=>{
     sandbox=createSandbox(); const f=fixture(); const before=tree(stateRoot(sandbox.env));
     const answer=await command(['handoff',f.path,'--json']);

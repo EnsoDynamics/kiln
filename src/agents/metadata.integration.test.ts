@@ -23,9 +23,9 @@ function setup(commands?: string[] | Record<string, string[]>) {
   const account = new ScriptedClaude(() => new Date());
   // Account details are unrelated to skill discovery; the skill read uses the real SDK.
   account.refreshAccount = async () => { account.account = { ...signedIn([]), startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] }; };
-  const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, ...(commands ? { KILN_STANDIN_COMMANDS: commandsFile } : {}) };
+  const env: NodeJS.ProcessEnv = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario, ...(commands ? { KILN_STANDIN_COMMANDS: commandsFile } : {}) };
   info = new AgentInfo({ agentId: "claude_code", claude: account, executable: { claude }, cwd: sandbox.root, claudeCwd: sandbox.root, env });
-  return { scenario, commandsFile };
+  return { scenario, commandsFile, env };
 }
 const pluginSkills = METHOD_SKILLS.map(name => `enso-method:${name}`);
 
@@ -104,6 +104,26 @@ describe("Claude Code enabled-skill readiness", () => {
     writeFileSync(commandsFile, JSON.stringify(pluginSkills));
     await info!.refresh();
     expect(info!.state.blockers).toEqual([]);
+  });
+
+  // AC-AGENT-05: Claude Code below its minimum is a readiness blocker when selected, read on
+  // Documents found and again before every launch; the minimum and every later version are ready.
+  it("blocks Claude Code below its minimum with the update command, and accepts the minimum, later and unreadable versions", async () => {
+    // AgentInfo reads the environment it was given at each read, so the test changes the version there.
+    const { env } = setup(pluginSkills);
+    env.KILN_STANDIN_VERSION = "2.1.310 (Claude Code)";
+    const blocker = "Claude Code 2.1.310 is older than Kiln supports. Install Claude Code 2.1.311 or later: claude update";
+    await info!.refresh();
+    expect(info!.state.blockers).toEqual([blocker]);
+    await info!.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+    expect(info!.state.blockers).toEqual([blocker]);
+    for (const version of ["2.1.311 (Claude Code)", "2.1.318 (Claude Code)", "3.0.0", "stand-in"]) {
+      env.KILN_STANDIN_VERSION = version;
+      await info!.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000));
+      expect(info!.state.blockers, version).toEqual([]);
+      await info!.refresh();
+      expect(info!.state.blockers, version).toEqual([]);
+    }
   });
 
   it("does not accept an unrelated plugin's matching skill names", async () => {

@@ -62,7 +62,7 @@ it("keeps approval across unrelated provider changes but revokes it for selected
   let selected = "firstParty"; let env: Record<string, string> = { ANTHROPIC_API_KEY: "same-key" };
   let helpers: InventoryRead["inventory"]["helpers"] = {}; let source = "user";
   const state = newBillingState("execution");
-  const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version: "2.1.307", sdkVersion: "0.3.310", projected: env, inventory: { ...emptyInventory(""), complete: true, diagnostics: [], env, sources: { ANTHROPIC_API_KEY: `${source} settings · ANTHROPIC_API_KEY` }, helpers } }, auth: { authMethod: "api_key", apiProvider: selected }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
+  const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version: "2.1.311", projected: env, inventory: { ...emptyInventory(""), complete: true, diagnostics: [], env, sources: { ANTHROPIC_API_KEY: `${source} settings · ANTHROPIC_API_KEY` }, helpers } }, auth: { authMethod: "api_key", apiProvider: selected }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
   const approve = async () => { await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {}); };
   await approve(); const digest = state.current!.fingerprint;
   env = { ...env, ANTHROPIC_FOUNDRY_RESOURCE: "unrelated-resource", GOOGLE_APPLICATION_CREDENTIALS: "/unrelated/google.json", AWS_PROFILE: "unrelated-aws" };
@@ -79,7 +79,7 @@ it("keeps approval across unrelated provider changes but revokes it for selected
   await approve(); source = "project";
   await a.refresh("/repo", {}); expect(a.view.canLaunch).toBe(false);
 });
-it.each(["source", "helper", "provider", "payer", "cliVersion", "sdkVersion", "launchProfile"])("invalidates extracted %s context and never restores its old grant", async kind => {
+it.each(["source", "helper", "provider", "payer", "launchProfile"])("invalidates extracted %s context and never restores its old grant", async kind => {
   const make = (which: "A" | "B") => {
     const env: Record<string, string> = { ANTHROPIC_API_KEY: "same-synthetic-credential" };
     const inventory = { ...emptyInventory(""), complete: true, diagnostics: [] as string[], env: {}, sources: {} as Record<string, string> };
@@ -87,7 +87,7 @@ it.each(["source", "helper", "provider", "payer", "cliVersion", "sdkVersion", "l
     if (kind === "helper") inventory.helpers.apiKeyHelper = { value: `synthetic-helper-${which}`, source: "project settings · apiKeyHelper" };
     if (kind === "provider") env.CLAUDE_CODE_USE_BEDROCK = "1";
     if (kind === "launchProfile") env.CLAUDE_CONFIG_DIR = `/synthetic-config-${which}`;
-    const read: InventoryRead = { inventory, version: kind === "cliVersion" && which === "B" ? "2.1.308" : "2.1.307", sdkVersion: kind === "sdkVersion" && which === "B" ? "0.3.311" : "0.3.310", projected: env };
+    const read: InventoryRead = { inventory, version: "2.1.311", projected: env };
     return classify({ cwd: "/repo", env, read, auth: { authMethod: "api_key", apiProvider: kind === "provider" && which === "B" ? "bedrock" : "firstParty", orgId: kind === "payer" ? which : "same-org" }, at });
   };
   const state = newBillingState("execution"); let next = make("A");
@@ -96,4 +96,20 @@ it.each(["source", "helper", "provider", "payer", "cliVersion", "sdkVersion", "l
   expect(a.view.next?.approved).toBe(true); const digest = state.current!.fingerprint;
   next = make("B"); await a.refresh("/repo", {}); expect(state.current!.fingerprint).not.toBe(digest); expect(state.approval).toBeUndefined();
   next = make("A"); await a.refresh("/repo", {}); expect(state.current!.fingerprint).toBe(digest); expect(a.view.next?.approved).toBe(false);
+});
+
+// An automatic Claude Code (or Agent SDK) update alone must not hold an unattended run at
+// Needs you (AC-AGENT-01, AC-AGENT-02); a change to Kiln's detection rules still voids approval.
+it("keeps a metered approval across a Claude Code update, and voids one granted under another detection contract", async () => {
+  const env: Record<string, string> = { ANTHROPIC_API_KEY: "same-synthetic-credential" };
+  const inventory = { ...emptyInventory(""), complete: true, diagnostics: [] as string[], env, sources: { ANTHROPIC_API_KEY: "user settings · ANTHROPIC_API_KEY" } };
+  let version = "2.1.311";
+  const state = newBillingState("execution");
+  const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version, inventory, projected: env }, auth: { authMethod: "api_key", apiProvider: "firstParty" }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
+  await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {});
+  const digest = state.current!.fingerprint; expect(a.view.canLaunch).toBe(true);
+  version = "2.1.318"; await a.refresh("/repo", {});
+  expect(state.current!.fingerprint).toBe(digest); expect(a.view.next?.approved).toBe(true); expect(a.view.canLaunch).toBe(true);
+  state.approval!.contractVersion = "claude-2.1.307-sdk-0.3.310-v3"; await a.refresh("/repo", {});
+  expect(a.view.next?.approved).toBe(false); expect(a.view.canLaunch).toBe(false);
 });

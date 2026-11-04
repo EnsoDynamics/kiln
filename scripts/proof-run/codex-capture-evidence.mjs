@@ -1,5 +1,6 @@
 // Captures only this disposable conversation tree. An inventory is not a passing workspace check.
 // node scripts/proof-run/codex-capture-evidence.mjs <owned proof folder>
+import { execFileSync } from 'node:child_process';
 import { createReadStream, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -8,6 +9,7 @@ import { createInterface } from 'node:readline';
 import { CodexRpc } from './codex-rpc.mjs';
 import { decodeRawCall } from './codex-wrapper-decoder.mjs';
 import { auditEntries } from './codex-evidence-policy.mjs';
+import { belowMinimumProblem, compareToMinimum } from '../../dist/agents/tooling-minimums.js';
 
 const root = resolve(process.argv[2]);
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
@@ -55,7 +57,11 @@ function identity(path) {
   return { dev: s.dev, ino: s.ino, size: s.size, mtimeMs: s.mtimeMs };
 }
 
-const report = { profile: 'codex-cli 0.162.1 static-dataflow candidate', gate1: 'not-evaluated-by-capture', at: new Date().toISOString(), threads: [], problems: [] };
+// Any Codex at or above Kiln's minimum; the capture records the version that ran.
+const codexVersion = execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim();
+const reading = compareToMinimum('codex', codexVersion);
+if (reading.state === 'below_minimum') throw new Error(belowMinimumProblem('codex', reading.version));
+const report = { profile: 'static-dataflow candidate', codexVersion, gate1: 'not-evaluated-by-capture', at: new Date().toISOString(), threads: [], problems: [] };
 try {
   await rpc.initialize();
   const before = await tree();
@@ -158,4 +164,4 @@ try {
   await rpc.close();
   writeFileSync(join(root, 'evidence-report.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
 }
-console.log(JSON.stringify({ gate1: report.gate1, threads: report.threads.length, problems: report.problems, conclusion: report.conclusion }, null, 2));
+console.log(JSON.stringify({ codexVersion, gate1: report.gate1, threads: report.threads.length, problems: report.problems, conclusion: report.conclusion }, null, 2));

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandbox, type Sandbox } from "../test-support/git-repositories.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
-import { prepareCodexLaunch } from "../session/codex-launch-profile.js";
+import { prepareCodexLaunch, readPowerShellForCodex } from "../session/codex-launch-profile.js";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { readCodexMetadata } from "./codex-metadata.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 import { codexBillingSummary } from "../billing/codex.js";
@@ -11,13 +13,36 @@ let sandbox: Sandbox;
 let info: AgentInfo | undefined;
 afterEach(() => { info?.close(); info = undefined; vi.useRealTimers(); return sandbox?.cleanup(); });
 describe("Codex metadata over real process pipes", () => {
-  it.each(["0.162.1", "0.165.0", "0.165.1", "1.0.0", "99.0.0"])("accepts stable %s and records the actual launch version", async version => {
+  // AC-AGENT-01: every version at or above the minimum, prereleases above it included; a version
+  // Kiln can't read blocks nothing and is recorded as unrecognised (technical design, Version comparison).
+  it.each([["0.162.1", "0.162.1"], ["0.165.0", "0.165.0"], ["0.165.1", "0.165.1"], ["1.0.0", "1.0.0"], ["99.0.0", "99.0.0"], ["0.167.0-alpha.4", "0.167.0-alpha.4"], ["0.166.0+build.7", "0.166.0+build.7"], ["nightly", "unrecognised"]])("accepts %s and records the actual launch version", async (version, recorded) => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set({ version });
     const prepared = await prepareCodexLaunch({ ...f, cwd: sandbox.root, writableRoots: [sandbox.root], repositories: [{ path: sandbox.root, branch: "develop" }], choice: { model: "gpt-6.1-sol", effort: "high" } });
-    expect(prepared.profile.version).toBe(version);
+    expect(prepared.profile.version).toBe(recorded);
     expect(prepared.choice.model).toBe("gpt-6.1-sol");
     expect(f.calls().some(c => c.method === "configRequirements/read")).toBe(true);
     expect(f.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
+  });
+  // AC-AGENT-05 for Codex on Windows: the PowerShell check every Codex launch there runs first.
+  it.skipIf(process.platform === "win32")("refuses a missing or outdated pwsh as a Codex readiness blocker, and accepts the minimum, later and unreadable versions", async () => {
+    sandbox = createSandbox(); const bin = join(sandbox.root, "pwsh-bin"); mkdirSync(bin);
+    const env = { ...sandbox.env, PATH: bin };
+    const check = () => readPowerShellForCodex({ cwd: sandbox.root, env, timeoutMs: 10_000 });
+    await expect(check()).rejects.toThrow("Codex on Windows needs PowerShell 7.5.2 or later. Install it before starting work.");
+    const pwsh = (output: string) => { writeFileSync(join(bin, "pwsh"), `#!/bin/sh\necho '${output}'\n`); chmodSync(join(bin, "pwsh"), 0o755); };
+    pwsh("7.4.6"); await expect(check()).rejects.toThrow("PowerShell 7.4.6 is older than Kiln supports. Install PowerShell 7.5.2 or later.");
+    pwsh("7.5.2-preview.1"); await expect(check()).rejects.toThrow("PowerShell 7.5.2-preview.1 is older than Kiln supports.");
+    for (const [output, recorded] of [["7.5.2", "7.5.2"], ["7.6.0", "7.6.0"], ["7.6.0-preview.4", "7.6.0-preview.4"], ["unknown", "unrecognised"]]) {
+      pwsh(output!); expect(await check()).toEqual({ executable: join(bin, "pwsh"), version: recorded });
+    }
+  });
+  // A `--version` that fails is unrecognised, never below the minimum: it blocks nothing.
+  it("treats a failing codex --version as unrecognised and blocks nothing", async () => {
+    sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set({ versionFails: true });
+    const metadata = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
+    expect(metadata.blockers).toEqual([]); expect(metadata.version).toBe("unrecognised");
+    const prepared = await prepareCodexLaunch({ ...f, cwd: sandbox.root, writableRoots: [sandbox.root], repositories: [{ path: sandbox.root, branch: "develop" }], choice: { model: "gpt-6.1-sol", effort: "high" } });
+    expect(prepared.profile.version).toBe("unrecognised");
   });
   it("still blocks newer releases when required metadata capabilities fail", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox); f.set({ version: "0.165.1", configError: true });
@@ -157,7 +182,7 @@ describe("Codex metadata over real process pipes", () => {
   });
   it("reports real adapter version, authentication, disabled-skill and policy failures without starting a turn", async () => {
     sandbox = createSandbox(); const f = installCodexMetadataFixture(sandbox);
-    for (const [fixture, message] of [[{ version: "0.162.0" }, "incompatible"], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ configError: true }, "Could not inspect Codex provider and hooks"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
+    for (const [fixture, message] of [[{ version: "0.162.0" }, "Codex 0.162.0 is older than Kiln supports. Install Codex 0.162.1 or later: codex update"], [{ version: "0.162.1-alpha.2" }, "Codex 0.162.1-alpha.2 is older than Kiln supports."], [{ apiKey: true }, "ChatGPT"], [{ provider: "custom" }, "OpenAI"], [{ configError: true }, "Could not inspect Codex provider and hooks"], [{ hooks: { interactive: true } }, "hook configuration"], [{ disabledSkill: "deliverable-review" }, "deliverable-review"], [{ requirements: { unknownMandatoryRestriction: true } }, "managed requirement"]] as const) {
       f.set(fixture); const r = await readCodexMetadata({ ...f, cwd: sandbox.root, cwds: [sandbox.root] });
       expect(r.blockers.join(" ")).toContain(message);
     }

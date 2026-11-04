@@ -52,6 +52,7 @@
         "session_history": "complete/errors/phases; Kiln selectors and provider IDs are separate; every attempt is retained.",
         "last_activity": "Latest dated saved output, session/skill or run transition, retained after pause/completion; observed_at and description with current/stale/unavailable state. Fragment metadata marks bounded output text.",
         "unsent_replies": "Current stop-bound unsent command IDs and literal text, marked not_sent; inspect receipts before explicitly advancing.",
+        "compatibility": "Agent compatibility notices from the saved record, present with the controller stopped: [{feature (live_messages, takeover or codex_history), agent, agent_version, detail, attempt_id, observed_at}], at most one per feature; empty when none. A listed feature is unavailable on that agent version; the rest of the run keeps working.",
         "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause."
       },
       "errors": [

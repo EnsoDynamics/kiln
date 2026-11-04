@@ -1,5 +1,5 @@
 // Real SDK resolver and installed auth-status proof; synthetic secrets never make a model request.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,8 +11,11 @@ import { readInventory, classify } from "./inspection.js";
 let sandbox: Sandbox | undefined;
 afterEach(async () => { await sandbox?.cleanup(); sandbox = undefined; });
 const worker = fileURLToPath(new URL("../../dist/billing/settings-worker.js", import.meta.url));
-// This proof qualifies an exact CLI/SDK pair, independently of the user's auto-updating CLI.
-const qualifiedClaude = fileURLToPath(new URL("../../node_modules/@anthropic-ai/claude-code/bin/claude.exe", import.meta.url));
+// CI runs this proof against the pinned development CLI, the Claude Code minimum, independently
+// of the user's auto-updating CLI. KILN_PASSIVE_BOUNDARY_CLAUDE points it at another Claude Code,
+// such as the newest installed one, to record billing on a later version.
+const qualifiedClaude = process.env.KILN_PASSIVE_BOUNDARY_CLAUDE || fileURLToPath(new URL("../../node_modules/@anthropic-ai/claude-code/bin/claude.exe", import.meta.url));
+const versionScript = (root: string, output: string) => { const path = join(root, `claude-${output.replace(/\W/g, "-")}`); writeFileSync(path, `#!/bin/sh\necho '${output}'\n`); chmodSync(path, 0o755); return path; };
 function settings(path: string, value: unknown) { mkdirSync(join(path, ".claude"), { recursive: true }); writeFileSync(join(path, ".claude", "settings.json"), JSON.stringify(value)); }
 describe("qualified passive settings boundary", () => {
   it("uses the real SDK cascade, preserves source/empty precedence and does not execute helper, hook or MCP canaries", async () => {
@@ -46,7 +49,8 @@ describe("qualified passive settings boundary", () => {
     const beforeInspection = readFileSync(join(project, ".claude", "settings.json"), "utf8");
     const read = await readInventory({ executable: claude, cwd: project, env });
     const contract = JSON.parse(readFileSync(new URL("../../test/fixtures/billing/claude-passive-contract.json", import.meta.url), "utf8"));
-    expect(read.version).toBe(contract.cliVersion); expect(read.inventory.complete).toBe(true);
+    if (!process.env.KILN_PASSIVE_BOUNDARY_CLAUDE) expect(read.version).toBe(contract.cliVersion);
+    expect(read.inventory.complete).toBe(true);
     expect(read.projected.ANTHROPIC_API_KEY).toBe("synthetic-billing-project-canary"); expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     const auth = await readAuthStatus({ claude, cwd: project, env: read.projected });
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(beforeInspection);
@@ -58,8 +62,14 @@ describe("qualified passive settings boundary", () => {
     const host = await readInventory({ executable: claude, cwd: project, env: hostEnv });
     expect(host.inventory.complete).toBe(false); expect(host.projected.ANTHROPIC_API_KEY).toBe("inherited-canary");
     expect(ordinaryProfile(hostEnv)).toBe(false);
-    const unknown = await readInventory({ executable: process.execPath, cwd: project, env: { ...env, ANTHROPIC_API_KEY: "inherited-canary" } });
-    expect(unknown.inventory.diagnostics).toContain("inventory_contract_unqualified"); expect(unknown.projected.ANTHROPIC_API_KEY).toBe("inherited-canary");
+    // A version Kiln can't parse, or one below the minimum, never runs the settings worker.
+    const unknown = await readInventory({ executable: versionScript(sandbox.root, "stand-in"), cwd: project, env: { ...env, ANTHROPIC_API_KEY: "inherited-canary" } });
+    expect(unknown).toMatchObject({ version: "unrecognised", inventory: { complete: false, diagnostics: ["inventory_claude_version_unrecognised"] } }); expect(unknown.projected.ANTHROPIC_API_KEY).toBe("inherited-canary");
+    const old = await readInventory({ executable: versionScript(sandbox.root, "2.1.310 (Claude Code)"), cwd: project, env });
+    expect(old).toMatchObject({ version: "2.1.310", inventory: { complete: false, diagnostics: ["inventory_claude_below_minimum"] } });
+    // Any later version runs the real resolver: no exact version is required (AC-AGENT-01).
+    const later = await readInventory({ executable: versionScript(sandbox.root, "9.0.0 (Claude Code)"), cwd: project, env });
+    expect(later).toMatchObject({ version: "9.0.0", inventory: { complete: true } }); expect(later.projected.ANTHROPIC_API_KEY).toBe("synthetic-billing-project-canary");
   });
   it.skipIf(process.platform !== "darwin")("keeps inactive project/local provider endpoints out of route evidence and approval identity through the real resolver", async () => {
     sandbox = createSandbox(); const project = join(sandbox.root, "project"); mkdirSync(project);
@@ -86,7 +96,7 @@ describe("qualified passive settings boundary", () => {
     expect(JSON.stringify(result.summary)).not.toContain("synthetic-route-canary");
   });
   it("records the managed-policy limitation without invoking its helper", () => {
-    // Generated contract evidence: real managed host unavailable; SDK 0.3.310 declarations
+    // Generated contract evidence: real managed host unavailable; the installed SDK's declarations
     // explicitly exclude policyHelper execution. This proves extraction, not native MDM.
     const declarations = readFileSync(new URL("../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts", import.meta.url), "utf8");
     expect(declarations).toContain('`policyHelper` subprocess is not executed');

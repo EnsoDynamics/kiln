@@ -5,6 +5,19 @@ import { ClaudeInfo, type ClaudeInfoSource, ACCOUNT_REFRESH_MS } from "../accoun
 import { readSkillList, type ModelEntry } from "../account/model-list.js";
 import { type AgentId } from "../state/records.js";
 import { METHOD_SKILLS, readCodexMetadata } from "./codex-metadata.js";
+import { runHelper } from "../platform/helper-process.js";
+import { belowMinimumProblem, compareToMinimum } from "./tooling-minimums.js";
+
+/**
+ * Claude Code below its minimum is a readiness blocker (AC-AGENT-05), read on Documents found and
+ * again before every launch. A version Kiln can't read blocks nothing here; billing and live
+ * control then keep their conservative side (technical design, Version comparison).
+ */
+async function claudeVersionBlocker(claude: string, cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<string | undefined> {
+  const read = await runHelper(claude, ["--version"], { cwd, env, signal });
+  const reading = compareToMinimum("claudeCode", read.exitCode === 0 ? read.stdout : undefined);
+  return reading.state === "below_minimum" ? belowMinimumProblem("claudeCode", reading.version!) : undefined;
+}
 
 export interface AgentAccount extends Omit<AccountView, "limits"> {
   /** Usage is independent of auth-only readiness and retains its own reading time. */
@@ -43,6 +56,8 @@ function sameAccountContext(previous: AgentAccount, current: AgentAccount): bool
   return !!current.email?.trim() || afterIds.some(id => beforeIds.includes(id));
 }
 export class AgentInfo {
+  /** The last Claude Code version blocker read, kept across account-only updates. */
+  private claudeVersionProblem: string | undefined;
   state: MetadataState;
   claude: ClaudeInfoSource;
   private readonly ownClaude: boolean;
@@ -96,8 +111,9 @@ export class AgentInfo {
         state.blockers = result.blockers;
         state.account = result.account;
       } else {
-        await Promise.all([this.claude.refreshAccount(), this.claude.refreshModels?.()]);
+        const [, , versionBlocker] = await Promise.all([this.claude.refreshAccount(), this.claude.refreshModels?.(), claudeVersionBlocker(this.options.executable.claude, this.options.cwd, this.options.env, this.abort.signal)]);
         if (this.state !== state || this.abort.signal.aborted) return;
+        this.claudeVersionProblem = versionBlocker;
         this.updateClaude();
         const skills = await Promise.all(cwds.map(async cwd => ({ cwd, result: await readSkillList({ claude: this.options.executable.claude, cwd, env: this.options.env, signal: this.abort.signal }) })));
         if (this.state !== state || this.abort.signal.aborted) return;
@@ -140,16 +156,18 @@ export class AgentInfo {
     const state = this.state;
     const startedAt = new Date().toISOString();
     let authObservedAt = startedAt;
-    const [auth, , skills] = await Promise.all([
+    const [auth, , skills, versionBlocker] = await Promise.all([
       readAuthStatus({ claude: this.options.executable.claude, cwd, env, signal }).then(auth => { authObservedAt = new Date().toISOString(); return auth; }),
       this.claude.refreshModels?.(),
       Promise.all([...new Set([cwd, ...this.contexts])].map(async directory => ({ directory, result: await readSkillList({ claude: this.options.executable.claude, cwd: directory, env: this.options.env, signal }) }))),
+      claudeVersionBlocker(this.options.executable.claude, cwd, env, signal),
     ]);
     // A switch to another agent before or during this read leaves that agent's catalogue and account alone.
     if (state !== this.state || signal.aborted || state.agentId !== "claude_code") return { error: "Claude readiness check was cancelled." };
     state.models = this.claude.models;
     state.modelListError = this.claude.modelListError;
-    state.blockers = auth.error ? [auth.error] : [];
+    this.claudeVersionProblem = versionBlocker;
+    state.blockers = [...(versionBlocker ? [versionBlocker] : []), ...(auth.error ? [auth.error] : [])];
     for (const { result } of skills) {
       if (!result.ok) state.blockers.push("Could not inspect enabled Claude Code skills. Recheck agent information.");
       else for (const required of METHOD_SKILLS) if (!result.skills.some(name => name === required || name === `enso-method:${required}`)) state.blockers.push(`Enable or install the Enso Method ${required} skill for Claude Code.`);
@@ -194,7 +212,7 @@ export class AgentInfo {
     this.state.modelListError = this.claude.modelListError;
     this.lastClaudeAccount = this.claude.account;
     this.state.account = this.claude.account ? { ...this.claude.account, agentId: "claude_code" } : undefined;
-    this.state.blockers = !this.claude.account ? ["Claude Code account is unavailable. Check claude auth login in a terminal."] : this.claude.account.error ? [this.claude.account.error] : [];
+    this.state.blockers = [...(this.claudeVersionProblem ? [this.claudeVersionProblem] : []), ...!this.claude.account ? ["Claude Code account is unavailable. Check claude auth login in a terminal."] : this.claude.account.error ? [this.claude.account.error] : []];
   }
   onChange(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(): void { for (const listener of this.listeners) listener(); }

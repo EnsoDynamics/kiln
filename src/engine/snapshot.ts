@@ -31,6 +31,7 @@ import { PR_PHASE_KEY, type CheckRun, type CheckResult, type Effort, type PullRe
 import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
+import { noticeLines } from "./compatibility-notices.js";
 
 export const PR_TITLE = "Final pull request";
 
@@ -196,6 +197,8 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
+  compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
@@ -440,6 +443,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
+    ...(engine.record.compatibility?.length ? { compatibility: noticeLines(engine.record) } : {}),
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),

@@ -1,4 +1,4 @@
-import { CODEX_VERSION_REQUIREMENT, supportedCodexVersion } from "../agents/codex-version.js";
+import { belowMinimumProblem, compareToMinimum, requirement } from "../agents/tooling-minimums.js";
 import type { CommandEvidence } from "../state/development-delivery.js";
 // Production, read-only Codex evidence. A successful model/process is never an audit verdict.
 import { createHash } from "node:crypto";
@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 import { comparable, realPathOfNearestAncestor } from "../engine/worktree-setup.js";
 import { findExecutable, runHelper } from "../platform/helper-process.js";
 import { CodexHistoryRpc, type HistoryRpc } from "./codex-history-rpc.js";
-import { retainedCompaction } from "./codex-compaction.js";
-import { decodeRawCall } from "./codex-wrapper-decoder.mjs";
+import { CodexSchemaChange, compactionContent, fieldChanged, forkedCompactionCopy, retainedCompaction, schemaName } from "./codex-compaction.js";
+import { decodeRawCall, EXEC_COMMAND_PARAMETERS } from "./codex-wrapper-decoder.mjs";
 import { digest, EvidenceIndex, existingRawHistory, rawLines } from "./codex-evidence-store.js";
 import { readPowerShell } from "./codex-powershell.js";
 import { outsideChanges, gitCommandsIn, gitChange, OUTSIDE_NOTE, STAYED_CHECK_NAME, STAYED_PASSED_FACT, type OutsideChange, type StayedOutcome } from "./outside-workspace.js";
@@ -26,6 +26,13 @@ export interface CodexAudit {
   commands?: CommandEvidence[];
   profile: "codex-0.162.1-static-v1" | "codex-static-v2"; coverage: "complete" | "inconclusive"; at: string;
   fingerprint: string; frontiers: CodexFrontier[]; findings: OutsideChange[]; problems: string[]; operationsChecked: number;
+  /**
+   * Schema failures only, at most 20 distinct short details: an unknown record type, a missing or
+   * changed field Kiln reads, an unknown compaction item or content block type, an unknown
+   * `exec_command` parameter. A detail names the schema element, never user text, a command, a
+   * path or a value. Integrity failures add none. Absent when there are none (AC-AGENT-04, 07).
+   */
+  compatibility?: string[];
 }
 export interface CodexEvidenceOptions {
   threadId: string; codexHome: string; worktrees: string[]; cwd: string;
@@ -56,11 +63,21 @@ interface RawPayload {
   state?: { environments?: { environments?: { local?: { shell?: string } } } }; full?: boolean;
 }
 const TERMINAL = new Set(["completed", "interrupted", "failed"]);
+/** Raw record types Codex command evidence reads; any other type leaves the evidence inconclusive. */
+const RECORD_TYPES = ["session_meta", "world_state", "turn_context", "event_msg", "response_item", "compacted", "token_usage_record", "inter_agent_communication_metadata"];
+/** Verified non-executing envelope variants: the fields each requires, by JSON form; other fields are ignored. */
+const METADATA_RECORDS: Record<string, Record<string, "text" | "object" | "boolean">> = {
+  token_usage_record: { thread_id: "text", turn_id: "text", session_id: "text", root_turn_id: "text", response_id: "text", usage: "object", turn_token_usage: "object", thread_token_usage: "object" },
+  inter_agent_communication_metadata: { trigger_turn: "boolean" },
+};
+const hasForm = (value: unknown, form: "text" | "object" | "boolean") => form === "text" ? typeof value === "string" : form === "boolean" ? typeof value === "boolean" : !!value && typeof value === "object" && !Array.isArray(value);
 const SETTLED_ITEM = new Set(["completed", "failed", "declined"]);
 const KINDS = ["subAgent", "subAgentThreadSpawn", "subAgentReview", "subAgentOther", "subAgentCompact"];
 const identity = (path: string): SourceIdentity => { const s = statSync(path); if (!s.isFile()) throw new Error("History is not a file."); return { dev: s.dev, ino: s.ino, size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs }; };
 const physical = (path: string) => comparable(realPathOfNearestAncestor(resolve(path)));
 const requireText = (value: unknown, what: string): string => { if (typeof value !== "string" || !value) throw new Error(`Missing ${what}.`); return value; };
+/** A field of a raw record Kiln reads; missing or in another form is a schema failure. */
+const recordText = (value: unknown, record: string | undefined, field: string): string => { if (typeof value !== "string" || !value) throw fieldChanged(schemaName(record, "history record"), field); return value; };
 
 /** No turns are dispatched. Memory holds a page, a raw record, compact frontiers and bounded findings. */
 export async function auditCodexConversation(options: CodexEvidenceOptions): Promise<CodexAudit> {
@@ -78,6 +95,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     if (blocksAcknowledgment || report.problems.length >= 200) unsettledOrChanged = true;
     if (report.problems.length < 200) report.problems.push(text);
   };
+  const compatible = (detail: string) => {
+    const list = report.compatibility ??= [];
+    if (list.length < 20 && !list.includes(detail)) list.push(detail);
+  };
   const checkTime = () => { if (signal.aborted) throw new Error("Codex evidence deadline exceeded or scan stopped."); };
   try {
     const home = realpathSync(options.codexHome);
@@ -86,7 +107,9 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     if (!roots.length) throw new Error("No assigned Codex worktrees.");
     if (!options.rpc) {
       const version = await runHelper(options.executable, ["--version"], { cwd: options.cwd, env: options.env, signal, timeoutMs: 30_000 });
-      if (version.exitCode !== 0 || !supportedCodexVersion(version.stdout)) throw new Error(`Codex evidence reader ${version.stdout.trim() || "version unavailable"} is incompatible. Kiln requires ${CODEX_VERSION_REQUIREMENT}.`);
+      // Below the minimum refuses; output Kiln can't parse proceeds and the history reads decide.
+      const reading = compareToMinimum("codex", version.exitCode === 0 ? version.stdout : undefined);
+      if (reading.state === "below_minimum") throw new Error(belowMinimumProblem("codex", reading.version!));
     }
     const rpc = options.rpc ?? (owned = new CodexHistoryRpc(options.executable, options.cwd, { ...options.env, CODEX_HOME: home }, signal));
     if (owned) await owned.initialize();
@@ -188,42 +211,43 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
       let first = true; let rawParent: string | undefined;
       for await (const { value } of rawLines(path, signal)) {
         checkTime(); const record = value as RawRecord; const payload = record.payload;
-        if (!payload || typeof payload !== "object" || Array.isArray(payload) || typeof record.type !== "string") throw new Error(`${id}: malformed raw envelope.`);
-        if (!["session_meta", "world_state", "turn_context", "event_msg", "response_item", "compacted"].includes(record.type)) {
-          // Verified non-executing envelope variants retained in the original gate-1 tree.
-          const fields = Object.keys(payload).sort();
-          const usage = record.type === "token_usage_record" && digest(fields) === digest(["thread_id", "turn_id", "session_id", "root_turn_id", "response_id", "usage", "turn_token_usage", "thread_token_usage"].sort())
-            && ["thread_id", "turn_id", "session_id", "root_turn_id", "response_id"].every(key => typeof (payload as unknown as Record<string, unknown>)[key] === "string")
-            && ["usage", "turn_token_usage", "thread_token_usage"].every(key => { const value = (payload as unknown as Record<string, unknown>)[key]; return value !== null && typeof value === "object" && !Array.isArray(value); });
-          const communication = record.type === "inter_agent_communication_metadata" && fields.length === 1 && fields[0] === "trigger_turn" && typeof (payload as unknown as { trigger_turn: unknown }).trigger_turn === "boolean";
-          if (!usage && !communication) problem(`${id}: unsupported or compacted raw envelope ${record.type}.`);
+        if (typeof record.type !== "string" || !record.type) throw new CodexSchemaChange("history record type is missing or changed");
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw fieldChanged(schemaName(record.type, "history record"), "payload");
+        if (!RECORD_TYPES.includes(record.type)) {
+          problem(`${id}: unsupported or compacted raw envelope ${record.type}.`);
+          compatible(`history record type ${schemaName(record.type)} is not recognised`);
         }
-        if (["event_msg", "response_item"].includes(record.type) && (typeof payload.type !== "string" || !payload.type)) throw new Error(`${id}: missing raw event/item type.`);
+        const metadataFields = Object.hasOwn(METADATA_RECORDS, record.type) ? METADATA_RECORDS[record.type]! : {};
+        for (const [field, form] of Object.entries(metadataFields)) if (!hasForm((payload as unknown as Record<string, unknown>)[field], form)) {
+          problem(`${id}: unsupported raw envelope ${record.type}.`);
+          compatible(`${record.type} field ${field} is missing or changed`);
+        }
+        if (["event_msg", "response_item"].includes(record.type)) recordText(payload.type, record.type, "type");
         if (record.type === "response_item" && ["compaction", "compacted"].includes(payload.type ?? "")) problem(`${id}: compacted raw response history.`);
         if (first) { if (record.type !== "session_meta" || payload.id !== id) throw new Error(`${id}: raw session identity mismatch.`); rawParent = payload.source?.subagent?.thread_spawn?.parent_thread_id ?? payload.forked_from_id; index.put("sessionMetadata", id, digest(payload)); first = false; }
         if (record.type === "compacted" && payload.latest_token_usage_record?.thread_id === id) {
-          index.unique(`compaction:${id}`, requireText(payload.window_id, "compaction window"), digest(payload));
+          index.unique(`compaction:${id}`, recordText(payload.window_id, "compaction", "window_id"), digest(payload));
           index.unique(`compactionContent:${id}`, payload.window_id!, digest(compactionContent(payload)));
         }
         if (record.type === "turn_context") rawTurn = payload.turn_id;
-        if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocationValue:${id}`, requireText(payload.call_id, "raw call ID"), { payload, at: record.timestamp, turnId: payload.internal_chat_message_metadata_passthrough?.turn_id ?? rawTurn });
-        if (record.type === "turn_context") index.unique(`context:${id}`, requireText(payload.turn_id, "context turn"), payload);
-        if (record.type === "event_msg" && ["task_started", "task_complete"].includes(payload.type ?? "")) index.unique(`${payload.type}:${id}`, requireText(payload.turn_id, "raw frontier turn"), digest(payload));
+        if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocationValue:${id}`, recordText(payload.call_id, payload.type, "call_id"), { payload, at: record.timestamp, turnId: payload.internal_chat_message_metadata_passthrough?.turn_id ?? rawTurn });
+        if (record.type === "turn_context") index.unique(`context:${id}`, recordText(payload.turn_id, "turn_context", "turn_id"), payload);
+        if (record.type === "event_msg" && ["task_started", "task_complete"].includes(payload.type ?? "")) index.unique(`${payload.type}:${id}`, recordText(payload.turn_id, payload.type, "turn_id"), digest(payload));
         // Verified in real 0.162.1 interrupted production attempts: this terminal is distinct
         // from task_complete and only settles a matching normalized interrupted turn.
         if (record.type === "event_msg" && payload.type === "turn_aborted") {
           if (payload.reason !== "interrupted") problem(`${id}: unqualified raw abort reason.`);
-          else index.unique(`turn_aborted:${id}`, requireText(payload.turn_id, "raw aborted turn"), digest(payload));
+          else index.unique(`turn_aborted:${id}`, recordText(payload.turn_id, "turn_aborted", "turn_id"), digest(payload));
         }
         // A collaboration call the tool itself refused started and reached no child: nothing was delegated.
         // Outputs without a call ID (Codex app notices) answer no call and refuse nothing.
         if (record.type === "response_item" && payload.type === "function_call_output" && typeof payload.call_id === "string" && payload.call_id && collaborationToolFailed(payload.output)) index.put(`failedCollaboration:${id}`, payload.call_id, true);
-        if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, requireText(payload.call_id, "raw call ID"), digest(payload));
+        if (record.type === "response_item" && ["function_call", "custom_tool_call"].includes(payload.type ?? "")) index.unique(`invocation:${id}`, recordText(payload.call_id, payload.type, "call_id"), digest(payload));
         if (!options.commandProjection && record.type === "response_item" && payload.type?.endsWith("_call") && !["function_call", "custom_tool_call"].includes(payload.type)) problem(`${id}: unsupported raw invocation ${payload.type}.`);
         if (record.type === "event_msg" && payload.type === "item_completed") {
           const item = payload.item;
           if (item?.type === "CommandExecution") {
-            const turnId = requireText(payload.turn_id, "native command turn");
+            const turnId = recordText(payload.turn_id, "item_completed", "turn_id");
             // Every raw command needs an owned normalized turn, independently of later coverage enumeration.
             // Copied ancestor commands are checked against their owning source below.
             if (payload.thread_id === id && !index.get(`turn:${id}`, turnId)) problem(`${id}: raw command has no owned normalized turn.`);
@@ -315,7 +339,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         checkTime(); const record = value as RawRecord; const payload = record.payload;
         if (record.type === "session_meta") {
           if (!metadataPrefix) throw new Error(`${id}: session metadata appears after original history.`);
-          const source = requireText(payload.id, "session metadata owner");
+          const source = recordText(payload.id, "session_meta", "id");
           let ancestor: string | undefined = id;
           while (ancestor && ancestor !== source) ancestor = byId.get(ancestor)?.parentThreadId;
           if (!ancestor || index.get("sessionMetadata", source) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited session metadata.`);
@@ -328,19 +352,17 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
           // Observed with 0.166.0: a fork of a compacted thread opens with a copy of the ancestor's
           // compaction that drops its usage and attribution bookkeeping. The model-visible content
           // and window identity must match an ancestor's own compaction, validated in its source.
-          const window = requireText(payload.window_id, "compaction window");
+          const copy = forkedCompactionCopy(payload);
+          if (!copy) throw new Error(`${id}: unsupported forked compaction copy.`);
           let ancestor = byId.get(id)?.parentThreadId;
-          while (ancestor && index.get(`compactionContent:${ancestor}`, window) !== digest(compactionContent(payload))) ancestor = byId.get(ancestor)?.parentThreadId;
+          while (ancestor && index.get(`compactionContent:${ancestor}`, copy.current) !== digest(compactionContent(payload))) ancestor = byId.get(ancestor)?.parentThreadId;
           if (!ancestor) throw new Error(`${id}: changed or unowned inherited compaction.`);
-          // Pin the record's schema; only Codex's usage and attribution bookkeeping may differ.
-          const copy = payload as RawPayload & Record<string, unknown>; const metadata = copy.replacement_history_metadata;
-          if (Object.keys(copy).sort().join() !== COMPACTION_KEYS.join() || !Array.isArray(metadata) || metadata.length !== (copy.replacement_history as unknown[]).length
-            || metadata.some(meta => (meta as { client_authored?: unknown } | null)?.client_authored !== false)
-            || (copy.retained_context as { verified_answers?: unknown[] } | null)?.verified_answers?.length !== 0) throw new Error(`${id}: unsupported forked compaction copy.`);
-          windows.set(window, { first: payload.first_window_id!, current: window, number: payload.window_number! });
+          windows.set(copy.current, copy);
         } else if (record.type === "compacted") {
-          const origin = owner(id, requireText(payload.latest_token_usage_record?.turn_id, "compaction turn"));
-          if (index.get(`compaction:${origin}`, requireText(payload.window_id, "compaction window")) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited compaction.`);
+          const usage = payload.latest_token_usage_record;
+          if (!usage || typeof usage !== "object" || Array.isArray(usage)) throw fieldChanged("compaction", "latest_token_usage_record");
+          const origin = owner(id, recordText(usage.turn_id, "compaction", "latest_token_usage_record.turn_id"));
+          if (index.get(`compaction:${origin}`, recordText(payload.window_id, "compaction", "window_id")) !== digest(payload)) throw new Error(`${id}: changed or unowned inherited compaction.`);
           const previous = windows.get(payload.previous_window_id ?? "")
             // A copied ancestor compaction can begin mid-chain; its transition was validated in the
             // ancestor's own source, which the digest above matches exactly.
@@ -354,7 +376,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (record.type === "world_state") { const env = payload.state?.environments?.environments?.local; if (env || payload.full) shell = env?.shell; }
         if (record.type === "turn_context") currentTurn = payload.turn_id;
         if (record.type === "turn_context" || record.type === "event_msg" && payload.type === "task_started") {
-          const origin = owner(id, requireText(payload.turn_id, "raw turn"));
+          const origin = owner(id, recordText(payload.turn_id, record.type === "turn_context" ? "turn_context" : "task_started", "turn_id"));
           const group = record.type === "turn_context" ? "context" : "task_started";
           const original = index.get(`${group}:${origin}`, payload.turn_id!);
           const expected = group === "context" ? digest(original) : original;
@@ -369,12 +391,15 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
         if (!context?.cwd) throw new Error(`${id}: missing call context.`);
         const decoded = decodeRawCall(payload);
         if (!options.commandProjection && decoded.coverage !== "complete") problem(`${id}/${payload.call_id}: ${decoded.reason}`);
-        const at = requireText(record.timestamp, "call timestamp");
+        const at = recordText(record.timestamp, "response_item", "timestamp");
         for (const operation of decoded.operations as { name: string; input: unknown }[]) {
           if (operation.name === "exec_command") {
             const input = operation.input as Record<string, unknown>;
-            const known = ["cmd", "workdir", "shell", "login", "tty", "yield_time_ms", "max_output_tokens", "sandbox_permissions", "justification", "prefix_rule"];
-            if (!input || Object.keys(input).some(key => !known.includes(key))) { if (options.commandProjection) continue; throw new Error("Unrecognized exec parameters."); }
+            // A parameter Kiln doesn't recognise can change where or how the command ran: that call
+            // gets no receipt, and every other call keeps its own (AC-AGENT-04, 07).
+            const unknown = input && typeof input === "object" ? Object.keys(input).filter(key => !EXEC_COMMAND_PARAMETERS.includes(key)) : [];
+            for (const key of unknown) compatible(`exec_command parameter ${schemaName(key)} is not recognised, so that command has no receipt`);
+            if (!input || unknown.length) { if (options.commandProjection) continue; throw new Error("Unrecognized exec parameters."); }
             // Unsupported calls supply no receipt; they do not invalidate other authenticated calls.
             if (options.commandProjection && (typeof input.cmd !== "string" || !input.cmd || input.workdir !== undefined && (typeof input.workdir !== "string" || !input.workdir))) continue;
             const command = requireText(input.cmd, "recorded command");
@@ -413,7 +438,7 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
               if (powerShell && !options.commandProjection) {
                 handledPowerShell = true;
                 const parser = options.powerShellExecutable ?? findExecutable("pwsh", options.env);
-                if (!parser) throw new Error("Qualified PowerShell parser is unavailable.");
+                if (!parser) throw new Error(`PowerShell is unavailable to read this command; Kiln's parser needs ${requirement("powershell")}.`);
                 const result = await readPowerShell(command, { executable: parser, cwd, env: options.env, signal, context: { platform: process.platform, home } });
                 effects(result.paths.map(path => ({ name: "Write", cwd, at, input: { file_path: path } })));
                 for (const git of result.git) effects([{ name: "Bash", cwd: git.place ?? cwd, at, input: { command: `git ${[git.subcommand ?? "", ...git.args].map(word => "'" + word.replaceAll("'", "'\\''") + "'").join(" ")}` } }]);
@@ -469,7 +494,10 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
     checkTime();
     report.uncertaintyReviewable = !unsettledOrChanged;
     report.coverage = report.problems.length ? "inconclusive" : "complete";
-  } catch (error) { problem((error as Error).message); }
+  } catch (error) {
+    problem((error as Error).message);
+    if (error instanceof CodexSchemaChange) compatible(error.detail);
+  }
   finally {
     await owned?.close();
     clearTimeout(timer); options.signal?.removeEventListener("abort", abort);
@@ -479,13 +507,6 @@ export async function auditCodexConversation(options: CodexEvidenceOptions): Pro
   report.fingerprint = digest({ profile: report.profile, roots: checkedRoots, frontiers: report.frontiers, findings: report.findings });
   return report;
 }
-
-/** What a forked copy of a compaction keeps from the original: its window identity and the model-visible context. */
-function compactionContent(payload: RawPayload) {
-  const { message, replacement_history, compaction_response_id, first_window_id, previous_window_id, window_id, window_number } = payload as RawPayload & Record<string, unknown>;
-  return { message, replacement_history, compaction_response_id, first_window_id, previous_window_id, window_id, window_number };
-}
-const COMPACTION_KEYS = ["message", "replacement_history", "replacement_history_metadata", "retained_context", "window_number", "first_window_id", "previous_window_id", "window_id", "compaction_response_id", "latest_token_usage_record", "resume_metadata"].sort();
 
 /**
  * A collaboration call Codex itself refused reached no child. Acknowledgements are empty or a JSON

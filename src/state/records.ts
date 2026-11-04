@@ -260,7 +260,25 @@ export interface RepositoryEntry {
   setupCompletedAt?: string;
 }
 
+export type CompatibilityFeature = "live_messages" | "takeover" | "codex_history";
+/**
+ * A feature found agent information it needs missing or in a form Kiln doesn't recognise
+ * (AC-AGENT-04). Additive and optional: records without notices read as before.
+ */
+export interface CompatibilityNotice {
+  feature: CompatibilityFeature;
+  agentId: AgentId;
+  /** As reported by the agent, or `unrecognised`; codex_history: the read session's latest launch profile version. */
+  agentVersion: string;
+  /** Which needed field or event was missing or changed; never user text or values. */
+  detail: string;
+  attemptId?: string;
+  observedAt: string;
+}
+
 export interface PrdRecord {
+  /** At most one per feature (technical design, Compatibility notices row). */
+  compatibility?: CompatibilityNotice[];
   pendingContinuationAuthority?: string;
   preparation?: import("../engine/preparation-state.js").PreparationState;
   continuation?: import("../engine/continuation-state.js").ContinuationState;

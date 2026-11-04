@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { readFileSync, appendFileSync } from 'node:fs';
 const path = process.env.KILN_CODEX_METADATA;
 const read = () => path ? JSON.parse(readFileSync(path, 'utf8')) : {};
-if (process.argv.includes('--version')) { console.log(`codex-cli ${read().version ?? '0.162.1'}`); process.exit(0); }
+if (process.argv.includes('--version')) { if (read().versionFails) { console.error('codex: version unavailable'); process.exit(1); } console.log(`codex-cli ${read().version ?? '0.162.1'}`); process.exit(0); }
 const model = (name, efforts) => ({ model: name, displayName: name.toUpperCase(), description: 'Recorded contract fixture', hidden: false, supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: `${reasoningEffort} reasoning` })), defaultReasoningEffort: 'low' });
 let accountReads = 0;
 createInterface({ input: process.stdin }).on('line', async line => {

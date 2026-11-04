@@ -1,5 +1,7 @@
 # Phase 1: Version minimums and tolerant readers
 
+**Closed:** 2026-11-03
+
 **Parent PRD:** [Kiln public release readiness](kiln-public-release-readiness-prd.md)
 **Technical design:** [technical design](kiln-public-release-readiness-technical-design.md) — Design Decisions rows Where minimums live, Version comparison, Start checks for versions, Billing gate, Billing recognition, Billing contract identifier, Codex compaction, Codex audit envelopes, Codex tool inputs, PowerShell (Codex on Windows), Compatibility notices, Kiln's own dependencies, Proof scripts; Interfaces (Agent tooling minimums, Version problem wording); Data Models (CompatibilityNotice); Proving Features on Newer Agent Versions (billing column, Codex command evidence, stand-in paragraph); Open Questions 1 and 2.
 **Phase plan:** [Execution order](kiln-public-release-readiness-phase-plan.md)

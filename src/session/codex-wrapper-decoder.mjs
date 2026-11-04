@@ -10,10 +10,18 @@ const RESERVED = new Set(['tools', 'Promise', 'JSON', 'ALL_TOOLS', ...OUTPUT, 's
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const MAX_ARRAY = 1024;
 
-// This contract only reads an image; no output or destination parameter is admitted.
+/**
+ * Every `exec_command` parameter Codex command evidence recognises (AC-AGENT-07): Codex 0.166.0's
+ * default declaration, plus `additional_permissions`, which its `exec_permission_approvals` feature
+ * adds (seen with `sandbox_permissions: "with_additional_permissions"`). A call with any other
+ * parameter gets no command receipt. The proof capture's evidence policy reads this same list.
+ */
+export const EXEC_COMMAND_PARAMETERS = Object.freeze(['cmd', 'workdir', 'shell', 'login', 'tty', 'yield_time_ms', 'max_output_tokens', 'sandbox_permissions', 'justification', 'prefix_rule', 'additional_permissions']);
+
+// This contract only reads an image. Kiln checks the parameters it reads and ignores any
+// others (Codex 0.166.0 adds `environment_id`), so a new one never withholds a receipt.
 function imageInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some(key => !['path', 'detail'].includes(key))
     || typeof input.path !== 'string' || !input.path || !(posix.isAbsolute(input.path) || win32.isAbsolute(input.path))
     || input.detail !== undefined && !['high', 'original'].includes(input.detail)) throw new Error('Unsupported view_image input');
 }
@@ -298,13 +306,14 @@ export function decodeWrapper(callId, program) {
 
 export function decodeRawCall(payload) {
   if (payload.type === 'custom_tool_call' && payload.name === 'exec' && (payload.namespace === undefined || payload.namespace === 'functions')) return decodeWrapper(payload.call_id, payload.input);
-  // Observed native functions.wait (0.162.1) only polls a previously yielded exec
-  // cell. The originating wrapper and all native commands remain independently
-  // decoded/covered; this exact, non-executing envelope cannot dispatch new work.
+  // Observed native functions.wait (0.162.1) only polls or stops a previously yielded
+  // exec cell. The originating wrapper and all native commands remain independently
+  // decoded/covered; this non-executing envelope cannot dispatch new work. Kiln checks
+  // the parameters it reads and ignores any others (0.166.0 adds `terminate`).
   if (payload.type === 'function_call' && payload.name === 'wait' && (payload.namespace === undefined || payload.namespace === 'functions')) {
     try {
       const input = JSON.parse(payload.arguments);
-      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['cell_id', 'yield_time_ms', 'max_tokens'].includes(key)) || typeof input.cell_id !== 'string' || !input.cell_id.length || input.cell_id.length > 128 || input.yield_time_ms !== undefined && (!Number.isSafeInteger(input.yield_time_ms) || input.yield_time_ms < 0) || input.max_tokens !== undefined && (!Number.isSafeInteger(input.max_tokens) || input.max_tokens <= 0)) throw new Error('Unsupported wait envelope');
+      if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.cell_id !== 'string' || !input.cell_id.length || input.cell_id.length > 128 || input.yield_time_ms !== undefined && (!Number.isSafeInteger(input.yield_time_ms) || input.yield_time_ms < 0) || input.max_tokens !== undefined && (!Number.isSafeInteger(input.max_tokens) || input.max_tokens <= 0)) throw new Error('Unsupported wait envelope');
       return { callId: payload.call_id, operations: [{ name: 'wait', input }], coverage: 'complete' };
     } catch { return { callId: payload.call_id, operations: [], coverage: 'inconclusive', reason: 'Malformed or unsupported wait envelope' }; }
   }

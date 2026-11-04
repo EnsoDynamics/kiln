@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findExecutable } from "./platform/helper-process.js";
@@ -115,6 +115,25 @@ describe("runStartChecks", () => {
     expect((await check({ gh: undefined, claude: undefined })).problems).toEqual(["gh isn't on the PATH."]);
     const signedOut = writeStandIn(join(sandbox.root, "signed-out"), "gh", 1, "You are not logged into any GitHub hosts.", GH_AUTH_ARGS);
     expect((await check({ gh: signedOut })).problems).toEqual(["gh isn't signed in to github.com. Run gh auth login."]);
+  });
+
+  // AC-AGENT-05: Node.js and Git below their minimums are start problems; any later version, or
+  // one Kiln can't read, is not (AC-AGENT-01).
+  it.skipIf(process.platform === "win32")("reports Node.js or Git below its minimum, naming the minimum, and accepts later or unreadable versions", async () => {
+    const realGit = tools.git;
+    const gitReporting = (output: string) => {
+      const path = join(sandbox.root, "bin", `git-${output.replace(/\W/g, "-")}`);
+      writeFileSync(path, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo '${output}'; exit 0; fi\nexec '${realGit}' "$@"\n`); chmodSync(path, 0o755);
+      return path;
+    };
+    const old = await runStartChecks(await locate(), { ...tools, git: gitReporting("git version 2.25.1") }, sandbox.env, "22.14.0");
+    expect(old.problems).toEqual([
+      "Node.js 22.14.0 is older than Kiln supports. Install Node.js 22.15 or later.",
+      "Git 2.25.1 is older than Kiln supports. Install Git 2.29 or later.",
+    ]);
+    for (const [node, output] of [["22.15.0", "git version 2.29.0"], ["26.9.0", "git version 2.50.1 (Apple Git-155)"], ["24.0.0", "git version 2.47.1.windows.2"], ["22.15.0", "git version unknown"]]) {
+      expect((await runStartChecks(await locate(), { ...tools, git: gitReporting(output!) }, sandbox.env, node)).problems).toEqual([]);
+    }
   });
 
   it("names a phase document it can't read instead of failing", async () => {

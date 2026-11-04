@@ -126,6 +126,8 @@ import { readPhasePlan } from "../plan/phase-plan.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation } from "../session/codex-evidence.js";
+import { applyCodexHistoryReadings } from "./compatibility-notices.js";
+type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][number];
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
@@ -1228,7 +1230,8 @@ export class Engine {
       if (record.settings.agentId === "claude_code") {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
         catch { return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
-        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? "Review and approve the detected billing setup, or change its source and recheck.");
+        // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
+        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.selectionIssue(true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
       }
       const repositories = this.plannedRepositories;
       const fields = await this.runFieldChecks();
@@ -1907,11 +1910,14 @@ export class Engine {
     const ids = [...new Set([...Object.values(this.record.phases).flatMap(one => one.sessionIds), ...(this.record.completionAudits?.activities ?? []).flatMap(one => one.sessionIds)])];
     const availableCommandEvidence: { sessionId: string; id: string; command: string; cwd: string; calledAt: string; resultAt?: string }[] = [];
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    if (deliveryEnabled(this.record)) for (const id of ids) {
-      try { for (const command of await this.deliveryCommands(id, signal)) availableCommandEvidence.push({ sessionId: id, id: command.callId, command: command.command, cwd: command.cwd, calledAt: command.calledAt, ...(command.resultAt ? { resultAt: command.resultAt } : {}) }); }
-      catch (error) { return { ...status, availableCommandEvidence, commandEvidenceError: (error as Error).message }; }
-    }
-    return { ...status, availableCommandEvidence };
+    const readings: CodexHistoryReading[] = [];
+    try {
+      if (deliveryEnabled(this.record)) for (const id of ids) {
+        try { for (const command of await this.deliveryCommands(id, signal, readings)) availableCommandEvidence.push({ sessionId: id, id: command.callId, command: command.command, cwd: command.cwd, calledAt: command.calledAt, ...(command.resultAt ? { resultAt: command.resultAt } : {}) }); }
+        catch (error) { return { ...status, availableCommandEvidence, commandEvidenceError: (error as Error).message }; }
+      }
+      return { ...status, availableCommandEvidence };
+    } finally { this.recordCodexHistoryCompatibility(readings); }
   }
 
   /** Uses the same serialization boundary as development mutations and done checks. */
@@ -1964,7 +1970,8 @@ export class Engine {
     } finally { this.deliveryBusy = false; release(); this.deliveryPending = undefined; }
   }
 
-  private async deliveryCommands(id: string, deadline?: AbortSignal): Promise<CommandEvidence[]> {
+  /** `readings` collects a multi-session pass's Codex readings so the pass records its notice once. */
+  private async deliveryCommands(id: string, deadline?: AbortSignal, readings?: CodexHistoryReading[]): Promise<CommandEvidence[]> {
     const signal = deadline ? AbortSignal.any([this.abort.signal, deadline]) : this.abort.signal; signal.throwIfAborted();
     const audit = this.record.completionAudits?.activities.find(one => one.sessionIds.includes(id));
     const phaseKey = audit ? `audit-${audit.activityId}` : Object.entries(this.record.phases).find(([, facts]) => facts.sessionIds.includes(id))?.[0];
@@ -1973,6 +1980,8 @@ export class Engine {
     if (session.agentId === "codex") {
       if (!session.conversation?.threadId || !session.conversation.codexHome || !this.options.tools.codex) throw new DeliveryRefusal("Codex command history is unavailable.");
       const audit = await auditCodexConversation({ threadId: session.conversation.threadId, codexHome: session.conversation.codexHome, worktrees: this.setUpRepositories.map(one => one.worktreePath), cwd: this.workingDirectoryOf(session), executable: this.options.tools.codex, env: this.options.env, signal, commandProjection: true });
+      if (readings) readings.push({ session, compatibility: audit.compatibility });
+      else this.recordCodexHistoryCompatibility([{ session, compatibility: audit.compatibility }]);
       if (audit.coverage !== "complete") throw new DeliveryRefusal(`Codex command evidence is incomplete: ${audit.problems.join(" ")}`);
       return audit.commands ?? [];
     }
@@ -1984,6 +1993,14 @@ export class Engine {
       for (const call of transcript.calls) if (call.name === "Bash" && call.id && typeof call.input.command === "string" && call.at && call.cwd) calls.push({ source: file, callId: call.id, command: call.input.command, cwd: call.cwd, calledAt: call.at, ...(call.result?.at ? { resultAt: call.result.at, outcome: call.result.isError ? "error" : "success", output: call.result.text } : {}) });
     }
     return calls;
+  }
+
+  /**
+   * A schema failure in Codex history writes a `codex_history` notice naming the read session's latest
+   * launch profile version; a read on another Codex version that finds none clears it (AC-AGENT-04).
+   */
+  private recordCodexHistoryCompatibility(readings: CodexHistoryReading[]): void {
+    if (readings.length && applyCodexHistoryReadings(this.record, readings, this.now().toISOString())) { this.save(); this.changed(); }
   }
 
   private announceDelivery(): void {

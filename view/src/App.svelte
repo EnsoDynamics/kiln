@@ -85,6 +85,9 @@
   <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} />
   {#if connection.notice}<div class="command-notice" role="status">{connection.notice}<button type="button" onclick={() => { connection.notice = undefined; }}>Dismiss</button></div>{/if}
   {#if snapshot}
+    {#if snapshot.compatibility?.length}
+      <div class="command-notice" role="status" aria-label="Agent compatibility"><div><strong>Agent compatibility</strong>{#each snapshot.compatibility as line}<p>{line}</p>{/each}</div></div>
+    {/if}
     {#if snapshot.continuation?.preparation && !snapshot.phases.find(phase => phase.id === snapshot.continuation?.preparation?.phaseId)?.doneAt}
       {@const preparation = snapshot.continuation.preparation}
       <div class="command-notice" role="status"><div><strong>Phase {preparation.phaseId}: {preparation.stage === "preparation" ? "Preparing prerequisites" : preparation.stage === "verification" ? "Verifying prepared work" : "Implementing additional work"}</strong>

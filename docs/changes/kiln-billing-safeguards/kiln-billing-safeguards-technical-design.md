@@ -38,6 +38,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage (
 
 ### Passive inspection without a model request
 
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Billing gate (the resolver runs on any Claude Code at or above the minimum with any Agent SDK that provides it; the qualified 2.1.307 / 0.3.310 contract is gone).
+
 The billing inspector does not start a Claude session. For the qualified Claude Code 2.1.307 / existing Agent SDK 0.3.310 contract, use `resolveSettings` with the actual launch directory and enabled settings sources in a bounded disposable inspection process. Extract only the billing fields and source labels defined below. This reuses the existing SDK dependency; inference continues through the installed CLI.
 
 The resolver is a passive inventory of the locally readable settings cascade, not an authoritative report of runtime policy. It reads cached managed settings but does not execute `policyHelper`, refresh server-managed settings, invoke credential helpers, run hooks, or start MCP servers. Its documented operating-system policy readers, `plutil` and `reg.exe`, are permitted. Read `effective` and per-source `sources` only for the defined billing inputs; discard raw results immediately after extraction. Never send raw settings, helper command text, stdout or stderr to snapshots, diagnostic logs, exceptions or fixture recordings.
@@ -107,6 +109,8 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 
 ### Context identity and invalidation
 
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Billing contract identifier (the detection contract names no agent or SDK version, and a Claude Code or SDK version change alone no longer voids approval).
+
 A Claude billing context contains the detected route/provider, effective credential-source identity, known payer identity, effective endpoint identity, supported detection-contract version, and detectable credential/configuration changes. Compute a canonical HMAC-SHA-256 fingerprint with a random execution-local key. The key and fingerprints remain private in owner-only PRD state; browser responses receive neither. Raw credentials are used only transiently when already present in the launch environment or passive settings result, then discarded. Never open Claude credential files/keychains or execute a helper independently to extract its output.
 
 For direct environment/settings credentials, include the value in the private HMAC input, detecting replacement without persisting it. For a helper, include the effective helper definition and source, plus a nonsecret payer/source identifier when reported. For external/provider-managed credentials that the CLI does not expose, use only observable configuration and reported identity. The same unchanged helper may rotate its secret without exposing that change: this is an explicit detection limit under AC-RUN-04, not a claim of credential continuity. CLI/SDK version or detection-contract changes invalidate approval conservatively. Fingerprints cover observable configuration and reported identity; they do not certify unobserved helper output or remotely changing policy.
@@ -174,6 +178,8 @@ All PRD/session readers reject a newer unsupported schema before writing. Backup
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Kiln's State on Disk; `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Persisted schema 4; `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Authorization and Persistence (additive billing authorization only; development authority is unchanged).
 
 ## Integration Evidence and Verification
+
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Proving Features on Newer Agent Versions (the passive boundary test runs at the Claude Code minimum, 2.1.311, with the Agent SDK in Kiln's accepted range, not a qualified 2.1.307 / 0.3.310 pair).
 
 The qualified passive profile is Claude Code 2.1.307 with Agent SDK 0.3.310. A disposable configuration probe of the real SDK resolver detected a project API key, helper definition and startup hook without executing the customization canary. Installed SDK declarations establish that the resolver does not spawn the CLI and omits dynamic `policyHelper` execution. Full runtime-policy visibility is therefore unavailable through this contract. A project-only `auth status` canary executed no customization; it does not establish universal managed-startup safety. A separate synthetic project-env probe established that the existing authentication read can recognize an API key when given the qualified projection. This connection changes the existing required read’s inputs, without adding a billing-only authentication call.
 

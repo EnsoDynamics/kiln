@@ -73,3 +73,73 @@ describe("authoritative delivery command provenance", () => {
     ]);
   });
 });
+
+// The recorded 0.162.1 yielded-exec wait, replayed with command projection beside three
+// commands, then mutated the ways newer Codex versions change their tool inputs (AC-AGENT-01, 07).
+describe("Codex command evidence across newer tool inputs", () => {
+  const recorded = JSON.parse(readFileSync(new URL("../../test/fixtures/codex-audit-proof/yielded-exec-wait-0.162.1.json", import.meta.url), "utf8")) as { raw: { type: string; payload: Record<string, unknown> } };
+  const commands = { direct: "node verify.mjs direct", workdir: "node verify.mjs workdir", cell: "node verify.mjs cell" };
+  type Mutation = { direct?: Record<string, unknown>; image?: Record<string, unknown>; wait?: Record<string, unknown>; record?: { type: string; payload: Record<string, unknown> } };
+  async function replay(mutation: Mutation = {}) {
+    const f = fixture(); const thread = f.addThread("parent", { command: "unused", native: ["/bin/zsh", "-lc", "unused"] });
+    const prefix = readFileSync(thread.metadata.path, "utf8").trim().split("\n").map(line => JSON.parse(line) as { type: string; timestamp: string; payload: Record<string, unknown> })
+      .filter(one => one.type !== "response_item" && one.payload.type !== "item_completed" && one.payload.type !== "task_complete");
+    const turn = { internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } };
+    const image = { path: "/PROOF/image.png", ...mutation.image };
+    const calls = [
+      { id: "direct", command: commands.direct, payload: { type: "function_call", name: "exec_command", arguments: JSON.stringify({ cmd: commands.direct, shell: "/bin/zsh", yield_time_ms: 10000, ...mutation.direct }) } },
+      { id: "workdir", command: commands.workdir, payload: { type: "function_call", name: "exec_command", arguments: JSON.stringify({ cmd: commands.workdir, workdir: ".", login: true, max_output_tokens: 2000 }) } },
+      { id: "cell", command: commands.cell, payload: { type: "custom_tool_call", name: "exec", input: `image(await tools.view_image(${JSON.stringify(image)})); text(await tools.exec_command({cmd:${JSON.stringify(commands.cell)},yield_time_ms:1000}));` } },
+    ];
+    const raw = [...prefix]; const items: Record<string, unknown>[] = [];
+    calls.forEach(({ id, command, payload }, i) => {
+      raw.push({ type: "response_item", timestamp: at(i * 3), payload: { ...payload, call_id: id, ...turn } });
+      raw.push({ type: "event_msg", timestamp: at(i * 3 + 1), payload: { type: "item_completed", thread_id: "parent", turn_id: "parent-turn-0", started_at_ms: Date.parse(at(i * 3)) + 10, item: { type: "CommandExecution", id: `${id}-native`, command: ["/bin/zsh", "-lc", command], cwd: f.root, status: "completed" } } });
+      items.push({ type: "commandExecution", id: `${id}-native`, status: "completed", exitCode: 0, aggregatedOutput: `${id} output` });
+    });
+    const wait = mutation.wait ? { ...recorded.raw.payload, arguments: JSON.stringify({ ...JSON.parse(recorded.raw.payload.arguments as string), ...mutation.wait }) } : recorded.raw.payload;
+    raw.push({ type: recorded.raw.type, timestamp: at(10), payload: { ...wait, ...turn } });
+    if (mutation.record) raw.push({ ...mutation.record, timestamp: at(11) });
+    raw.push({ type: "event_msg", timestamp: at(12), payload: { type: "task_complete", turn_id: "parent-turn-0" } });
+    writeFileSync(thread.metadata.path, raw.map(one => JSON.stringify(one)).join("\n") + "\n");
+    thread.turns[0]!.items = items; f.save();
+    return { f, result: await auditCodexConversation({ ...f.options, commandProjection: true }) };
+  }
+  const receipt = (f: ReturnType<typeof fixture>, id: keyof typeof commands, second: number) => ({ source: "parent/parent-turn-0", callId: `${id}-native`, command: commands[id], cwd: f.root, calledAt: at(second), resultAt: at(second + 1), outcome: "success", exitCode: 0, output: `${id} output` });
+
+  it("gives every recorded command its receipt beside the recorded wait", async () => {
+    const { f, result } = await replay();
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.compatibility).toBeUndefined();
+    expect(result.commands).toEqual([receipt(f, "direct", 0), receipt(f, "workdir", 3), receipt(f, "cell", 6)]);
+  });
+  it("withholds only the receipt of a call with an exec_command parameter Kiln doesn't recognise, and names the parameter", async () => {
+    const { f, result } = await replay({ direct: { environment_id: "remote-sandbox" } });
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete");
+    expect(result.commands).toEqual([receipt(f, "workdir", 3), receipt(f, "cell", 6)]);
+    expect(result.compatibility).toEqual(["exec_command parameter environment_id is not recognised, so that command has no receipt"]);
+    // The detail names the parameter, never its value or the command.
+    expect(JSON.stringify(result.compatibility)).not.toContain("remote-sandbox");
+    expect(JSON.stringify(result.compatibility)).not.toContain(commands.direct);
+  });
+  it("keeps the receipt of a call carrying additional_permissions from exec_permission_approvals", async () => {
+    const { f, result } = await replay({ direct: { sandbox_permissions: "with_additional_permissions", additional_permissions: { file_system: { write: ["/proof/reports"] } }, justification: "write the report", prefix_rule: ["node", "verify.mjs"], tty: false } });
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.compatibility).toBeUndefined();
+    expect(result.commands).toEqual([receipt(f, "direct", 0), receipt(f, "workdir", 3), receipt(f, "cell", 6)]);
+  });
+  it("keeps a cell's command receipt when its earlier view_image call carries parameters Kiln doesn't read", async () => {
+    const { f, result } = await replay({ image: { environment_id: "local", future_image_option: { opaque: true } } });
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.compatibility).toBeUndefined();
+    expect(result.commands).toEqual([receipt(f, "direct", 0), receipt(f, "workdir", 3), receipt(f, "cell", 6)]);
+  });
+  it("changes nothing when the recorded wait carries terminate and a parameter Kiln doesn't read", async () => {
+    const { f, result } = await replay({ wait: { terminate: true, future_wait_option: "opaque" } });
+    expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.compatibility).toBeUndefined();
+    expect(result.commands).toEqual([receipt(f, "direct", 0), receipt(f, "workdir", 3), receipt(f, "cell", 6)]);
+  });
+  it("refuses all evidence on a record type Kiln doesn't recognise and names the type", async () => {
+    const { result } = await replay({ record: { type: "future_record", payload: { opaque: "user text" } } });
+    expect(result.coverage).toBe("inconclusive");
+    expect(result.compatibility).toEqual(["history record type future_record is not recognised"]);
+    expect(JSON.stringify(result.compatibility)).not.toContain("user text");
+  });
+});

@@ -15,7 +15,7 @@ Proof that billing and live control work on newer Claude Code comes from recorde
 ## Existing Code
 
 - **Posture: Preserve.** Kiln is published from `develop` to real users' projects; billing, live control and Codex evidence behavior are constraints except where this PRD changes them.
-- **Reused:** the billing route rule (subscription only with complete inventory, `claude.ai` authentication and the first-party provider), the passive settings worker and its bounded process, the live gate, checkpoint hook and replayed-message receipts, `supportedCodexVersion`, the command contract reference (`prompts/kiln-command-contracts.json`), `scripts/release.mjs` `checkRelease`, and the CI `full` scope.
+- **Reused:** the billing route rule (subscription only with complete inventory, `claude.ai` authentication and the first-party provider), the passive settings worker and its bounded process, the live gate, checkpoint hook and replayed-message receipts, the Codex version check (now `compareToMinimum` in the minimums module), the command contract reference (`prompts/kiln-command-contracts.json`), `scripts/release.mjs` `checkRelease`, and the CI `full` scope.
 - **Kept:** the checkpoint hook fails closed whenever a takeover is held; a billing reading Kiln does not fully recognise shows **Claude Code settings**, never **Claude subscription** (AC-BILL-02); delivery command evidence from Codex history that Kiln can't read completely is refused, as today.
 - **Kept:** recorded fixtures named for the version that produced them (for example `claude-2.1.311-message-contract.json`) stay as historical evidence and are not renamed.
 
@@ -158,5 +158,7 @@ The recorded newest-version runs are implementation evidence, not a release gate
 
 ## Open Questions
 
-1. **Billing at 2.1.311.** AC-AGENT-05 sets the Claude Code minimum on the assumption that billing details also work there. The passive boundary test on 2.1.311 settles it. If it fails, the minimum becomes the oldest version on which both billing and live control pass, and AC-AGENT-05 and the README change with it.
-2. **Settings resolver passivity on the newest SDK.** The Agent SDK 0.3.318 declarations still promise that the resolver starts no Claude Code and runs no `policyHelper`, and its result has the same shape as 0.3.310's, but the API is marked alpha. The newest-version boundary run's canaries settle it. If they show the resolver starting Claude Code or running a hook, helper or `policyHelper`, billing on that SDK needs a design change before release.
+Both were settled on 2026-11-03 by the passive boundary runs recorded in [kiln-public-release-readiness-newest-version-evidence.md](kiln-public-release-readiness-newest-version-evidence.md): billing details pass at 2.1.311, so the minimum stays 2.1.311, and the resolver on SDK 0.3.318 ran nothing.
+
+1. **Billing at 2.1.311 (settled: passes).** AC-AGENT-05 sets the Claude Code minimum on the assumption that billing details also work there. The passive boundary test on 2.1.311 settles it. If it fails, the minimum becomes the oldest version on which both billing and live control pass, and AC-AGENT-05 and the README change with it.
+2. **Settings resolver passivity on the newest SDK (settled: passive).** The Agent SDK 0.3.318 declarations still promise that the resolver starts no Claude Code and runs no `policyHelper`, and its result has the same shape as 0.3.310's, but the API is marked alpha. The newest-version boundary run's canaries settle it. If they show the resolver starting Claude Code or running a hook, helper or `policyHelper`, billing on that SDK needs a design change before release.

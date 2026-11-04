@@ -1,5 +1,7 @@
-// Qualified passive billing contract. Values stay inside inspection/HMAC memory.
-export const BILLING_CONTRACT = "claude-2.1.307-sdk-0.3.310-v3";
+// Revision of Kiln's passive billing detection rules. It names no Claude Code or
+// Agent SDK version: an update of either alone keeps an approval, while a change
+// to these rules voids it. Values stay inside inspection/HMAC memory.
+export const BILLING_CONTRACT = "claude-settings-v4";
 export const PROVIDERS = ["BEDROCK", "FOUNDRY", "ANTHROPIC_AWS", "ANTHROPIC_GOOGLE_CLOUD", "MANTLE", "VERTEX"] as const;
 export const BILLING_KEYS = [
   "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
@@ -50,6 +52,12 @@ export function extractInventory(raw: unknown): Inventory {
   if (effective.policyHelper !== undefined) { result.complete = false; result.diagnostics.push("managed_policy_partial"); }
   result.diagnostics = [...new Set(result.diagnostics)];
   return result;
+}
+/** The settings worker's read: an Agent SDK without the resolver yields no inventory (technical design, Billing gate). */
+export async function resolveInventory(sdk: { resolveSettings?: unknown }, cwd: string): Promise<Inventory> {
+  if (typeof sdk.resolveSettings !== "function") return emptyInventory("inventory_resolver_unavailable");
+  const resolve = sdk.resolveSettings as (options: { cwd: string; settingSources: string[] }) => Promise<unknown>;
+  return extractInventory(await resolve({ cwd, settingSources: ["user", "project", "local"] }));
 }
 export function ordinaryProfile(env: NodeJS.ProcessEnv): boolean {
   return !["claude-desktop", "claude-desktop-3p", "local-agent"].includes(env.CLAUDE_CODE_ENTRYPOINT ?? "") && env.CLAUDE_CODE_ENVIRONMENT_KIND !== "byoc" && !["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "CLAUDE_CODE_HOST_AUTH_ENV_VAR", "ANTHROPIC_UNIX_SOCKET"].some(k => !!env[k]);

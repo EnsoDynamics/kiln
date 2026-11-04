@@ -60,7 +60,7 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 // Billing contract qualification is passive and never consumes a scenario.
-if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "2.1.299-stand-in"}\n`); process.exit(0); }
+if (args[0] === "--version") { while (process.env.KILN_STANDIN_VERSION_WAIT && !existsSync(process.env.KILN_STANDIN_VERSION_WAIT)) await new Promise(resolve => setTimeout(resolve, 25)); process.stdout.write(`${process.env.KILN_STANDIN_VERSION ?? "stand-in"}\n`); process.exit(0); }
 const scenarioPath = process.env.KILN_STANDIN_SCENARIO;
 // A waiting stand-in gives up once the test's sandbox is gone, or once the Kiln that launched
 // it is: a test run killed before its cleanup leaves the sandbox behind, and would otherwise
@@ -241,7 +241,7 @@ function currentBranch() {
 
 // An alias resolves to its concrete model, as in proof gate 1's model list.
 const concrete = { opus: "claude-opus-5-5", fable: "claude-fable-5-1", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" };
-emit({ type: "system", subtype: "init", model: concrete[model] ?? model, permissionMode: "auto", claude_code_version: "2.1.299-stand-in" });
+emit({ type: "system", subtype: "init", model: concrete[model] ?? model, permissionMode: "auto", claude_code_version: process.env.KILN_STANDIN_VERSION ?? "stand-in" });
 // Claude Code records the prompt as the session's first record, so every session that started has a transcript.
 keepRecord("user", { role: "user", content: prompt });
 

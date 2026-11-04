@@ -29,7 +29,7 @@ describe("Claude billing browser controls", () => {
     { name: "named provider", env: { CLAUDE_CODE_USE_BEDROCK: "1" }, provider: "bedrock", title: "Amazon Bedrock", choice: "Use Amazon Bedrock billing for this PRD", source: "CLAUDE_CODE_USE_BEDROCK", explanation: "This provider may bill separately from your Claude subscription." },
     { name: "unnamed provider", env: { ANTHROPIC_BASE_URL: "https://gateway.example.test" }, provider: "firstParty", title: "Configured provider", choice: "Use the configured provider for this PRD", source: "ANTHROPIC_BASE_URL", explanation: "This provider may bill separately from your Claude subscription." },
   ])("identifies the $name, unticked choice and source remedy without dispatch", async example => {
-    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.312";
     Object.assign(h.env, example.env);
     const account = join(h.sandbox.root, "billing-presentation-account.json");
     writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: example.provider, email: "subscription@example.test" }));
@@ -52,7 +52,7 @@ describe("Claude billing browser controls", () => {
     expect(h.claudeCalls()).toHaveLength(0); expect(page.problems).toEqual([]);
   });
   it("shows enabled overflow without usage meters, omits unknown/disabled notices, and records the attributed launch fact", async () => {
-    h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); h.env.KILN_STANDIN_VERSION = "2.1.312";
     const usage = join(h.sandbox.root, "no-meters.jsonl"); h.env.KILN_STANDIN_USAGE = usage;
     const report = (enabled?: boolean) => writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: null, ...(enabled === undefined ? {} : { extra_usage: { is_enabled: enabled } }) } } }));
     report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open(360);
@@ -79,7 +79,7 @@ describe("Claude billing browser controls", () => {
 
   it.each(["verify", "advance"] as const)("keeps both phase Resume controls unavailable before approval while %s remains independent", async mode => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Keep the unsent answer?" }] }] });
-    h.env.KILN_STANDIN_VERSION = "2.1.307"; await h.engine.refreshBilling();
+    h.env.KILN_STANDIN_VERSION = "2.1.312"; await h.engine.refreshBilling();
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     const original = h.engine.latestSession("1")!;
     h.env.ANTHROPIC_API_KEY = "manual-recovery-private-canary"; await h.engine.refreshBilling();
@@ -117,7 +117,7 @@ describe("Claude billing browser controls", () => {
     expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
   });
   it("shows subscription email, attributed overflow and existing usage; handles API choice, stale click, clear and disconnect", async () => {
-    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.312";
     const usage = join(h.sandbox.root, "usage.jsonl");
     const base = readFileSync(new URL("../../test/fixtures/proof-gate-1/usage-report-idle.jsonl", import.meta.url), "utf8");
     const lines = base.trim().split("\n").map(line => { const e = JSON.parse(line); if (e.usage_report?.rate_limits) e.usage_report.rate_limits.extra_usage = { is_enabled: true }; return JSON.stringify(e); });
@@ -188,7 +188,7 @@ describe("Claude billing browser controls", () => {
   });
   it.each(["subscription", "settings"] as const)("labels active launch history on %s separately from a different next route and never offers approval during a running session", async route => {
     h = await createHarness({ sessions: [{ actions: [{ waitForFile: "release-session" }, { result: "Stopped" }] }], engineOptions: { stopWaitMs: 50, killGraceMs: 50 } });
-    if (route === "subscription") h.env.KILN_STANDIN_VERSION = "2.1.307";
+    if (route === "subscription") h.env.KILN_STANDIN_VERSION = "2.1.312";
     await h.engine.refreshBilling();
     const page = await open(); await waitFor(() => h!.engine.baseCheck === "ok"); expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await waitFor(() => h!.engine.current?.processRunning === true && h!.claudeCalls().length === 1);
@@ -196,7 +196,7 @@ describe("Claude billing browser controls", () => {
     const usage = join(h.sandbox.root, "next-overflow.jsonl");
     const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-1/usage-report-idle.jsonl", import.meta.url), "utf8");
     writeFileSync(usage, recorded.trim().split("\n").map(line => { const event = JSON.parse(line); if (event.usage_report?.rate_limits) event.usage_report.rate_limits.extra_usage = { is_enabled: true }; return JSON.stringify(event); }).join("\n"));
-    h.env.KILN_STANDIN_USAGE = usage; h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.KILN_STANDIN_USAGE = usage; h.env.KILN_STANDIN_VERSION = "2.1.312";
     await h.engine.agents.refresh(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('Billing for the next run') && ${panel}.textContent.includes('Paid usage is enabled')`);
     const historicalTitle = route === "subscription" ? "Claude subscription" : "Claude Code settings";
@@ -234,7 +234,7 @@ describe("Claude billing browser controls", () => {
       expect(await current.evaluate(`${panel}.classList.contains('held')`)).toBe(false);
       writeFileSync(`/tmp/kiln-billing-neutral-identity-${width}.png`, await current.screenshot());
     }
-    h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.KILN_STANDIN_VERSION = "2.1.312";
     h.env.AWS_ENDPOINT_URL = "https://unrelated-aws.example.test"; h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive.example.test";
     writeAccount(); await h.engine.agents.refresh(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('Claude subscription') && !${panel}.textContent.includes('neutral@example.test')`);

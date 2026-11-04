@@ -113,7 +113,8 @@ export async function serveViewFixture(options: {
   });
 
   return {
-    address: `http://127.0.0.1:${options.port}${root}`,
+    // Port 0 asks the operating system for a free port; the address names the one bound.
+    address: `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}${root}`,
     commands,
     send(event, data) {
       if (event === "snapshot") snapshot = data as Snapshot;

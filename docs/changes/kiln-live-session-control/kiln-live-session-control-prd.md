@@ -35,6 +35,7 @@ The person sees the message composer and both clearly labeled pause choices with
 - [x] **AC-LIVE-02 — Availability is explained in every state.** Browser controls and bot status follow this table. Disabled actions show the reason; they never imply a successful request. On narrow screens the message composer comes first, then the takeover choice, then the end-of-activity pause; each keeps its timing and consequence beside its button.
   - Replaces in part: AC-WATCH-01, AC-WATCH-02 and AC-VIEW-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (transport loss labels retained state and time as last known; it does not establish that work stopped or enable terminal recovery).
   - Replaces in part: AC-LIMIT-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a disconnected waiting state remains last known rather than implying a proven interruption).
+  - Superseded in part by: AC-AGENT-04 in `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-prd.md` (a running Claude attempt whose message or takeover information Kiln doesn't recognise shows that action unavailable with a compatibility reason; the rest of the table remains).
 
   | State | Message | Pause / terminal takeover | What the person sees |
   |---|---|---|---|

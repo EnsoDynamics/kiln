@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { classify, type InventoryRead } from "./inspection.js";
-import { extractInventory, emptyInventory } from "./contract.js";
+import { extractInventory, emptyInventory, resolveInventory } from "./contract.js";
 const at = "2026-10-26T14:00:00Z";
 const auth = { authMethod: "claude.ai", apiProvider: "firstParty", email: "subscription@example.test", orgId: "org", plan: "Max plan" };
-function read(env: Record<string, string>, complete = true): InventoryRead { return { version: "2.1.307", projected: env, inventory: { ...emptyInventory(""), diagnostics: complete ? [] : ["inventory_read_failed"], complete } }; }
+function read(env: Record<string, string>, complete = true): InventoryRead { return { version: "2.1.311", projected: env, inventory: { ...emptyInventory(""), diagnostics: complete ? [] : ["inventory_read_failed"], complete } }; }
 const run = (env: Record<string, string>, ready = auth, complete = true) => classify({ cwd: "/repo", env, read: read(env, complete), auth: ready, at });
 describe("billing evidence classification", () => {
   it("requires route evidence beyond a plan or email, and keeps optional failure neutral without overrides", () => {
@@ -138,5 +138,23 @@ describe("billing evidence classification", () => {
   it("keeps authentication failure separate from a detected override", () => {
     const result = run({ ANTHROPIC_API_KEY: "canary" }, { ...auth, error: "Sign in first" } as typeof auth);
     expect(result.readinessError).toBe("Sign in first"); expect(result.summary.route).toBe("metered");
+  });
+  // Recognition is the only billing gate now that no version qualifies it (AC-AGENT-02, AC-AGENT-07).
+  it("confirms a subscription only from a resolver result it fully recognises, ignoring fields it doesn't read", () => {
+    const viaResolver = (raw: unknown, ready = auth) => classify({ cwd: "/repo", env: {}, read: { version: "2.1.318", projected: {}, inventory: extractInventory(raw) }, auth: ready, at }).summary;
+    const recognised = { effective: { env: {}, someFutureSetting: { nested: true } }, sources: [{ source: "user", settings: { env: {}, futureKey: 1 } }], futureTopLevel: "ignored" };
+    expect(viaResolver(recognised)).toMatchObject({ route: "subscription", email: "subscription@example.test", diagnostics: [] });
+    expect(viaResolver({ effective: { env: {} } })).toMatchObject({ route: "settings", diagnostics: ["inventory_malformed"] });
+    expect(viaResolver({ effective: { env: {} }, sources: [{ source: "enterprise-cloud", settings: {} }] })).toMatchObject({ route: "settings", diagnostics: ["inventory_source_unknown"] });
+    expect(viaResolver({ effective: { env: { ANTHROPIC_BASE_URL: 42 } }, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
+    expect(viaResolver({ effective: { env: {}, apiKeyHelper: { command: "x" } }, sources: [] })).toMatchObject({ route: "settings", diagnostics: ["inventory_field_malformed"] });
+    expect(viaResolver(recognised, { ...auth, authMethod: "future_login_method" }).route).toBe("settings");
+  });
+  it("reads no inventory from an Agent SDK that doesn't provide the settings resolver, and passes the launch directory to one that does", async () => {
+    expect(await resolveInventory({}, "/repo")).toEqual(emptyInventory("inventory_resolver_unavailable"));
+    expect(await resolveInventory({ resolveSettings: "not a function" }, "/repo")).toMatchObject({ complete: false, diagnostics: ["inventory_resolver_unavailable"] });
+    const calls: unknown[] = [];
+    const inventory = await resolveInventory({ resolveSettings: async (options: unknown) => { calls.push(options); return { effective: { env: {} }, sources: [] }; } }, "/repo");
+    expect(calls).toEqual([{ cwd: "/repo", settingSources: ["user", "project", "local"] }]); expect(inventory).toMatchObject({ complete: true, diagnostics: [] });
   });
 });

@@ -178,7 +178,7 @@ syncBuiltinESMExports();\n`);
     { name: "another provider", fixture: { provider: "custom" }, error: "OpenAI" },
     { name: "unreadable configuration", fixture: { configError: true }, error: "Could not inspect Codex provider and hooks" },
     { name: "new managed policy", fixture: { requirements: { unknownMandatoryRestriction: true } }, error: "managed requirement" },
-    { name: "CLI version below the minimum", fixture: { version: "0.162.0" }, error: "incompatible" },
+    { name: "CLI version below the minimum", fixture: { version: "0.162.0" }, error: "Codex 0.162.0 is older than Kiln supports. Install Codex 0.162.1 or later: codex update" },
   ])("rechecks $name before a resumed saved conversation and records no new attempt", async example => {
     const f = fixture(); const first = await runCodexSession(f.options);
     expect(first.codex?.terminal?.status).toBe("completed"); expect(first.codex?.failure).toBeUndefined();

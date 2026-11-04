@@ -1,7 +1,5 @@
-import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareToMinimum } from "../agents/tooling-minimums.js";
 import { BILLING_CONTRACT, BILLING_KEYS, emptyInventory, ordinaryProfile, type Inventory } from "./contract.js";
 import { boundedRead } from "./bounded-process.js";
 import type { AccountStatus } from "../account/claude-account.js";
@@ -35,20 +33,19 @@ export interface Inspection {
   launchEnv: NodeJS.ProcessEnv;
   readinessError?: string;
 }
-export interface InventoryRead { inventory: Inventory; version: string; sdkVersion?: string; projected: NodeJS.ProcessEnv; }
-const require = createRequire(import.meta.url);
-function sdkVersion(): string {
-  try { return (JSON.parse(readFileSync(join(dirname(require.resolve("@anthropic-ai/claude-agent-sdk")), "package.json"), "utf8")) as { version: string }).version; }
-  catch { return "unavailable"; }
-}
+/** `version` is Claude Code's as reported, or `unrecognised`; diagnostic only, never part of approval identity. */
+export interface InventoryRead { inventory: Inventory; version: string; projected: NodeJS.ProcessEnv; }
 export async function readInventory(options: { executable: string; cwd: string; env: NodeJS.ProcessEnv; args?: string[]; signal?: AbortSignal }): Promise<InventoryRead> {
   const started = Date.now();
   const versionRead = await boundedRead(options.executable, ["--version"], { ...options, timeoutMs: 5000, resultLimit: 4096 });
-  const version = /^(\d+\.\d+\.\d+)(?:\s|$)/.exec(versionRead.stdout?.trim() ?? "")?.[1] ?? "unqualified";
-  const installedSdkVersion = sdkVersion();
-  const qualified = version === "2.1.307" && installedSdkVersion === "0.3.310";
-  let inventory = emptyInventory("inventory_contract_unqualified");
-  if (qualified) {
+  // The settings worker runs on any Claude Code at or above the minimum; the
+  // worker itself checks that the installed Agent SDK provides the resolver.
+  // Recognition of the resolver's result is the gate (extractInventory).
+  const reading = compareToMinimum("claudeCode", versionRead.exitCode === 0 ? versionRead.stdout : undefined);
+  const version = reading.version ?? "unrecognised";
+  const eligible = reading.state === "supported";
+  let inventory = emptyInventory(reading.state === "below_minimum" ? "inventory_claude_below_minimum" : "inventory_claude_version_unrecognised");
+  if (eligible) {
     const result = await boundedRead(process.execPath, [fileURLToPath(new URL("../../dist/billing/settings-worker.js", import.meta.url))], { ...options, timeoutMs: Math.max(1001, 30_000 - (Date.now() - started)) });
     if (result.diagnostic) inventory = emptyInventory(result.diagnostic);
     else {
@@ -60,8 +57,8 @@ export async function readInventory(options: { executable: string; cwd: string; 
     inventory.complete = false; inventory.diagnostics.push("inventory_launch_profile_partial");
   }
   const projected = { ...options.env };
-  if (qualified && inventory.complete) for (const [key, value] of Object.entries(inventory.env)) projected[key] = value;
-  return { inventory, version, sdkVersion: installedSdkVersion, projected };
+  if (eligible && inventory.complete) for (const [key, value] of Object.entries(inventory.env)) projected[key] = value;
+  return { inventory, version, projected };
 }
 const active = (value: string | undefined) => value !== undefined && value !== "" && value !== "0" && value !== "false";
 const endpointOverride = (value: string) => {
@@ -151,5 +148,5 @@ export function classify(options: { cwd: string; env: NodeJS.ProcessEnv; read: I
   }
   const privateEnv = Object.fromEntries(Object.entries(effective).filter(([key]) => relevantContext(key)).filter(([key]) => key !== "ANTHROPIC_CUSTOM_HEADERS" || evidence.has(provenance[key]!)).sort(([a], [b]) => a.localeCompare(b)));
   const localSources = Object.keys(privateEnv).some(key => /^(project|local) settings/.test(provenance[key]!)) || Object.values(privateHelpers).some(helper => /^(project|local) settings/.test(helper.source));
-  return { summary, launchEnv: { ...options.env }, ...(auth.error ? { readinessError: auth.error } : {}), identity: { contract: BILLING_CONTRACT, launchProfile: Object.fromEntries(["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "CLAUDE_CODE_HOST_AUTH_ENV_VAR", "ANTHROPIC_UNIX_SOCKET"].filter(key => options.env[key] !== undefined).map(key => [key, options.env[key]])), version: read.version, sdkVersion: read.sdkVersion, route, provider, sources: summary.sources, payer: route === "metered" ? auth.authMethod === "claude.ai" ? undefined : { orgId: auth.orgId, email: auth.email } : { orgId: auth.orgId, email: auth.email }, env: privateEnv, ...(!inventory.complete ? { inherited: Object.fromEntries(Object.entries(options.env).filter(([key]) => BILLING_KEYS.includes(key) && relevantContext(key))) } : {}), provenance: Object.fromEntries(Object.keys(privateEnv).map(k => [k, provenance[k]])), helpers: privateHelpers, ...(localSources ? { sourceDirectory: options.cwd } : {}) } };
+  return { summary, launchEnv: { ...options.env }, ...(auth.error ? { readinessError: auth.error } : {}), identity: { contract: BILLING_CONTRACT, launchProfile: Object.fromEntries(["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "CLAUDE_CODE_HOST_AUTH_ENV_VAR", "ANTHROPIC_UNIX_SOCKET"].filter(key => options.env[key] !== undefined).map(key => [key, options.env[key]])), route, provider, sources: summary.sources, payer: route === "metered" ? auth.authMethod === "claude.ai" ? undefined : { orgId: auth.orgId, email: auth.email } : { orgId: auth.orgId, email: auth.email }, env: privateEnv, ...(!inventory.complete ? { inherited: Object.fromEntries(Object.entries(options.env).filter(([key]) => BILLING_KEYS.includes(key) && relevantContext(key))) } : {}), provenance: Object.fromEntries(Object.keys(privateEnv).map(k => [k, provenance[k]])), helpers: privateHelpers, ...(localSources ? { sourceDirectory: options.cwd } : {}) } };
 }

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { outsideChanges, gitCommandsIn, gitChange } from '../../dist/session/outside-workspace.js';
 import { comparable, realPathOfNearestAncestor } from '../../dist/engine/worktree-setup.js';
+import { EXEC_COMMAND_PARAMETERS } from '../../dist/session/codex-wrapper-decoder.mjs';
 
 const physical = path => realPathOfNearestAncestor(resolve(path));
 const cwdPath = path => path?.startsWith('file:') ? fileURLToPath(path) : path;
@@ -63,8 +64,8 @@ export function auditEntries(entries, worktrees) {
           const cwd = physical(resolve(context.cwd, input.workdir ?? '.'));
           const matching = nativeCommands.filter(command => command.turnId === decoded.turnId && physical(cwdPath(command.cwd)) === cwd && Array.isArray(command.argv) && command.argv.length === 3 && ['/bin/zsh','/bin/bash','/bin/sh'].includes(command.argv[0]) && (!input.shell || command.argv[0] === input.shell) && ['-c', '-lc'].includes(command.argv[1]) && command.argv[2] === input.cmd);
           const native = matching[0];
-          const knownFields = ['cmd','workdir','shell','login','tty','yield_time_ms','max_output_tokens','sandbox_permissions','justification','prefix_rule'];
-          if (Object.keys(input).some(key => !knownFields.includes(key))) { problems.push('Unrecognized exec parameter'); continue; }
+          // The same recognised parameters as Kiln's Codex command evidence.
+          if (Object.keys(input).some(key => !EXEC_COMMAND_PARAMETERS.includes(key))) { problems.push('Unrecognized exec parameter'); continue; }
           if (!native && (input.shell !== undefined || !['zsh','bash','sh'].includes(decoded.shell))) { problems.push(`${entry.id}/${decoded.callId}: no recorded POSIX shell identity`); continue; }
           for (const matched of matching) usedCommands.add(matched.id);
           for (const git of gitCommandsIn(input.cmd, cwd)) if (gitChange(git.subcommand, git.args) && git.place === undefined) problems.push(`${entry.id}: unplaced mutating Git command`);

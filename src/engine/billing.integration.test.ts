@@ -97,7 +97,7 @@ describe("Claude billing at the common dispatch boundary", () => {
   });
   it("starts and resumes subscription work without approval when only inactive provider endpoints are present", async () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Saved work." }] }, landingSession()] });
-    h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h.env.KILN_STANDIN_VERSION = "2.1.312";
     h.env.AWS_ENDPOINT_URL = "https://unrelated-aws.example.test";
     h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive-vertex.example.test";
     await ready(); expect(h.engine.billing.view.next).toMatchObject({ route: "subscription", sources: [] });
@@ -114,7 +114,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.engine.record.billing!.hold).toBeUndefined();
   });
   it("requires approval for a selected provider endpoint and invalidates it when that endpoint changes", async () => {
-    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.307";
+    h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.312";
     h.env.CLAUDE_CODE_USE_BEDROCK = "1"; h.env.ANTHROPIC_BEDROCK_BASE_URL = "https://gateway-one.example.test";
     await ready(); expect(h.engine.billing.view.next).toMatchObject({ route: "metered", sources: expect.arrayContaining(["Kiln environment · ANTHROPIC_BEDROCK_BASE_URL"]) });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false }); expect(h.claudeCalls()).toHaveLength(0);
@@ -248,7 +248,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     const overflow = { enabled: true, observedAt: new Date(Date.now() - (kind === "stale" ? 6 * 60_000 : 0)).toISOString(), ...(kind === "unattributed" ? {} : { email: kind === "mismatched" ? "other@example.test" : "alex@acme-shop.dev", orgId: "org-alex" }) };
     claude.queue(signedIn([usageRow("session", 42)], kind === "missing" ? {} : { extraUsage: overflow }));
     h = await createHarness({ sessions: [], engineOptions: { claude } });
-    h.env.KILN_STANDIN_VERSION = "2.1.307"; const account = join(h.sandbox.root, "attributed-account.json");
+    h.env.KILN_STANDIN_VERSION = "2.1.312"; const account = join(h.sandbox.root, "attributed-account.json");
     writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email: "alex@acme-shop.dev", orgId: "org-alex", subscriptionType: "max" })); h.env.KILN_STANDIN_ACCOUNT = account;
     await h.engine.refreshBilling();
     expect(h.engine.billing.view.next).toMatchObject({ route: "subscription", approved: false });

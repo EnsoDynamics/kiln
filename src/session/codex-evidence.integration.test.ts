@@ -13,9 +13,9 @@ const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; 
 afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 
 describe("authoritative Codex conversation audit", () => {
-  it.each(["0.162.1", "0.165.0", "0.165.1", "1.0.0", "9.0.0"])("reads historical evidence with eligible stable reader %s", async version => {
+  it.each(["codex-cli 0.162.1", "codex-cli 0.165.0", "codex-cli 0.165.1", "codex-cli 0.165.0-dev", "codex-cli 0.167.0-alpha.4", "codex-cli 1.0.0", "codex-cli 9.0.0", "unrecognized", "codex-cli 0.165"])("reads historical evidence with a reader at or above the minimum, or unrecognised: %s", async version => {
     const f = fixture();
-    f.options.env.KILN_CODEX_HISTORY_VERSION = `codex-cli ${version}`;
+    f.options.env.KILN_CODEX_HISTORY_VERSION = version;
     const path = f.state.threads.parent!.metadata.path;
     writeFileSync(path, readFileSync(path, "utf8").replace('"id":"parent"', '"id":"parent","cli_version":"0.162.1"'));
     const result = await auditCodexConversation(f.options);
@@ -24,14 +24,13 @@ describe("authoritative Codex conversation audit", () => {
     expect(result.operationsChecked).toBe(1);
     expect(f.calls().every(call => ["initialize", "thread/list", "thread/read", "thread/turns/list"].includes(call.method))).toBe(true);
   });
-  it.each(["codex-cli 0.162.0", "codex-cli 0.165.0-dev", "unrecognized"])("rejects old or unrecognized reader %s before history access", async version => {
-    const f = fixture(); f.options.env.KILN_CODEX_HISTORY_VERSION = version;
+  it.each([["codex-cli 0.162.0", "0.162.0"], ["codex-cli 0.162.1-alpha.1", "0.162.1-alpha.1"]])("rejects reader %s below the minimum before history access", async (output, version) => {
+    const f = fixture(); f.options.env.KILN_CODEX_HISTORY_VERSION = output;
     const result = await auditCodexConversation(f.options);
     expect(result.coverage).toBe("inconclusive");
     expect(result.frontiers).toEqual([]);
-    expect(result.problems.join(" ")).toContain(version);
-    expect(result.problems.join(" ")).toContain("0.162.1");
-    expect(result.problems.join(" ")).toContain("or later");
+    expect(result.problems).toEqual([`Codex ${version} is older than Kiln supports. Install Codex 0.162.1 or later: codex update`]);
+    expect(result.compatibility).toBeUndefined();
     expect(codexStayedOutcome("local", result, [result.fingerprint]).passed).toBe(false);
   });
   it("covers recorded image inspection outside the workspace without concealing mutations", async () => {
@@ -54,7 +53,7 @@ describe("authoritative Codex conversation audit", () => {
     expect(codexStayedOutcome("local", unknown, [unknown.fingerprint]).passed).toBe(false);
   });
 
-  it.each(["retained", "deferred-context", "missing-prefix", "missing-call", "wrong-window", "missing-window", "unknown-field", "executable-snapshot", "missing-context", "wrong-thread", "incomplete"])("checks retained compaction against original execution evidence: %s", async mode => {
+  it.each(["retained", "deferred-context", "unread-fields", "missing-prefix", "missing-call", "wrong-window", "missing-window", "missing-field", "changed-field", "executable-snapshot", "missing-context", "wrong-thread", "incomplete"])("checks retained compaction against original execution evidence: %s", async mode => {
     const f = fixture();
     const captured = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/codex-audit-proof/retained-compaction-0.165.0.json", import.meta.url)), "utf8")) as { initialWindow: string; payload: Record<string, unknown> };
     const path = f.state.threads.parent!.metadata.path;
@@ -64,7 +63,10 @@ describe("authoritative Codex conversation audit", () => {
     if (mode === "missing-window") raw = raw.replace(captured.initialWindow, "unqualified-window");
     const payload = captured.payload;
     if (mode === "wrong-window") payload.previous_window_id = "other-window";
-    if (mode === "unknown-field") payload.unknown_execution = "hidden";
+    // Observed with 0.144: Codex adds fields Kiln doesn't read; they are ignored (AC-AGENT-07).
+    if (mode === "unread-fields") Object.assign(payload, { guardian_history: [{ opaque: true }], unknown_execution: "hidden" });
+    if (mode === "missing-field") delete payload.compaction_response_id;
+    if (mode === "changed-field") (payload.retained_context as Record<string, unknown>).user_messages = "changed";
     if (mode === "executable-snapshot") (payload.replacement_history as Record<string, unknown>[])[0] = { type: "function_call", name: "exec_command", arguments: '{"cmd":"git push"}' };
     if (mode === "missing-context") (payload.latest_token_usage_record as Record<string, unknown>).turn_id = "missing-turn";
     if (mode === "wrong-thread") (payload.latest_token_usage_record as Record<string, unknown>).thread_id = "other-thread";
@@ -76,9 +78,16 @@ describe("authoritative Codex conversation audit", () => {
     } else raw += snapshot;
     writeFileSync(path, raw);
     const result = await auditCodexConversation(f.options);
-    expect(result.coverage).toBe(["retained", "deferred-context"].includes(mode) ? "complete" : "inconclusive");
-    if (["retained", "deferred-context"].includes(mode)) { expect(result.problems).toEqual([]); expect(result.operationsChecked).toBe(1); }
+    const valid = ["retained", "deferred-context", "unread-fields"].includes(mode);
+    expect(result.coverage, result.problems.join(" ")).toBe(valid ? "complete" : "inconclusive");
+    if (valid) { expect(result.problems).toEqual([]); expect(result.operationsChecked).toBe(1); }
     else expect(codexStayedOutcome("local", result, [result.fingerprint]).passed).toBe(false);
+    // Only a schema failure names a compatibility detail; integrity and value failures refuse without one.
+    expect(result.compatibility).toEqual({
+      "missing-field": ["compaction field compaction_response_id is missing or changed"],
+      "changed-field": ["compaction field retained_context.user_messages is missing or changed"],
+      "executable-snapshot": ["compaction item type function_call is not recognised"],
+    }[mode]);
   });
   it.each(["qualified", "wrong-turn", "wrong-status", "wrong-reason", "conflicting"])("checks the recorded interrupted terminal contract: %s", async mode => {
     const f = fixture();
@@ -138,13 +147,21 @@ describe("authoritative Codex conversation audit", () => {
     const result = await auditCodexConversation(f.options);
     expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete");
   });
-  it("accepts the verified non-executing metadata envelopes, but rejects changed envelope schemas", async () => {
+  it("accepts the verified non-executing metadata envelopes with fields Kiln doesn't read, but not with a field it reads missing or changed", async () => {
     const f = fixture();
-    f.append("parent", f.record("token_usage_record", { thread_id: "parent", turn_id: "parent-turn-0", session_id: "tree", root_turn_id: "root-turn", response_id: "response", usage: { input_tokens: 1 }, turn_token_usage: { total_tokens: 2 }, thread_token_usage: { total_tokens: 3 } }));
+    const usage = { thread_id: "parent", turn_id: "parent-turn-0", session_id: "tree", root_turn_id: "root-turn", response_id: "response", usage: { input_tokens: 1 }, turn_token_usage: { total_tokens: 2 }, thread_token_usage: { total_tokens: 3 } };
+    f.append("parent", f.record("token_usage_record", usage));
     f.append("parent", f.record("inter_agent_communication_metadata", { trigger_turn: true }));
     const result = await auditCodexConversation(f.options); expect(result.problems).toEqual([]); expect(result.coverage).toBe("complete"); expect(result.operationsChecked).toBe(1);
+    f.append("parent", f.record("token_usage_record", { ...usage, future_usage_field: { opaque: true } }));
     f.append("parent", f.record("inter_agent_communication_metadata", { trigger_turn: true, unknown_executable_field: "opaque" }));
-    expect((await auditCodexConversation(f.options)).coverage).toBe("inconclusive");
+    const extra = await auditCodexConversation(f.options);
+    expect(extra.problems).toEqual([]); expect(extra.coverage).toBe("complete"); expect(extra.compatibility).toBeUndefined();
+    f.append("parent", f.record("inter_agent_communication_metadata", { trigger_turn: "yes" }));
+    f.append("parent", f.record("token_usage_record", { ...usage, response_id: undefined }));
+    const changed = await auditCodexConversation(f.options);
+    expect(changed.coverage).toBe("inconclusive");
+    expect(changed.compatibility).toEqual(["inter_agent_communication_metadata field trigger_turn is missing or changed", "token_usage_record field response_id is missing or changed"]);
   });
   it("confirms only identified changes, preserving the exact frontier across a fresh read", async () => {
     const f = fixture(); f.addThread("parent", { target: join(f.outside, "marker.txt") });
@@ -199,6 +216,9 @@ describe("authoritative Codex conversation audit", () => {
     const audit = await auditCodexConversation(f.options);
     expect(audit.coverage).toBe("inconclusive"); expect(audit.problems.length).toBeGreaterThan(0);
     if (["missing", "corrupt", "truncated", "unsettled", "empty", "unowned", "wrong-owner", "invalid-envelope"].includes(kind)) expect(uncertaintyFingerprint(audit)).toBeUndefined();
+    // Integrity failures (a changed or unowned record, an identity mismatch) name no compatibility detail.
+    if (["unsettled", "unowned", "wrong-owner"].includes(kind)) expect(audit.compatibility).toBeUndefined();
+    if (kind === "invalid-envelope") expect(audit.compatibility).toEqual(["response_item field payload is missing or changed"]);
     expect(codexStayedOutcome("local", audit, [audit.fingerprint]).passed).toBe(false);
   });
   it("rediscovers a moved archived file by ID without reading unrelated histories", async () => {

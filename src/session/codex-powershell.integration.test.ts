@@ -5,24 +5,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { findExecutable } from "../platform/helper-process.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { auditCodexConversation } from "./codex-evidence.js";
-import { POWERSHELL_VERSION, readPowerShell } from "./codex-powershell.js";
+import { readPowerShell } from "./codex-powershell.js";
+import { compareToMinimum } from "../agents/tooling-minimums.js";
 
 const executable = findExecutable("pwsh", process.env);
 const parserVersion = executable ? spawnSync(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"], { encoding: "utf8", timeout: 30_000 }).stdout?.trim() : undefined;
-const qualified = parserVersion === POWERSHELL_VERSION;
+const qualified = compareToMinimum("powershell", parserVersion).state === "supported";
 const fixtures: ReturnType<typeof historyFixture>[] = [];
 const fixture = () => { const f = historyFixture(); fixtures.push(f); return f; };
 afterEach(async () => { await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
 const read = (f: ReturnType<typeof fixture>, body: string, platform: NodeJS.Platform = process.platform, cwd = f.root) => readPowerShell(body, { executable: executable!, cwd, env: f.sandbox.env, signal: AbortSignal.timeout(10_000), context: { platform, home: f.codexHome } });
 
-it.skipIf(!executable)("requires the qualified PowerShell parser version on this host", async () => {
+it.skipIf(!executable)("requires PowerShell at or above its minimum on this host", async () => {
   const f = fixture();
   if (qualified) expect((await read(f, "Write-Output proof")).paths).toEqual([]);
-  else await expect(read(f, "Write-Output proof")).rejects.toThrow(`PowerShell ${parserVersion} is unqualified`);
+  else await expect(read(f, "Write-Output proof")).rejects.toThrow(`PowerShell ${parserVersion} can't read this command`);
 });
 
 // An absent/unqualified host is a visible native-profile proof gap, never simulated support.
-describe.skipIf(!qualified)("actual non-executing PowerShell 7.5.2 parser", () => {
+describe.skipIf(!qualified)("actual non-executing PowerShell parser at or above its minimum", () => {
   it("reads literals, assignments, pipelines, redirects and moves as data without performing them", async () => {
     const f = fixture(); const destination = join(f.root, "must-not-exist.txt");
     const result = await read(f, `$p = '${destination}'; Set-Content -LiteralPath $p -Value 'proof'; 'more' | Out-File -FilePath '${destination}'; Move-Item -LiteralPath 'old.txt' -Destination 'folder'; 'redirect' > 'redirect.txt'`);
