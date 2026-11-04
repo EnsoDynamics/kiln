@@ -103,7 +103,10 @@ describe.skipIf(process.platform === "win32")("Codex launch settings probe", () 
 
   it("cannot finish, and still ends every process, when Codex never answers", async () => {
     const f = setup("hang");
-    await expect(probeCodexLaunchSettings({ ...f.options, timeoutMs: 1500 })).rejects.toThrow("Codex launch settings check exceeded its deadline.");
+    // The probe's deadline and the thread/start RPC deadline both take timeoutMs. The probe's
+    // fires first but inventories the process tree before failing the transport, and on macOS
+    // that scan can outlast the gap between the two timers, so either deadline may name the hang.
+    await expect(probeCodexLaunchSettings({ ...f.options, timeoutMs: 1500 })).rejects.toThrow(/^Codex (launch settings check|thread\/start) exceeded its (RPC )?deadline\.$/);
     expect(allGone(f.children())).toBe(true);
   });
 
