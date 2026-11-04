@@ -1,5 +1,7 @@
 # Phase 4: Green release candidate
 
+**Closed:** 2026-11-04
+
 **Parent PRD:** [Kiln public release readiness](kiln-public-release-readiness-prd.md)
 **Technical design:** [technical design](kiln-public-release-readiness-technical-design.md) — Design Decisions rows Test ports, Run that stops before publishing; Repository, Package and Documentation Changes (Candidate scan, CI evidence).
 **Phase plan:** [Execution order](kiln-public-release-readiness-phase-plan.md)
@@ -22,3 +24,7 @@ The release act: merging to `main`, enabling publication, publishing, tags, visi
 - `kiln-public-release-readiness-candidate-scan.md` already exists, holding AC-REPO-05's branch list; the scan result is added to it as its own section.
 - This phase opens the release pull request into `main` itself once every other criterion is met, and never merges it; the repository's `AGENTS.md` governs everything after it.
 - The candidate scan stops for Doug only on a real concern (AC-REPO-07); otherwise it records a clean result and moves on.
+
+## Outcome
+- AC-CI-01: `a951369`; AC-CI-02: green on the first attempt, recorded in [kiln-public-release-readiness-ci-reruns.md](kiln-public-release-readiness-ci-reruns.md); AC-REPO-07: [candidate scan](kiln-public-release-readiness-candidate-scan.md), "Candidate scan (AC-REPO-07)"; AC-CI-03 and AC-NOTES-01's remaining proof: [release pull request #2](https://github.com/EnsoDynamics/kiln/pull/2) into `main`, open and not merged, its description recording the candidate checks' run.
+- Pull request #2 runs its candidate checks again on every push to `develop`, documentation included, while it is open (technical design, "Run that stops before publishing").
