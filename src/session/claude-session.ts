@@ -80,9 +80,24 @@ export function modelNameFromId(id: string): string {
   return match[3] === undefined ? `${family} ${match[2]}` : `${family} ${match[2]}.${match[3]}`;
 }
 
+/** The arguments live control adds to a Claude launch (technical design, Live launch arguments). */
+const LIVE_ARGUMENTS = ["--replay-user-messages", "--settings"];
+
+/** The live argument a launch's error output names, when the launch passed it. */
+export function rejectedLiveArgument(args: string[], stderr: string): string | undefined {
+  return LIVE_ARGUMENTS.find(argument => args.includes(argument) && stderr.includes(argument));
+}
+
+/** The launch arguments without live control's: `--replay-user-messages` and `--settings <json>`. */
+export function withoutLiveArguments(args: string[]): string[] {
+  return args.filter((argument, index) => argument !== "--replay-user-messages" && argument !== "--settings" && args[index - 1] !== "--settings");
+}
+
 export interface SessionProcessOptions {
   live?: SessionRun["live"];
-  onLiveEvent?: (event: StreamEvent, at: string) => void;
+  /** Claude Code exited before its first event naming this live argument; the attempt relaunches without live control. */
+  onLiveArgumentRejected?: (argument: string) => void;
+  onLiveEvent?: (event: StreamEvent, at: string) => void | Promise<void>;
   onLiveExit?: () => void;
   beforePrompt?: (identity: { pid: number; startTime: string }) => Promise<void>;
   control?: NonNullable<SessionRun["control"]>;
@@ -214,7 +229,16 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   record.runs.push(run); saveRecord();
   // A quiet parent can still own an actively working reviewer. Claude's default
   // ten-minute background ceiling kills it; explicit stop and tool timeouts remain.
-  const child = spawnDetached(options.claude, options.args, { cwd: options.cwd, env: { ...options.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" }, stdin: "pipe" });
+  /** When each model response of this run arrived, for the sleep verdict. */
+  const modelResponses: string[] = [];
+  /** This run's usage-limit reports and model responses, in order, for the refusal verdict. */
+  const limitEvents: SavedEvent[] = [];
+  let args = options.args;
+  let code: number | null;
+  let signal: NodeJS.Signals | null;
+  let stderrBuffer = "";
+  for (;;) {
+  const child = spawnDetached(options.claude, args, { cwd: options.cwd, env: { ...options.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0" }, stdin: "pipe" });
   if (child.pid === undefined) {
     const error = await new Promise<NodeJS.ErrnoException>((resolve) => child.once("error", resolve));
     run.endedAt = startedAt; run.spawnError = { code: error.code ?? "ERROR", message: error.message }; saveRecord();
@@ -252,11 +276,6 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     closed: closed.then(() => undefined),
   });
 
-  /** When each model response of this run arrived, for the sleep verdict. */
-  const modelResponses: string[] = [];
-  /** This run's usage-limit reports and model responses, in order, for the refusal verdict. */
-  const limitEvents: SavedEvent[] = [];
-
   let observations = Promise.resolve();
   let observationFailure: unknown;
   const retainObservationFailure = (error: unknown) => {
@@ -281,9 +300,12 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   const drainTimer = options.live ? setInterval(() => { observations = observations.then(maybeDrain).catch(retainObservationFailure); }, 250) : undefined;
   drainTimer?.unref();
   let stdoutBuffer = "";
-  let stderrBuffer = "";
+  stderrBuffer = "";
+  let stderrText = "";
+  let sawOutput = false;
   const readStdoutLine = (text: string) => {
     if (text.trim() === "") return;
+    sawOutput = true;
     const at = now().toISOString();
     let event: StreamEvent;
     try {
@@ -307,7 +329,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     appendJsonLine(files.events, { at, event, ...(resultAccounting ? { resultAccounting } : {}) });
     if (options.live) observations = observations.then(async () => {
       background.observe(event);
-      options.onLiveEvent?.(event, at);
+      await options.onLiveEvent?.(event, at);
       await observeGate(options.live!.gateDirectory, event, at);
       if (event.type === "result") resultSeen = true;
     }).then(maybeDrain).catch(retainObservationFailure);
@@ -361,7 +383,7 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
   }));
   child.stderr!.on("data", (text: string) => guardOutput(() => {
     appendFileSync(files.stderr, text, { mode: 0o600 });
-    stderrBuffer += text;
+    stderrBuffer += text; if (!sawOutput) stderrText += text; // Only an exit before any output is read for a rejected live argument.
     const lastNewline = stderrBuffer.lastIndexOf("\n");
     if (lastNewline === -1) return;
     saveLines(reader.stderrLines(stderrBuffer.slice(0, lastNewline), now().toISOString()));
@@ -397,8 +419,23 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     child.stdin!.end(); const [code] = await closed; await owned?.close(); clearInterval(drainTimer);
     run.endedAt = now().toISOString(); if (code !== null) run.exitCode = code; saveRecord(); throw error;
   }
-  const [code, signal] = await closed;
+  [code, signal] = await closed;
   clearInterval(drainTimer);
+  const rejected = !sawOutput && options.live && !options.live.rejectedLaunch && !options.stopping?.() ? rejectedLiveArgument(args, stderrText) : undefined;
+  if (rejected) {
+    // Live Launch arguments: a version that no longer takes a live argument relaunches this same
+    // attempt once without them, recorded and reported; the run and attempt ID stay the same.
+    await owned?.close();
+    await observations;
+    if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
+    const at = now().toISOString();
+    Object.assign(options.live!, { literalInput: false, messageContract: "unrecognised", hookContract: "unrecognised", rejectedLaunch: { argument: rejected, exitCode: code, at } });
+    args = withoutLiveArguments(args);
+    saveRecord();
+    options.onLiveArgumentRejected?.(rejected);
+    saveLines([reader.kilnLine("stderr", `Claude Code exited at launch naming ${rejected}; relaunching this attempt once without live control.`, at)]);
+    continue;
+  }
   try {
     await owned?.close();
     await observations;
@@ -411,6 +448,8 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     // Every exited live attempt accounts for accepted input, even when its final
     // saved-event/gate observation fails (including a last line without LF).
     options.onLiveExit?.();
+  }
+  break;
   }
   if (stderrBuffer.trim() !== "") saveLines(reader.stderrLines(stderrBuffer, now().toISOString()));
 

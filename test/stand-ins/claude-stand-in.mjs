@@ -37,6 +37,7 @@
 //                                                             a request refused by a usage limit, as the Agent SDK types it:
 //                                                             the rejected rate_limit_event, the synthetic assistant message
 //                                                             with error "rate_limit", and an error result; a null field is left out
+// { "liveMessages": <n>, "malformedUuids": true } answers live inputs with user_message_uuids as one string, not a list.
 // A session may also say { "noInit": true }: a resume whose transcript is gone, as proof gate 1
 // recorded it (no init, one error result, the same line on stderr, exit 1), and
 // { "ignoreInterrupt": true }: the interrupt request and SIGINT are ignored, so only a forced
@@ -132,6 +133,15 @@ if (!isSession && args.includes("--input-format")) {
   await new Promise(() => {});
 }
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+// KILN_STANDIN_REJECT_ARGUMENT names a launch argument this Claude Code no longer takes: a
+// session launched with it exits before its first event, naming it, as a CLI rejecting an option does.
+const rejectedArgument = process.env.KILN_STANDIN_REJECT_ARGUMENT;
+if (isSession && rejectedArgument && args.includes(rejectedArgument)) {
+  appendFileSync(`${scenarioPath}.rejected.jsonl`, `${JSON.stringify({ args })}\n`);
+  process.stderr.write(`error: unknown option '${rejectedArgument}'\n`);
+  process.stderr.write("", () => process.exit(1));
+  await new Promise(() => {});
+}
 const sessionId = flag("--session-id") ?? flag("--resume");
 const model = args[args.indexOf("--model") + 1];
 const emit = (event) => process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...event })}\n`);
@@ -155,17 +165,44 @@ const keepRecord = (type, message) => {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `${JSON.stringify({ type, sessionId, timestamp: new Date().toISOString(), cwd: process.cwd(), message })}\n`);
 };
+// Launched with --settings, the stand-in runs each hook command Kiln gave it, as Claude Code
+// does: PreToolUse before a tool runs (a deny, or exit 2, and the tool doesn't run), PostToolUse
+// or PostToolUseFailure after its result, then PostToolBatch (continue: false ends the turn).
+// Each hook call is logged to <scenario>.hooks.jsonl. KILN_STANDIN_HOOK_MUTATION changes what
+// Kiln reads: "no-tool-use-id" leaves tool_use_id out of every hook input, "no-post-tool-use-id"
+// out of PostToolUse only.
+const hookSettings = (() => { const value = flag("--settings"); return value ? JSON.parse(value).hooks ?? {} : {}; })();
+const runHooks = (eventName, fields) => (hookSettings[eventName] ?? []).flatMap(group => (group.hooks ?? []).map(hook => {
+  const mutation = process.env.KILN_STANDIN_HOOK_MUTATION;
+  const input = { session_id: sessionId, hook_event_name: eventName, ...fields };
+  if (mutation === "no-tool-use-id" || mutation === "no-post-tool-use-id" && eventName === "PostToolUse") delete input.tool_use_id;
+  // Under the test runner Kiln names its hook beside its TypeScript source; the packaged hook is
+  // the built one (npm run test:integration builds first), as the hook's own tests use.
+  const hookArgs = (hook.args ?? []).map(arg => /[\\/]src[\\/]live[\\/]checkpoint-hook\.js$/.test(arg) && !existsSync(arg) ? arg.replace(/([\\/])src([\\/]live[\\/]checkpoint-hook\.js)$/, "$1dist$2") : arg);
+  const run = spawnSync(hook.command, hookArgs, { input: JSON.stringify(input), encoding: "utf8", timeout: (hook.timeout ?? 60) * 1000 });
+  appendFileSync(`${scenarioPath}.hooks.jsonl`, `${JSON.stringify({ event: eventName, input, status: run.status, stdout: run.stdout, stderr: run.stderr })}\n`);
+  return { status: run.status, output: run.status === 0 && run.stdout.trim() ? JSON.parse(run.stdout) : undefined };
+}));
+const toolNames = new Map();
+const deniedTools = new Set();
+let turnStopped = false;
 const toolCall = (name, input) => {
   const id = `toolu_stand_in_${process.pid}_${++toolId}`;
   const message = { model: "claude-opus-5-5", content: [{ type: "tool_use", id, name, input }] };
   keepRecord("assistant", message);
   emit({ type: "assistant", parent_tool_use_id: null, message });
+  toolNames.set(id, name);
+  if (runHooks("PreToolUse", { tool_name: name, tool_use_id: id, tool_input: input }).some(answer => answer.status === 2 || answer.output?.hookSpecificOutput?.permissionDecision === "deny")) deniedTools.add(id);
   return id;
 };
 const toolResult = (id, content, isError = false) => {
-  const message = { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] };
+  const denied = deniedTools.has(id);
+  const message = { content: [{ type: "tool_result", tool_use_id: id, content: denied ? "Denied by a PreToolUse hook." : content, is_error: isError || denied }] };
+  // As in Claude Code, the post hook runs before the tool's result is sent on.
+  if (!denied) runHooks(isError ? "PostToolUseFailure" : "PostToolUse", { tool_name: toolNames.get(id), tool_use_id: id, ...(isError ? { error: content } : { tool_response: content }) });
   keepRecord("user", message);
   emit({ type: "user", parent_tool_use_id: null, message });
+  if (runHooks("PostToolBatch", {}).some(answer => answer.output?.continue === false)) turnStopped = true;
 };
 
 let stdinText = "";
@@ -256,6 +293,8 @@ const endInterrupted = (toolUseId) => {
 };
 for (const action of session.actions) {
   if (interruptBy !== undefined) await endInterrupted();
+  // A PostToolBatch hook answered continue: false: the turn ends there, as Claude Code's does.
+  if (turnStopped) { emit({ type: "result", subtype: "success", is_error: false, result: "Stopped by a hook." }); resultSent = true; break; }
   if (action.work) {
     const id = toolCall("Bash", { command: action.work });
     // The running tool is a real child process, as Claude Code's Bash tool is; its PID is
@@ -364,7 +403,7 @@ for (const action of session.actions) {
     toolResult(toolCall("Bash", { command: `gh pr create --repo github.com/${repo} --head ${branch} --base ${base}` }), state.pulls.at(-1).url);
   } else if (action.bash) {
     const id = toolCall("Bash", { command: action.bash });
-    const run = spawnSync("sh", ["-c", action.bash], { cwd: process.cwd(), encoding: "utf8" });
+    const run = deniedTools.has(id) ? { stdout: "", stderr: "", status: 1 } : spawnSync("sh", ["-c", action.bash], { cwd: process.cwd(), encoding: "utf8" });
     toolResult(id, `${run.stdout ?? ""}${run.stderr ?? ""}`, run.status !== 0);
   } else if (action.powershell) {
     toolResult(toolCall("PowerShell", { command: action.powershell }), "");
@@ -403,7 +442,7 @@ for (const action of session.actions) {
       emit(observation.type === "assistant" ? { type: "assistant", user_message_uuids: correlated, message: { content: [{ type: "text", text: "Read the selected live inputs." }] } } : { type: "result", subtype: "success", is_error: false, user_message_uuids: correlated, result: "Selected live inputs accounted." });
     }
     else if (action.readOnly) emit({ type: "assistant", user_message_uuids: uuids, message: { content: [{ type: "text", text: "Read the live inputs." }] } });
-    else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: uuids, queued_turn_count: 0, result: "Live instructions accounted." });
+    else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: action.malformedUuids ? uuids.join(",") : uuids, queued_turn_count: 0, result: "Live instructions accounted." });
     if (action.exitAfter) await exitAfterFlush(0);
   } else if (action.result !== undefined) {
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
@@ -416,6 +455,7 @@ for (const action of session.actions) {
     exitCode = action.exit;
   }
 }
+if (turnStopped && !resultSent) { emit({ type: "result", subtype: "success", is_error: false, result: "Stopped by a hook." }); resultSent = true; }
 // Claude Code keeps reading its input after a result; Kiln closes stdin and then it exits.
 if (resultSent && !stdinClosed) await stdinEnd;
 await exitAfterFlush(exitCode);

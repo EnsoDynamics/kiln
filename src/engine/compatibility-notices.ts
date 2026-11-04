@@ -2,7 +2,7 @@
 // feature found the information it needs missing or changed. At most one per feature; a later
 // failure replaces it, and the feature's next use on a different version of that agent removes it
 // unless that use writes its own (technical design, Compatibility notices row).
-import { AGENT_NAMES, type CompatibilityNotice, type CompatibilityFeature, type PrdRecord, type SessionRecord } from "../state/records.js";
+import { AGENT_NAMES, type CompatibilityNotice, type CompatibilityFeature, type LiveContract, type PrdRecord, type SessionRecord } from "../state/records.js";
 
 const featureNames: Record<CompatibilityFeature, string> = { live_messages: "Message Claude", takeover: "Pause & take over", codex_history: "Codex command evidence" };
 
@@ -56,4 +56,20 @@ export function applyCodexHistoryReadings(record: PrdRecord, readings: { session
   let changed = false;
   for (const reading of readings) changed = clearNoticeForOtherVersion(record, "codex_history", launchVersion(reading.session)) || changed;
   return changed;
+}
+
+/**
+ * At the launch of a Claude attempt eligible for live control, which is a use of Message Claude
+ * and Pause & take over: a notice naming this Claude Code version starts that contract
+ * unrecognised; one naming another version is dropped and the contract starts unproven.
+ */
+export function liveContractAtLaunch(record: PrdRecord, feature: "live_messages" | "takeover", agentVersion: string): { contract: LiveContract; changed: boolean } {
+  if (record.compatibility?.some(one => one.feature === feature && one.agentVersion === agentVersion)) return { contract: "unrecognised", changed: false };
+  return { contract: "unproven", changed: clearNoticeForOtherVersion(record, feature, agentVersion) };
+}
+
+/** The reason a live control shows while its contract is unrecognised: the record's notice for that feature. */
+export function liveNoticeReason(record: PrdRecord, feature: "live_messages" | "takeover"): string | undefined {
+  const notice = record.compatibility?.find(one => one.feature === feature);
+  return notice ? `${noticeText(notice)}.` : undefined;
 }

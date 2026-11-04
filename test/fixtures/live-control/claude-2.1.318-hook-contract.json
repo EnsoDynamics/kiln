@@ -1,0 +1,96 @@
+{
+  "provenance": {
+    "capturedAt": "2026-11-04T03:40:21.748Z",
+    "cliVersion": "2.1.318",
+    "platform": "darwin",
+    "command": "node scripts/proof-run/live-takeover.mjs foreground",
+    "scriptSha256": "5c53c9acfbf8d4c5dc2acf23a6e4d3c5a6aff0488c4827d42d02d856237d5bd0",
+    "projection": "Every hook input Claude Code sent, in order, with the packaged hook's exit status and answer. Local paths replaced; nothing else changed."
+  },
+  "target": {
+    "executionId": "6d494f10-afd7-44a8-b451-421bb9314e61",
+    "activityId": "8bc209fa-491c-4161-8364-e74fb54abcdf",
+    "activityKey": "1",
+    "sessionId": "912423a2-f749-4f08-85ec-3a55ba2983e3",
+    "providerSessionId": "912423a2-f749-4f08-85ec-3a55ba2983e3",
+    "attemptId": "9b9551d9-1f8d-40dd-b4f6-cabe9195858d"
+  },
+  "calls": [
+    {
+      "input": {
+        "session_id": "912423a2-f749-4f08-85ec-3a55ba2983e3",
+        "transcript_path": "~/.claude/projects/<proof-root>/912423a2-f749-4f08-85ec-3a55ba2983e3.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "6009afdd-80ad-4fbf-a2bb-0ae1c77d7a5a",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sleep 4; echo FIRST > first.txt"
+        },
+        "tool_use_id": "toolu_01AvNEhDEaNPRVB3gypz2jgY"
+      },
+      "status": 0,
+      "answer": {}
+    },
+    {
+      "input": {
+        "session_id": "912423a2-f749-4f08-85ec-3a55ba2983e3",
+        "transcript_path": "~/.claude/projects/<proof-root>/912423a2-f749-4f08-85ec-3a55ba2983e3.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "6009afdd-80ad-4fbf-a2bb-0ae1c77d7a5a",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sleep 4; echo FIRST > first.txt"
+        },
+        "tool_response": {
+          "stdout": "",
+          "stderr": "",
+          "interrupted": false,
+          "isImage": false,
+          "noOutputExpected": false
+        },
+        "tool_use_id": "toolu_01AvNEhDEaNPRVB3gypz2jgY",
+        "duration_ms": 4256
+      },
+      "status": 0,
+      "answer": {}
+    },
+    {
+      "input": {
+        "session_id": "912423a2-f749-4f08-85ec-3a55ba2983e3",
+        "transcript_path": "~/.claude/projects/<proof-root>/912423a2-f749-4f08-85ec-3a55ba2983e3.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "6009afdd-80ad-4fbf-a2bb-0ae1c77d7a5a",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PostToolBatch",
+        "tool_calls": [
+          {
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "sleep 4; echo FIRST > first.txt"
+            },
+            "tool_use_id": "toolu_01AvNEhDEaNPRVB3gypz2jgY",
+            "tool_response": "(Bash completed with no output)"
+          }
+        ]
+      },
+      "status": 0,
+      "answer": {
+        "continue": false,
+        "stopReason": "Kiln paused this activity for terminal takeover. Finish no further substantive work. The completed operation and this conversation are saved; unfinished phase or audit work remains for the person to continue. Yield at this completed-operation boundary."
+      }
+    }
+  ]
+}

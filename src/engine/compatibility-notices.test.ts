@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { CompatibilityNotice, PrdRecord } from "../state/records.js";
-import { applyCodexHistoryReading, applyCodexHistoryReadings, clearNoticeForOtherVersion, noticeLines, statusCompatibility, writeNotice } from "./compatibility-notices.js";
+import { applyCodexHistoryReading, applyCodexHistoryReadings, clearNoticeForOtherVersion, liveContractAtLaunch, liveNoticeReason, noticeLines, statusCompatibility, writeNotice } from "./compatibility-notices.js";
 import type { SessionRecord } from "../state/records.js";
 
 const notice = (overrides: Partial<CompatibilityNotice> = {}): CompatibilityNotice => ({ feature: "codex_history", agentId: "codex", agentVersion: "0.167.0", detail: "record type future_record is not recognised", observedAt: "2026-11-03T20:00:00Z", ...overrides });
@@ -62,4 +62,16 @@ it("keeps a notice one session in a multi-session pass writes, however the sessi
   const record = { compatibility: [{ feature: "codex_history", agentId: "codex", agentVersion: "0.167.0", detail: detail[0]!, observedAt: at }] } as PrdRecord;
   expect(applyCodexHistoryReadings(record, [{ session: session("0.167.0"), compatibility: undefined }, { session: session("0.168.0"), compatibility: undefined }], at)).toBe(true);
   expect(record.compatibility).toBeUndefined();
+});
+
+it("starts a live contract unrecognised on the Claude Code version its notice names, and drops a notice naming another version", () => {
+  const record = {} as PrdRecord;
+  writeNotice(record, notice({ feature: "live_messages", agentId: "claude_code", agentVersion: "2.1.320", detail: "user_message_uuids was not a list of message IDs" }));
+  writeNotice(record, notice({ feature: "takeover", agentId: "claude_code", agentVersion: "2.1.320", detail: "PreToolUse hook input had no tool_use_id" }));
+  expect(liveContractAtLaunch(record, "live_messages", "2.1.320")).toEqual({ contract: "unrecognised", changed: false });
+  expect(liveNoticeReason(record, "live_messages")).toBe("Message Claude unavailable with Claude Code 2.1.320: user_message_uuids was not a list of message IDs.");
+  expect(liveContractAtLaunch(record, "takeover", "2.1.321")).toEqual({ contract: "unproven", changed: true });
+  expect(record.compatibility!.map(one => one.feature)).toEqual(["live_messages"]);
+  expect(liveContractAtLaunch(record, "takeover", "2.1.321")).toEqual({ contract: "unproven", changed: false });
+  expect(liveNoticeReason(record, "takeover")).toBeUndefined();
 });

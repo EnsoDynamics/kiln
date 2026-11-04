@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
-const cliVersion = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 });
+import { claudeProofVersion } from './live-proof-fixtures.mjs';
 assert.equal(process.platform, 'darwin', 'Live controls are qualified on macOS only.');
-assert.match(cliVersion, /^2\.1\.311 /, 'Use the qualified Claude CLI for provider proof.');
+// Any Claude Code at or above the minimum (AC-AGENT-01), KILN_LIVE_PROOF_CLAUDE when set; each
+// proof records the version it ran on and, the first time, its contract fixture.
+process.stdout.write(`Live proof on Claude Code ${claudeProofVersion()}\n`);
 
 for (const [script, mode] of [
   ['live-messages.mjs', 'text'], ['live-messages.mjs', 'tool'],

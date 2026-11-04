@@ -276,9 +276,16 @@ it.skipIf(process.platform !== "darwin").each(["complete", "terminal"] as const)
   injected.mockRestore();
 });
 
-it.skipIf(process.platform !== "darwin")("explains unsupported new CLI profiles and refuses checkpoint takeover before any hold", async () => {
-  const { release, target } = await setup("2.1.999");
-  expect(h.engine.liveView()).toMatchObject({ available: false }); expect(h.engine.liveView()!.reason).toContain("unavailable");
+// AC-AGENT-03: live control is offered on every Claude Code at or above the minimum; a version
+// Kiln can't parse gets neither control, with a reason naming the requirement and no version.
+it.skipIf(process.platform !== "darwin")("offers takeover on a newer Claude Code and refuses it before any hold when the version is unrecognised", async () => {
+  const newer = await setup("2.1.999");
+  expect(h.engine.liveView()).toMatchObject({ available: true, input: { available: true } });
+  expect(h.engine.latestSession("1")!.runs.at(-1)!.live).toMatchObject({ profile: "claude-code-2.1.999/darwin", agentVersion: "2.1.999", messageContract: "unproven", hookContract: "unproven" });
+  writeFileSync(newer.release, "done"); await h.engine.settled(); await server?.close(); server = undefined; await h.cleanup();
+  const { release, target } = await setup("stand-in");
+  expect(h.engine.liveView()).toMatchObject({ available: false, reason: "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available.", input: { available: false, reason: "Live messages need a supported Claude Code on macOS." } });
+  expect(h.engine.latestSession("1")!.runs.at(-1)!.live).toBeUndefined();
   expect((await post("live/take-over", { instructionId: "unsupported", target })).status).toBe(409);
   expect(h.engine.record.liveControl).toBeUndefined();
   writeFileSync(release, "done"); await h.engine.settled();

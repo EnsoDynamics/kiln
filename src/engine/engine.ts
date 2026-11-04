@@ -10,8 +10,8 @@ import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
-import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate } from "../live/gate.js";
-import { sameLiveTarget, validLiveTarget, consumedUuids, messageProblem, type LiveTarget, type LiveView } from "../live/target.js";
+import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate, type GateState } from "../live/gate.js";
+import { sameLiveTarget, validLiveTarget, consumedUuids, messageContractProblem, messageProblem, type LiveTarget, type LiveView, type TakeoverHold } from "../live/target.js";
 import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from "../live/ownership.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
@@ -112,6 +112,7 @@ import {
   type RepositoryEntry,
   type SessionRecord,
   type SessionRun,
+  type LiveRunFacts,
   type Settings,
   type PhaseStop,
   type PhaseFacts,
@@ -126,7 +127,8 @@ import { readPhasePlan } from "../plan/phase-plan.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { CHECK_NAMES, planCheck, runDoneCheck, runPullRequestChecks, type CheckedRepository, type DoneCheckOutcome } from "./checks.js";
 import { auditCodexConversation } from "../session/codex-evidence.js";
-import { applyCodexHistoryReadings } from "./compatibility-notices.js";
+import { applyCodexHistoryReadings, liveContractAtLaunch, liveNoticeReason, noticeText, writeNotice } from "./compatibility-notices.js";
+import { compareToMinimum } from "../agents/tooling-minimums.js";
 type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][number];
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
@@ -538,7 +540,9 @@ export class Engine {
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
       "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
     };
-    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : busy ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
+    // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
+    const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
+    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
@@ -744,6 +748,68 @@ export class Engine {
     this.changed();
   }
 
+  /**
+   * Live message recognition: a receipt field in another form turns Message Claude off for the
+   * rest of the attempt and writes its notice, so later attempts on this Claude Code version
+   * start without it. A message awaiting its receipt shows Delivery uncertain and stops holding
+   * the attempt's input open. Returns whether receipts can still be read from this event.
+   */
+  private async observeMessageContract(session: SessionRecord, live: LiveRunFacts, event: Record<string, unknown>): Promise<boolean> {
+    if (live.messageContract === "unrecognised") return false;
+    const problem = messageContractProblem(event);
+    if (!problem) return true;
+    live.messageContract = "unrecognised";
+    writeNotice(this.record, { feature: "live_messages", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: problem, attemptId: live.attemptId, observedAt: this.now().toISOString() });
+    const target = readGate(live.gateDirectory).target;
+    for (const r of this.messageReceipts(target)) if (r.message!.writeStartedAt && !r.message!.resultAt && !r.message!.resolvedBy) { this.holdMessage(r); this.commands.checkpoint(r); }
+    // Recorded in the gate too, so admission refuses under the same lock that accounts the inputs.
+    await withGate(live.gateDirectory, gate => {
+      gate.messageContract ??= { state: "unrecognised", detail: problem, at: this.now().toISOString() };
+      for (const input of Object.values(gate.inputs ?? {})) input.terminal = true;
+    });
+    writeSessionRecord(this.stateDirectory, session);
+    this.save(); this.changed();
+    return false;
+  }
+
+  /**
+   * Takeover hook recognition: the checkpoint hook records input it didn't recognise in the
+   * gate. That turns Pause & take over off for the rest of the attempt and writes its notice; an
+   * accepted takeover keeps its hold and waits for the attempt to end.
+   */
+  private observeHookContract(session: SessionRecord, live: LiveRunFacts): void {
+    if (live.hookContract === "unrecognised") return;
+    let contract: GateState["contract"];
+    try { contract = readGate(live.gateDirectory).contract; } catch { return; }
+    if (!contract) return;
+    live.hookContract = "unrecognised";
+    writeNotice(this.record, { feature: "takeover", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: contract.detail, attemptId: live.attemptId, observedAt: contract.at });
+    writeSessionRecord(this.stateDirectory, session);
+    this.save(); this.changed();
+  }
+
+  /** Live launch arguments: Claude Code exited at launch naming one; both live features are off for this version. */
+  private recordRejectedLiveArgument(live: LiveRunFacts, argument: string): void {
+    const observedAt = this.now().toISOString();
+    for (const feature of ["live_messages", "takeover"] as const) writeNotice(this.record, { feature, agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail: `${argument} was rejected at launch`, attemptId: live.attemptId, observedAt });
+    this.save(); this.changed();
+  }
+
+  /** While a takeover is held on an attempt whose hook contract became unrecognised: the safe checkpoint can't be used. */
+  private checkpointUnavailable(hold: TakeoverHold): string | undefined {
+    if (hold.kind === "delivery_recovery" || hold.state !== "pending") return undefined;
+    const run = this.sessionRecord(hold.target.activityKey, hold.target.sessionId)?.runs.find(r => r.live?.attemptId === hold.target.attemptId);
+    if (!run?.live) return undefined;
+    let detail: string | undefined;
+    try { detail = readGate(run.live.gateDirectory).contract?.detail; } catch { /* the saved contract decides */ }
+    if (!detail && run.live.hookContract !== "unrecognised") return undefined;
+    return `${this.takeoverNotice(run.live, detail)} The safe checkpoint can't be used, so Kiln is waiting for this attempt and its processes to end. Wait before opening Claude.`;
+  }
+
+  private takeoverNotice(live: LiveRunFacts, detail: string | undefined): string {
+    return detail ? `${noticeText({ feature: "takeover", agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail, observedAt: "" })}.` : liveNoticeReason(this.record, "takeover") ?? "Pause & take over is unavailable for this attempt.";
+  }
+
   private endLiveMessages(target: LiveTarget): void {
     for (const r of this.messageReceipts(target)) if (r.message!.writeStartedAt && !r.message!.resultAt) {
       this.holdMessage(r); this.commands.checkpoint(r);
@@ -756,12 +822,12 @@ export class Engine {
     if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget())) return fail("stale_target", "This attempt ended or changed; the message was not sent.");
     if (messageProblem(text)) return fail("invalid_request", messageProblem(text)!);
     const run = this.latestSession(raw.activityKey)?.runs.at(-1);
-    if (!run?.live?.literalInput || !this.control?.sendMessage || !this.control.inputOpen?.() || !!this.record.liveControl || !this.current?.processRunning) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
+    if (!run?.live?.literalInput || run.live.messageContract === "unrecognised" || !this.control?.sendMessage || !this.control.inputOpen?.() || !!this.record.liveControl || !this.current?.processRunning) return fail("input_unavailable", "This attempt no longer accepts live input. Your text was not sent.");
     const control = this.control;
     let admitted = false;
     let writing: Promise<"written" | "uncertain"> | undefined;
     try { await withGate(run.live.gateDirectory, gate => {
-      if (gate.sealed || gate.held || this.record.liveControl || !sameLiveTarget(raw, this.liveTarget()) || !control.inputOpen?.()) return;
+      if (gate.sealed || gate.held || gate.messageContract || this.record.liveControl || !sameLiveTarget(raw, this.liveTarget()) || !control.inputOpen?.()) return;
       const inputs = gate.inputs ??= {};
       if (Object.values(inputs).filter(i => !i.terminal).length >= 32) return;
       receipt.live_target = raw;
@@ -819,14 +885,17 @@ export class Engine {
     const run = this.latestSession(target.activityKey)?.runs.at(-1);
     const capable = process.platform === "darwin" && (!!run?.live || this.recoveredLive);
     const messages = this.messageReceipts(target);
-    let sealed = true;
-    try { sealed = !run?.live || !!readGate(run.live.gateDirectory).sealed; } catch { /* unknown input is unavailable */ }
+    let sealed = true; let gate: GateState | undefined;
+    try { gate = run?.live ? readGate(run.live.gateDirectory) : undefined; sealed = !gate || !!gate.sealed; } catch { /* unknown input is unavailable */ }
+    // Each contract Kiln stops recognising turns its feature off for the attempt (AC-AGENT-04).
+    const messageOff = run?.live?.messageContract === "unrecognised";
+    const hookOff = !!run?.live && (run.live.hookContract === "unrecognised" || !!gate?.contract);
     const pending = messages.filter(r => r.message?.writeStartedAt && !r.message.resultAt).length;
     const uncertain = messages.some(r => r.message?.delivery === "uncertain");
     const submitting = messages.some(r => r.message?.delivery === "submitting");
-    const inputAvailable = !submitting && !!run?.live?.literalInput && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
-    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : !run?.live?.literalInput ? "Live messages require the validated Claude Code 2.1.311/macOS profile." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: hold?.reason ?? (!capable ? "Safe checkpoint takeover is unavailable for this Claude CLI/profile. Existing end-of-activity pause remains available." : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    const inputAvailable = !submitting && !!run?.live?.literalInput && !messageOff && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
+    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
@@ -929,7 +998,7 @@ export class Engine {
       requireHistory(this.environment, hold.target.providerSessionId);
       if (releaseEvidence && JSON.stringify(readGate(releaseEvidence.directory)) !== releaseEvidence.state) throw new OwnershipError("takeover_pending", "Tracked-process release evidence changed during ownership checks; retry reconciliation.");
       hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
-    } catch (error) { hold.state = "pending"; hold.reason = (error as Error).message; }
+    } catch (error) { hold.state = "pending"; hold.reason = this.checkpointUnavailable(hold) ?? (error as Error).message; }
     finally {
       hold.observedAt = this.now().toISOString();
       if (!this.current?.processRunning) {
@@ -3568,16 +3637,27 @@ export class Engine {
     }
     let live: SessionRun["live"];
     if (session.agentId !== "codex" && phaseKey !== PR_PHASE_KEY && process.platform === "darwin") {
+      // Live control eligibility: every Claude Code at or above the minimum on macOS. The
+      // version is recorded for diagnostics and notices, never compared for equality.
       const version = await runHelper(this.options.tools.claude, ["--version"], { cwd, env: launchEnv, timeoutMs: 5000 });
-      if (version.exitCode === 0 && /^2\.1\.311(?:\s|$)/.test(version.stdout)) {
+      const reading = version.exitCode === 0 ? compareToMinimum("claudeCode", version.stdout) : undefined;
+      if (reading?.state === "supported") {
+        const agentVersion = reading.version!;
+        const message = liveContractAtLaunch(this.record, "live_messages", agentVersion);
+        const hook = liveContractAtLaunch(this.record, "takeover", agentVersion);
+        if (message.changed || hook.changed) { this.save(); this.changed(); }
         const attemptId = dispatchedControl!.attempt_id!;
         const activity = activityHistory(this.record, this.stateDirectory).findLast(a => a.key === phaseKey)!;
         const target: LiveTarget = { executionId: this.record.executionId!, activityId: activity.activityId, activityKey: phaseKey, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId };
         const directory = gateDirectory(this.stateDirectory, attemptId);
         createGate(directory, target);
-        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: "2.1.311/darwin", literalInput: true };
-        const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
-        args = [...args, "--replay-user-messages", "--settings", JSON.stringify({ hooks })];
+        live = { attemptId, gateDirectory: directory, configRoot: claudeConfigFolder(launchEnv), profile: `claude-code-${agentVersion}/darwin`, agentVersion, literalInput: message.contract === "unproven", messageContract: message.contract, hookContract: hook.contract };
+        // A contract a notice already names for this version launches without its argument.
+        if (message.contract === "unproven") args = [...args, "--replay-user-messages"];
+        if (hook.contract === "unproven") {
+          const hooks = Object.fromEntries(["PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch"].map(event => [event, [{ hooks: [{ type: "command", command: process.execPath, args: [fileURLToPath(new URL("../live/checkpoint-hook.js", import.meta.url)), directory], timeout: 10, onFailure: "block" }] }]]));
+          args = [...args, "--settings", JSON.stringify({ hooks })];
+        }
       }
     }
     if (this.record.liveControl) {
@@ -3622,7 +3702,10 @@ export class Engine {
       ...(account === undefined ? {} : { account }),
       stateDirectory: this.options.stateDirectory,
       record: session,
-      ...(live ? { live, onLiveEvent: (event: Record<string, unknown>, at: string) => this.observeLiveMessage(readGate(live.gateDirectory).target, event, at), onLiveExit: () => this.endLiveMessages(liveExitTarget!) } : {}),
+      ...(live ? { live,
+        onLiveEvent: async (event: Record<string, unknown>, at: string) => { if (await this.observeMessageContract(session, live, event)) this.observeLiveMessage(readGate(live.gateDirectory).target, event, at); this.observeHookContract(session, live); },
+        onLiveExit: () => { this.observeHookContract(session, live); this.endLiveMessages(liveExitTarget!); },
+        onLiveArgumentRejected: (argument: string) => this.recordRejectedLiveArgument(live, argument) } : {}),
       ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => {
         const local = this.takeoverLocalMaterial(phaseKey);
         if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();

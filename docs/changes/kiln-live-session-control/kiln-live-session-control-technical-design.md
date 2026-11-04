@@ -59,6 +59,8 @@ Add action-specific journal effects: `message: not_sent | submitted | received |
 
 ### Literal input and admission
 
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Live control eligibility (live input is offered on every Claude Code at or above the minimum on macOS, not only on an explicitly validated profile).
+
 Accept nonempty plain text of at most **4,000 UTF-16 code units**, measured before any normalization; display that exact limit/counter. Use whitespace trimming only to detect an empty message. Preserve all accepted leading/trailing whitespace, newlines and quotes. Reject NUL, malformed Unicode and excess length, never truncate. Bot file/stdin decoding rejects malformed UTF-8 and preserves the same text. This live limit does not change the stopped reply's existing outer-trimming policy.
 
 Write a stream-json `user` message to the existing attempt, with its stable provider UUID, exact session identity and literal content. On the validated Claude Code **2.1.311/macOS** profile, set the native per-message `text_not_typed: true` field and leave `client_composed` unset. Preserve the person's human origin; add no synthetic origin, prompt rewriting or persistent settings. The native wire schema specifies literal text handling while retaining the turn-start attachment pass. This is an internal compatibility interface, absent from the public SDK API, so enable live input only for an explicitly validated CLI/profile combination. Unknown or unproved profiles expose an unavailable reason and accept no live input; existing session execution retains its existing rules. Validate a new profile's literal slash/file handling, fresh turn-start context, message identity and supported resource-expansion behavior before enabling it.
@@ -214,6 +216,8 @@ The first message ceiling is the provider's 64-entry consumption-UUID list, boun
 Deliver each capability's provider/engine/storage/API/browser changes together in the existing package after its proof gates pass. The [implementation plan](kiln-live-session-control-phase-plan.md) orders safe takeover/return, then live messaging/recovery, then bot integration through its existing framework. The phase documents scope that work without splitting this design. Earlier-design back-pointers are added only when implementation makes these replacements true.
 
 ## Phase 1 implementation facts (2026-10-27)
+
+Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Live control eligibility (takeover is offered on every Claude Code at or above the minimum on macOS, not only on 2.1.311).
 
 The takeover slice uses private schema **11**, the existing `CommandJournal` and an exact `LiveTarget` across browser, engine and recovery. `src/live/gate.ts` is the per-attempt admission authority; the packaged `checkpoint-hook` denies new operations under the same durable hold lock and yields completed batches. Lock recovery requires a proven dead PID/start identity; unknown owners and unresolved admissions remain blocking. `owned-processes.ts` retains real descendant identities, while `ownership.ts` checks attempt exit, transcript availability, registry and pending ordinary `--resume` processes. No takeover path signals the provider or its tools.
 

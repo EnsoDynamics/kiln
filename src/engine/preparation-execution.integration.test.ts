@@ -556,7 +556,8 @@ nativeIt.each(["deny", "malformed", "rewrite", "timeout"] as const)("enforces Cl
   expect(readFileSync(h.engine.record.preparation!.attempts[0]!.output, "utf8")).toContain(mode === "deny" ? "one-use permission consumed" : mode === "malformed" ? "unsupported control result" : mode === "rewrite" ? "holds or changes" : "configured timeout");
 });
 nativeIt("reuses an allocated zero-run preparation session after a fresh billing hold clears", async () => {
-  const f = await fixture(); h.env.KILN_STANDIN_VERSION = "2.1.312"; h.env.ANTHROPIC_API_KEY = "synthetic-preparation-billing-canary"; await h.engine.refreshBilling(); await waitFor(() => !h.engine.billing.busy && !h.engine.billing.pending);
+  // 2.1.312 offers live control (AC-AGENT-03), whose preparation ownership check reads Claude's session registry, as a real install has.
+  const f = await fixture(); mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true }); h.env.KILN_STANDIN_VERSION = "2.1.312"; h.env.ANTHROPIC_API_KEY = "synthetic-preparation-billing-canary"; await h.engine.refreshBilling(); await waitFor(() => !h.engine.billing.busy && !h.engine.billing.pending);
   const check = await h.engine.checkCompletedPlan(); expect(await h.engine.continuationCommand("accept", { executionId: h.engine.record.executionId!, proposalId: check.result!.proposal!.id, commandId: "preparation-billing-hold", statusToken: h.engine.controlView().token })).toMatchObject({ ok: true }); await h.engine.settled();
   const id = h.engine.latestSession("9")!.sessionId; expect(h.engine.latestSession("9")!.runs).toHaveLength(0); expect(h.claudeCalls()).toHaveLength(0);
   delete h.env.ANTHROPIC_API_KEY; await h.engine.refreshBilling(); await waitFor(() => !h.engine.billing.busy && !h.engine.billing.pending);

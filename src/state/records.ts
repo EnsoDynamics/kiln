@@ -321,8 +321,27 @@ export interface PrdRecord {
 
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
 
+/**
+ * A Claude attempt eligible for live control (technical design, Live control eligibility).
+ * `profile` is `claude-code-<version>/darwin` for new attempts, recorded for diagnostics and
+ * never compared; older values stay as saved. The contracts are additive: a record without
+ * them reads as unproven.
+ */
+export interface LiveRunFacts {
+  attemptId: string; gateDirectory: string; configRoot: string; profile: string;
+  /** The message contract was offered at launch (`--replay-user-messages`). */
+  literalInput?: boolean;
+  /** Claude Code's `--version` as reported, or `unrecognised`; notices name it. */
+  agentVersion?: string;
+  messageContract?: LiveContract;
+  hookContract?: LiveContract;
+  /** Claude Code exited before its first event naming a live argument; the attempt relaunched once without them. */
+  rejectedLaunch?: { argument: string; exitCode: number | null; at: string };
+}
+export type LiveContract = "unproven" | "unrecognised";
+
 export interface SessionRun {
-  live?: { attemptId: string; gateDirectory: string; configRoot: string; profile: string; literalInput?: boolean };
+  live?: LiveRunFacts;
   control?: { operationId: string; attemptId: string; submitted?: boolean; promptDigest: string; delivered?: boolean };
   billing?: BillingSummary;
   /** Codex semantic turn/dispatch facts, independent of the private server's exit. */

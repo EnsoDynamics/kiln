@@ -1,0 +1,135 @@
+{
+  "provenance": {
+    "capturedAt": "2026-11-04T03:07:01.143Z",
+    "cliVersion": "2.1.311",
+    "platform": "darwin",
+    "command": "node scripts/proof-run/live-takeover.mjs foreground",
+    "scriptSha256": "0fcceea20a3df33ea3246d4653c5bb0b29cbc878d55f1277b5e8903ce698e835",
+    "projection": "Every hook input Claude Code sent, in order, with the packaged hook's exit status and answer. Local paths replaced; nothing else changed."
+  },
+  "target": {
+    "executionId": "80a1d7ec-2bc2-4c8a-b1dc-45ba6239f076",
+    "activityId": "78c86537-f8d6-4813-9e0b-d7f667f2ad45",
+    "activityKey": "1",
+    "sessionId": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+    "providerSessionId": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+    "attemptId": "613345e4-af15-443f-93da-81be2f6c4c74"
+  },
+  "calls": [
+    {
+      "input": {
+        "session_id": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+        "transcript_path": "~/.claude/projects/<proof-root>/5623e82e-500c-40a0-9c94-679a21b0e5bf.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "1055a930-e2cd-4058-b881-41f675272503",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sleep 4; echo FIRST > first.txt",
+          "description": "Sleep then write first file"
+        },
+        "tool_use_id": "toolu_01CuEEXY3LZAtZui3qxBFhc4"
+      },
+      "status": 0,
+      "answer": {}
+    },
+    {
+      "input": {
+        "session_id": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+        "transcript_path": "~/.claude/projects/<proof-root>/5623e82e-500c-40a0-9c94-679a21b0e5bf.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "1055a930-e2cd-4058-b881-41f675272503",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sleep 4; echo FIRST > first.txt",
+          "description": "Sleep then write first file"
+        },
+        "tool_response": {
+          "stdout": "",
+          "stderr": "",
+          "interrupted": false,
+          "isImage": false,
+          "noOutputExpected": false
+        },
+        "tool_use_id": "toolu_01CuEEXY3LZAtZui3qxBFhc4",
+        "duration_ms": 4472
+      },
+      "status": 0,
+      "answer": {}
+    },
+    {
+      "input": {
+        "session_id": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+        "transcript_path": "~/.claude/projects/<proof-root>/5623e82e-500c-40a0-9c94-679a21b0e5bf.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "1055a930-e2cd-4058-b881-41f675272503",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo SECOND > second.txt",
+          "description": "Write second file"
+        },
+        "tool_use_id": "toolu_01L8gHuuH9eh17LVvB8MX4vo"
+      },
+      "status": 0,
+      "answer": {
+        "hookSpecificOutput": {
+          "hookEventName": "PreToolUse",
+          "permissionDecision": "deny",
+          "permissionDecisionReason": "Kiln paused this activity for terminal takeover. Finish no further substantive work. The completed operation and this conversation are saved; unfinished phase or audit work remains for the person to continue. Yield at this completed-operation boundary."
+        }
+      }
+    },
+    {
+      "input": {
+        "session_id": "5623e82e-500c-40a0-9c94-679a21b0e5bf",
+        "transcript_path": "~/.claude/projects/<proof-root>/5623e82e-500c-40a0-9c94-679a21b0e5bf.jsonl",
+        "cwd": "<proof-root>",
+        "prompt_id": "1055a930-e2cd-4058-b881-41f675272503",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "medium"
+        },
+        "hook_event_name": "PostToolBatch",
+        "tool_calls": [
+          {
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "sleep 4; echo FIRST > first.txt",
+              "description": "Sleep then write first file"
+            },
+            "tool_use_id": "toolu_01CuEEXY3LZAtZui3qxBFhc4",
+            "tool_response": "(Bash completed with no output)"
+          },
+          {
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "echo SECOND > second.txt",
+              "description": "Write second file"
+            },
+            "tool_use_id": "toolu_01L8gHuuH9eh17LVvB8MX4vo",
+            "tool_response": "PreToolUse:Bash hook error: Kiln paused this activity for terminal takeover. Finish no further substantive work. The completed operation and this conversation are saved; unfinished phase or audit work remains for the person to continue. Yield at this completed-operation boundary."
+          }
+        ]
+      },
+      "status": 0,
+      "answer": {
+        "continue": false,
+        "stopReason": "Kiln paused this activity for terminal takeover. Finish no further substantive work. The completed operation and this conversation are saved; unfinished phase or audit work remains for the person to continue. Yield at this completed-operation boundary."
+      }
+    }
+  ]
+}

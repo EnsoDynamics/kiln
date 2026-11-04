@@ -614,7 +614,7 @@
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
         "Exactly one UTF-8 file/stdin source, at most 32 KiB within 5 seconds. Nonempty plain text, at most 4,000 UTF-16 code units BEFORE normalization; outer whitespace is preserved. Reject malformed UTF-8, Unicode, NUL and oversize input; never truncate. No restart, new conversation, tool interruption or shell interpretation.",
-        "message sends to running Claude; reply resumes a stopped conversation. take-over waits for a safe stopping point; request-pause waits for the whole phase/audit and its completion checks. Only the validated Claude Code 2.1.311/macOS profile currently offers live messages.",
+        "message sends to running Claude; reply resumes a stopped conversation. take-over waits for a safe stopping point; request-pause waits for the whole phase/audit and its completion checks. Live messages and take-over need a supported Claude Code on macOS; Kiln can't guarantee how Claude handles a message. A feature whose agent information Kiln stops recognising turns off with a compatibility notice.",
         "Delivery uncertain holds progression. Inspect command-status and session output; never automatically resend or interpret receipt acceptance as compliance."
       ],
       "result_fields": {

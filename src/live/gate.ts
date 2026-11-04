@@ -12,11 +12,15 @@ export interface GateState {
   version: 1 | 2; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
   inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
-  operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown }>;
+  operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown; resultSeen?: boolean }>;
   tasks: Record<string, { toolId?: string; settled: boolean; ambient?: boolean }>;
   tracked: { pid: number; startTime: string }[];
   /** Observed descendant PIDs awaiting identity or conclusive disappearance. */
   processObservations?: number[];
+  /** Written by the checkpoint hook when its input is in a form Kiln doesn't recognise (Takeover hook recognition). */
+  contract?: { state: "unrecognised"; detail: string; at: string };
+  /** Written by the engine when a receipt field is in a form Kiln doesn't recognise (Live message recognition); admission refuses from then on. */
+  messageContract?: { state: "unrecognised"; detail: string; at: string };
 }
 export function gateDirectory(directory: string, attemptId: string): string {
   return join(directory, "live-attempts", createHash("sha256").update(attemptId).digest("hex"));
@@ -88,6 +92,19 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
     else { unlinkSync(ownerFile); rmdirSync(lock); syncDirectory(directory); }
   }
 }
+/** An operation's tool result settles it; an Agent or Task only once its agent has ended. */
+export function settleByResult(state: GateState, id: string, response: { status?: string; agentId?: string } | undefined): void {
+  const operation = state.operations[id]!;
+  const hooked = operation.response as { status?: string; agentId?: string } | undefined;
+  if (operation.name === "Agent" || operation.name === "Task") {
+    if (response && ["completed", "failed", "stopped"].includes(String(response.status)) && typeof response.agentId === "string" && response.agentId === hooked?.agentId) operation.settled = true;
+    if (response?.status === "async_launched") operation.settled = Object.values(state.tasks).some(t => t.toolId === id && t.settled);
+  } else operation.settled = true;
+}
+/** The hook contract became unrecognised: results already seen in the stream settle their operations. */
+export function settleSeenResults(state: GateState): void {
+  for (const [id, operation] of Object.entries(state.operations)) if (operation.resultSeen && !operation.hookSettled && !operation.settled) settleByResult(state, id, operation.response as { status?: string; agentId?: string } | undefined);
+}
 export function unsettled(state: GateState): string[] {
   return [...Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id, o]) => `${o.name} ${id}`), ...Object.entries(state.tasks).filter(([, t]) => !t.settled && !t.ambient).map(([id]) => `task ${id}`)];
 }
@@ -118,20 +135,20 @@ export async function observeGate(directory: string, event: Record<string, unkno
         const id = typeof event.tool_use_id === "string" ? event.tool_use_id : state.tasks[key].toolId;
         const operation = id ? state.operations[id] : undefined;
         const response = operation?.response as { status?: string; agentId?: string } | undefined;
-        if (operation?.hookSettled && response?.status === "async_launched" && response.agentId === event.task_id) operation.settled = true;
+        if ((operation?.hookSettled || operation && state.contract?.state === "unrecognised") && response?.status === "async_launched" && response.agentId === event.task_id) operation.settled = true;
       }
     }
     const message = event.message as { content?: { type?: string; tool_use_id?: string; non_execution_kind?: string }[] } | undefined;
     if (event.type === "user" && Array.isArray(message?.content)) for (const block of message.content) {
       if (block.type !== "tool_result" || !block.tool_use_id) continue;
       const operation = state.operations[block.tool_use_id];
-      if (operation?.hookSettled) {
-        const response = event.tool_use_result as { status?: string; agentId?: string; isAsync?: boolean } | undefined;
-        const hooked = operation.response as { status?: string; agentId?: string } | undefined;
-        if (operation.name === "Agent" || operation.name === "Task") {
-          if (response && ["completed", "failed", "stopped"].includes(String(response.status)) && typeof response.agentId === "string" && response.agentId === hooked?.agentId) operation.settled = true;
-          if (response?.status === "async_launched") operation.settled = Object.values(state.tasks).some(t => t.toolId === block.tool_use_id && t.settled);
-        } else operation.settled = true;
+      if (operation) {
+        const response = event.tool_use_result as { status?: string; agentId?: string } | undefined;
+        // Kept for the case where the hook contract turns out unrecognised after this result arrived.
+        if (!operation.hookSettled) { operation.resultSeen = true; if (response) operation.response ??= response; }
+        // Once the hook contract is unrecognised, the hook may never settle an operation it
+        // admitted; its tool result in the stream settles it, so it never keeps input open.
+        if (operation.hookSettled || state.contract) settleByResult(state, block.tool_use_id, response);
       }
       const denied = event.tool_result_meta as { id?: string; non_execution_kind?: string; permission_decision?: { source?: string } }[] | undefined;
       if (operation && denied?.some(m => m.id === block.tool_use_id && m.non_execution_kind === "permission-rule" && m.permission_decision?.source === "hook")) operation.settled = true;

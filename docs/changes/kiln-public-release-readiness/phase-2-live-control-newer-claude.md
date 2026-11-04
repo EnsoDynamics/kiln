@@ -1,5 +1,7 @@
 # Phase 2: Live control on newer Claude Code
 
+**Closed:** 2026-11-04
+
 **Parent PRD:** [Kiln public release readiness](kiln-public-release-readiness-prd.md)
 **Technical design:** [technical design](kiln-public-release-readiness-technical-design.md) — Design Decisions rows Standing guard against new exact pins, Live control eligibility, Live message recognition, Takeover hook recognition, Live launch arguments, Compatibility notices, Proof scripts; Data Models (SessionRun.live, gate state); Proving Features on Newer Agent Versions (live control column, stand-in paragraph).
 **Phase plan:** [Execution order](kiln-public-release-readiness-phase-plan.md)

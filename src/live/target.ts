@@ -41,6 +41,18 @@ export function messageProblem(text: unknown): string | undefined {
   if (text.includes("\0") || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(text)) return "Messages cannot contain NUL or malformed Unicode.";
   return undefined;
 }
+/**
+ * The message contract (technical design, Live message recognition): receipts are read from
+ * `user_message_uuid` and `user_message_uuids` on `assistant` and `result` events. A missing
+ * UUID is normal; one present in another form makes the contract unrecognised. Returns the
+ * notice detail, naming the field and never a value.
+ */
+export function messageContractProblem(event: Record<string, unknown>): string | undefined {
+  if (event.type !== "assistant" && event.type !== "result") return undefined;
+  if (event.user_message_uuid != null && typeof event.user_message_uuid !== "string") return "user_message_uuid was not a message ID";
+  if (event.user_message_uuids != null && !(Array.isArray(event.user_message_uuids) && event.user_message_uuids.every(uuid => typeof uuid === "string"))) return "user_message_uuids was not a list of message IDs";
+  return undefined;
+}
 export function consumedUuids(event: Record<string, unknown>): string[] {
   if (event.type !== "assistant" && event.type !== "result") return [];
   const values = [...(typeof event.user_message_uuid === "string" ? [event.user_message_uuid] : []), ...(Array.isArray(event.user_message_uuids) ? event.user_message_uuids : [])];

@@ -11,7 +11,9 @@ import { consumedUuids } from '../../dist/live/target.js';
 import { claudeConfigFolder } from '../../dist/session/transcripts.js';
 import { SCHEMA_VERSION } from '../../dist/state/records.js';
 import { writeDurableMetadata } from '../../dist/control/durable-file.js';
+import { claudeProofVersion, proofClaude, recordFixture } from './live-proof-fixtures.mjs';
 const mode = process.argv[2] ?? 'text';
+const cliVersion = claudeProofVersion();
 assert(['text', 'tool'].includes(mode));
 const root = mkdtempSync(join(tmpdir(), 'kiln-live-messages-'));
 const sessionId = randomUUID(); const attemptId = randomUUID();
@@ -50,9 +52,9 @@ async function sendInputs() {
     assert.equal(await input.write, 'written');
   }
 }
-const run = await runSessionProcess({ claude: 'claude', args: [...launchArguments(sessionId, 'sonnet', undefined), '--replay-user-messages', '--tools', mode === 'tool' ? 'Bash,Skill' : 'Skill', '--allowedTools', 'Bash', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--settings', JSON.stringify(settings), '--append-system-prompt', mode === 'tool' ? 'Disposable protocol proof. Only the one requested Bash sleep is permitted. Never invoke skills, delegate or perform other tool calls. Obey already-loaded instructions.' : 'Disposable protocol proof. Do not invoke skills, delegate, call tools or inspect any files. Obey the already-loaded instructions.'], cwd: root, env: process.env,
+const run = await runSessionProcess({ claude: proofClaude, args: [...launchArguments(sessionId, 'sonnet', undefined), '--replay-user-messages', '--tools', mode === 'tool' ? 'Bash,Skill' : 'Skill', '--allowedTools', 'Bash', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--settings', JSON.stringify(settings), '--append-system-prompt', mode === 'tool' ? 'Disposable protocol proof. Only the one requested Bash sleep is permitted. Never invoke skills, delegate or perform other tool calls. Obey already-loaded instructions.' : 'Disposable protocol proof. Do not invoke skills, delegate, call tools or inspect any files. Obey the already-loaded instructions.'], cwd: root, env: process.env,
   prompt: mode === 'tool' ? 'Use exactly one Bash call: echo TOOL_STARTED > operation-started.txt; sleep 4; echo TOOL_FINISHED > operation-finished.txt. Let it finish naturally. Then answer any live instruction. No other tools or skills.' : 'Generate 160 numbered lines about counting, long enough to exercise streamed text. Never call tools. Later messages may arrive while streaming.', cause: 'launch', stateDirectory: root, record,
-  live: { attemptId, gateDirectory: gate, configRoot: claudeConfigFolder(process.env), profile: '2.1.311/darwin', literalInput: true },
+  live: { attemptId, gateDirectory: gate, configRoot: claudeConfigFolder(process.env), profile: `claude-code-${cliVersion}/darwin`, agentVersion: cliVersion, literalInput: true, messageContract: 'unproven', hookContract: 'unproven' },
   onSpawned: value => { control = value; }, onPartial: () => { if (mode === 'text' && !sending && control?.inputOpen()) sending = sendInputs(); },
   onLiveEvent: (event, at) => { events.push({ event, at }); if (mode === 'tool' && !sending && event.type === 'assistant' && event.message?.content?.some(b => b.type === 'tool_use' && b.name === 'Bash')) sending = (async () => { const until = Date.now() + 15000; while (!existsSync(join(root, 'operation-started.txt')) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20)); assert(existsSync(join(root, 'operation-started.txt')) && !existsSync(join(root, 'operation-finished.txt')), 'send must occur during the admitted operation'); await sendInputs(); })(); },
 });
@@ -82,4 +84,19 @@ assert(output.includes(nested), 'nested CLAUDE instructions must survive literal
 assert(output.includes(skill), 'fixture skill listing must survive literal input');
 assert(!output.includes('FILE_EXPANSION_MUST_NOT_APPEAR'), 'literal file syntax must not expand');
 writeFileSync(join(root, 'proof.json'), JSON.stringify({ target, messages: messages.map(({text, uuid}) => ({text, uuid})), events, run, fresh, nested, skill }, null, 2));
-console.log(JSON.stringify({ passed: true, mode, evidence: join(root, 'proof.json'), results: results.length, literalInput: true, freshContext: true, noSignal: true }));
+// The message contract CI replays through the real adapter (technical design, Proving Features on Newer Agent Versions).
+const fixture = mode === 'text' ? recordFixture(`claude-${cliVersion}-message-contract.json`, { cliVersion, command: 'node scripts/proof-run/live-messages.mjs text', script: import.meta.url, root,
+  projection: 'Actual user/assistant/result protocol rows; unrelated inventory, request metadata and thinking removed. No fabricated provider events.',
+  body: { target, messages: messages.map(({ text, uuid }) => ({ text, uuid })), events: events.map(e => e.event).map(projectMessageEvent).filter(Boolean), fresh, nested, skill } }) : undefined;
+console.log(JSON.stringify({ passed: true, mode, cliVersion, evidence: join(root, 'proof.json'), ...(fixture ? { fixture } : {}), results: results.length, literalInput: true, freshContext: true, noSignal: true }));
+
+function projectMessageEvent(event) {
+  const pick = (keys) => Object.fromEntries(keys.filter(key => event[key] !== undefined).map(key => [key, event[key]]));
+  if (event.type === 'user') return messages.some(m => m.uuid === event.uuid) ? { ...pick(['type', 'session_id', 'uuid']), message: { role: 'user', content: event.message.content }, ...pick(['isReplay']) } : undefined;
+  if (event.type === 'assistant') {
+    const content = (event.message?.content ?? []).filter(block => block.type === 'text').map(block => ({ type: 'text', text: block.text }));
+    return content.length ? { ...pick(['type', 'session_id', 'uuid', 'user_message_uuid', 'user_message_uuids']), message: { role: 'assistant', content } } : undefined;
+  }
+  if (event.type === 'result') return pick(['type', 'subtype', 'session_id', 'uuid', 'user_message_uuid', 'user_message_uuids', 'is_error', 'result']);
+  return undefined;
+}
