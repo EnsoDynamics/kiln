@@ -55,9 +55,11 @@ export async function launchChrome(): Promise<HeadlessChrome> {
   const child: ChildProcess = spawn(chromePath(), ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb", "about:blank"], {
     stdio: ["ignore", "ignore", "pipe"],
   });
-  // Retain closure before any request: a signal exit leaves exitCode null, and
-  // teardown may begin after the process's one close event has already arrived.
-  const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
+  // Retain the exit before any request: a signal exit leaves exitCode null, and
+  // teardown may begin after the process's one exit event has already arrived.
+  // Exit, not close: close also waits for every holder of the stderr pipe, and a
+  // Chrome helper such as its crash handler can keep that open after Chrome ends.
+  const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
   const endpoint = await new Promise<string>((resolve, reject) => {
     let text = "";
     const timer = setTimeout(() => reject(new Error(`Chrome didn't start: ${text}`)), 30_000);
@@ -164,9 +166,18 @@ export async function launchChrome(): Promise<HeadlessChrome> {
       };
     },
     async close() {
-      await send("Browser.close").catch(() => undefined);
+      // Bounded so a Chrome that stops answering fails nothing but its own teardown.
+      const within = (work: Promise<unknown>, ms: number) => new Promise<boolean>(resolve => {
+        const timer = setTimeout(() => resolve(false), ms);
+        void work.then(() => { clearTimeout(timer); resolve(true); });
+      });
+      await within(send("Browser.close").catch(() => undefined), 5_000);
       socket.close();
-      await closed;
+      if (!await within(exited, 10_000)) {
+        process.stderr.write(`Chrome ${child.pid} didn't exit within 10 seconds of Browser.close; killing it.\n`);
+        child.kill("SIGKILL");
+        await exited;
+      }
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
