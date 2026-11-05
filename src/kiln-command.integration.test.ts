@@ -135,6 +135,21 @@ describe("kiln --version", () => {
   // AC-HELP-03: no controller, Git repository or sign-in; an empty PATH and a folder outside any repository.
   it("prints the installed package version and exits successfully, with -v too", () => {
     const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
-    for (const flag of ["--version", "-v"]) expect(kiln([flag], sandbox.root, ""), flag).toEqual({ exitCode: 0, stdout: `${version}\n`, stderr: "" });
+    // The build under test is a release build only where CI builds a candidate; anywhere else it says when it was built.
+    const { kind } = JSON.parse(readFileSync(new URL("../dist/build-info.json", import.meta.url), "utf8")) as { kind: string };
+    const stdout = kind === "release" ? `${version}\n` : expect.stringMatching(new RegExp(`^${version.replace(/\./g, "\\.")} \\(dev build, [^)]*\\d[^)]*\\)\\n$`));
+    for (const flag of ["--version", "-v"]) expect(kiln([flag], sandbox.root, ""), flag).toEqual({ exitCode: 0, stdout, stderr: "" });
+  });
+
+  // AC-HELP-03: a development build's time is short and in the reader's own time zone.
+  it.runIf(JSON.parse(readFileSync(new URL("../dist/build-info.json", import.meta.url), "utf8")).kind === "development")("gives a development build's time in the reader's time zone", () => {
+    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    const { builtAt } = JSON.parse(readFileSync(new URL("../dist/build-info.json", import.meta.url), "utf8")) as { builtAt: string };
+    for (const timeZone of ["America/New_York", "Asia/Kolkata"]) {
+      const result = spawnSync(process.execPath, [cli, "--version"], { cwd: sandbox.root, env: { ...envWithPath(""), TZ: timeZone, LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8" }, encoding: "utf8", timeout: 50_000 });
+      const built = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone }).format(new Date(builtAt)).replace(/[\u202f\u00a0]/g, " ");
+      expect(built, timeZone).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M$/);
+      expect(result.stdout, timeZone).toBe(`${version} (dev build, ${built})\n`);
+    }
   });
 });

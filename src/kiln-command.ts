@@ -6,6 +6,7 @@ import { runDelivery } from "./delivery-command.js";
 import { runAudit } from "./audit-command.js";
 import { commandContracts } from "./control/help.js";
 import { readFileSync } from "node:fs";
+import { readBuildInfo, versionLine } from "./build-info.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
@@ -126,9 +127,10 @@ class StopControl {
  *   await runKilnCommand(["run", "docs/prds/customer-returns/"], context)  // 0 when every start check passes
  */
 export async function runKilnCommand(args: string[], context: CommandContext): Promise<number> {
-  // AC-HELP-03: answered before anything else, so it needs no controller, Git or sign-in.
+  // AC-HELP-03: answered before anything else, so it needs no controller, Git or sign-in. A build
+  // other than the release's says it is a dev build and when it was built (build-info.ts).
   if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
-    context.stdout.write(`${KILN_VERSION}\n`);
+    context.stdout.write(`${versionLine(KILN_VERSION, readBuildInfo(new URL("./build-info.json", import.meta.url)))}\n`);
     return 0;
   }
   // Help, the no-argument answer and unknown commands are answered here from the command contracts.

@@ -41,7 +41,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/clean-build-output.mjs && tsc -p tsconfig.build.json && vite build --config view/vite.config.ts --logLevel warn",
+    "build": "node scripts/clean-build-output.mjs && tsc -p tsconfig.build.json && vite build --config view/vite.config.ts --logLevel warn && node scripts/write-build-info.mjs",
     "prepack": "npm run build",
     "lint": "eslint",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig view/tsconfig.json --threshold warning",

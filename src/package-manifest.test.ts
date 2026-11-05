@@ -62,4 +62,39 @@ describe("the package manifest", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // AC-HELP-03: every build ends by recording its kind; only KILN_RELEASE_BUILD=true makes a
+  // release build, and the release archive can't be packed from a development build.
+  it("stamps each build as a release or a timed development build, and packs a candidate only from a release build", () => {
+    expect(manifest.scripts.build).toMatch(/ && node scripts\/write-build-info\.mjs$/);
+    const root = mkdtempSync(join(tmpdir(), "kiln-build-info-"));
+    try {
+      mkdirSync(join(root, "scripts"));
+      mkdirSync(join(root, "dist"));
+      copyFileSync(fileURLToPath(new URL("../scripts/write-build-info.mjs", import.meta.url)), join(root, "scripts", "write-build-info.mjs"));
+      const build = (release?: string) => {
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        if (release === undefined) delete env.KILN_RELEASE_BUILD;
+        else env.KILN_RELEASE_BUILD = release;
+        const result = spawnSync(process.execPath, [join(root, "scripts", "write-build-info.mjs")], { encoding: "utf8", env });
+        expect(result.status, result.stderr).toBe(0);
+        return JSON.parse(readFileSync(join(root, "dist", "build-info.json"), "utf8")) as { kind: string; builtAt?: string };
+      };
+      expect(build("true")).toEqual({ kind: "release" });
+      for (const release of [undefined, "false"]) {
+        const before = Date.now();
+        const info = build(release);
+        expect(info.kind, String(release)).toBe("development");
+        expect(Date.parse(info.builtAt!)).toBeGreaterThanOrEqual(before - 1000);
+        expect(Date.parse(info.builtAt!)).toBeLessThanOrEqual(Date.now());
+      }
+      // dist/ now holds a development build: packing it as a release candidate is refused before npm runs.
+      for (const file of ["package.json", "package-lock.json"]) copyFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), join(root, file));
+      const pack = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/pack-release.mjs", import.meta.url)), join(root, "out")], { cwd: root, encoding: "utf8", env: { ...process.env, KILN_RELEASE_BUILD: "true" } });
+      expect(pack.status).not.toBe(0);
+      expect(pack.stderr).toContain("dist/ holds a development build");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
