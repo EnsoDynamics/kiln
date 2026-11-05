@@ -4,9 +4,9 @@
 
 ## Development CI on the release candidate (AC-CI-02)
 
-The release candidate's development CI is the push run of `f64ce40`, the last commit that changed a path CI watches: [run 41914078101](https://github.com/EnsoDynamics/kiln/actions/runs/41914078101), 2026-11-04. It ended green on its first attempt; no job or test needed a rerun.
+The release candidate's development CI is the push run of `0277d62`, the last commit that changed a path CI watches: [run 41940340625](https://github.com/EnsoDynamics/kiln/actions/runs/41940340625), 2026-11-04. It ended green on its first attempt; no job or test needed a rerun.
 
-Before Phase 5 the candidate was `a951369`, whose push run, [run 41831583159](https://github.com/EnsoDynamics/kiln/actions/runs/41831583159), was also green on its first attempt.
+Earlier candidates' push runs were green on their first attempts too: `a951369` before Phase 5 ([run 41831583159](https://github.com/EnsoDynamics/kiln/actions/runs/41831583159)), and `d4e6e20` and `f64ce40`, which the macOS candidate failures listed in the release pull request replaced.
 
 ## Candidate checks on the release pull request (AC-CI-03)
 
