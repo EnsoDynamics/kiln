@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "packageDistDigest": "1898e575847522bf95c27edaaab7712ff31291e095c4649d3298139b026faecb",
+  "date": "2026-10-24T22:45:41.773Z",
+  "boundary": "Installed package, actual child CLI, authenticated loopback HTTP and real disposable Git/local bare origin; assigned audit fixture, no automatic provider dispatch or remote writes.",
+  "packageCliDigest": "729ebf24fb22e6bfbe7b15d0323456d0b979957ad4d111d66e3974b035b71919",
+  "privateArtifactRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-audit-owner-proof-f0icvC",
+  "owner": {
+    "kind": "audit",
+    "activityId": "840b9dfa-c071-4da4-8b86-92d20a867f64"
+  },
+  "requirementManifestDigest": "734cb62bb14e4f612ee313bb695f39851acdc66f52d5ddb6eb3fd3693dae3fd8",
+  "acceptedRevision": 1,
+  "persistedOwner": {
+    "kind": "audit",
+    "activityId": "840b9dfa-c071-4da4-8b86-92d20a867f64"
+  },
+  "staleRevisionExit": 1
+}

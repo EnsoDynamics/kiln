@@ -1,0 +1,24 @@
+{
+  "providerVersion": "0.162.1",
+  "boundary": "Observed functions.wait acknowledgement for a yielded exec; contains no executable work.",
+  "raw": {
+    "timestamp": "2026-10-25T02:59:52.274Z",
+    "ordinal": 314,
+    "type": "response_item",
+    "payload": {
+      "type": "function_call",
+      "id": "fc_03798fdf494f789b016add70a7e864819e95837707aadf8272",
+      "name": "wait",
+      "arguments": "{\"cell_id\":\"38\",\"yield_time_ms\":20000,\"max_tokens\":2000}",
+      "call_id": "call_1e0e3ab9ec4145f4b89ec8536e0a5cb8",
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "01a170fc-2e62-7cd1-8681-00e780387e23",
+        "create_time": 1792897191.910343
+      }
+    },
+    "metadata": {
+      "client_authored": false,
+      "user_input_order": 20
+    }
+  }
+}

@@ -1,0 +1,7 @@
+Finalize delivery for `{{featureName}}` (`{{prdFile}}`) on `{{branch}}`. Read `kiln delivery status` for every repository's current result and unresolved work. Resolve only missing evidence, branch synchronization, remaining review PRs and description links. Keep earlier confirmed deliveries as history; create no empty or duplicate final PR. Any remaining review PR must be open, non-draft, in the same repository, into its configured base, and contain its exact current pushed head. Link the PRD, all related deliveries/review PRs and required dependency order, including on earlier merged PR descriptions when necessary.
+
+{{repositoryList}}
+
+Finalization does not authorize merging remaining review work merely to finish. Missing/failed delivery evidence remains unresolved. Stop with the concrete missing approval or evidence when it cannot be obtained safely. Kiln independently reconciles current work and completion.
+
+{{deliveryAuthority}}

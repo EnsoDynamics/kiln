@@ -1,0 +1,48 @@
+Run {{label}} on the whole governing PRD at {{prdFile}} across the assigned repositories.
+Use the installed {{skillName}} skill. Claude Code must invoke its enabled Skill command;
+Codex must read the entire pinned source with the exact command `cat {{skillPath}}`.
+Follow that skill exactly as it is written; it decides how the audit is done and what it records.
+Finish this assigned activity; Kiln starts the next activity automatically. Do not launch a
+successor chat, skip the audit because of an old audit commit, or edit installed skills.
+
+Assigned execution {{executionId}}, activity {{activityId}}, round {{round}}, continuation {{continuationIndex}}.
+Assigned feature branch: {{branch}}. Repositories:
+{{repositories}}
+Work only in those worktrees. Scoped local commits and pushes of audit records, tests and
+skill-permitted small fixes on the assigned feature branch are authorized. Never merge,
+deploy, publish, open PRs or change other branches without the saved development authority.
+A delivery audit records missing work as new phases at the end of the plan and does not
+implement it. Never change, reorder or reopen a phase that is already in the plan.
+
+Pinned CLI: {{cli}}
+When the skill reaches its end, write Kiln's report as JSON at {{reportPath}} (relative to the
+PRD repository), commit and push it with everything else, then submit it with the pinned CLI:
+`audit submit <file>`, where <file> holds {"executionId","activityId","revision","reportPath"}.
+Read the current revision with `audit status`. Inspect the response: recorded means you
+are done; unresolved names exactly what to correct before submitting again.
+
+The report has these fields and nothing else is required:
+- "schemaVersion": 2, "executionId", "activityId", and "kind" ("delivery_audit" or "test_audit").
+- "outcome", the place the skill ended:
+  "passed" when it found nothing left to build or test;
+  "completion_phases" when it added phases to the plan for missing work;
+  "continue_test" (test audit only) when it saved remaining test work for another session;
+  "needs_you" when it stopped for a decision, permission or action only a person can give,
+  or when it ended normally but lists anything a person must still decide or do before
+  delivery, such as behavior changed outside the requirements or a human action still waiting.
+- "summary": a few plain sentences on what the audit concluded.
+- "completionPhases": the IDs of the phases this audit appended, [] when none.
+- "needsYou": [{"problem","action"}] for each thing a person must resolve; [] unless needs_you.
+- "changedImplementation" (test audit only): true when you changed anything other than tests
+  and audit records, including configuration, dependency manifests or helpers that runtime code
+  also uses, so Kiln runs a fresh delivery audit; otherwise false.
+- "afterDeliveryActions" (optional): person actions the requirements place after Kiln's delivery,
+  such as a later production release; these alone do not make the outcome needs_you.
+Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,
+write "needs_you" and say what is needed.
+
+Prior accepted work:
+{{previous}}
+
+Current development authority (does not grant new permission):
+{{deliveryAuthority}}

@@ -1,0 +1,60 @@
+{
+  "source": "Actual Codex 0.162.1 installed-provider audit proof, 2026-10-25; Phase 3 retained proof, parent 01a170e8-2545-7e60-a92a-60a4f5f7f21e and child 01a170e8-b473-7061-84a1-5153fb46f4f2. Selected invocation/result/task/final shapes only. IDs and ciphertext replaced; account metadata and inherited context omitted. Test supplies disposable paths/owned turn frontiers around these recorded envelopes.",
+  "parent": [
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "function_call",
+        "name": "spawn_agent",
+        "namespace": "collaboration",
+        "arguments": "{\"task_name\": \"classify_test\", \"fork_turns\": \"all\", \"message\": \"opaque-observed-task\"}",
+        "call_id": "call_78afa70367894e31b697bb3723b4c49d",
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "parent-turn-0"
+        }
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "function_call_output",
+        "call_id": "call_78afa70367894e31b697bb3723b4c49d",
+        "output": "{\"task_name\":\"/root/classify_test\"}",
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "parent-turn-0"
+        }
+      }
+    }
+  ],
+  "child": [
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "agent_message",
+        "author": "/root",
+        "recipient": "/root/classify_test",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Message Type: NEW_TASK\nTask name: /root/classify_test\nSender: /root\nPayload:\n"
+          },
+          {
+            "type": "encrypted_content",
+            "encrypted_content": "opaque-observed-task"
+          }
+        ],
+        "internal_chat_message_metadata_passthrough": {
+          "turn_id": "child-turn-0"
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "task_complete",
+        "turn_id": "child-turn-0",
+        "last_agent_message": "<kiln-assessment>{\"snapshotId\":\"7d9742011bc1707f08970ba6238981b86357f4236ba5ed6b6337321e0e879a90\",\"criterionKeys\":[\"audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01\"],\"partIds\":[\"value\"],\"purpose\":\"test_classification\",\"testPaths\":[{\"repository\":\"audit-proof\",\"path\":\"value.test.mjs\",\"blob\":\"abc8c0fa4c4cfbacc64a4a56c5a19aafd5242e3c\"}],\"configurationFiles\":[{\"repository\":\"audit-proof\",\"path\":\"package.json\",\"blob\":\"433c8958ffd9c83dd18177eb0e7c7d6b930a92a3\"}],\"verificationEvidenceIds\":[\"564510f5ff30ce5975eab6ffc57bfd75e8a8d11697318e458e11ce477b36d8fe\"]}</kiln-assessment>"
+      }
+    }
+  ]
+}

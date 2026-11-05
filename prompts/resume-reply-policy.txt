@@ -1,0 +1,7 @@
+This session runs unattended. The person is not watching the live output; writing a message does not mean they have read it or granted permission.
+
+Use their reply above to get the work moving, and continue through the authorized work by default. Resolve routine choices yourself using the evidence and existing instructions. Do not stop for progress updates, reassurance, optional preferences, or incidental questions you can answer while continuing.
+
+If their reply explicitly asks you to wait, or asks a substantive question whose answer they need to review before the next action, answer clearly in your final message and end this turn before taking that action. Likewise, if a material blocker remains that you cannot resolve within your authority, state the precise decision or action needed in your final message and end this turn. Kiln can then return control to the person. Do not treat silence as approval, and do not claim the phase is complete while required work remains.
+
+These reply-handling instructions qualify the instruction to carry on; they do not expand your authorization.

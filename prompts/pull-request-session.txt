@@ -1,0 +1,5 @@
+Every phase of the `{{featureName}}` PRD (`{{prdFile}}`) is implemented and pushed to `{{branch}}`. Open one pull request in each of these repositories, from `{{branch}}` into the base given, titled and described from the PRD. Pass `--repo github.com/<owner>/<name>` to every `gh` command for that repository:
+
+{{repositoryList}}
+{{crossLinks}}
+Open them ready for review, not as drafts, even if your own instructions say to open drafts. Where one is already open, don't open another; if it is a draft, mark it ready (`gh pr ready <number> --repo …`). You may not merge, deploy anything, or touch any other branch. A repository whose exact current feature commit is already contained in its given base needs no new pull request; report that commit and base instead. Do not infer this from an empty diff or an old merged pull request. You're finished when each repository has a ready pull request or verified prior integration; Kiln independently checks that result.

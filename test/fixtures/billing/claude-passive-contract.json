@@ -1,0 +1,22 @@
+{
+  "contract": "claude-settings-v4",
+  "cliVersion": "2.1.311",
+  "sdkVersion": "0.3.310",
+  "qualification": "Claude Code minimum (2.1.311) with the Agent SDK in Kiln's accepted range: synthetic project-only credential projected into installed auth status, without inference; real resolver cascade and untouched customization canaries.",
+  "projectAuth": {
+    "loggedIn": true,
+    "authMethod": "api_key",
+    "apiProvider": "firstParty",
+    "apiKeySource": "ANTHROPIC_API_KEY"
+  },
+  "managedPolicy": "SDK declarations exclude policyHelper execution; no native managed host qualified.",
+  "nativePlatforms": [
+    "macOS"
+  ],
+  "notProved": [
+    "native Linux/Windows policy readers",
+    "external provider acceptance",
+    "hidden helper credential rotation",
+    "remote runtime policy"
+  ]
+}

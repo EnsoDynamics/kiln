@@ -1,0 +1,74 @@
+/** Read completed-feature candidates from immutable Git objects, without a checkout. */
+import MarkdownIt from "markdown-it";
+import { posix } from "node:path";
+import { isPhaseFileName } from "../plan/phase-ids.js";
+import { gitError, runGit, type GitContext } from "./git-reads.js";
+import { PHASE_LIMIT, PLAN_LIMIT, PlanCapacityError, planSourceFromDocuments, type PlanSource } from "./plan-reconciliation.js";
+const markdown = new MarkdownIt();
+export async function gitRead(git: GitContext, path: string, args: string[]): Promise<string> {
+  const result = await runGit(git, path, args);
+  if (result.exitCode !== 0) throw new Error(`${path}: ${gitError(result)}`);
+  return result.stdout;
+}
+export async function remoteBase(git: GitContext, path: string, branch: string, fetch = true, observe?: (revision: string) => void): Promise<string> {
+  const rows = await gitRead(git, path, ["ls-remote", "origin", `refs/heads/${branch}`]);
+  const revision = rows.trim().split(/\s+/)[0]!;
+  if (!/^[a-f0-9]{40,64}$/.test(revision)) throw new Error(`Delivery base ${branch} is unavailable in origin for ${path}. Restore that branch and check again.`);
+  observe?.(revision);
+  if (fetch) await gitRead(git, path, ["fetch", "--no-tags", "--no-write-fetch-head", "origin", revision]);
+  return revision;
+}
+/**
+ * How a read treats a document reached only through another document's link that is not at the revision.
+ * "fail" (default) for a revision whose documents can still be fixed. "skip" for a recorded completion
+ * revision: its commit can never gain the file, so a link that dangled when the work was accepted cannot
+ * block reading that work back. Plan documents and Superseded/Replaces targets are always required.
+ */
+export interface GitPlanReadOptions { missingLinks?: "fail" | "skip" }
+export const HISTORICAL_PLAN_READ: GitPlanReadOptions = { missingLinks: "skip" };
+export async function observeGitPlan(git: GitContext, path: string, directory: string, revision: string, options: GitPlanReadOptions = {}): Promise<PlanSource> {
+  if (!/^[a-f0-9]{40,64}$/.test(revision)) throw new Error("Invalid immutable plan revision.");
+  const tree = await gitRead(git, path, ["ls-tree", "-r", "-z", "-l", revision]);
+  const files = new Map<string, { mode: string; size: number }>();
+  for (const row of tree.split("\0").filter(Boolean)) {
+    const match = /^(\d+) blob [a-f0-9]+\s+(\d+)\t([\s\S]+)$/.exec(row);
+    if (match) files.set(match[3]!, { mode: match[1]!, size: Number(match[2]) });
+  }
+  const names = [...files.keys()].filter(file => posix.dirname(file) === directory).sort();
+  const phases = names.filter(file => isPhaseFileName(posix.basename(file)));
+  if (!phases.length) throw new Error(`No phase documents at ${revision}:${directory}.`);
+  if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
+  const prds = names.filter(file => file.endsWith("-prd.md"));
+  if (prds.length !== 1) throw new Error(`Expected one governing PRD at ${revision}:${directory}.`);
+  const pending = new Set([...phases, ...prds, ...names.filter(file => /technical-design|assumptions|phase-plan/.test(posix.basename(file)) && file.endsWith(".md"))]);
+  if (![...pending].some(file => file.includes("technical-design"))) throw new Error(`Missing technical design at ${revision}:${directory}.`);
+  let size = 0;
+  const documents: Record<string, string> = {};
+  const required = new Set(pending);
+  const add = (file: string, replacement: boolean) => {
+    if (posix.isAbsolute(file) || file.includes("\\") || file.includes("\0") || file.split("/").some(part => part === ".." || !part)) throw new Error(`Document path escapes repository: ${file}`);
+    if (replacement) required.add(file);
+    pending.add(file);
+  };
+  for (const file of pending) {
+    const info = files.get(file);
+    if (!info && options.missingLinks === "skip" && !required.has(file)) continue;
+    if (!info || !["100644", "100755"].includes(info.mode)) throw new Error(`Missing or unsafe document at ${revision}:${file}. Restore the required document and check again.`);
+    size += info.size;
+    if (size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "document bytes");
+    const content = documents[file] = await gitRead(git, path, ["show", `${revision}:${file}`]);
+    for (const block of markdown.parse(content, {})) for (const token of block.children ?? []) {
+      if (token.type !== "link_open") continue;
+      const replacement = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(block.content);
+      if (token.attrGet("title") === "kiln:reference" && !replacement) continue;
+      const href = token.attrGet("href")?.toString().split(/[?#]/)[0];
+      if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
+      const decoded = decodeURIComponent(href);
+      if (!decoded.endsWith(".md")) continue;
+      if (posix.isAbsolute(decoded) || decoded.includes("\\")) throw new Error(`Document path escapes repository: ${href}`);
+      add(posix.normalize(posix.join(posix.dirname(file), decoded)), replacement);
+    }
+    for (const pointer of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) add(pointer[1]!, true);
+  }
+  return planSourceFromDocuments(path, directory, documents);
+}

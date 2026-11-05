@@ -1,0 +1,40 @@
+{
+  "command": [
+    "claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--session-id",
+    "2c67fb57-6e12-4417-a8e2-f8269b8bde50",
+    "--model",
+    "claude-haiku-4-5-20251001",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--forward-subagent-text",
+    "--permission-mode",
+    "auto",
+    "--permission-prompts",
+    "none"
+  ],
+  "cwd": "/tmp/kiln-gates/repo",
+  "startedAt": "2026-10-17T18:46:43.483Z",
+  "pid": 30795,
+  "init": {
+    "at": "2026-10-17T18:46:44.025Z",
+    "model": "claude-haiku-4-5-20251001",
+    "session_id": "2c67fb57-6e12-4417-a8e2-f8269b8bde50",
+    "permissionMode": "default",
+    "claude_code_version": "2.1.299"
+  },
+  "result": {
+    "at": "2026-10-17T18:46:51.330Z",
+    "subtype": "success",
+    "is_error": false,
+    "result": "Working tree is clean — no uncommitted changes.\n\n**Status:** Tree clean; confirmed.  \n**Next step (done):** This chat can be closed."
+  },
+  "endedAt": "2026-10-17T18:46:51.802Z",
+  "exitCode": 0,
+  "signal": null
+}

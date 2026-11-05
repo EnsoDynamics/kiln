@@ -1,0 +1,13 @@
+{
+  "provenance": {
+    "version": "codex-cli 0.162.1",
+    "threadId": "01a16ad4-8fdb-7e02-93a5-8c28b185f5de",
+    "callId": "call_554bd5396294424fa1e350e836dec827",
+    "recordedAt": "2026-10-23T22:14:47.164Z",
+    "originalSha256": "14eb31e78a5958af226c88c294baec6e6c03eb54c5b067b3c81c9994ef3f49e9",
+    "sanitization": "User home replaced with /HOME; no outputs or account payloads retained.",
+    "initialCoverage": "inconclusive",
+    "initialReason": "Unbound identifier ALL_TOOLS (Identifier at 436)"
+  },
+  "source": "const results = await Promise.allSettled([\n  tools.exec_command({cmd:\"pwd && git status --short && git branch --show-current && git remote -v && cat docs/prds/codex-packaged-workflow/codex-packaged-workflow-prd.md\",max_output_tokens:6500}),\n  tools.exec_command({cmd:\"cat /HOME/.agents/skills/dwk-message-writing-standards/SKILL.md\",max_output_tokens:6000})\n]); for(let i=0;i<results.length;i++) text({i,...results[i]});\ntext(ALL_TOOLS.filter(x=>/github|pull request/.test(x.name+\" \"+x.description)).map(x=>({name:x.name,description:x.description.slice(0,180)})).slice(0,60));\n"
+}

@@ -1,0 +1,3 @@
+The person running Kiln says: verify that the previous edit survived interruption.
+
+Continue this same disposable runner proof. Recall the marker from the first turn, read {{INTERRUPT_FILE}} in {{WORKSPACE}}/proof-a, write resumed.txt containing both original and interrupted marker values, and commit/push those two files to that repository's existing local bare origin on kiln-conversation-proof. Work only in the assigned worktrees. Reviewed escalation for protected Git metadata is authorized. No network push, merge, deployment, branch switch or skill edit. Report the recalled marker and new commit hash, then stop.

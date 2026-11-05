@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kiln Codex billing — screen mockups</title><style>
+:root{color-scheme:dark;--bg:#12110e;--panel:#1b1a16;--field:#12110e;--text:#ede8dd;--muted:#bdb6a8;--dim:#8c8577;--red:#e2694f;--amber:#e6b450;--green:#9cc49a;--line:rgba(237,232,221,.12)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}a{color:inherit;text-underline-offset:4px}button,a,input{outline-offset:5px}button{cursor:pointer}button:disabled{cursor:default;opacity:.4}button{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--text);padding:10px 18px;min-height:44px}button.primary{background:var(--red);border-color:var(--red);color:#19110d;font-weight:650}button.link{border:0;padding:0;min-height:32px;text-decoration:underline;text-underline-offset:4px;color:var(--muted)}
+.review{background:#211f19;border-bottom:1px solid var(--line);padding:20px max(28px,calc((100vw - 1120px)/2));}.review strong{font-size:12px;text-transform:uppercase;letter-spacing:.13em}.review p{font-size:13px;color:var(--muted);margin:7px 0 15px}.scenarios{display:flex;flex-wrap:wrap;gap:8px}.scenarios a{font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:7px 10px}.scenarios a[aria-current=true]{background:var(--text);color:var(--bg)}.note{font-size:12px;color:var(--muted);margin-top:12px;min-height:19px}
+main{max-width:1120px;margin:auto;padding:36px 0 60px}.brand{color:var(--red);letter-spacing:.22em;font-size:16px;font-weight:750;margin-bottom:28px}.repo,.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}h1{font:42px/1.15 "Instrument Serif",Iowan Old Style,Georgia,serif;font-weight:400;margin:9px 0 14px}h2{font:27px/1.2 "Instrument Serif",Iowan Old Style,Georgia,serif;font-weight:400;margin:0 0 20px}h3{font-size:15px;margin:0 0 6px}.subtitle{display:flex;align-items:center;gap:13px;color:var(--muted);font-size:14px;margin-bottom:28px}.pill{display:inline-block;padding:3px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:12px;white-space:nowrap}.pill.amber{color:var(--amber);border-color:#e6b45055}.columns{display:grid;grid-template-columns:1fr 1.18fr;gap:24px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px}.docs{list-style:none;padding:0;margin:0}.docs li{display:flex;gap:12px;border-bottom:1px solid var(--line);padding:17px 0}.docs li:first-child{padding-top:0}.docs li:last-child{border-bottom:0}.check{color:var(--green)}.small{font-size:12px;color:var(--muted)}.muted{color:var(--muted)}.dim{color:var(--dim)}.mono,code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;font-size:12px;overflow-wrap:anywhere}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:17px 0}.field-label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}.field{background:var(--field);border:1px solid var(--line);padding:9px 12px;border-radius:7px}.account{font-size:13px;color:var(--muted);margin:4px 0 16px}.billing{border:1px solid var(--line);border-radius:12px;background:var(--field);padding:18px;margin:18px 0}.billing.amber{border-color:#e6b45066}.billing .eyebrow{margin-bottom:6px}.billing-title{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:8px}.billing p{margin:8px 0;font-size:13px}.billing .source{color:var(--muted);font-size:12px}.notice{margin-top:13px;padding-top:12px;border-top:1px solid var(--line);color:var(--amber);font-size:13px}.notice a{display:inline-block;margin-top:5px}.choice{display:flex;align-items:start;gap:10px;font-size:13px;margin:16px 0 2px}.choice input{width:17px;height:17px;accent-color:var(--red);margin:2px 0 0;flex-shrink:0}.approved{color:var(--green);font-size:12px}.divider{border-top:1px solid var(--line);margin:22px 0 16px}.foot{margin-top:20px;display:flex;gap:12px;align-items:center}.reason{font-size:12px;color:var(--amber);margin-top:10px}.banner{border:1px solid #e6b45066;border-radius:10px;padding:14px 18px;color:var(--amber);font-size:13px;margin:0 0 22px}.usage-meters{display:grid;gap:14px;margin:18px 0}.limit-head{display:flex;justify-content:space-between;font-size:14px}.meter{height:6px;background:var(--line);border-radius:999px;margin:6px 0}.fill{height:100%;background:var(--muted);border-radius:999px}.billing details{font-size:12px;color:var(--muted);margin:12px 0}.billing summary{cursor:pointer}.transcript{background:#0d0c0a;border:1px solid var(--line);border-radius:10px;padding:18px;font:13px/1.8 ui-monospace,monospace;color:var(--muted);margin-top:20px}.launch-route{font-size:12px;color:var(--muted);padding-bottom:13px;margin-bottom:13px;border-bottom:1px solid var(--line)}[hidden]{display:none!important}.review-footer{max-width:1120px;margin:0 auto 30px;color:var(--dim);font-size:12px}
+@media(max-width:1180px){main,.review-footer{margin-left:28px;margin-right:28px}}@media(max-width:760px){.columns{grid-template-columns:1fr}h1{font-size:34px}.subtitle{align-items:start}.panel{padding:20px}}
+</style></head>
+<body>
+<aside class="review" aria-label="Mockup review controls">
+<strong>Design reference · Codex account and billing</strong>
+<p>Kiln v1 is the example PRD. Account, credit and usage values are illustrative. Existing delivery controls are abbreviated; this navigation is not part of Kiln.</p>
+<nav class="scenarios" aria-label="Codex screen states"></nav><div class="note" id="scenario-note"></div>
+</aside>
+<main>
+<div class="brand">KILN</div><div class="repo">kiln / kiln-v1</div><h1>Kiln v1</h1>
+<div class="subtitle"><span class="pill" id="status">Not started</span><span id="intro">Review what Kiln found and how it will deliver, then start.</span></div>
+<div id="disconnected" class="banner" hidden>Disconnected from Kiln. Account, billing and usage information are last known. Reconnect to review the current state.</div>
+<div class="columns">
+<section class="panel"><h2 id="context-heading">What Kiln found</h2>
+<div id="documents"><ul class="docs">
+<li><span class="check">✓</span><div><strong>PRD</strong><div class="small mono">kiln-v1-prd.md</div></div></li>
+<li><span class="check">✓</span><div><strong>Technical design</strong><div class="small">Delivery requirements are ready.</div></div></li>
+<li><span class="check">✓</span><div><strong>Assumptions</strong><div class="small">Business decisions reviewed.</div></div></li>
+<li><span class="check">✓</span><div><strong>Workspace</strong><div class="small mono">kiln</div></div></li>
+</ul><div class="divider"></div><p class="small">Kiln uses the agent installed on your computer. Sign-in and account settings stay with that agent.</p></div>
+<div id="work" hidden><span class="eyebrow">Current work</span><h3 style="margin-top:8px">Current phase</h3><p class="small">Work in progress. Completed work is saved.</p><div class="transcript">Working through the current phase…</div><p class="small">The billing summary identifies the account used when this session launched. Account changes apply to later runs.</p></div>
+</section>
+<section class="panel"><h2 id="settings-heading">How Kiln will deliver it</h2>
+<div class="fields"><div><span class="field-label">Agent</span><div class="field">Codex</div></div><div><span class="field-label">Model</span><div class="field">GPT-6.1 Sol</div></div></div>
+<p class="small" id="reading-age">Account and usage updated just now</p>
+<div class="small" id="usage-summary">Codex [codex] · primary: 31%<br>Codex [codex] · secondary: 22%</div>
+<div class="usage-meters" id="usage-meters" hidden>
+<div><div class="limit-head"><span>Codex [codex] · primary</span><span>31%</span></div><div class="meter" role="meter" aria-label="Codex primary used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="31"><div class="fill" style="width:31%"></div></div><span class="small">Resets in 2h 10m</span></div>
+<div><div class="limit-head"><span>Codex [codex] · secondary</span><span>22%</span></div><div class="meter" role="meter" aria-label="Codex secondary used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="22"><div class="fill" style="width:22%"></div></div><span class="small">Resets in 4d 6h</span></div>
+</div>
+<div class="billing" id="billing">
+<div class="eyebrow" id="billing-label">Billing for the next run</div>
+<div class="billing-title"><span id="billing-title">ChatGPT account</span><span class="pill" id="billing-pill">Ready</span></div>
+<div id="account-details"><p>Account: sample@example.com</p><p class="small" id="plan">Plan: Pro</p></div>
+<p id="billing-description">Billing follows your ChatGPT account settings.</p>
+<div id="credits" hidden><div class="divider"></div><p id="credit-balance">Available workspace credits: 50</p><p class="small">Your account's spending settings apply.</p></div>
+<p id="fix" hidden></p>
+<p id="dashboard"><a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noreferrer">Open ChatGPT usage settings ↗</a></p>
+<button type="button" class="link" id="recheck">Refresh Codex information</button>
+</div>
+<div id="delivery-options"><span class="field-label">Effort</span><div class="field">High</div>
+<label class="choice"><input type="checkbox" checked disabled><span>Keep this computer awake while Kiln works</span></label>
+<label class="choice"><input type="checkbox" checked disabled><span>Resume after a usage limit</span></label>
+<div class="divider"></div><p class="small">Kiln may commit and push to this feature branch and open a pull request. Existing delivery permissions still apply.</p>
+<label class="choice"><input type="checkbox" checked disabled><span>I have reviewed and refined these requirements.</span></label></div>
+<div class="foot"><button type="button" class="primary" id="action">Start</button></div><div class="reason" id="reason" aria-live="polite"></div>
+</section>
+</div></main>
+<div class="review-footer">Mockup only — no agent runs, sign-ins, credit purchases or account changes. <a href="../kiln-billing-safeguards-prd.md">Read the PRD</a> · <a href="kiln-billing-safeguards-mockups.html">Claude mockups</a></div>
+<script>
+const states={
+ ready:{name:'ChatGPT ready',note:'Successful ChatGPT sign-in; optional credit details absent. No warning or confirmation. AC-CODEX-01–03.'},
+ credits:{name:'Workspace credits reported',note:'Illustrative report with a workspace balance; availability is not an enabled-spending switch. AC-CODEX-02.',credits:true},
+ api:{name:'API sign-in rejected',note:'Existing ChatGPT-only restriction; no API approval path. AC-CODEX-03.',blocked:true,title:'ChatGPT sign-in required',pill:'Sign in with ChatGPT',description:'Codex is using API-key authentication. Kiln requires ChatGPT sign-in.',fix:'Run codex login in a terminal and sign in with ChatGPT, then refresh Codex information.',reason:'Sign in with ChatGPT before starting.'},
+ provider:{name:'Other provider rejected',note:'Existing OpenAI-provider restriction; Kiln does not rewrite configuration. AC-CODEX-03.',blocked:true,title:'Use the OpenAI provider',pill:'Change provider',description:'Codex has a different model provider selected. Kiln requires the OpenAI provider.',fix:'Change the model provider in your Codex settings to OpenAI, then refresh Codex information.',reason:'Update the provider in Codex settings before starting.'},
+ running:{name:'Running',note:'Account recorded at launch and existing provider-reported usage gauges. AC-CODEX-04–05.',running:true},
+ disconnected:{name:'Disconnected',note:'Last-known account and workspace credits; controls are unavailable. AC-CODEX-05.',running:true,credits:true,disconnected:true}
+};
+const $=id=>document.getElementById(id);
+function show(id,visible){$(id).hidden=!visible}
+document.querySelector('.scenarios').innerHTML=Object.entries(states).map(([id,s])=>`<a href="#${id}" data-state="${id}">${s.name}</a>`).join('');
+function render(){
+ const key=location.hash.slice(1)||'ready',s=states[key]||states.ready;
+ document.querySelectorAll('[data-state]').forEach(a=>a.setAttribute('aria-current',String(a.dataset.state===key)));
+ $('scenario-note').textContent=s.note;$('status').textContent=s.disconnected?'Disconnected':s.running?'Running':'Not started';
+ $('intro').textContent=s.disconnected?'The connection was lost; showing the last known state.':s.running?'Kiln is working through the delivery plan.':'Review what Kiln found and how it will deliver, then start.';
+ show('disconnected',s.disconnected);show('documents',!s.running);show('work',s.running);
+ $('context-heading').textContent=s.running?'Work in progress':'What Kiln found';$('settings-heading').textContent=s.running?'Codex account':'How Kiln will deliver it';
+ show('reading-age',!s.blocked);$('reading-age').textContent=s.disconnected?'Account and usage last read 2 minutes ago':'Account and usage updated just now';
+ show('usage-summary',!s.running&&!s.blocked);show('usage-meters',s.running&&!s.blocked);
+ $('billing-label').textContent=s.disconnected?'Last known billing for this session':s.running?'Billing used to launch this session':'Billing for the next run';
+ $('billing-title').textContent=s.title||'ChatGPT account';$('billing-pill').textContent=s.pill||(s.disconnected?'Last known':'Ready');show('billing-pill',s.blocked||s.disconnected||!s.running);
+ $('billing').className='billing'+(s.blocked?' amber':'');show('account-details',!s.blocked);$('plan').textContent=s.credits?'Plan: Business':'Plan: Pro';
+ $('billing-description').textContent=s.description||'Billing follows your ChatGPT account settings.';
+ show('credits',s.credits);$('credit-balance').textContent=s.disconnected?'Last known workspace credits: 50':'Available workspace credits: 50';
+ show('fix',s.blocked);$('fix').textContent=s.fix||'';show('dashboard',!s.blocked);show('recheck',!s.running);$('recheck').disabled=Boolean(s.disconnected);
+ show('delivery-options',!s.running);$('action').textContent=s.running?'Pause after this phase':'Start';$('action').disabled=Boolean(s.blocked||s.disconnected);$('reason').textContent=s.reason||'';
+ document.body.dataset.state=key;
+}
+$('action').addEventListener('click',()=>{$('reason').textContent='Mockup only — no work was launched or paused.'});
+$('recheck').addEventListener('click',()=>{$('reason').textContent='Mockup: refresh account, provider and readiness without starting AI work.'});
+window.addEventListener('hashchange',render);render();
+</script></body></html>

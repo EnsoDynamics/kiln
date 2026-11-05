@@ -1,0 +1,84 @@
+name: Release
+
+# First publication remains held until Doug approves it and enables the repository
+# variable. A main push runs the platform checks once; its generated tag runs no CI.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Finish each release before another starts; never cancel an active npm publish.
+concurrency:
+  group: kiln-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Release version and publishing preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - id: check
+        run: node scripts/release.mjs preflight
+        env:
+          # An absent enable flag deliberately preserves the publication hold.
+          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED || 'false' }}
+          NPM_AUTH_MODE: ${{ vars.NPM_AUTH_MODE }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+
+  publish:
+    needs: [preflight, verify]
+    if: needs.preflight.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      # npm trusted publishing requires npm 11.5.1 or later.
+      - run: npm install --global npm@11
+      - uses: actions/download-artifact@v8
+        with:
+          name: kiln-npm-package
+          path: ${{ runner.temp }}/kiln-package
+      - name: Verify the checked package
+        working-directory: ${{ runner.temp }}/kiln-package
+        run: sha256sum --check SHA256SUMS
+      - name: Publish the checked archive without rebuilding
+        env:
+          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
+          NODE_AUTH_TOKEN: ${{ vars.NPM_AUTH_MODE == 'token' && secrets.NPM_TOKEN || '' }}
+        run: npm publish "$PACKAGE_FILE" --access public --provenance --ignore-scripts
+      - name: Create the version tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
+          CHECKSUM_FILE: ${{ runner.temp }}/kiln-package/SHA256SUMS
+        run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --notes-file "docs/release/notes/kiln-release-notes-$RELEASE_VERSION.md"

@@ -1,0 +1,358 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
+import { readSessionRecord, sessionDirectory, sessionStorageKey, writeSessionRecord } from "../state/records.js";
+import { runCodexSession, reconcileCodexAttempt } from "./codex-session.js";
+import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
+import { endProcessTree, spawnDetached } from "../platform/helper-process.js";
+import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-processes.js";
+import { waitFor } from "../test-support/engine-harness.js";
+
+const fixtures: ReturnType<typeof codexWorkFixture>[] = [];
+function fixture() { const f = codexWorkFixture(); fixtures.push(f); return f; }
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(fixtures.splice(0).map(f => f.sandbox.cleanup())); });
+
+// Real CLI pipes, records and processes. Live inference/protection is proved separately.
+describe("durable protected Codex attempts", () => {
+  it.skipIf(process.platform === "win32")("ends a genuinely stalled ownership query within its five-second budget", async () => {
+    const f = fixture(); const pidFile = join(f.root, "stalled-query.pid");
+    const preload = join(f.root, "stalled-query-preload.mjs");
+    const program = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid)); process.stderr.write('synthetic stalled query'); setInterval(()=>{},1000);`;
+    writeFileSync(preload, `import cp from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module'; const spawn=cp.spawn; cp.spawn=(file,args,options)=>file==='/bin/ps'&&args[0]==='eww'?spawn(process.execPath,['-e',${JSON.stringify(program)}],options):spawn(file,args,options); syncBuiltinESMExports();`);
+    const started = Date.now();
+    const child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/codex-process-owners.mjs", import.meta.url))], { cwd: f.root, env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(preload)}`.trim() }, stdin: "pipe" });
+    let stderr = "", stdout = "", closed = false;
+    child.stderr!.on("data", value => { stderr += String(value); }); child.stdout!.on("data", value => { stdout += String(value); });
+    const completion = once(child, "close").then(([code]) => { closed = true; return code; });
+    const watchdog = setTimeout(() => { void endProcessTree(child.pid, "SIGKILL"); }, 12_000);
+    child.stdin!.end(JSON.stringify({ owner: "00000000-0000-4000-8000-000000000000" }));
+    try {
+      expect(await completion).toBe(1);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(4500);
+      expect(Date.now() - started).toBeLessThan(8000);
+      expect(stderr).toContain("query timed out after 5 seconds"); expect(stdout).toBe("");
+      expect(await processStartTime(Number(readFileSync(pidFile, "utf8")))).toBeUndefined();
+    } finally { clearTimeout(watchdog); if (!closed) await endProcessTree(child.pid, "SIGKILL"); }
+  });
+  it.skipIf(process.platform === "win32")("accepts a completed ownership query after the controller event loop is busy longer than five seconds", async () => {
+    const run = { pid: process.pid, codex: { processOwner: "00000000-0000-4000-8000-000000000000" } } as Parameters<typeof stopCodexOwnedProcesses>[0];
+    const failures: Error[] = [];
+    const monitor = new CodexOwnedProcesses(run, () => undefined, error => failures.push(error));
+    try {
+      const started = monitor.start();
+      // OS query and its deadline run independently; the parent cannot drain pipes.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6500);
+      await expect(started).resolves.toBeUndefined();
+      expect(failures).toEqual([]); expect(monitor.failure).toBeUndefined();
+    } finally { await monitor.close(); }
+  });
+  it("waits for a required child after the parent's final turn instead of ending the attempt", async () => {
+    const f = fixture(); const release = join(f.root, "review-finished");
+    f.set({ pendingChild: release });
+    const controller = new AbortController();
+    const running = runCodexSession({ ...f.options, signal: controller.signal });
+    try {
+      await waitFor(() => existsSync(release + ".observed"));
+      expect(f.record.runs[0]?.endedAt).toBeUndefined();
+      expect(f.record.runs[0]?.codex?.terminal?.status).toBe("completed");
+      expect(f.calls().some(call => call.method === "thread/backgroundTerminals/clean")).toBe(false);
+      writeFileSync(release, "review complete");
+      const run = await running;
+      expect(run.codex?.failure).toBeUndefined();
+      expect(run.codex?.cleanup).toBe("tracked_processes_stopped");
+      expect(f.record.conversation?.knownThreadIds).toContain("required-reviewer");
+      expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+    } finally { controller.abort(); await running; }
+  });
+
+  it.skipIf(process.platform === "win32").each([
+    { program: 'process.stdout.write("PRIVATE_ENVIRONMENT_CANARY"); process.stderr.write("ps: synthetic ownership denial " + "x".repeat(10000) + "DIAGNOSTIC_TAIL_CANARY", () => process.exit(17))', detail: "ps: synthetic ownership denial", status: "exit 17" },
+    { program: 'process.kill(process.pid, "SIGTERM")', detail: "Process ownership query failed", status: "SIGTERM" },
+    { program: 'process.stderr.write("ps: synthetic stalled query"); setInterval(() => {}, 1000)', detail: "ps: synthetic stalled query", status: "timed out after 5 seconds" },
+  ])("persists the ownership probe's $status failure without retaining its process-environment output", async ({ program, detail, status }) => {
+    const f = fixture();
+    const preload = join(f.root, "ownership-failure.mjs");
+    // Inject only the unreliable ps failure. The real ownership helper, child pipes,
+    // session persistence and OS termination run normally; live ps succeeds in other cases.
+    writeFileSync(preload, `import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const spawn = cp.spawn;
+cp.spawn = (file, args, options) => file === '/bin/ps' && args[0] === 'eww'
+  ? spawn(process.execPath, ['-e', ${JSON.stringify(program)}], options)
+  : spawn(file, args, options);
+syncBuiltinESMExports();\n`);
+    vi.stubEnv("NODE_OPTIONS", `${process.env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(preload)}`.trim());
+    const run = await runCodexSession(f.options);
+    const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(run.codex?.failure).toContain(detail);
+    expect(run.codex?.failure).toContain(status);
+    expect(run.codex!.failure!.length).toBeLessThan(2300);
+    expect(saved.runs.at(-1)?.codex).toMatchObject({ cleanup: "unknown", cleanupFailure: run.codex?.failure });
+    expect(JSON.stringify(saved)).not.toContain("PRIVATE_ENVIRONMENT_CANARY");
+    expect(JSON.stringify(saved)).not.toContain("DIAGNOSTIC_TAIL_CANARY");
+    expect(f.calls().some(call => call.method === "turn/start")).toBe(false);
+    expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
+  });
+
+  it.each(["delivery_audit", "test_audit"] as const)("dispatches the pinned %s skill and task with the selected protected profile (AC-TEST-01, AC-RUN-04)", async kind => {
+    const f = fixture();
+    f.options.control = { operationId: "operation", attemptId: "attempt", promptDigest: "unexpanded-prompt" };
+    const skillName = kind === "delivery_audit" ? "delivery-audit" : "test-audit";
+    f.record.kind = kind; f.record.activityId = "assigned-audit"; f.record.phaseId = "";
+    const key = sessionStorageKey(f.record);
+    f.set({ additionalSkills: [skillName], recordPath: join(sessionDirectory(f.options.stateDirectory, key, f.record.sessionId), "session.json") });
+    const skillPath = (JSON.parse(readFileSync(f.file, "utf8")) as { skill: string }).skill;
+    const task = `Run ${skillName} on the whole governing PRD; retain activity assigned-audit and its report path.`;
+    const run = await runCodexSession({ ...f.options, prompt: task });
+    expect(run.codex?.failure).toBeUndefined();
+    expect(run.codex?.terminal?.status).toBe("completed");
+    const dispatches = f.calls().filter(call => call.method === "turn/start");
+    expect(dispatches).toHaveLength(1);
+    const input = dispatches[0]!.params!.input as { type: string; text: string }[];
+    expect(input).toHaveLength(1); expect(input[0]!.type).toBe("text");
+    expect(input[0]!.text.startsWith(`Read and use the installed ${skillName} skill at \`${skillPath}\` for the assigned audit below.`)).toBe(true);
+    expect(input[0]!.text).toContain(`${task}\n\nIf a subprocess, test run or delegated reviewer`);
+    expect(input[0]!.text).toContain("wait for its outcome and then continue the remaining work in this same session");
+    expect(run.control?.promptDigest).toBe(createHash("sha256").update(input[0]!.text).digest("hex"));
+    expect(dispatches[0]!.params).toMatchObject({ threadId: f.record.conversation!.threadId, model: "gpt-6.1-sol" });
+    expect(f.calls().find(call => call.method === "thread/start")!.params).toMatchObject({ cwd: f.root, model: "gpt-6.1-sol", approvalPolicy: "on-request", approvalsReviewer: "auto_review", config: { model_reasoning_effort: "high", sandbox_workspace_write: { writable_roots: [f.root] } } });
+    const saved = readSessionRecord(f.options.stateDirectory, key, f.record.sessionId)!;
+    expect(saved).toMatchObject({ kind, activityId: "assigned-audit", phaseId: "", model: "gpt-6.1-sol", effort: "high", codex: { launchIntent: { cwd: f.root, writableRoots: [f.root] } } });
+  });
+
+  it("persists identity before dispatch, separates configured and observed facts, and resumes the same original pair", async () => {
+    const f = fixture();
+    const run = await runCodexSession(f.options);
+    expect(run.codex?.failure).toBeUndefined(); expect(run.codex?.terminal?.status).toBe("completed"); expect(run.codex?.cleanup).toBe("tracked_processes_stopped");
+    expect(run.codex?.observed?.[0]).toMatchObject({ model: "gpt-6.1-sol", effort: "high", turnId: "turn-1" });
+    expect(f.record.conversation).toMatchObject({ threadId: "work-parent", sessionTreeId: "tree-parent", codexHome: f.home });
+    expect(f.record.initModel).toBeUndefined();
+    const restored = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(restored.conversation).toEqual(f.record.conversation);
+    expect(restored.codex?.originalAccount.accountId).toBe("proof-account");
+    f.set({ version: "0.165.0", accountId: "other-account", email: "other@example.invalid" });
+    const resumed = await runCodexSession({ ...f.options, record: restored, cause: "person_resume", prompt: "Person's note\n\nCarry on", note: "Person's note" });
+    expect(resumed.codex?.failure).toBeUndefined(); expect(resumed.codex?.observed).toHaveLength(2);
+    expect(resumed.codex?.account.accountId).toBe("other-account"); expect(f.record.codex?.originalAccount.accountId).toBe("proof-account");
+    const resume = f.calls().find(call => call.method === "thread/resume"); expect(resume?.params).toMatchObject({ threadId: "work-parent", model: "gpt-6.1-sol", excludeTurns: true });
+    const start = f.calls().find(call => call.method === "thread/start"); expect(start?.params).toMatchObject({ allowProviderModelFallback: false, ephemeral: false, approvalPolicy: "on-request", approvalsReviewer: "auto_review" });
+    expect(start?.params).not.toHaveProperty("baseInstructions");
+    const persisted = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(persisted.conversation).toMatchObject({ threadId: "work-parent", sessionTreeId: "tree-parent", codexHome: f.home });
+    expect(persisted.codex?.originalAccount.accountId).toBe("proof-account");
+    expect(persisted.runs).toHaveLength(2);
+    for (const [index, attempt] of persisted.runs.entries()) {
+      expect(attempt.codex?.account.accountId).toBe(index === 0 ? "proof-account" : "other-account");
+      expect(attempt.codex?.profile.version).toBe(index === 0 ? "0.162.1" : "0.165.0");
+      expect(attempt.codex?.requested).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
+      expect(attempt.codex?.effective).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
+      expect(attempt.codex?.observed?.at(-1)).toMatchObject({ model: "gpt-6.1-sol", effort: "high", cwd: f.root });
+      expect(attempt.codex?.dispatch?.at).toBeTruthy();
+      expect(attempt.codex?.turnId).toBeTruthy();
+      expect(attempt.codex?.terminal?.status).toBe("completed");
+    }
+  });
+  it.each(["mismatch", "badReviewer", "badRoots"])("records the created identity but sends no turn for %s", async mode => {
+    const f = fixture(); f.set({ [mode]: true });
+    const run = await runCodexSession(f.options);
+    expect(run.codex?.failure).toMatch(/recorded|protected/); expect(f.record.conversation?.threadId).toBe("work-parent");
+    expect(f.calls().some(call => call.method === "turn/start")).toBe(false);
+  });
+  it.each([false, true])("requires every additional assigned root when cwd is implicit (missing root: %s)", async missing => {
+    const f = fixture();
+    const extra = join(f.sandbox.root, "additional-workspace"); mkdirSync(extra);
+    f.set({ omitRoots: missing });
+    const run = await runCodexSession({ ...f.options, writableRoots: [f.root, extra] });
+    if (missing) expect(run.codex?.verificationFailure).toContain("protected launch profile");
+    else expect(run.codex?.failure).toBeUndefined();
+    expect(f.calls().some(call => call.method === "turn/start")).toBe(!missing);
+  });
+  // AC-CODEX-03: a persisted conversation never inherits earlier eligibility.
+  it.each([
+    { name: "signed out", fixture: { signedOut: true }, error: "codex login" },
+    { name: "API-key-only", fixture: { apiKey: true }, error: "codex login" },
+    { name: "another provider", fixture: { provider: "custom" }, error: "OpenAI" },
+    { name: "unreadable configuration", fixture: { configError: true }, error: "Could not inspect Codex provider and hooks" },
+    { name: "new managed policy", fixture: { requirements: { unknownMandatoryRestriction: true } }, error: "managed requirement" },
+    { name: "CLI version below the minimum", fixture: { version: "0.162.0" }, error: "Codex 0.162.0 is older than Kiln supports. Install Codex 0.162.1 or later: codex update" },
+  ])("rechecks $name before a resumed saved conversation and records no new attempt", async example => {
+    const f = fixture(); const first = await runCodexSession(f.options);
+    expect(first.codex?.terminal?.status).toBe("completed"); expect(first.codex?.failure).toBeUndefined();
+    const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(saved.conversation?.threadId).toBe("work-parent"); expect(saved.runs).toHaveLength(1);
+    const original = structuredClone(saved); const before = f.calls().length;
+    f.set(example.fixture);
+    await expect(runCodexSession({ ...f.options, record: saved, cause: "person_resume" })).rejects.toThrow(example.error);
+    expect(saved).toEqual(original);
+    expect(readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)).toEqual(original);
+    const calls = f.calls().slice(before);
+    expect(calls.some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
+  });
+  it("a failed preflight allocates no attempt or conversation", async () => {
+    const f = fixture(); f.set({ signedOut: true });
+    await expect(runCodexSession(f.options)).rejects.toThrow(/sign in/i);
+    expect(f.record.runs).toHaveLength(0); expect(f.calls().some(call => call.method === "thread/start")).toBe(false);
+  });
+  it("starts no work when the required billing snapshot cannot be persisted", async () => {
+    const f = fixture();
+    // Real filesystem failure at the injected PRD persistence checkpoint; not a provider mock.
+    let checkpoint = false;
+    await expect(runCodexSession({ ...f.options, onBilling: summary => {
+      checkpoint = true;
+      expect(summary).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account" });
+      writeFileSync(f.root, JSON.stringify(summary)); // A directory cannot be overwritten by the atomic record's file data.
+    } })).rejects.toThrow();
+    expect(checkpoint).toBe(true); expect(f.record.runs).toEqual([]);
+    expect(f.calls().some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
+    expect(readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)).toBeUndefined();
+  });
+  it("preserves an unreadable required provider configuration as a preflight failure", async () => {
+    const f = fixture(); f.set({ configError: true });
+    await expect(runCodexSession(f.options)).rejects.toThrow("Could not inspect Codex provider and hooks");
+    expect(f.record.runs).toEqual([]);
+    expect(f.calls().some(call => /^(thread|turn)\//.test(call.method ?? ""))).toBe(false);
+  });
+  it("does not confuse an early terminal notification with an active turn", async () => {
+    const f = fixture(); f.set({ earlyTerminal: true }); const run = await runCodexSession(f.options);
+    expect(run.codex?.terminal?.status).toBe("completed"); expect(run.codex?.failure).toBeUndefined();
+  });
+  it("retains observed settings disagreement as a failure", async () => {
+    const f = fixture(); f.set({ observedMismatch: true }); const run = await runCodexSession(f.options);
+    expect(run.codex?.failure).toContain("observed turn"); expect(run.codex?.observed?.[0]?.model).toBe("observed-other");
+  });
+  it.each(["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request"])("settles %s without granting authority", async request => {
+    const f = fixture(); f.set({ request }); const run = await runCodexSession(f.options);
+    expect(run.codex?.humanRequests[0]?.stopped).toBe(false);
+    const answer = f.calls().find(call => call.id === "human-request" && !call.method);
+    expect(answer?.result).toEqual(request.includes("permissions") ? { permissions: {}, scope: "turn" } : request.includes("elicitation") ? { action: "decline" } : { decision: "decline" });
+  });
+  it.each(["item/tool/requestUserInput", "unknown/request"])("interrupts %s and saves its full request", async request => {
+    const f = fixture(); f.set({ request, hang: true }); const at = Date.now(); const run = await runCodexSession(f.options);
+    expect(Date.now() - at).toBeLessThan(5000);
+    expect(run.codex?.humanRequests[0]).toMatchObject({ method: request, stopped: true, request: { questions: [{ question: "Need a person" }] } });
+    expect(f.calls().some(call => call.method === "turn/interrupt")).toBe(true);
+  });
+  it("interrupts structured asynchronous questions", async () => {
+    const f = fixture(); f.set({ asyncQuestions: true }); const run = await runCodexSession(f.options);
+    expect(run.codex?.humanRequests.some(request => request.stopped)).toBe(true);
+  });
+  it.each([{ inheritPipes: false, doubleFork: false }, { inheritPipes: true, doubleFork: false }, { inheritPipes: true, doubleFork: true }])("Ctrl+C cleans detached tools %j before a same-thread resume", async mode => {
+    const f = fixture(); f.set({ hang: true, toolProcess: true, ...mode });
+    const controller = new AbortController();
+    const promise = runCodexSession({ ...f.options, signal: controller.signal, onEvent: event => { if (event.method === "turn/started") setTimeout(() => controller.abort(), 800); } });
+    const run = await promise;
+    const pid = Number(readFileSync(f.file + ".tool", "utf8"));
+    expect(run.interruptedBy).toBe("sigint"); expect(run.codex?.cleanup).toBe("tracked_processes_stopped");
+    if (process.platform === "win32") expect(run.codex?.profile.powerShell?.executable).toBeTruthy();
+    else expect(run.codex?.ownedProcesses?.some(process => process.pid === pid)).toBe(true);
+    expect(await processStartTime(pid)).toBeUndefined();
+    f.set({}); expect((await runCodexSession({ ...f.options, cause: "resume" })).codex?.failure).toBeUndefined();
+  });
+  it("uses provider terminal cleanup, persists its process identity and emits truthful stop guidance", async () => {
+    const f = fixture(); f.set({ backgroundTerminals: true, toolProcess: true });
+    const warnings: string[] = [];
+    const run = await runCodexSession({ ...f.options, onWarning: text => warnings.push(text) });
+    expect(run.codex?.failure).toBeUndefined();
+    expect(warnings).toEqual([run.codex?.cleanupWarning]);
+    expect(warnings[0]).toContain("Independently detached programs may keep running");
+    expect(run.codex?.backgroundTerminals).toEqual([{ threadId: "work-parent", processId: "terminal-1", osPid: expect.any(Number) }]);
+    const pid = Number(readFileSync(f.file + ".tool", "utf8"));
+    expect(run.codex?.ownedProcesses?.some(entry => entry.pid === pid)).toBe(true);
+    expect(await processStartTime(pid)).toBeUndefined();
+    expect(f.calls().filter(call => call.method === "thread/backgroundTerminals/list")).toHaveLength(2);
+    expect(f.calls().filter(call => call.method === "thread/backgroundTerminals/clean")).toHaveLength(1);
+  });
+  it.each(["backgroundListError", "backgroundCleanError", "backgroundSurvivesClean"])("still ends known OS processes when %s fails", async failure => {
+    const f = fixture(); f.set({ backgroundTerminals: true, toolProcess: true, [failure]: true });
+    const run = await runCodexSession(f.options);
+    expect(run.codex?.cleanup).toBe("unknown"); expect(run.codex?.failure).toMatch(/background/);
+    const pid = Number(readFileSync(f.file + ".tool", "utf8"));
+    expect(await processStartTime(pid)).toBeUndefined();
+  });
+  it("retains cleanup failure independently of the attempt failure", async () => {
+    const f = fixture(); f.set({ observedMismatch: true, backgroundCleanError: true });
+    const run = await runCodexSession(f.options);
+    const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!.runs.at(-1)!;
+    expect(run.codex?.failure).toContain("observed turn");
+    expect(saved.codex?.cleanup).toBe("unknown");
+    expect(saved.codex?.cleanupFailure).toContain("background cleanup failure");
+  });
+  it("bounds a stalled provider inventory and still ends known OS processes", async () => {
+    const f = fixture(); f.set({ backgroundListHang: true, toolProcess: true });
+    const start = Date.now();
+    const run = await runCodexSession(f.options);
+    expect(Date.now() - start).toBeLessThan(20_000);
+    expect(run.codex?.cleanup).toBe("unknown");
+    expect(run.codex?.cleanupFailure).toContain("deadline");
+    const pid = Number(readFileSync(f.file + ".tool", "utf8"));
+    expect(await processStartTime(pid)).toBeUndefined();
+  }, 25_000);
+  it("does not clean unrelated loaded conversations", async () => {
+    const f = fixture(); f.set({ loadedThreads: ["another-conversation", "work-parent"] });
+    const run = await runCodexSession(f.options);
+    expect(run.codex?.failure).toBeUndefined();
+    for (const call of f.calls().filter(call => call.method?.startsWith("thread/backgroundTerminals/"))) expect(call.params?.threadId).toBe("work-parent");
+  });
+  it("fails repeated loaded-thread pagination before attempting provider cleanup", async () => {
+    const f = fixture(); f.set({ loadedCursor: "repeated" });
+    const run = await runCodexSession(f.options);
+    expect(run.codex?.failure).toMatch(/cursor/); expect(run.codex?.cleanup).toBe("unknown");
+    expect(f.calls().some(call => call.method === "thread/backgroundTerminals/clean")).toBe(false);
+  });
+  it("a disconnected dispatch is ambiguous across restart and never resent", async () => {
+    const f = fixture(); f.set({ dropDispatch: true }); const run = await runCodexSession(f.options);
+    expect(run.codex?.dispatch).toBeDefined(); expect(run.codex?.turnId).toBeUndefined(); expect(run.codex?.terminal).toBeUndefined();
+    const record = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId)!;
+    expect(await reconcileCodexAttempt({ ...f.options, record })).toBe("ambiguous");
+    await expect(runCodexSession({ ...f.options, record, cause: "resume" })).rejects.toThrow(/ambiguous/);
+    expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+  });
+  it("reconciles a saved terminal turn and a pre-dispatch crash without starting work", async () => {
+    const f = fixture(); const run = await runCodexSession(f.options);
+    delete run.endedAt; delete run.codex!.terminal; writeSessionRecord(f.options.stateDirectory, f.record);
+    expect(await reconcileCodexAttempt(f.options)).toBe("settled");
+    delete run.codex!.dispatch; delete run.codex!.turnId;
+    expect(await reconcileCodexAttempt(f.options)).toBe("not_dispatched");
+    expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+    expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(false);
+  });
+  it("persists model/terminal arrival before cleanup and idempotently releases consumed evidence after a crash", async () => {
+    const f = fixture();
+    f.set({ usageRefusal: true, modelBeforeRefusal: true });
+    let atModel: ReturnType<typeof readSessionRecord>;
+    let atTerminal: ReturnType<typeof readSessionRecord>;
+    const run = await runCodexSession({ ...f.options, onRecordChange: () => {
+      const saved = readSessionRecord(f.options.stateDirectory, "1", f.record.sessionId);
+      if (saved?.runs[0]?.codex?.modelActivityAt.length && !saved.runs[0]?.endedAt) atModel = saved;
+      if (saved?.runs[0]?.codex?.terminal?.at && !saved.runs[0]?.endedAt) atTerminal = saved;
+    } });
+    expect(atModel!.runs[0]?.codex?.modelActivityAt).toHaveLength(1);
+    expect(atTerminal!.runs[0]?.codex?.terminal).toMatchObject({ status: "failed", at: expect.any(String) });
+    const crashed = atTerminal!;
+    crashed.codex!.usageRecovery = { generation: 7, consumed: { fingerprint: "consumed", accountId: "proof-account", at: run.startedAt } };
+    await reconcileCodexAttempt({ ...f.options, record: crashed });
+    expect(crashed.codex?.usageRecovery).toMatchObject({ generation: 8 });
+    expect(crashed.codex?.usageRecovery?.consumed).toBeUndefined();
+    expect(crashed.runs[0]?.limitRefusal?.codex?.code).toBe("usageLimitExceeded");
+    await reconcileCodexAttempt({ ...f.options, record: crashed });
+    expect(crashed.codex?.usageRecovery?.generation).toBe(8);
+    expect(f.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
+  });
+  it("cleans remembered children even when an exited launcher's start identity was never saved", async () => {
+    const f = fixture(); const run = await runCodexSession(f.options);
+    delete run.processStartTime;
+    const child = spawnDetached(process.execPath, ["-e", "setInterval(()=>{},1000)"], { cwd: f.root, env: f.options.env, stdin: "ignore" });
+    try {
+      await once(child, "spawn");
+      const startTime = await processStartTime(child.pid!);
+      expect(startTime).toBeTruthy();
+      run.codex!.ownedProcesses = [{ pid: child.pid!, startTime: startTime! }];
+      await stopCodexOwnedProcesses(run);
+      expect(await isProcessLive(child.pid!, startTime)).toBe(false);
+    } finally { await endProcessTree(child.pid, "SIGKILL"); }
+  });
+});

@@ -1,0 +1,152 @@
+import { fileURLToPath } from "node:url";
+import { compareToMinimum } from "../agents/tooling-minimums.js";
+import { BILLING_CONTRACT, BILLING_KEYS, emptyInventory, ordinaryProfile, type Inventory } from "./contract.js";
+import { boundedRead } from "./bounded-process.js";
+import type { AccountStatus } from "../account/claude-account.js";
+export interface WorkspaceCredits {
+  bucketId: string;
+  accountId: string;
+  observedAt: string;
+  scope: "workspace";
+  balance?: string;
+  hasCredits?: boolean;
+}
+export interface BillingSummary {
+  agentId: "claude_code" | "codex";
+  route: "subscription" | "metered" | "settings";
+  provider?: string;
+  sources: string[];
+  email?: string;
+  orgId?: string;
+  accountId?: string;
+  credits?: WorkspaceCredits[];
+  plan?: string;
+  observedAt: string;
+  diagnostics: string[];
+  overflow?: { enabled: boolean; observedAt: string };
+  approved: boolean;
+}
+export interface Inspection {
+  summary: BillingSummary;
+  /** Private canonical material; never serialized to any record, error, log or browser. */
+  identity: unknown;
+  launchEnv: NodeJS.ProcessEnv;
+  readinessError?: string;
+}
+/** `version` is Claude Code's as reported, or `unrecognised`; diagnostic only, never part of approval identity. */
+export interface InventoryRead { inventory: Inventory; version: string; projected: NodeJS.ProcessEnv; }
+export async function readInventory(options: { executable: string; cwd: string; env: NodeJS.ProcessEnv; args?: string[]; signal?: AbortSignal }): Promise<InventoryRead> {
+  const started = Date.now();
+  const versionRead = await boundedRead(options.executable, ["--version"], { ...options, timeoutMs: 5000, resultLimit: 4096 });
+  // The settings worker runs on any Claude Code at or above the minimum; the
+  // worker itself checks that the installed Agent SDK provides the resolver.
+  // Recognition of the resolver's result is the gate (extractInventory).
+  const reading = compareToMinimum("claudeCode", versionRead.exitCode === 0 ? versionRead.stdout : undefined);
+  const version = reading.version ?? "unrecognised";
+  const eligible = reading.state === "supported";
+  let inventory = emptyInventory(reading.state === "below_minimum" ? "inventory_claude_below_minimum" : "inventory_claude_version_unrecognised");
+  if (eligible) {
+    const result = await boundedRead(process.execPath, [fileURLToPath(new URL("../../dist/billing/settings-worker.js", import.meta.url))], { ...options, timeoutMs: Math.max(1001, 30_000 - (Date.now() - started)) });
+    if (result.diagnostic) inventory = emptyInventory(result.diagnostic);
+    else {
+      try { inventory = JSON.parse(result.stdout!) as Inventory; }
+      catch { inventory = emptyInventory("inventory_malformed"); }
+    }
+  }
+  if (!ordinaryProfile(options.env) || (options.args ?? []).some(arg => ["--settings", "--setting-sources", "--managed-settings"].includes(arg))) {
+    inventory.complete = false; inventory.diagnostics.push("inventory_launch_profile_partial");
+  }
+  const projected = { ...options.env };
+  if (eligible && inventory.complete) for (const [key, value] of Object.entries(inventory.env)) projected[key] = value;
+  return { inventory, version, projected };
+}
+const active = (value: string | undefined) => value !== undefined && value !== "" && value !== "0" && value !== "false";
+const endpointOverride = (value: string) => {
+  try { const url = new URL(value); return url.origin !== "https://api.anthropic.com" || !["", "/"].includes(url.pathname) || !!url.username || !!url.password || !!url.search; }
+  catch { return true; }
+};
+const awsProviders = ["bedrock", "mantle", "anthropic_aws"];
+const googleProviders = ["vertex", "anthropic_google_cloud"];
+// Provider-specific context does not select a provider. CLI metadata resolves
+// selection when available; otherwise retain the concrete active selector evidence.
+const contextProviders: Record<string, string[]> = {
+  ANTHROPIC_BEDROCK_BASE_URL: ["bedrock"],
+  ANTHROPIC_FOUNDRY_BASE_URL: ["foundry"],
+  ANTHROPIC_AWS_BASE_URL: ["anthropic_aws"],
+  ANTHROPIC_GOOGLE_CLOUD_BASE_URL: ["anthropic_google_cloud"],
+  ANTHROPIC_BEDROCK_MANTLE_BASE_URL: ["mantle"],
+  ANTHROPIC_VERTEX_BASE_URL: ["vertex"],
+  AWS_ENDPOINT_URL: awsProviders,
+  AWS_ENDPOINT_URL_BEDROCK: ["bedrock"],
+  AWS_ENDPOINT_URL_BEDROCK_RUNTIME: ["bedrock"],
+  AWS_BEARER_TOKEN_BEDROCK: ["bedrock"],
+  ANTHROPIC_FOUNDRY_API_KEY: ["foundry"],
+  ANTHROPIC_FOUNDRY_AUTH_TOKEN: ["foundry"],
+  ANTHROPIC_FOUNDRY_RESOURCE: ["foundry"],
+  ANTHROPIC_AWS_API_KEY: ["anthropic_aws"],
+  ANTHROPIC_AWS_WORKSPACE_ID: ["anthropic_aws"],
+  ANTHROPIC_VERTEX_PROJECT_ID: ["vertex"],
+  ANTHROPIC_GOOGLE_CLOUD_PROJECT: ["anthropic_google_cloud"],
+  ANTHROPIC_GOOGLE_CLOUD_LOCATION: ["anthropic_google_cloud"],
+  ANTHROPIC_GOOGLE_CLOUD_WORKSPACE_ID: ["anthropic_google_cloud"],
+};
+const helperProviders: Record<string, string[]> = { awsCredentialExport: awsProviders, awsAuthRefresh: awsProviders, gcpAuthRefresh: googleProviders };
+/** Deterministic classification, paired with real resolver and auth-status boundary tests. */
+export function classify(options: { cwd: string; env: NodeJS.ProcessEnv; read: InventoryRead; auth: AccountStatus; at: string }): Inspection {
+  const { read, auth } = options; const { inventory } = read;
+  const effective: Record<string, string> = {};
+  const provenance: Record<string, string> = {};
+  for (const key of BILLING_KEYS) {
+    const value = read.projected[key];
+    if (value !== undefined) { effective[key] = value; provenance[key] = inventory.complete && Object.hasOwn(inventory.env, key) ? inventory.sources[key] ?? `Claude Code settings · ${key}` : `Kiln environment · ${key}`; }
+  }
+  // Partial cascades remain evidence; they cannot clear inherited overrides.
+  if (!inventory.complete) for (const [key, value] of Object.entries(inventory.env)) if (value !== "") {
+    effective[key] = value; provenance[key] = inventory.sources[key] ?? `Claude Code settings · ${key}`;
+  }
+  const evidence = new Set<string>();
+  const add = (key: string) => { if (effective[key]) evidence.add(provenance[key]!); };
+  for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"]) add(key);
+  if (effective.ANTHROPIC_FEDERATION_RULE_ID && effective.ANTHROPIC_ORGANIZATION_ID) { add("ANTHROPIC_FEDERATION_RULE_ID"); add("ANTHROPIC_ORGANIZATION_ID"); }
+  const selectors = Object.keys(effective).filter(key => key.startsWith("CLAUDE_CODE_USE_") && active(effective[key]));
+  selectors.forEach(add);
+  // A partial raw cascade cannot clear an inherited selection. Until readiness
+  // names the provider, retain every plausible provider's observable context.
+  const inheritedSelectors = inventory.complete ? [] : BILLING_KEYS.filter(key => key.startsWith("CLAUDE_CODE_USE_") && active(options.env[key]));
+  for (const key of inheritedSelectors) evidence.add(`Kiln environment · ${key}`);
+  const candidates = [...new Set([...selectors, ...inheritedSelectors])];
+  const selectedProviders = auth.apiProvider && !["firstParty", "configured"].includes(auth.apiProvider)
+    ? [auth.apiProvider] : candidates.map(key => key.slice("CLAUDE_CODE_USE_".length).toLowerCase());
+  // An explicitly configured but unnamed provider leaves relevance unresolved.
+  // Keep its observable context without guessing a provider or new support.
+  const unresolvedProvider = auth.apiProvider === "configured" && !candidates.length;
+  const relevantProviders = (providers: string[] | undefined) => !providers || unresolvedProvider || providers.some(provider => selectedProviders.includes(provider));
+  const relevantContext = (key: string) => relevantProviders(contextProviders[key]
+    ?? (key.startsWith("AWS_") ? awsProviders : /^(GOOGLE_|GCLOUD_|CLOUD_ML_)/.test(key) ? googleProviders : undefined)
+    ?? (key.startsWith("CLAUDE_CODE_SKIP_") ? [key.slice("CLAUDE_CODE_SKIP_".length, -"_AUTH".length).toLowerCase()] : undefined));
+  const endpointOverrides = Object.keys(effective).filter(key => (key.includes("BASE_URL") || key.startsWith("AWS_ENDPOINT_URL")) && relevantContext(key) && effective[key] && endpointOverride(effective[key]!));
+  endpointOverrides.forEach(add);
+  const headers = effective.ANTHROPIC_CUSTOM_HEADERS;
+  if (headers && /(?:authorization|api[-_]key|token|organization|tenant|routing|host)\s*:/i.test(headers)) add("ANTHROPIC_CUSTOM_HEADERS");
+  const privateHelpers = Object.fromEntries(Object.entries(inventory.helpers).filter(([key]) => relevantProviders(helperProviders[key])));
+  for (const helper of Object.values(privateHelpers)) if (helper.value) evidence.add(helper.source);
+  if (["api_key", "api_key_helper"].includes(auth.authMethod ?? "") || auth.apiKeySource) evidence.add(auth.apiKeySource === "ANTHROPIC_API_KEY" ? "Claude Code · ANTHROPIC_API_KEY" : "Claude Code configured API source");
+  if (auth.apiProvider && auth.apiProvider !== "firstParty") evidence.add("Claude Code provider settings");
+  const named: Record<string, string> = { firstParty: "Anthropic API", bedrock: "Amazon Bedrock", vertex: "Google Vertex AI", foundry: "Microsoft Foundry", mantle: "Amazon Bedrock Mantle" };
+  let provider = auth.apiProvider ? named[auth.apiProvider] : undefined;
+  if (provider === "Anthropic API" && (candidates.length || endpointOverrides.length)) provider = undefined;
+  const route = evidence.size ? "metered" : inventory.complete && auth.authMethod === "claude.ai" && auth.apiProvider === "firstParty" ? "subscription" : "settings";
+  const summary: BillingSummary = { agentId: "claude_code", route, sources: [...evidence].sort(), observedAt: options.at, diagnostics: [...new Set(inventory.diagnostics)], approved: false };
+  if (route === "metered") {
+    if (!provider && !candidates.length && !headers && !endpointOverrides.length && (effective.ANTHROPIC_API_KEY || ["api_key", "api_key_helper"].includes(auth.authMethod ?? ""))) provider = "Anthropic API";
+    if (provider) summary.provider = provider;
+    // Subscription identity is never substituted for an API payer.
+  } else {
+    if (auth.email) summary.email = auth.email;
+    if (auth.orgId) summary.orgId = auth.orgId;
+    if (auth.plan) summary.plan = auth.plan;
+  }
+  const privateEnv = Object.fromEntries(Object.entries(effective).filter(([key]) => relevantContext(key)).filter(([key]) => key !== "ANTHROPIC_CUSTOM_HEADERS" || evidence.has(provenance[key]!)).sort(([a], [b]) => a.localeCompare(b)));
+  const localSources = Object.keys(privateEnv).some(key => /^(project|local) settings/.test(provenance[key]!)) || Object.values(privateHelpers).some(helper => /^(project|local) settings/.test(helper.source));
+  return { summary, launchEnv: { ...options.env }, ...(auth.error ? { readinessError: auth.error } : {}), identity: { contract: BILLING_CONTRACT, launchProfile: Object.fromEntries(["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "CLAUDE_CODE_HOST_AUTH_ENV_VAR", "ANTHROPIC_UNIX_SOCKET"].filter(key => options.env[key] !== undefined).map(key => [key, options.env[key]])), route, provider, sources: summary.sources, payer: route === "metered" ? auth.authMethod === "claude.ai" ? undefined : { orgId: auth.orgId, email: auth.email } : { orgId: auth.orgId, email: auth.email }, env: privateEnv, ...(!inventory.complete ? { inherited: Object.fromEntries(Object.entries(options.env).filter(([key]) => BILLING_KEYS.includes(key) && relevantContext(key))) } : {}), provenance: Object.fromEntries(Object.keys(privateEnv).map(k => [k, provenance[k]])), helpers: privateHelpers, ...(localSources ? { sourceDirectory: options.cwd } : {}) } };
+}

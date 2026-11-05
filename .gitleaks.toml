@@ -1,0 +1,29 @@
+# The candidate scan's gitleaks configuration (AC-REPO-07 of Kiln public release readiness).
+# gitleaks' default rules, with the known false positives allowed, so a clean scan reports
+# nothing:
+#
+#   gitleaks git --redact .    # every commit in the history
+#   gitleaks dir --redact .    # the files as they are now
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Claude message IDs recorded in proof fixtures and evidence (api_message_id), not credentials"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^msg_[A-Za-z0-9]{20,}$''']
+
+[[allowlists]]
+description = "Content hashes keyed by image and section names in the billing stakeholder review page"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+regexes = ['''(kiln-billing-api\.png|kiln-codex-billing-api\.png|claude-api|codex-api)":\s*"[0-9a-f]+"''']
+paths = ['''^docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-stakeholder-review\.html$''']
+
+[[allowlists]]
+description = "A phase document's file name following a repository name in a test's expected phase lines"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^phase-[0-9a-z-]+\.md$''']

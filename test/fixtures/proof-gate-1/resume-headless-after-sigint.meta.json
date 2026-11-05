@@ -1,0 +1,42 @@
+{
+  "command": [
+    "claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--resume",
+    "a52db58c-6d92-4d23-93e1-6264adbfd474",
+    "--model",
+    "claude-sonnet-5-5",
+    "--effort",
+    "low",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--forward-subagent-text",
+    "--permission-mode",
+    "auto",
+    "--permission-prompts",
+    "none"
+  ],
+  "cwd": "/tmp/kiln-gates/repo",
+  "startedAt": "2026-10-17T18:46:04.864Z",
+  "pid": 28918,
+  "init": {
+    "at": "2026-10-17T18:46:05.484Z",
+    "model": "claude-sonnet-5-5",
+    "session_id": "a52db58c-6d92-4d23-93e1-6264adbfd474",
+    "permissionMode": "auto",
+    "claude_code_version": "2.1.299"
+  },
+  "result": {
+    "at": "2026-10-17T18:46:07.440Z",
+    "subtype": "success",
+    "is_error": false,
+    "result": "HERON-7\n\n**Status:** Script not run → you interrupted the Bash call, so nothing was tested or changed.\n**Next step (Alex):** Tell me if you want `./slow-task.sh` run again; nothing else is pending, and no repo files changed."
+  },
+  "endedAt": "2026-10-17T18:46:08.051Z",
+  "exitCode": 0,
+  "signal": null
+}

@@ -1,0 +1,16 @@
+name: Feedback or question
+description: An idea, something confusing, or a question about using Kiln.
+labels: [question]
+body:
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your feedback or question
+      description: What you were trying to do, and what would have helped.
+    validations:
+      required: true
+  - type: input
+    id: kiln-version
+    attributes:
+      label: Kiln version (optional)
+      description: The output of `kiln --version`.

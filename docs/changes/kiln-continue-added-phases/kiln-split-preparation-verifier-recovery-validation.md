@@ -1,0 +1,41 @@
+# Kiln split preparation and verifier recovery validation
+
+**Scope:** Phase 8 of Kiln Continue Added Phases, completing AC-CONTINUE-07 with AC-HANDBACK-01/03, AC-OFFER-03 and AC-CONTINUE-08 applying.
+**Validation date:** 2026-10-30 UTC.
+**Gate state:** Complete. Full repository/package gates and final-build actual-provider proofs passed.
+
+## Preparation and ownership boundaries
+
+A preparation binding naming a split prerequisite covers its applicable descendant leaves. Source checks require each leaf's unchanged Closed scope; the parent needs no Closed marker. External and carried prerequisites retain separate accounting, repository, source and provenance requirements. Every required repository needs its valid tuple. Runtime pending-prerequisite exclusions and successful completion references use the same descendant relation. The source scope is reread after preparation handback before native checks, so a revised pending prerequisite cannot acquire completion evidence from a different pinned scope. An owning preparation phase may split; its existing conversation implements only the first descendant.
+
+Known environment, output, hook and synchronous/asynchronous spawn failures before a child launch retain a failed attempt with positive `launchFailure: not_launched` evidence. No PID is invented. Existing Verify still observes phase completion; explicit Resume recovers the same preparation conversation and submits again. An interrupted or unacknowledged launch intent has no such evidence and remains held. Uncertain durable writes still fault mutation ownership.
+
+Native release retries supported retained process observations through the existing inventory scanner. Inventory success cannot release a surviving exact PID/start owner, an unreadable identity or an unreconstructible legacy obstacle. Post-check checkpoint read failures and changed checkpoint IDs preserve unresolved process ownership independently of the source failure. The shared reconciliation predicate also holds older attempts incorrectly saved as failed: only positive no-launch evidence or the post-release end/output receipt exempts a failed attempt. Already reconciled interrupted attempts retain their established recovery semantics. Restart, Verify and Resume cannot bypass a retained hold or repeat checks before reconciliation. No unrelated process is signalled.
+
+## Boundary portfolio
+
+The expanded `preparation-execution.integration.test.ts` uses generated fictional Git repositories, local origins, authenticated HTTP, real native sandboxed project checks, OS PID/start identities and saved engine restart/recovery. It covers external/carried split prerequisites in two repositories with a secondary repository assigned only to the second leaf, both provider control modes, owning-phase splits, incomplete descendant scope, no-launch environment/output/hook/spawn failures, supported inventory/identity recovery, source/configuration checkpoint failures beside surviving native owners, and legacy/unknown ownership holds, including pre-fix failed labels. Separate native check cases spawn detached descendants and require the real scanner to retain their exact identities before the project check returns, then combine live ownership with both checkpoint read failure and ID movement. Narrow spies schedule otherwise difficult failure/timing boundaries; successful source integration and native process results remain real.
+
+The inherited preparation/readiness/continuation suites prove source/settings/authority movement, denied or unavailable permissions, failed and timed-out checks, forged provider claims, output integrity, journal/publication crash replay, pause/billing controls, one implementation admission in the same conversation and current whole-PRD audits/new delivery. These are part of the required final repository gate, rather than replaced by the new cases.
+
+## Actual providers
+
+The `split` scenario of `scripts/proof-run/preparation-provider-proof.mjs` extends the existing reconciliation proof with two closed prerequisite leaves under an unclosed parent. Both actual providers must integrate the pinned available source, append unfinished split work, submit typed references, settle the preparation-only turn, pass one independent native engine check and receive exactly one implementation turn in that conversation. Completion references must name both prerequisite leaves, never their parent. Acceptance replay must start no extra turn; earlier delivery remains intact. Only fictional disposable repositories and local origins are used. This proof stops at implementation admission; the full integration workflow owns normal completion, audits and delivery.
+
+Initial split proofs passed for Codex 0.162.1 / GPT 6.1 Sol high (conversation `01a18f05-ec4c-7dc0-9250-0e84aa005a54`) and Claude Code 2.1.311 / Opus high (conversation `f57566b0-0939-4bd8-b4a8-4dc2cc074a3e`). The first Claude diagnostic omitted the fixture's required plan append despite successful preparation/verification/admission. Making that fixture requirement explicit in its phase document produced the complete successful proof. Final-build repeats passed for Claude Code 2.1.311 / Opus high (conversation `ac1773ca-a81f-4c95-b7f6-bc294601746d`) and Codex 0.162.1 / GPT 6.1 Sol high (conversation `01a18f38-601a-7003-a067-98d7330359db`). Their logs are `/private/tmp/kiln-ph8-claude-final-proof.log` and `/private/tmp/kiln-ph8-codex-final-proof.log`; each generated root retains `proof-result.json`.
+
+## Review and repository gates
+
+Independent deliverable review found the retained pre-fix failed-attempt bypass and confirmed its shared-predicate repair; no finding remains. Independent test hardening requested distinct descendant repository scope and genuine native-scanner/checkpoint-intersection evidence. Both were added and independently confirmed adequate, with twenty passing focused executions beside the inherited portfolio. No business assumption changed.
+
+The final frozen `npm run verify` passed in 2042.38 seconds: dependency audit had zero blocking high/critical findings; lint and TypeScript/Svelte checks passed with zero errors/warnings; all 691 unit tests, 14 release checks and 18 Codex contract proofs passed. All 108 integration files passed (1,324 passing cases, three inherited/platform skips); integration took 2,014.93 seconds. `npm run test:package` then passed all eight installed-package cases in 30.55 seconds.
+
+All 527 source hashes and the 266 integration build hashes, membership and modification times stayed unchanged. Package prepack rebuilt only after integration, and source hashes still matched after both final provider proofs. The `/private/tmp/kiln-ph8-` prefix owns `verify.log`, `verify-result.json`, `test-package.log`, `test-package-result.json`, `source-freeze.json` and `build-freeze.json`.
+
+Earlier diagnostic failures exposed fixture Git-context/HTTP setup, repository command directories, repository declarations outside the required preamble and checkpoint movement scheduled after fingerprint capture. Those fixtures were corrected without weakening assertions or runtime gates. Diagnostic logs (`focused*`, `split-*`, `retained-recovery` and `hardened*` under the same prefix) retain their actual outcomes; only the final complete gates establish closure. No exploration script was retained; the existing provider-proof script gained the reusable split scenario.
+
+## Delivery and successor
+
+Authorized delivery is a normal safe fast-forward push `HEAD:develop` from the retained checkout and an attempted clean shared-checkout fast-forward. Shared-checkout divergence must preserve unrelated work rather than merging, resetting or publishing it. Never publish the worktree branch, reset, stash, rebase, delete or force-push. No main/release or production action is authorized.
+
+After this leaf closes and development-base publication completes, directly launch a fresh whole-PRD delivery audit. A clean delivery audit then launches whole-PRD test audit and any required completion/re-audit chain. One implementation leaf per chat; every successor uses GPT 6.1 Sol/high. Historical audit results do not establish current completion. Continuing user authorization and exact source references remain in the chat handoff; the next chat must carry them forward.

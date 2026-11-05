@@ -1,0 +1,1 @@
+Carry on opening {{pullRequests}} from where you stopped; check GitHub first, because {{pullRequests}} may already be open. Everything in the first message still applies.

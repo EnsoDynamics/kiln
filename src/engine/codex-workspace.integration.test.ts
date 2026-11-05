@@ -1,0 +1,38 @@
+// Confinement evidence no longer gates Codex. Required Git and runtime checks still apply.
+import { readFileSync, writeFileSync } from "node:fs";
+import { git } from "../test-support/git-repositories.js";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
+import { createHarness, type Harness } from "../test-support/engine-harness.js";
+import { historyFixture } from "../test-support/codex-history-fixture.js";
+import { writeSessionRecord } from "../state/records.js";
+import { buildSnapshot } from "./snapshot.js";
+let h: Harness;
+let f: ReturnType<typeof historyFixture>;
+afterEach(async () => { await h?.cleanup(); await f?.sandbox.cleanup(); });
+it.each(["unknown", "outside"])("does not request workspace acceptance for %s recorded work", async mode => {
+  h = await createHarness({ sessions: [{ actions: [] }] });
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+  f = historyFixture();
+  f.addThread("parent", { target: join(mode === "outside" ? f.outside : h.engine.worktreePath, "note.txt") });
+  if (mode === "unknown") f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "ordinary-wrapper", input: 'text("read" + 1);', internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
+  Object.assign(h.tools, { codex: f.options.executable }); h.env.KILN_CODEX_HISTORY_FIXTURE = f.options.env.KILN_CODEX_HISTORY_FIXTURE;
+  h.engine.record.settings.agentId = "codex";
+  const session = h.engine.latestSession("1")!; session.agentId = "codex"; session.conversation = { threadId: "parent", codexHome: f.codexHome }; writeSessionRecord(h.stateDirectory, session);
+  const phaseFile = "docs/prds/customer-returns/phase-1-return-intake.md";
+  const path = join(h.engine.worktreePath, phaseFile);
+  writeFileSync(path, readFileSync(path,"utf8").replace(/^(#.*)\n/,"$1\n**Closed:** 2026-10-31\n"));
+  git(h.sandbox,h.engine.worktreePath,"add",phaseFile);
+  git(h.sandbox,h.engine.worktreePath,"commit","-qm","test: complete Codex phase");
+  git(h.sandbox,h.engine.worktreePath,"push","-q","origin",h.engine.record.settings.featureBranch);
+  h.engine.record.pause.requestedAt = new Date().toISOString();
+  h.engine.record.phases["1"]!.stop!.checks.push({name:"Stayed in the workspace",passed:false,facts:["Old workspace-only failure"]});
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ outcome: "advanced" });
+  await h.engine.settled();
+  expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
+  expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.codexAudits).toBeUndefined();
+  expect(buildSnapshot(h.engine).feature.state).toBe("paused");
+  expect(h.engine.controlView().controls.some(c => c.name === "outside-confirmation")).toBe(false);
+});

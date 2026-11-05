@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kiln billing safeguards — screen mockups</title>
+<style>
+:root{color-scheme:dark;--bg:#12110e;--panel:#1b1a16;--field:#12110e;--text:#ede8dd;--muted:#bdb6a8;--dim:#8c8577;--red:#e2694f;--amber:#e6b450;--green:#9cc49a;--line:rgba(237,232,221,.12)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}a{color:inherit;text-underline-offset:4px}button,a,input{outline-offset:5px}button{cursor:pointer}button:disabled{cursor:default;opacity:.4}button{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--text);padding:10px 18px;min-height:44px}button.primary{background:var(--red);border-color:var(--red);color:#19110d;font-weight:650}button.link{border:0;padding:0;min-height:32px;text-decoration:underline;text-underline-offset:4px;color:var(--muted)}
+.review{background:#211f19;border-bottom:1px solid var(--line);padding:20px max(28px,calc((100vw - 1120px)/2));}.review strong{font-size:12px;text-transform:uppercase;letter-spacing:.13em}.review p{font-size:13px;color:var(--muted);margin:7px 0 15px}.scenarios{display:flex;flex-wrap:wrap;gap:8px}.scenarios a{font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:7px 10px}.scenarios a[aria-current=true]{background:var(--text);color:var(--bg)}.note{font-size:12px;color:var(--muted);margin-top:12px;min-height:19px}
+main{max-width:1120px;margin:auto;padding:36px 0 60px}.brand{color:var(--red);letter-spacing:.22em;font-size:16px;font-weight:750;margin-bottom:28px}.repo,.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}h1{font:42px/1.15 "Instrument Serif",Iowan Old Style,Georgia,serif;font-weight:400;margin:9px 0 14px}h2{font:27px/1.2 "Instrument Serif",Iowan Old Style,Georgia,serif;font-weight:400;margin:0 0 20px}h3{font-size:15px;margin:0 0 6px}.subtitle{display:flex;align-items:center;gap:13px;color:var(--muted);font-size:14px;margin-bottom:28px}.pill{display:inline-block;padding:3px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:12px;white-space:nowrap}.pill.amber{color:var(--amber);border-color:#e6b45055}.columns{display:grid;grid-template-columns:1fr 1.18fr;gap:24px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px}.docs{list-style:none;padding:0;margin:0}.docs li{display:flex;gap:12px;border-bottom:1px solid var(--line);padding:17px 0}.docs li:first-child{padding-top:0}.docs li:last-child{border-bottom:0}.check{color:var(--green)}.small{font-size:12px;color:var(--muted)}.muted{color:var(--muted)}.dim{color:var(--dim)}.mono,code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;font-size:12px;overflow-wrap:anywhere}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:17px 0}.field-label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}.field{background:var(--field);border:1px solid var(--line);padding:9px 12px;border-radius:7px}.account{font-size:13px;color:var(--muted);margin:4px 0 16px}.billing{border:1px solid var(--line);border-radius:12px;background:var(--field);padding:18px;margin:18px 0}.billing.amber{border-color:#e6b45066}.billing .eyebrow{margin-bottom:6px}.billing-title{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:8px}.billing p{margin:8px 0;font-size:13px}.billing .source{color:var(--muted);font-size:12px}.notice{margin-top:13px;padding-top:12px;border-top:1px solid var(--line);color:var(--amber);font-size:13px}.notice a{display:inline-block;margin-top:5px}.choice{display:flex;align-items:start;gap:10px;font-size:13px;margin:16px 0 2px}.choice input{width:17px;height:17px;accent-color:var(--red);margin:2px 0 0;flex-shrink:0}.approved{color:var(--green);font-size:12px}.divider{border-top:1px solid var(--line);margin:22px 0 16px}.foot{margin-top:20px;display:flex;gap:12px;align-items:center}.reason{font-size:12px;color:var(--amber);margin-top:10px}.banner{border:1px solid #e6b45066;border-radius:10px;padding:14px 18px;color:var(--amber);font-size:13px;margin:0 0 22px}.usage-meters{display:grid;gap:14px;margin:18px 0}.limit-head{display:flex;justify-content:space-between;font-size:14px}.meter{height:6px;background:var(--line);border-radius:999px;margin:6px 0}.fill{height:100%;background:var(--muted);border-radius:999px}.billing details{font-size:12px;color:var(--muted);margin:12px 0}.billing summary{cursor:pointer}.transcript{background:#0d0c0a;border:1px solid var(--line);border-radius:10px;padding:18px;font:13px/1.8 ui-monospace,monospace;color:var(--muted);margin-top:20px}.launch-route{font-size:12px;color:var(--muted);padding-bottom:13px;margin-bottom:13px;border-bottom:1px solid var(--line)}[hidden]{display:none!important}.review-footer{max-width:1120px;margin:0 auto 30px;color:var(--dim);font-size:12px}
+@media(max-width:1180px){main,.review-footer{margin-left:28px;margin-right:28px}}@media(max-width:760px){.columns{grid-template-columns:1fr}h1{font-size:34px}.subtitle{align-items:start}.panel{padding:20px}}
+</style>
+</head>
+<body>
+<aside class="review" aria-label="Mockup review controls">
+  <strong>Design reference · Billing safeguards</strong>
+  <p>Kiln v1 is the example PRD being run. Account values are illustrative. Existing delivery controls are abbreviated; this navigation is not part of Kiln.</p>
+  <nav class="scenarios" aria-label="Screen states"></nav>
+  <div class="note" id="scenario-note"></div>
+</aside>
+<main>
+  <div class="brand">KILN</div>
+  <div class="repo">kiln / kiln-v1</div>
+  <h1>Kiln v1</h1>
+  <div class="subtitle"><span class="pill" id="status">Not started</span><span id="intro">Review what Kiln found and how it will deliver, then start.</span></div>
+  <div id="disconnected" class="banner" hidden>Disconnected from Kiln. Billing information is last known. Reconnect to review billing or resume work.</div>
+  <div class="columns">
+    <section class="panel" id="context-panel">
+      <h2 id="context-heading">What Kiln found</h2>
+      <div id="documents">
+        <ul class="docs">
+          <li><span class="check">✓</span><div><strong>PRD</strong><div class="small mono">kiln-v1-prd.md</div></div></li>
+          <li><span class="check">✓</span><div><strong>Technical design</strong><div class="small">Delivery requirements are ready.</div></div></li>
+          <li><span class="check">✓</span><div><strong>Assumptions</strong><div class="small">Business decisions reviewed.</div></div></li>
+          <li><span class="check">✓</span><div><strong>Workspace</strong><div class="small mono">kiln</div></div></li>
+        </ul>
+        <div class="divider"></div><p class="small">Kiln uses the agent installed on your computer. Sign-in and account settings stay with that agent.</p>
+      </div>
+      <div id="progress-details" hidden>
+        <span class="eyebrow">Current work</span><h3 style="margin-top:8px">Current phase</h3>
+        <p class="small" id="progress-text">Work in progress. Completed work is saved.</p>
+        <div class="transcript" id="transcript">Session history is available.<br>Working through the current phase…</div>
+        <p class="small" id="boundary">Billing was checked when this session launched. Changes to Claude's settings are checked before the next launch.</p>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="settings-heading">
+      <h2 id="settings-heading">How Kiln will deliver it</h2>
+      <div class="fields"><div><span class="field-label">Agent</span><div class="field">Claude Code</div></div><div><span class="field-label">Model</span><div class="field">Claude default</div></div></div>
+      <div class="account" id="identity">sample@example.com · Claude subscription</div>
+      <div class="small" id="usage-summary">5-hour window: 42% · Weekly: 18% · Weekly · Fable: 9%</div>
+      <div class="usage-meters" id="usage-meters" hidden>
+        <div><div class="limit-head"><span>5-hour window</span><span>42%</span></div><div class="meter" role="meter" aria-label="5-hour window used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42"><div class="fill" style="width:42%"></div></div><span class="small">Resets in 2h 10m</span></div>
+        <div><div class="limit-head"><span>Weekly</span><span>18%</span></div><div class="meter" role="meter" aria-label="Weekly used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="18"><div class="fill" style="width:18%"></div></div><span class="small">Resets in 4d 6h</span></div>
+        <div><div class="limit-head"><span>Weekly · Fable</span><span>9%</span></div><div class="meter" role="meter" aria-label="Weekly Fable used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="9"><div class="fill" style="width:9%"></div></div><span class="small">Resets in 4d 6h</span></div>
+      </div>
+      <div class="billing" id="billing">
+        <div class="eyebrow" id="billing-label">Billing for the next run</div>
+        <div class="launch-route" id="prior-route" hidden>Previous run: Claude subscription</div>
+        <div class="billing-title"><span id="billing-title"></span><span class="pill" id="billing-pill"></span></div>
+        <p id="billing-account" hidden>Account: sample@example.com</p>
+        <p id="billing-description"></p><p class="source" id="billing-source" hidden></p>
+        <div class="notice" id="overflow" hidden>Paid usage is enabled in your Claude account. Your account's spending limits apply.<br><a href="https://claude.ai/settings/usage" target="_blank" rel="noreferrer">Open Claude usage settings ↗</a></div>
+        <details id="billing-details" hidden><summary>Billing details</summary><p>Claude Code reports a working sign-in, but additional billing details are unavailable. No API or provider override was detected. You can start normally.</p><a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noreferrer">About Claude Code settings ↗</a></details>
+        <p id="fix" hidden></p>
+        <label class="choice" id="approval-choice" hidden><input type="checkbox" id="approval"><span id="approval-label">Use API billing for this PRD</span></label>
+        <p class="small" id="approval-scope" hidden>Applies to this PRD execution, including restarts, while the billing context stays the same.</p>
+        <p class="approved" id="approved-note" hidden>API billing approved for this PRD.</p>
+        <button type="button" class="link" id="recheck">Recheck billing</button>
+      </div>
+      <div id="delivery-options">
+        <span class="field-label">Effort</span><div class="field">High</div>
+        <label class="choice"><input type="checkbox" checked disabled><span>Keep this computer awake while Kiln works</span></label>
+        <label class="choice"><input type="checkbox" checked disabled><span>Resume after a usage limit</span></label>
+        <div class="divider"></div><p class="small">Kiln may commit and push to this feature branch and open a pull request. Existing delivery permissions still apply.</p>
+        <label class="choice"><input type="checkbox" checked disabled><span>I have reviewed and refined these requirements.</span></label>
+      </div>
+      <div class="foot"><button type="button" class="primary" id="action">Start</button><button type="button" id="secondary" hidden>Check again</button></div>
+      <div class="reason" id="reason" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+<div class="review-footer">Mockup only — controls never launch an agent, change credentials, or approve real spending. <a href="../kiln-billing-safeguards-prd.md">Read the PRD</a></div>
+<script>
+const states={
+  subscription:{name:'Subscription ready',note:'Normal subscription use, including when overflow is not reported. AC-BILL-01–03.',title:'Claude subscription',pill:'Ready',description:'Billing follows your Claude account settings.',subscription:true},
+  overflow:{name:'Paid overflow enabled',note:'Known account setting; informational notice, no additional approval. AC-BILL-02–03.',title:'Claude subscription',pill:'Ready',description:'Billing follows your Claude account settings.',subscription:true,overflow:true},
+  api:{name:'API approval required',note:'An inherited API key requires a deliberate choice. AC-BILL-04–06.',title:'Anthropic API',pill:'Approval needed',description:'Charged separately from Claude subscription usage. Anthropic billing settings apply.',metered:true},
+  provider:{name:'Provider override',note:'Detected custom routing, provider name unavailable; existing compatibility checks assumed passed. AC-BILL-04.',title:'Configured provider',pill:'Approval needed',description:'This provider may bill separately from your Claude subscription.',metered:true,custom:true},
+  approved:{name:'API approved',note:'Approval stays specific to this execution; untick to clear it before a run. AC-BILL-04–05.',title:'Anthropic API',pill:'Approved',description:'Charged separately from Claude subscription usage. Anthropic billing settings apply.',metered:true,approved:true},
+  unknown:{name:'Details unavailable',note:'Working sign-in, no detected override: no warning or approval. Proposed BILLING-002; AC-BILL-02.',title:'Claude Code settings',pill:'',description:'Billing follows your Claude Code settings.',unknown:true},
+  checking:{name:'Checking',note:'No AI work starts while fresh billing information is pending. AC-RUN-01.',title:'Checking Claude settings…',pill:'Checking',description:'Reading Claude’s current authentication and workspace settings.',checking:true},
+  changed:{name:'Changed at resume',note:'New API override holds the next launch; existing work remains available. AC-BILL-05, AC-RUN-02–03.',title:'Anthropic API',pill:'Approval needed',description:'Charged separately from Claude subscription usage. Anthropic billing settings apply.',metered:true,resume:true},
+  running:{name:'Running · subscription',note:'Existing account usage gauges retained; no new progress bar. AC-BILL-07, AC-RUN-05.',title:'Claude subscription',pill:'',description:'Billing follows your Claude account settings.',subscription:true,running:true},
+  signedout:{name:'Sign-in required',note:'Actual authentication failure has a specific fix; billing metadata is a separate concern. AC-BILL-02.',title:'Sign in to Claude Code',pill:'Sign-in required',description:'Claude Code is not signed in.',signedout:true},
+  'running-api':{name:'Running · API',note:'Billing used to launch this session is distinguished from the next launch. AC-RUN-04–05.',title:'Anthropic API',pill:'Approved',description:'Charged separately from Claude subscription usage. Anthropic billing settings apply.',metered:true,approved:true,running:true},
+  disconnected:{name:'Disconnected',note:'Last-known billing information cannot authorize new work. AC-RUN-05.',title:'Anthropic API',pill:'Last known',description:'Charged separately from Claude subscription usage. Anthropic billing settings apply.',metered:true,approved:true,running:true,disconnected:true}
+};
+const $=id=>document.getElementById(id);
+let current;
+document.querySelector('.scenarios').innerHTML=Object.entries(states).map(([id,s])=>`<a href="#${id}" data-state="${id}">${s.name}</a>`).join('');
+function show(id,visible){$(id).hidden=!visible}
+function render(){
+  const key=location.hash.slice(1)||'subscription'; current=states[key]||states.subscription;
+  const s=current;
+  document.querySelectorAll('[data-state]').forEach(a=>a.setAttribute('aria-current',String(a.dataset.state===key)));
+  $('scenario-note').textContent=s.note;
+  $('status').textContent=s.disconnected?'Disconnected':s.running?'Running':s.resume?'Needs you':'Not started';
+  $('status').className='pill'+(s.resume?' amber':'');
+  $('intro').textContent=s.disconnected?'The connection was lost; showing the last known state.':s.running?'Kiln is working through the delivery plan.':s.resume?'Billing changed. Review it before resuming AI work.':'Review what Kiln found and how it will deliver, then start.';
+  show('disconnected',s.disconnected);show('documents',!s.running&&!s.resume);show('progress-details',s.running||s.resume);
+  $('context-heading').textContent=s.running?'Work in progress':s.resume?'Your work is saved':'What Kiln found';
+  $('progress-text').textContent=s.resume?'The next AI launch is held. Completed work and the recorded session are preserved.':'Work in progress. Completed work is saved.';
+  $('transcript').textContent=s.resume?'Session history is available.\nNo new AI work has started.':'Session history is available.\nWorking through the current phase…';
+  $('settings-heading').textContent=s.running?'Claude account':s.resume?'Review billing and resume':'How Kiln will deliver it';
+  $('identity').textContent=s.custom?'Provider account identity unavailable':s.metered?'API payer identity unavailable':s.unknown?'sample@example.com · Signed in':s.signedout?'Not signed in':s.checking?'Reading account settings…':'sample@example.com · Claude subscription';
+  show('usage-summary',!s.running&&!s.metered&&!s.checking&&!s.signedout);show('usage-meters',s.running&&!s.metered);
+  $('billing-label').textContent=s.disconnected?'Last known billing for this session':s.running?'Billing used to launch this session':'Billing for the next run';
+  show('prior-route',s.resume);
+  show('billing-account',s.subscription);show('identity',!s.subscription);
+  $('billing-title').textContent=s.title;$('billing-pill').textContent=s.pill;show('billing-pill',Boolean(s.pill));$('billing-description').textContent=s.description;
+  $('billing').className='billing'+(s.signedout||s.metered&&!s.approved?' amber':'');
+  show('billing-source',s.metered);$('billing-source').innerHTML=s.custom?'Source: <code>ANTHROPIC_BASE_URL</code> in Kiln’s environment':'Source: <code>ANTHROPIC_API_KEY</code> in Kiln’s environment';
+  $('approval-label').textContent=s.custom?'Use the configured provider for this PRD':'Use API billing for this PRD';
+  $('approved-note').textContent=s.custom?'Configured provider approved for this PRD.':'API billing approved for this PRD.';
+  show('overflow',s.overflow);show('billing-details',s.unknown);$('billing-details').open=false;show('fix',s.signedout||s.metered&&!s.running);
+  $('fix').textContent=s.signedout?'Run claude auth login in a terminal, then recheck.': 'To use your subscription instead, remove this override from the environment used to launch Kiln, restart Kiln, and recheck billing.';
+  show('approval-choice',s.metered&&!s.running);show('approval-scope',s.metered);show('approved-note',s.approved);
+  $('approval').checked=Boolean(s.approved);$('approval').disabled=Boolean(s.disconnected);
+  show('recheck',!s.running);$('recheck').disabled=Boolean(s.checking);
+  show('delivery-options',!s.running&&!s.resume);show('secondary',s.resume);$('secondary').disabled=false;
+  $('action').textContent=s.running?'Pause after this phase':s.resume?'Resume':'Start';
+  $('action').disabled=Boolean(s.disconnected||s.signedout||s.checking||s.metered&&!s.approved);
+  $('reason').textContent=s.checking?'Waiting for Claude settings.':s.signedout?'Sign in, then recheck before starting.':s.metered&&!s.approved?'Review and approve this billing setup, or change the override and recheck.':'';
+  document.body.dataset.state=key;
+}
+$('approval').addEventListener('change',()=>{
+  const approved=$('approval').checked;
+  $('action').disabled=!approved;$('billing-pill').textContent=approved?'Approved':'Approval needed';
+  show('approved-note',approved);$('billing').className=approved?'billing':'billing amber';
+  $('reason').textContent=approved?'':'Review and approve this billing setup, or change the override and recheck.';
+});
+$('recheck').addEventListener('click',()=>{$('reason').textContent='Mockup: a real recheck refreshes billing without launching AI work.'});
+$('action').addEventListener('click',()=>{$('reason').textContent='Mockup only — no work was launched or paused.'});
+$('secondary').addEventListener('click',()=>{$('reason').textContent='Mockup: local completion checks remain available; AI work still requires billing approval.'});
+window.addEventListener('hashchange',render);render();
+</script>
+</body>
+</html>

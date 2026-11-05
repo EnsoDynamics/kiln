@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "boundary": "Actual installed provider sessions through packaged audit CLI, authenticated local HTTP, disposable local bare Git origins. No external remote writes.",
+  "packageDistDigest": "728c831f7e8434a92a6158a31578d0c5be8fe72b5f17be1f0523044e4014f9ae",
+  "providers": [
+    {
+      "provider": "claude",
+      "version": "2.1.307",
+      "privateArtifactRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-completion-claude-62eKEM",
+      "sessionId": "9b931edb-be03-45a1-935e-b2e04d2cbe61",
+      "conversationId": "9b931edb-be03-45a1-935e-b2e04d2cbe61",
+      "startedAt": "2026-10-24T21:38:46.887Z",
+      "endedAt": "2026-10-24T21:39:46.417Z",
+      "activityId": "94b311fe-d19b-46c7-897d-4a49800e7f40",
+      "reportDigest": "6f01f5b6ee71c270fe0f67b4305ee500004e89d22e59f8593ef45b635528ed44",
+      "disposition": "recorded",
+      "nextAction": "test_audit",
+      "checks": [
+        {
+          "name": "Audit result recorded",
+          "passed": true,
+          "facts": [
+            "All manifest criteria and observed evidence references checked."
+          ]
+        },
+        {
+          "name": "Everything committed",
+          "passed": true,
+          "facts": [
+            "Every assigned worktree is clean."
+          ]
+        },
+        {
+          "name": "Pushed",
+          "passed": true,
+          "facts": [
+            "Every assigned head matches origin."
+          ]
+        },
+        {
+          "name": "Stayed in the workspace",
+          "passed": true,
+          "facts": [
+            "Assigned provider histories were reconciled."
+          ]
+        }
+      ],
+      "portableReport": {
+        "schemaVersion": 1,
+        "executionId": "04c32df5-5fd7-45f9-941a-4fa3f9c078dd",
+        "activityId": "94b311fe-d19b-46c7-897d-4a49800e7f40",
+        "kind": "delivery_audit",
+        "round": 1,
+        "continuationIndex": 1,
+        "scope": {
+          "repository": "audit-proof",
+          "path": "docs/prds/audit-proof/audit-proof-prd.md",
+          "kind": "whole_prd",
+          "manifestId": "0f181505bf93227fba4e9b3e47b7e7041d42b8a53ed5ea8216119d4a47e63500",
+          "criterionKeys": [
+            "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01"
+          ]
+        },
+        "checkedSnapshotId": "4d093b06beddd675111bb59b0f73a696905b7fa7ed0d0c8968ae92d4eff213eb",
+        "criteria": [
+          {
+            "criterionKey": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+            "parts": [
+              {
+                "id": "value",
+                "quote": "- [ ] **AC-PROOF-01 \u2014 Export the value.** The exported value function in value.mjs returns 42 when called.",
+                "startLine": 4,
+                "endLine": 5,
+                "applicability": "current",
+                "code": [
+                  {
+                    "repository": "audit-proof",
+                    "path": "value.mjs",
+                    "blob": "cd5af2fc402d46df1192443eed9c5a18b990c513"
+                  }
+                ],
+                "tests": []
+              }
+            ],
+            "assessmentEvidenceIds": [
+              "e597b702cebf6eb7ab34e5068db60506a6f4266676feab484cdc68ea4c963646"
+            ],
+            "findings": [],
+            "blockerIds": [],
+            "deliveryStatus": "implemented"
+          }
+        ],
+        "methodEvidence": {
+          "skillEvidenceId": "45d90e4c0ce6fd3a97abd3c4c43d54053c88840544c76fe6e5ce21d317335944",
+          "assessmentEvidenceIds": [
+            "e597b702cebf6eb7ab34e5068db60506a6f4266676feab484cdc68ea4c963646"
+          ],
+          "reviewEvidenceIds": [
+            "346e26890b37a8622a4291ff5dec40f55af76df5a930cece962bd695cdbb107c"
+          ]
+        },
+        "completionPhases": [],
+        "pendingHumanActions": [],
+        "blockers": [],
+        "outcome": "passed"
+      }
+    },
+    {
+      "provider": "codex",
+      "version": "0.162.1",
+      "privateArtifactRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-completion-codex-iua1f2",
+      "sessionId": "86953686-5d4f-44fd-bdf4-48c15124e804",
+      "conversationId": "01a16fda-1e82-7f12-b166-86c723e96c63",
+      "startedAt": "2026-10-24T21:38:47.747Z",
+      "endedAt": "2026-10-24T21:40:11.502Z",
+      "activityId": "11655328-9336-45d4-ab08-68913e72b780",
+      "reportDigest": "16a8b24b4a4659eab28b4e4eff148e6cbbe7a5315529c4dbc8cf964fd9543697",
+      "disposition": "recorded",
+      "nextAction": "test_audit",
+      "checks": [
+        {
+          "name": "Audit result recorded",
+          "passed": true,
+          "facts": [
+            "All manifest criteria and observed evidence references checked."
+          ]
+        },
+        {
+          "name": "Everything committed",
+          "passed": true,
+          "facts": [
+            "Every assigned worktree is clean."
+          ]
+        },
+        {
+          "name": "Pushed",
+          "passed": true,
+          "facts": [
+            "Every assigned head matches origin."
+          ]
+        },
+        {
+          "name": "Stayed in the workspace",
+          "passed": true,
+          "facts": [
+            "Assigned provider histories were reconciled."
+          ]
+        }
+      ],
+      "portableReport": {
+        "schemaVersion": 1,
+        "executionId": "8c396ce9-486d-4214-94c2-14eeaf7f0dc7",
+        "activityId": "11655328-9336-45d4-ab08-68913e72b780",
+        "kind": "delivery_audit",
+        "round": 1,
+        "continuationIndex": 1,
+        "scope": {
+          "repository": "audit-proof",
+          "path": "docs/prds/audit-proof/audit-proof-prd.md",
+          "kind": "whole_prd",
+          "manifestId": "0f181505bf93227fba4e9b3e47b7e7041d42b8a53ed5ea8216119d4a47e63500",
+          "criterionKeys": [
+            "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01"
+          ]
+        },
+        "checkedSnapshotId": "71beeccf6c5d8c0e177c4057ea21cbf158967ab7fcd733d4d1af208554f4ba6e",
+        "criteria": [
+          {
+            "criterionKey": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+            "parts": [
+              {
+                "id": "value",
+                "quote": "- [ ] **AC-PROOF-01 \u2014 Export the value.** The exported value function in value.mjs returns 42 when called.",
+                "startLine": 4,
+                "endLine": 5,
+                "applicability": "current",
+                "code": [
+                  {
+                    "repository": "audit-proof",
+                    "path": "value.mjs",
+                    "blob": "cd5af2fc402d46df1192443eed9c5a18b990c513"
+                  }
+                ],
+                "tests": []
+              }
+            ],
+            "assessmentEvidenceIds": [
+              "0e17d2b32ee9aaa8c62ac105b757a949eac5593290d5f66efb123d9846ff1730"
+            ],
+            "findings": [],
+            "blockerIds": [],
+            "deliveryStatus": "implemented"
+          }
+        ],
+        "methodEvidence": {
+          "skillEvidenceId": "135ad2fe3959fea103c843f779ad0125cf4c06c223bc2d740b2ceff81b3cee3a",
+          "assessmentEvidenceIds": [
+            "0e17d2b32ee9aaa8c62ac105b757a949eac5593290d5f66efb123d9846ff1730"
+          ],
+          "reviewEvidenceIds": [
+            "85d19f0922bd32603b5489908275de57978b707696a9258e6bf3cdd7b006cb2f"
+          ]
+        },
+        "completionPhases": [],
+        "pendingHumanActions": [],
+        "blockers": [],
+        "outcome": "passed"
+      }
+    }
+  ]
+}

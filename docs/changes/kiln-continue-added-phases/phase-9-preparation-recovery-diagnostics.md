@@ -1,0 +1,43 @@
+# Phase 9: Preparation recovery diagnostics — cancelled
+
+**Cancelled:** 2026-10-31 UTC by Doug in chat `01a18fba-5b8a-7642-8124-37692cfad927`. Retained as a known limitation and reproduction record only. No implementation, successor or audit is planned.
+
+**Added by test audit:** 2026-10-31, after all original and completion leaves through Phase 8 closed. This completes an existing diagnostic requirement; it adds no new preparation grammar or authority.
+**Parent PRD:** [Kiln Continue Added Phases](kiln-continue-added-phases-prd.md)
+**Technical design:** [Whole-change design](kiln-continue-added-phases-technical-design.md) — Readiness and Planned Preparation: Preparation document contract, Preparation authority and Verification of the prepared work.
+
+## Historical proposed scope
+
+The cancelled proposal would give the writing session a usable preparation correction that retains known facts and identifies facts still missing, while keeping malformed or contradictory instructions blocked.
+
+## Acceptance criteria covered
+
+AC-CONTINUE-07 (completes it; owned by phase 3b). AC-CONTINUE-08 also applies to this work.
+
+## What the audit found missing
+
+- **AC-CONTINUE-07:** `src/engine/preparation-documents.ts::extractPreparation` retains exact error spans and reconcile/commit/recheck recovery, but opening, operand and repository errors discard known source/revision/repository/destination facts in favor of literal `source`, `revision`, `name` and `Phase 8` examples. Dependency, contradictory-destination, unsupported-subordinate and several verification errors omit a replacement example entirely. Unsupported verification prints a fixed example without preserving valid known check facts. The design's Preparation document contract explicitly requires a replacement example using known values. This requirement and the defective messages both landed in `312bca3`; code/history review and an independent requirements reader found no later supersession or intentional exception.
+
+## Phase dependencies
+
+3b (preparation lifecycle and collected extraction tests); 8 (current preparation/verifier behavior).
+
+## Reproduction and proof boundary
+
+The test audit created `src/engine/preparation-recovery-documents.test.ts` temporarily. Its parameterized test name was `retains known preparation facts in $name recovery without accepting the instruction`, with names `malformed opening`, `unsupported operands`, `missing revision`, `missing source`, `ambiguous repository` and `unknown repository`. All six failed their exact recovery-diagnostic assertion in two runs against unchanged `feb514a` implementation; every case still produced an empty instruction array. Logs: `/private/tmp/kiln-recovery-diagnostics-red.log` and `/private/tmp/kiln-recovery-diagnostics-confirmed-red.log`. Per test-audit's delivery-gap rule, neither the failing file nor the exploratory formatter remains in the repository. A local copy is `/private/tmp/kiln-preparation-recovery-documents-failing.test.ts`; the description below is sufficient to recreate the proof without it.
+
+Use `planSourceFromDocuments` with `docs/catalog/phase-9-lending.md`, a parsed dependency `8.`, a Closed Phase 8, and ordinary notes beginning at line 10. The valid imperative is:
+
+```text
+First step: merge Phase 8. Merge the local branch `wt/catalog-access` at `1234567` into this phase's branch before building.
+
+Verify before building: run `npm test`.
+```
+
+Vary the opening from `merge` to `integrate`; add unsupported `and push` before `before building`; omit `at` and its revision; omit the source branch value; supply affected repositories `comet` and `lending-api` without naming one; and name `unknown-api` instead. Assert refusal, exact `docs/catalog/phase-9-lending.md:10–10`, retained known branch/revision/destination in the correction, explicit unresolved facts, and reconcile/commit/recheck recovery. Derive the final wording from the requirements; the temporary test's sentence formatting is not a new product requirement.
+
+The original proposal also covered the common extraction error paths: parsed-dependency mismatch, linked destination contradiction, unsupported subordinate instructions and malformed/missing verification. These remain documented limitations. No parser recognition, rejection, source/permission guard or provider profile was changed by the audit.
+
+## Final disposition
+
+Doug directed the agent to stop audits and phases, retain worthwhile gaps, publish the scoped work to develop and install locally. See the exact quote and remaining evidence in the [canonical test-audit record](kiln-continue-added-phases-test-audit.md#user-directed-closeout). This phase was cancelled, not implemented. No fresh delivery audit, test regrade or successor launch is owed.

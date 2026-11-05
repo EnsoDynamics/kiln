@@ -1,0 +1,155 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<div id="kiln-terminal">
+  <div class="kt-demo"><span>Design preview · sample session</span><button type="button" class="kt-simulate">Simulate new activity ＋</button></div>
+  <div class="kt-product">
+    <header class="kt-chrome"><button type="button" class="kt-brand">kiln<span>.</span></button><span class="kt-connected">● <span>Connected to Kiln</span></span></header>
+    <main class="kt-main">
+      <div class="kt-breadcrumb"><button class="kt-back" type="button">← All phases</button><span class="kt-repo">pricing</span><span class="kt-slash">/</span><span>Competitive pricing private label</span></div>
+      <section class="kt-detail">
+        <div class="kt-title"><span class="kt-number">1</span><h1>Saved research and comparison review</h1><span class="kt-status">◌ Implementing</span></div>
+        <div class="kt-meta">Phase 1 of 5 · Claude Code · Opus 5.5 · Started 2:40 PM EDT · 3h 58m</div>
+        <div class="kt-steps" aria-label="Implementation progress"><span>✓ Build</span><span>✓ Review</span><span>✓ Test hardening</span><span>✓ Commit</span><strong>◌ Refactor pass</strong><span class="kt-pending">Push</span></div>
+        <section class="kt-terminal" aria-label="Terminal-style live activity">
+          <header class="kt-toolbar"><span>Session output <span class="kt-live">● LIVE</span></span><div class="kt-view-options"><label><input type="checkbox" class="kt-times"> Timestamps</label><span class="kt-count">Latest 100 of <span class="kt-total">727</span> entries</span></div></header>
+          <div class="kt-scroll" role="region" aria-label="Recent terminal output" tabindex="0"></div>
+          <footer class="kt-footer"><span class="kt-follow">↓ Following latest</span><button class="kt-jump" type="button" hidden>Jump to latest ↓</button><span class="kt-last">Read-only live view</span></footer>
+        </section>
+        <div class="kt-bottom"><details><summary>Session details</summary><p>Claude Code · Opus 5.5 · high effort<br>Repository: pricing · Feature commit: 66aa6173</p></details><button class="kt-pause" type="button">Ⅱ Pause after this phase</button></div>
+      </section>
+      <section class="kt-overview" hidden><h1>Competitive pricing private label</h1><p>0 of 5 phases done</p><button type="button" class="kt-phase-link"><span class="kt-number">1</span> Saved research and comparison review <span class="kt-status">◌ Implementing →</span></button></section>
+    </main>
+  </div>
+</div>
+<style>
+#kiln-terminal { --kt-bg:#12110e; --kt-deep:#0d0c0a; --kt-text:#ede8dd; --kt-muted:#bdb6a8; --kt-dim:#999184; --kt-line:#353128; --kt-orange:#e2694f; --kt-green:#9cc49a; --kt-amber:#e6b450; font:13px/1.5 Inter,-apple-system,sans-serif; color:var(--kt-text); }
+#kiln-terminal * { box-sizing:border-box; }
+#kiln-terminal [hidden] { display:none!important; }
+#kiln-terminal button { font:inherit; cursor:pointer; }
+#kiln-terminal button:focus-visible,#kiln-terminal summary:focus-visible,#kiln-terminal .kt-scroll:focus-visible { outline:2px solid var(--kt-orange); outline-offset:3px; }
+#kiln-terminal .kt-demo { background:#25231d; color:var(--kt-muted); padding:8px 16px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; font-size:12px; }
+#kiln-terminal .kt-demo button { color:var(--kt-text); background:transparent; border:1px solid #625b4e; border-radius:6px; padding:4px 10px; font-size:12px; }
+#kiln-terminal .kt-product { background:var(--kt-bg); }
+#kiln-terminal .kt-chrome { padding:10px 25px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--kt-line); }
+#kiln-terminal .kt-brand { font:30px/1 'Instrument Serif',Georgia,serif; color:var(--kt-text); background:none; border:0; padding:0; }
+#kiln-terminal .kt-brand span { color:var(--kt-orange); }
+#kiln-terminal .kt-connected { color:var(--kt-green); font-size:11px; padding-right:70px; }
+#kiln-terminal .kt-connected span { color:var(--kt-muted); margin-left:6px; }
+#kiln-terminal .kt-main { max-width:1150px; margin:auto; padding:18px 25px 20px; }
+#kiln-terminal .kt-breadcrumb { display:flex; flex-wrap:wrap; align-items:center; gap:10px; color:var(--kt-muted); font-size:12px; margin-bottom:17px; }
+#kiln-terminal .kt-back { padding:5px 9px; border:1px solid var(--kt-line); border-radius:5px; background:transparent; color:var(--kt-text); margin-right:6px; }
+#kiln-terminal .kt-back:hover { background:#27231c; }
+#kiln-terminal .kt-repo { font-family:'JetBrains Mono',monospace; }
+#kiln-terminal .kt-slash { color:var(--kt-dim); }
+#kiln-terminal .kt-title { display:flex; flex-wrap:wrap; align-items:center; gap:11px; }
+#kiln-terminal h1 { margin:0; color:var(--kt-text); font:30px/1.15 'Instrument Serif',Georgia,serif; flex:1; }
+#kiln-terminal .kt-number { display:inline-flex; align-items:center; justify-content:center; flex:none; width:26px; height:26px; border-radius:50%; background:var(--kt-orange); color:var(--kt-bg); font-weight:500; }
+#kiln-terminal .kt-status { color:var(--kt-orange); font-size:12px; white-space:nowrap; }
+#kiln-terminal .kt-meta { color:var(--kt-dim); font-size:11px; margin:7px 0 13px 37px; }
+#kiln-terminal .kt-steps { display:flex; flex-wrap:wrap; gap:6px 18px; color:var(--kt-muted); font-size:11px; margin:0 0 14px; }
+#kiln-terminal .kt-steps strong { font-weight:500; color:var(--kt-orange); }
+#kiln-terminal .kt-pending { color:var(--kt-dim); }
+#kiln-terminal .kt-terminal { background:var(--kt-deep); border:1px solid var(--kt-line); border-radius:7px; overflow:hidden; }
+#kiln-terminal .kt-toolbar { padding:8px 13px; border-bottom:1px solid var(--kt-line); display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; font-size:12px; }
+#kiln-terminal .kt-live { margin-left:10px; color:var(--kt-green); font-size:11px; }
+#kiln-terminal .kt-count { color:var(--kt-dim); font-size:11px; }
+#kiln-terminal .kt-scroll { height:400px; overflow-y:auto; overscroll-behavior:contain; overflow-anchor:none; scrollbar-color:#655d4f var(--kt-deep); padding:14px 18px; font:12px/1.65 'JetBrains Mono','SF Mono',monospace; }
+#kiln-terminal .kt-row { display:grid; grid-template-columns:12px minmax(0,1fr); gap:8px; align-items:baseline; padding:0; margin-top:10px; }
+#kiln-terminal .kt-row.kt-message { padding:0; margin-top:14px; margin-bottom:12px; }
+#kiln-terminal .kt-glyph { color:var(--kt-muted); user-select:none; }
+#kiln-terminal .kt-message .kt-glyph { color:var(--kt-text); }
+#kiln-terminal .kt-tool .kt-glyph { color:var(--kt-green); }
+#kiln-terminal .kt-result { margin-top:0; margin-left:20px; }
+#kiln-terminal .kt-result .kt-glyph { color:var(--kt-muted); }
+#kiln-terminal .kt-text { min-width:0; overflow-wrap:anywhere; }
+#kiln-terminal .kt-row time { display:none; color:var(--kt-dim); text-align:right; font-size:10px; font-variant-numeric:tabular-nums; }
+#kiln-terminal.kt-show-times .kt-row { grid-template-columns:12px minmax(0,1fr) 61px; }
+#kiln-terminal.kt-show-times .kt-row time { display:block; }
+#kiln-terminal .kt-view-options { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+#kiln-terminal .kt-view-options label { font-size:11px; color:var(--kt-dim); display:flex; align-items:center; gap:5px; cursor:pointer; }
+#kiln-terminal .kt-view-options input { accent-color:var(--kt-orange); margin:0; }
+#kiln-terminal .kt-result .kt-text { color:var(--kt-muted); }
+#kiln-terminal .kt-result.kt-success .kt-text { color:var(--kt-text); }
+#kiln-terminal .kt-call { color:var(--kt-text); overflow-wrap:anywhere; }
+#kiln-terminal .kt-tool-name { font-weight:600; }
+#kiln-terminal .kt-command { color:var(--kt-muted); }
+#kiln-terminal .kt-role { color:var(--kt-amber); font-size:10px; }
+#kiln-terminal .kt-expand { display:block; color:var(--kt-dim); font:inherit; text-align:left; padding:0; margin:1px 0 0; border:0; background:none; }
+#kiln-terminal .kt-expand:hover { color:var(--kt-text); text-decoration:underline; }
+#kiln-terminal .kt-expanded { margin:3px 0; padding:0 0 0 2ch; border:0; font:inherit; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--kt-muted); background:transparent; }
+#kiln-terminal .kt-working { color:var(--kt-orange); font:inherit; padding:14px 0 5px; }
+#kiln-terminal .kt-working span { color:var(--kt-dim); }
+#kiln-terminal .kt-footer { padding:7px 13px; min-height:33px; border-top:1px solid var(--kt-line); display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; color:var(--kt-dim); font-size:11px; }
+#kiln-terminal .kt-follow { color:var(--kt-green); }
+#kiln-terminal .kt-jump { border:0; border-radius:4px; padding:2px 8px; color:var(--kt-bg); background:var(--kt-orange); font-size:11px; }
+#kiln-terminal .kt-bottom { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; align-items:flex-start; margin-top:12px; color:var(--kt-muted); font-size:11px; }
+#kiln-terminal summary { cursor:pointer; padding:4px 0; }
+#kiln-terminal .kt-pause { background:none; color:var(--kt-muted); border:1px solid var(--kt-line); border-radius:5px; padding:4px 10px; font-size:11px; }
+#kiln-terminal .kt-phase-link { display:flex; align-items:center; flex-wrap:wrap; gap:12px; width:100%; padding:18px 0; background:none; color:var(--kt-text); border:0; border-top:1px solid var(--kt-line); }
+@media(max-width:600px){#kiln-terminal .kt-main{padding:14px;}#kiln-terminal .kt-chrome{padding:12px 14px;}#kiln-terminal .kt-connected{padding-right:0;}#kiln-terminal h1{font-size:26px;flex-basis:calc(100% - 40px);}#kiln-terminal .kt-title>.kt-status{margin-left:37px;}#kiln-terminal .kt-meta{margin-left:0;}#kiln-terminal .kt-scroll{padding:10px;}#kiln-terminal .kt-row{grid-template-columns:10px minmax(0,1fr);gap:6px;}#kiln-terminal .kt-row time{display:none;}#kiln-terminal .kt-breadcrumb{gap:6px;}#kiln-terminal .kt-breadcrumb>span:last-child{flex-basis:100%;}}
+</style>
+<script>
+(() => {
+ const root=document.getElementById('kiln-terminal');
+ const pane=root.querySelector('.kt-scroll'), follow=root.querySelector('.kt-follow'),jump=root.querySelector('.kt-jump');
+ let following=true,held=false,unread=0,total=727;
+ const earlier=[
+  {type:'tool',name:'Read',text:'tests/test_pl_schema.py',time:'6:10'},
+  {type:'message',text:'Checking the evidence schema against the technical design.',time:'6:11'},
+  {type:'tool',name:'Bash',text:'git diff --check',time:'6:12'},
+  {type:'result',text:'No whitespace errors.',time:'6:12'}
+ ];
+ let rows=Array.from({length:86},(_,i)=>({...earlier[i%4],time:`5:${String(10+Math.floor(i/4)).padStart(2,'0')}`}));
+ rows.push(
+  {type:'tool',name:'Read',text:'app/loop/pl/compare_model.py',time:'6:28'},
+  {type:'tool',name:'Read',text:'tests/test_pl_schema.py',time:'6:29'},
+  {type:'tool',name:'Bash',actor:'Reviewer',text:'git diff --stat\ngit diff --check\ngit status --short',time:'6:31'},
+  {type:'result',text:'3 files changed, 18 insertions(+), 9 deletions(-)',time:'6:31'},
+  {type:'message',text:'The refactor tidy is complete. I’m checking the affected tests before the full suite.',time:'6:33'},
+  {type:'tool',name:'Bash',text:"python3 - <<'PY'\nfrom pathlib import Path\np = Path('app/loop/pl/compare_model.py')\ns = p.read_text()\ns = s.replace('shipping_terms=None,', 'shipping_terms=shipping_terms,')\np.write_text(s)\nPY",time:'6:34'},
+  {type:'tool',name:'Bash',text:'.venv/bin/python -m pytest tests/test_pl_schema.py tests/test_pl_candidates.py -q',time:'6:34'},
+  {type:'result',success:true,text:'56 passed in 18.42s',time:'6:35'},
+  {type:'tool',name:'Bash',actor:'Reviewer',text:'git diff -- app/loop/pl/compare_model.py tests/test_pl_schema.py',time:'6:36'},
+  {type:'message',text:'The targeted tests pass. I’m running the full suite before committing the refactor.',time:'6:36'},
+  {type:'tool',name:'Bash',text:'CPO_TEST_ENGINE=sqlite CPO_TEST_RUN_DIR=/tmp/run6 \\\n  .venv/bin/python -m pytest -p no:cacheprovider \\\n  tests/ -q --tb=short',time:'6:37'},
+  {type:'result',text:'........................................................ [ 42% ]',time:'6:37'},
+  {type:'tool',name:'Bash',text:'tail -n 5 /tmp/run6/pytest.log',time:'6:38'},
+  {type:'message',text:'Feature commit 66aa6173 has landed. The full suite is still running; next is the refactor commit and push.',time:'6:38'}
+ );
+ function status(){follow.textContent=following?'↓ Following latest':unread?`${unread} new ${unread===1?'entry':'entries'} · Scroll paused`:'Scroll paused · Live updates continue';follow.style.color=following?'var(--kt-green)':'var(--kt-dim)';jump.hidden=following;}
+ function bottom(){held=false;following=true;unread=0;pane.scrollTop=pane.scrollHeight;status();}
+ function rowElement(row){
+  const el=document.createElement('div');el.className='kt-row kt-'+row.type+(row.success?' kt-success':'');
+  const glyph=document.createElement('span');glyph.className='kt-glyph';glyph.textContent=row.type==='result'?'⎿':'●';glyph.setAttribute('aria-hidden','true');el.append(glyph);
+  const text=document.createElement('div');text.className='kt-text';el.append(text);
+  if(row.type==='tool'){
+   const call=document.createElement('div');call.className='kt-call';
+   const name=document.createElement('span');name.className='kt-tool-name';name.textContent=row.name;call.append(name);
+   const cmd=document.createElement('span');cmd.className='kt-command';
+   const first=row.text.split('\n')[0], short=first.length>100?first.slice(0,97)+'…':first;
+   cmd.textContent='('+short+(row.text.includes('\n')?' …':'')+')';call.append(cmd);
+   if(row.actor){const actor=document.createElement('span');actor.className='kt-role';actor.textContent=' · '+row.actor;call.append(actor);}
+   text.append(call);
+   if(row.text.includes('\n')||first.length>100){
+    const full=document.createElement('pre');full.className='kt-expanded';full.textContent=row.text;full.hidden=true;text.append(full);
+    const more=document.createElement('button');more.type='button';more.className='kt-expand';more.setAttribute('aria-expanded','false');
+    const collapsed=row.text.includes('\n')?`  … +${row.text.split('\n').length-1} lines (click to expand)`:'  … full command (click to expand)';more.textContent=collapsed;text.append(more);
+    more.addEventListener('click',()=>{const expanded=full.hidden;full.hidden=!expanded;more.setAttribute('aria-expanded',String(expanded));more.textContent=expanded?'  … collapse':collapsed;if(expanded){held=true;following=false;}status();});
+   }
+  }else{text.textContent=row.text;}
+  const time=document.createElement('time');time.textContent=row.time+' PM';el.append(time);return el;
+ }
+ rows.forEach(row=>pane.append(rowElement(row)));
+ const working=document.createElement('div');working.className='kt-working';working.textContent='✻ Running tests…';pane.append(working);
+ root.querySelector('.kt-times').addEventListener('change',event=>{root.classList.toggle('kt-show-times',event.target.checked);if(following)requestAnimationFrame(bottom);});
+ pane.addEventListener('scroll',()=>{following=pane.scrollHeight-pane.scrollTop-pane.clientHeight<10&&!held;if(following)unread=0;status();});
+ pane.addEventListener('wheel',()=>{held=false;},{passive:true});pane.addEventListener('touchstart',()=>{held=false;},{passive:true});jump.addEventListener('click',bottom);
+ root.querySelector('.kt-simulate').addEventListener('click',()=>{const was=following,previous=pane.scrollTop,height=pane.firstElementChild.getBoundingClientRect().height;pane.firstElementChild.remove();total++;pane.insertBefore(rowElement({type:total%2===0?'result':'message',success:total%2===0,text:total%2===0?'248 passed in 94.31s':'The full suite passed. I’m reviewing the final diff before committing.',time:'6:39'}),working);working.textContent='✻ Reviewing final changes…';root.querySelector('.kt-total').textContent=total.toLocaleString();if(was)bottom();else{pane.scrollTop=Math.max(0,previous-height);unread++;status();}});
+ const detail=root.querySelector('.kt-detail'),overview=root.querySelector('.kt-overview');
+ function back(){detail.hidden=true;overview.hidden=false;}root.querySelector('.kt-back').addEventListener('click',back);root.querySelector('.kt-brand').addEventListener('click',back);root.querySelector('.kt-phase-link').addEventListener('click',()=>{detail.hidden=false;overview.hidden=true;requestAnimationFrame(bottom);});
+ root.querySelector('.kt-pause').addEventListener('click',e=>{const pressed=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',String(pressed));e.currentTarget.textContent=pressed?'▶ Keep going':'Ⅱ Pause after this phase';});
+ const settings={height:400,spacing:2};function configure(){pane.style.height=settings.height+'px';root.querySelectorAll('.kt-row:not(.kt-message)').forEach(el=>el.style.paddingBlock=settings.spacing+'px');if(following)requestAnimationFrame(bottom);}
+ if(globalThis.Tweak){const tweak=new Tweak({container:root.querySelector('.kt-terminal'),onChange:configure});tweak.addSlider(settings,'height',{label:'Terminal height',min:300,max:520,step:20,unit:'px'});tweak.addSlider(settings,'spacing',{label:'Row spacing',min:0,max:6,step:1,unit:'px'});}
+ new ResizeObserver(()=>{if(following&&pane.clientHeight)bottom();}).observe(pane);
+ requestAnimationFrame(bottom);
+})();
+</script>

@@ -1,0 +1,539 @@
+{
+  "phase": "Phase 3 — Automatic test remediation",
+  "recordedAt": "2026-10-25T03:13:43.098Z",
+  "boundary": "Actual installed-package Engine, installed audit skills, authenticated audit CLI/server, real independent assessment/review/re-grade, weak test strengthened in a fresh same-round continuation, two real red failures and restored pass, same-session interruption/restart and final completion. All Git writes use disposable local bare origins; final GitHub read uses the repository-owned captured contract.",
+  "runs": [
+    {
+      "provider": "claude",
+      "privateRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-auto-audit-claude-y8eKrC",
+      "initialPackageDistDigest": "5747bf9df70dcf68cd25ac9711113fa38d914c54a3e3568b5589749009550dda",
+      "finalRecoveryPackageDistDigest": "5747bf9df70dcf68cd25ac9711113fa38d914c54a3e3568b5589749009550dda",
+      "packageNote": "Continuation implementation package; subsequent isolated Codex-format compatibility and validator hardening passed the final repository gates.",
+      "completedAt": "2026-10-25T02:56:19.528Z",
+      "interruptedContinuationActivityId": "683e58de-1456-4ff6-bbbb-5a9a7086deaf",
+      "interruptedContinuationSessionId": "1418931e-9476-49a7-8fee-22c43c9e615b",
+      "sameContinuationSession": true,
+      "additionalRecovery": "A completed first-batch provider process was explicitly interrupted after it remained alive beyond its final result; accepted work was reconciled and continuation dispatched.",
+      "activities": [
+        {
+          "activityId": "f380385e-fd13-4232-a0f3-f00acc36054d",
+          "kind": "delivery_audit",
+          "round": 1,
+          "continuationIndex": 1,
+          "sessionIds": [
+            "9744024b-73c2-472f-97f0-3187366fae7b"
+          ],
+          "conversations": [
+            {
+              "sessionId": "9744024b-73c2-472f-97f0-3187366fae7b",
+              "conversationId": "9744024b-73c2-472f-97f0-3187366fae7b",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:33:57.053Z",
+                  "endedAt": "2026-10-25T02:36:04.637Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "delivery-audit",
+            "path": "<home>/.claude/plugins/cache/enso-method/enso-method/a149e63060f1/skills/delivery-audit/SKILL.md",
+            "digest": "1cec94ba815beaab5e498e559ee944aca42200f63d408dd152f0769571fb473b"
+          },
+          "acceptedResult": "1e2f0cbe480d062e7dac144ceb70334882bdf23814c937a60c787a341dcc27c3",
+          "reportDigest": "001fe77b238873c191aa0471a6fa283ee54bec193d3404d7b230b540daa495e1",
+          "snapshotId": "fcdbd965595f29b434b36bec6ff9545124b2f51a838b0338b22a5edc2909a78c",
+          "outcome": "passed",
+          "nextAction": "test_audit",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": "implemented"
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "16382dc1ad0f4c304c1cfb287ee16227cd45f719c4ef5eb0babb3a8b4c731e97",
+            "assessmentEvidenceIds": [
+              "376ede9e3dd33b197e4984e565cda5dd748c451ee168070fec36fc81fcfc0143"
+            ],
+            "reviewEvidenceIds": [
+              "9a90b54da5db585ae4658cf8cfd4e53c9cdd326a02c4ebe081bcf31311b968dc"
+            ]
+          },
+          "redChecks": [],
+          "testBlob": "abc8c0fa4c4cfbacc64a4a56c5a19aafd5242e3c"
+        },
+        {
+          "activityId": "2ba835aa-62c1-4522-9cd2-bc6e10f3afc8",
+          "kind": "test_audit",
+          "round": 1,
+          "continuationIndex": 1,
+          "sessionIds": [
+            "11e33388-2894-4bee-b3e7-cab7cfc19065"
+          ],
+          "conversations": [
+            {
+              "sessionId": "11e33388-2894-4bee-b3e7-cab7cfc19065",
+              "conversationId": "11e33388-2894-4bee-b3e7-cab7cfc19065",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:36:14.312Z",
+                  "endedAt": "2026-10-25T02:48:03.163Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/.claude/plugins/cache/enso-method/enso-method/a149e63060f1/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "368108581886bee2a2f4ad6c3d1ad0e1083aafd02456c3cc3b330cef75ea1351",
+          "reportDigest": "932c21f34003f809ff4026bd70bd20641ea38517ad735f4df7c107c8e17d87ac",
+          "snapshotId": "582f97e6d966bc4eba5522ae0757cff0e45145cb76dfb1c6599f4de29261da06",
+          "outcome": "continue_test",
+          "nextAction": "continue_test",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": {
+                "grade": "weak"
+              }
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "35495f1f3e628fa195866e076c6848d78c552c9e596aad72dc051cb51603a971",
+            "assessmentEvidenceIds": [
+              "76701ec5eee3a2e872c9eab7109b1bd1954c3c798f28c118b57ee799c6ad0766"
+            ],
+            "reviewEvidenceIds": [
+              "8363a9dd5783820d6ae13ee048f5afb44e6613f4415fe0303578efc866d659b3"
+            ],
+            "baselineRunEvidenceIds": [
+              "74ddb31a7f2634984e55f5ffe7f98677ed601f223237432319940353c9037ae3"
+            ],
+            "finalRunEvidenceIds": [
+              "4d1db8cd80133cb64548a4f02f234bc5520d4f9ffbc09030df3ee181ffa6c3b2"
+            ],
+            "redChecks": []
+          },
+          "redChecks": [],
+          "testBlob": "abc8c0fa4c4cfbacc64a4a56c5a19aafd5242e3c"
+        },
+        {
+          "activityId": "683e58de-1456-4ff6-bbbb-5a9a7086deaf",
+          "kind": "test_audit",
+          "round": 1,
+          "continuationIndex": 2,
+          "sessionIds": [
+            "1418931e-9476-49a7-8fee-22c43c9e615b"
+          ],
+          "conversations": [
+            {
+              "sessionId": "1418931e-9476-49a7-8fee-22c43c9e615b",
+              "conversationId": "1418931e-9476-49a7-8fee-22c43c9e615b",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:48:19.956Z",
+                  "endedAt": "2026-10-25T02:48:23.896Z",
+                  "interruptedBy": "sigint",
+                  "exitCode": 1
+                },
+                {
+                  "cause": "resume",
+                  "startedAt": "2026-10-25T02:48:47.063Z",
+                  "endedAt": "2026-10-25T02:56:16.857Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/.claude/plugins/cache/enso-method/enso-method/a149e63060f1/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "aed112133a9cf723e3a646db2209f0053df1fe61e2d92a35e3d69a16c48b7d22",
+          "reportDigest": "f1837f15f4373f463337c578ebc85df6224cf83753e07c882256552d4f0d0ee8",
+          "snapshotId": "8f61821136c13dc14e21838d7f21b957d6cd42047da4ec83f1c628f5817f484d",
+          "outcome": "passed",
+          "nextAction": "final_delivery",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": {
+                "grade": "adequate"
+              }
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "87dafad47436ff5824daf9da1abb0025a07abdd21b897da63c8818efe12598c3",
+            "assessmentEvidenceIds": [
+              "ae6e1531d66ddbc5bd3f75952741da2ed9eaa49dd7698b12c59f035cfbb6869c"
+            ],
+            "reviewEvidenceIds": [
+              "0c5d3979ed19e885b839f0939d3464a1ea5b76a170b7e7677262b3b52b79ffab"
+            ],
+            "baselineRunEvidenceIds": [
+              "e7487e507ec56f1f48b36e7c5c43bd7b747d9ff1911571125cd7adcf1e4c1009"
+            ],
+            "finalRunEvidenceIds": [
+              "a12905a94de0e01bb21bb5160f688e9d1d6f9e840dd523b26aec8ef2944f21d6"
+            ],
+            "redChecks": [
+              {
+                "partIds": [
+                  "value"
+                ],
+                "mutationEvidenceIds": [
+                  "b894ff086c38ca901a38d5615ee7187b58a64b59cb95cf23da356433a507854a"
+                ],
+                "failingRunEvidenceIds": [
+                  "2699c3f61d94c030e8766ae22a3f4b7c8e917754222009a4e752cdb6a2d01636",
+                  "c51eb58bb03159dcc7ccd313636c01587d8051d3bb53966f1d015f36257055de"
+                ],
+                "restorationEvidenceIds": [
+                  "0f00d41599eab786a6f48b6ce589327e4b7097be867e937e07185ff4dcc1204a"
+                ],
+                "passingRunEvidenceId": "a12905a94de0e01bb21bb5160f688e9d1d6f9e840dd523b26aec8ef2944f21d6"
+              }
+            ],
+            "regradeEvidenceIds": [
+              "67f364dc6829ab320662d4e6b6fae7924954f3ba453c8c9d83e9bdf171084e07"
+            ]
+          },
+          "redChecks": [
+            {
+              "partIds": [
+                "value"
+              ],
+              "failingRuns": [
+                {
+                  "evidenceId": "2699c3f61d94c030e8766ae22a3f4b7c8e917754222009a4e752cdb6a2d01636",
+                  "invocation": "node value.test.mjs",
+                  "outcome": "error"
+                },
+                {
+                  "evidenceId": "c51eb58bb03159dcc7ccd313636c01587d8051d3bb53966f1d015f36257055de",
+                  "invocation": "node value.test.mjs",
+                  "outcome": "error"
+                }
+              ],
+              "passingRun": {
+                "evidenceId": "a12905a94de0e01bb21bb5160f688e9d1d6f9e840dd523b26aec8ef2944f21d6",
+                "invocation": "node value.test.mjs",
+                "outcome": "success"
+              },
+              "mutationEvidenceIds": [
+                "b894ff086c38ca901a38d5615ee7187b58a64b59cb95cf23da356433a507854a"
+              ],
+              "restorationEvidenceIds": [
+                "0f00d41599eab786a6f48b6ce589327e4b7097be867e937e07185ff4dcc1204a"
+              ]
+            }
+          ],
+          "testBlob": "8eb33b70bbeceaa194996ea4b63a0bc70737fcdd"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "privateRoot": "/private/var/folders/p3/fyw8z5213xn41qkl15tr42d80000gn/T/kiln-auto-audit-codex-Fn5La9",
+      "initialPackageDistDigest": "5747bf9df70dcf68cd25ac9711113fa38d914c54a3e3568b5589749009550dda",
+      "finalRecoveryPackageDistDigest": "d4c52186ae3d195de6aa45ee5fe44a1a01e6b84d4f98c59632c0a64c97773ed1",
+      "packageNote": "Same failed activity recovered with final installed package; explicit empty follow-up and yielded-exec wait records remain in authoritative history.",
+      "completedAt": "2026-10-25T03:12:04.271Z",
+      "interruptedContinuationActivityId": "f6b3b767-1bc4-4aea-989a-ec6100ebbb06",
+      "interruptedContinuationSessionId": "9095476d-abc4-43fb-acbd-62b8b78a3baa",
+      "sameContinuationSession": true,
+      "additionalRecovery": "The first test activity retained its identity through parser correction. Continuation 2 retained its identity through interruption/restart and wait qualification. A provider edit to test-audit.md after acceptance was correctly refused; the fixture restored the exact retained accepted bytes, committed/pushed only that record to the local origin and reached completion through normal Check again. No checked source, test, portable report or evidence was changed by that restoration.",
+      "activities": [
+        {
+          "activityId": "b42461b5-7bb7-45e2-93a2-600289f15842",
+          "kind": "delivery_audit",
+          "round": 1,
+          "continuationIndex": 1,
+          "sessionIds": [
+            "1fb6b6e5-fd6d-4b2e-b281-98ade3b8d4b5"
+          ],
+          "conversations": [
+            {
+              "sessionId": "1fb6b6e5-fd6d-4b2e-b281-98ade3b8d4b5",
+              "conversationId": "01a170e8-2545-7e60-a92a-60a4f5f7f21e",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:33:44.325Z",
+                  "endedAt": "2026-10-25T02:36:24.811Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "delivery-audit",
+            "path": "<home>/devel/ensodynamics/enso-method/skills/delivery-audit/SKILL.md",
+            "digest": "1cec94ba815beaab5e498e559ee944aca42200f63d408dd152f0769571fb473b"
+          },
+          "acceptedResult": "fb3c912434c91c75e59989581ef23dd7ac41a05609be79ec8e7c1db67566a61e",
+          "reportDigest": "8c727a62ceb613389ab42f835f8fdc09d42a8042eb6af7ad958d0777a55fa843",
+          "snapshotId": "0db97d7c373b0bbd22b6534203d6542597bf629d2efc83579ce495607a00e2b6",
+          "outcome": "passed",
+          "nextAction": "test_audit",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": "implemented"
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "ea2aa205a3985e8944fa494eab695e247ae99df3da2a1f2acc284eb821f355ff",
+            "assessmentEvidenceIds": [
+              "c059dd52ccf4c1ddd5884148447199ceed966c46935e5d0dfb1488d71696695d"
+            ],
+            "reviewEvidenceIds": [
+              "b320974cab7bfb5483875ecc2563c0d7b6e74dfbfa7700cd4684244e3ad4686a"
+            ]
+          },
+          "redChecks": [],
+          "testBlob": "abc8c0fa4c4cfbacc64a4a56c5a19aafd5242e3c"
+        },
+        {
+          "activityId": "6ca8f3a9-c88c-43c7-aeb3-107b3bd5366a",
+          "kind": "test_audit",
+          "round": 1,
+          "continuationIndex": 1,
+          "sessionIds": [
+            "b92e32c4-b811-42e6-a3b5-092ef12a452d"
+          ],
+          "conversations": [
+            {
+              "sessionId": "b92e32c4-b811-42e6-a3b5-092ef12a452d",
+              "conversationId": "01a170ea-ae4f-7ed1-8287-dcdda55aa98a",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:36:30.106Z",
+                  "endedAt": "2026-10-25T02:42:42.477Z",
+                  "exitCode": 0
+                },
+                {
+                  "cause": "person_resume",
+                  "startedAt": "2026-10-25T02:50:38.105Z",
+                  "endedAt": "2026-10-25T02:54:52.274Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/devel/ensodynamics/enso-method/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "abf7205fdc46ce4fc3d1611b719d432956e6a88a603be3eb961c2ae0b79a6c6e",
+          "reportDigest": "0908e66583f46eee67f2639422655644cecd55d821f7e206e16e345c97b69b54",
+          "snapshotId": "d3c3e822a358ae5f6dfc6e895229f055561525b98108faf16b4f21c80659195c",
+          "outcome": "continue_test",
+          "nextAction": "continue_test",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": {
+                "grade": "weak"
+              }
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "2b6e5fb458e46acec3bfd6deaaad27481986078754ef61da723af7fb57973e73",
+            "assessmentEvidenceIds": [
+              "a424904fbf0ec6f4da0942f17df6a2dfcd1d9292a6c76f02d9289f0df5e498db"
+            ],
+            "reviewEvidenceIds": [
+              "b38454dff5efa6e17f39725965c67c736fa588d963fad40131f5e67a7db483e2"
+            ],
+            "baselineRunEvidenceIds": [
+              "962b8fa4ab5963bcc837e45e0958eb632c6594827aff12d5e40455e197ddd48d"
+            ],
+            "finalRunEvidenceIds": [
+              "70e0367fb1df221dd1b5b4f5d65630f0d81f0cd8251ed5892e2afcc7c28c8d51"
+            ],
+            "redChecks": [],
+            "regradeEvidenceIds": []
+          },
+          "redChecks": [],
+          "testBlob": "abc8c0fa4c4cfbacc64a4a56c5a19aafd5242e3c"
+        },
+        {
+          "activityId": "f6b3b767-1bc4-4aea-989a-ec6100ebbb06",
+          "kind": "test_audit",
+          "round": 1,
+          "continuationIndex": 2,
+          "sessionIds": [
+            "9095476d-abc4-43fb-acbd-62b8b78a3baa"
+          ],
+          "conversations": [
+            {
+              "sessionId": "9095476d-abc4-43fb-acbd-62b8b78a3baa",
+              "conversationId": "01a170fb-d1a2-7eb2-ad1f-6fb93db8d75f",
+              "runs": [
+                {
+                  "cause": "launch",
+                  "startedAt": "2026-10-25T02:55:13.188Z",
+                  "endedAt": "2026-10-25T02:55:23.595Z",
+                  "interruptedBy": "sigint",
+                  "exitCode": 0
+                },
+                {
+                  "cause": "resume",
+                  "startedAt": "2026-10-25T02:55:34.117Z",
+                  "endedAt": "2026-10-25T03:02:33.666Z",
+                  "exitCode": 0
+                },
+                {
+                  "cause": "person_resume",
+                  "startedAt": "2026-10-25T03:05:33.263Z",
+                  "endedAt": "2026-10-25T03:05:40.783Z",
+                  "interruptedBy": "sigint",
+                  "exitCode": 0
+                },
+                {
+                  "cause": "resume",
+                  "startedAt": "2026-10-25T03:05:49.367Z",
+                  "endedAt": "2026-10-25T03:09:27.547Z",
+                  "exitCode": 0
+                }
+              ]
+            }
+          ],
+          "skill": {
+            "name": "test-audit",
+            "path": "<home>/devel/ensodynamics/enso-method/skills/test-audit/SKILL.md",
+            "digest": "d828576616c2966fe8a8d9c056cc164aafe249bde36d6ccb8f7b66b220f5e97b"
+          },
+          "acceptedResult": "183dee31b4d03955442141c7ffc6bf989df54137ca4dcf6fd4da8b6b2869c302",
+          "reportDigest": "1bd1b5fa7b2ef85213c8f8a65d651138c136dbd0f52a1069972e51ff44fe5dd4",
+          "snapshotId": "b5ccc2b97bfcc272764e93c778df4f5b34cdf4c94f31b9010a6751436e5632b7",
+          "outcome": "passed",
+          "nextAction": "final_delivery",
+          "grades": [
+            {
+              "key": "audit-proof:docs/prds/audit-proof/audit-proof-prd.md#AC-PROOF-01",
+              "assessment": {
+                "grade": "adequate"
+              }
+            }
+          ],
+          "checks": [
+            "Audit result recorded",
+            "Everything committed",
+            "Pushed",
+            "Stayed in the workspace"
+          ],
+          "methodEvidence": {
+            "skillEvidenceId": "a51507c3328807583fcdeed443c93dc10629958f4a5414d125e9b03d1fb29d50",
+            "assessmentEvidenceIds": [
+              "2a9ab5ca538b84390627152fe32a431777e03d66a5751fb9fd4a8b88394bee4f"
+            ],
+            "reviewEvidenceIds": [
+              "78f8127e6f4e3a136a64e72ec0d5b5c661644ef93e8f8f53671dc82607cfd175"
+            ],
+            "baselineRunEvidenceIds": [
+              "52104670c90923d162a3775047ce30da619861c4b273c1a6e9e9ac14811210b5"
+            ],
+            "finalRunEvidenceIds": [
+              "119598aa543491e3b8e086c5c4aa61b7ea33ca871c8e01bcf7c7794dc818c65d"
+            ],
+            "redChecks": [
+              {
+                "partIds": [
+                  "value"
+                ],
+                "mutationEvidenceIds": [
+                  "9d61d2b579905fd72633fb2ef9db298375b54cd1715491f0ea894925af2f9997"
+                ],
+                "failingRunEvidenceIds": [
+                  "f55422850b55a8d17fc7396282e2e3583878aa5beb210c5b4bbe134e5423581a",
+                  "a822a732239098e5948164f45ea8593677d9b8853cc7e57870d4cedb849baacc"
+                ],
+                "restorationEvidenceIds": [
+                  "001ad2b116f795c6bbc57a8e5c5d1112e7ca55faffd9a0734a0ff31f084e7615"
+                ],
+                "passingRunEvidenceId": "119598aa543491e3b8e086c5c4aa61b7ea33ca871c8e01bcf7c7794dc818c65d"
+              }
+            ],
+            "regradeEvidenceIds": [
+              "7d695e0dd05a42760ed3637591d320fe8dcef4f1d1b3649aa372a310936f48e9"
+            ]
+          },
+          "redChecks": [
+            {
+              "partIds": [
+                "value"
+              ],
+              "failingRuns": [
+                {
+                  "evidenceId": "f55422850b55a8d17fc7396282e2e3583878aa5beb210c5b4bbe134e5423581a",
+                  "invocation": "node value.test.mjs",
+                  "outcome": "error"
+                },
+                {
+                  "evidenceId": "a822a732239098e5948164f45ea8593677d9b8853cc7e57870d4cedb849baacc",
+                  "invocation": "node value.test.mjs",
+                  "outcome": "error"
+                }
+              ],
+              "passingRun": {
+                "evidenceId": "119598aa543491e3b8e086c5c4aa61b7ea33ca871c8e01bcf7c7794dc818c65d",
+                "invocation": "node value.test.mjs",
+                "outcome": "success"
+              },
+              "mutationEvidenceIds": [
+                "9d61d2b579905fd72633fb2ef9db298375b54cd1715491f0ea894925af2f9997"
+              ],
+              "restorationEvidenceIds": [
+                "001ad2b116f795c6bbc57a8e5c5d1112e7ca55faffd9a0734a0ff31f084e7615"
+              ]
+            }
+          ],
+          "testBlob": "8eb33b70bbeceaa194996ea4b63a0bc70737fcdd"
+        }
+      ]
+    }
+  ]
+}

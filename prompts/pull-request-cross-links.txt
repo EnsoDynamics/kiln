@@ -1,0 +1,1 @@
+Each description names the PRD and links every other pull request opened for it, so once all are open, edit each to add the links. Where one must merge before another, for example an endpoint before the page that calls it, say so in each, as the technical design gives the order.

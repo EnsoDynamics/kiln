@@ -1,0 +1,25 @@
+Continue this same saved Codex conversation for the remaining prerequisite proof.
+Do not rerun Slugify or alter its finished implementation. The assigned workspace
+remains {{WORKSPACE}}, on kiln-audit-proof. The following addition is authorized.
+
+Run the existing Kiln repository-addition command, using the isolated receiver:
+XDG_STATE_HOME={{ROOT}}/addition-state node {{KILN_SOURCE}}/dist/cli.js add-repository kiln-proof-extra
+Run it from the assigned API worktree. This uses Kiln's real CLI/server/engine
+addition path; no normal Codex executor is connected to Kiln. Do not work in the
+extra repository's main checkout. Read AGENTS.md and CLAUDE.md in its returned
+worktree before changing it.
+
+Delegate to a child agent a real read/write task in the newly assigned extra
+worktree: add proof-marker.mjs exporting the string KILN_ADDED_REPOSITORY_731,
+and a Node test checking the export. Run the test, commit those files, and push
+kiln-audit-proof to that repository's disposable origin. You may coordinate the
+commit/push after the child completes, as in the earlier method run.
+
+The extra origin uses a fixture GitHub-shaped SSH URL because the existing Kiln
+validator requires that shape. Its repository-local core.sshCommand points to
+scripts/proof-run/codex-local-git-ssh.mjs in the Kiln source checkout. Inspect it:
+it permits only upload/receive-pack for this fixture and routes them to the
+owned local bare origin under {{ROOT}}. There is no network connection. Local
+commit/push is authorized; bypass flags, real network pushes, merges, deployments
+and edits to Kiln, installed skills or the Enso Method repo remain forbidden.
+No special JavaScript or tool syntax is required. Report results and stop.

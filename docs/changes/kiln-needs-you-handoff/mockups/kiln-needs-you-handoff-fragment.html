@@ -1,0 +1,164 @@
+<!-- Standalone preview controls; outside the product UI and absent in hosts that supply Tweak. -->
+<div id="kiln-mockup-controls" hidden style="padding:12px 18px;border-bottom:1px solid light-dark(#d8d3c6,#3d3a30);background:light-dark(#f6f4ed,#12110e);color:light-dark(#2c2b24,#ece8dd);font:13px/1.5 system-ui"></div>
+<script>
+if(!globalThis.Tweak){
+ globalThis.Tweak=class{
+  constructor({onChange}){this.onChange=onChange;}
+  addSelect(object,property,{label,options}){
+   const bar=document.getElementById('kiln-mockup-controls');bar.hidden=false;
+   const caption=document.createElement('label');caption.textContent='Mockup only — '+label+' ';
+   const select=document.createElement('select');select.style.cssText='font:inherit;padding:6px;max-width:100%;background:light-dark(#fffef9,#1d1c17);color:inherit;border:1px solid light-dark(#d8d3c6,#3d3a30);border-radius:5px';
+   for(const choice of options){const option=document.createElement('option');option.value=choice.value;option.textContent=choice.label;select.append(option);}
+   select.value=object[property];select.addEventListener('change',()=>{object[property]=select.value;this.onChange();});caption.append(select);bar.append(caption);
+  }
+ };
+}
+</script>
+<style>
+#kiln-page{--kp-bg:light-dark(#f6f4ed,#12110e);--kp-panel:light-dark(#fffef9,#1d1c17);--kp-inset:light-dark(#f0eee5,#15140f);--kp-text:light-dark(#2c2b24,#ece8dd);--kp-muted:light-dark(#6e695c,#b2ac9d);--kp-line:light-dark(#d8d3c6,#3d3a30);--kp-button:light-dark(#32362a,#e4dec9);--kp-button-text:light-dark(#fffdf6,#24261e);--kp-amber:light-dark(#795d1e,#d6b474);--kp-green:light-dark(#456247,#a8bd9b);background:var(--kp-bg);color:var(--kp-text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-width:0}
+#kiln-page *{box-sizing:border-box}#kiln-page [hidden]{display:none!important}
+#kiln-page .kp-top{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:16px 32px;border-bottom:1px solid var(--kp-line);padding-right:100px}
+#kiln-page .kp-brand{font:28px/1 Georgia,serif;letter-spacing:-1px}#kiln-page .kp-breadcrumb{color:var(--kp-muted);font-size:13px}#kiln-page .kp-body{padding:30px 32px;max-width:1100px;margin:auto}
+#kiln-page h1{font:36px/1.2 Georgia,serif;margin:8px 0}#kiln-page h2{font-size:19px;line-height:1.35;font-weight:600;margin:0}#kiln-page h3{font-size:16px;font-weight:600;margin:0}#kiln-page p{margin:8px 0 0}
+#kiln-page .kp-muted{color:var(--kp-muted)}#kiln-page .kp-small{font-size:12px}#kiln-page .kp-eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--kp-amber);font-weight:600}
+#kiln-page .kp-between{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}#kiln-page .kp-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#kiln-page .kp-question{border-left:3px solid var(--kp-amber);background:var(--kp-panel);padding:18px 22px;margin:24px 0}
+#kiln-page blockquote{margin:10px 0 8px;font-size:17px;line-height:1.6}#kiln-page .kp-section-title{margin:26px 0 14px}#kiln-page .kp-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+#kiln-page .kp-option{background:var(--kp-panel);border:1px solid var(--kp-line);border-radius:12px;padding:22px;min-width:0;display:flex;flex-direction:column}
+#kiln-page .kp-option .kp-description{min-height:42px}#kiln-page .kp-option .kp-controls{margin-top:auto;padding-top:18px}
+#kiln-page button{font:inherit;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:normal;background:transparent;color:var(--kp-text);border:1px solid var(--kp-line);border-radius:7px;padding:9px 14px;max-width:100%}
+#kiln-page button:hover{border-color:var(--kp-muted)}#kiln-page button:disabled{opacity:.45;cursor:not-allowed}#kiln-page button.kp-primary{background:var(--kp-button);color:var(--kp-button-text);border-color:var(--kp-button)}
+#kiln-page button:focus-visible,#kiln-page textarea:focus-visible,#kiln-page summary:focus-visible{outline:2px solid var(--kp-amber);outline-offset:3px}
+#kiln-page .kp-link{border:0;padding:5px 0;min-height:30px;color:var(--kp-muted);text-decoration:underline;text-underline-offset:3px}
+#kiln-page label{display:block;font-size:12px;color:var(--kp-muted);margin-top:18px;margin-bottom:7px}#kiln-page textarea{width:100%;min-height:96px;background:var(--kp-inset);color:var(--kp-text);font:inherit;border:1px solid var(--kp-line);border-radius:7px;padding:12px;resize:vertical}#kiln-page textarea::placeholder{color:var(--kp-muted)}
+#kiln-page .kp-command{background:var(--kp-inset);border:1px solid var(--kp-line);border-radius:7px;padding:14px;margin-top:18px}#kiln-page code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere;white-space:normal}#kiln-page .kp-command code{display:block;margin-bottom:10px}
+#kiln-page details{margin-top:13px}#kiln-page summary{color:var(--kp-muted);min-height:28px}#kiln-page .kp-prompt{padding:12px 14px;border-left:2px solid var(--kp-line);margin-top:8px;color:var(--kp-muted);font-size:13px}
+#kiln-page .kp-return{margin-top:26px;padding:22px;border:1px solid var(--kp-line);border-radius:12px}#kiln-page .kp-return-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px}#kiln-page .kp-finished{border-left:1px solid var(--kp-line);padding-left:26px}#kiln-page .kp-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}
+#kiln-page .kp-note{color:var(--kp-muted);font-size:12px;margin-top:10px}#kiln-page .kp-checks{list-style:none;margin:10px 0 0;padding:0}#kiln-page .kp-checks li{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--kp-line);font-size:12px}#kiln-page .kp-check-state{color:var(--kp-amber);white-space:nowrap}#kiln-page .kp-pass{color:var(--kp-green)}
+#kiln-page .kp-feedback{border-left:3px solid var(--kp-amber);padding:8px 12px;background:var(--kp-panel);margin-top:14px;font-size:13px}#kiln-page .kp-footer{border-top:1px solid var(--kp-line);margin-top:26px;padding-top:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;color:var(--kp-muted);font-size:12px}
+#kiln-page .kp-result{padding:24px;border:1px solid var(--kp-line);border-radius:12px;margin-top:24px;background:var(--kp-panel)}
+@media(max-width:680px){#kiln-page .kp-body{padding:24px 18px}#kiln-page .kp-top{padding-left:18px}#kiln-page h1{font-size:30px}#kiln-page .kp-two,#kiln-page .kp-return-grid{grid-template-columns:1fr}#kiln-page .kp-option{padding:19px}#kiln-page .kp-finished{border-left:0;border-top:1px solid var(--kp-line);padding:22px 0 0}#kiln-page .kp-return{padding:19px}#kiln-page .kp-option .kp-description{min-height:0}}
+</style>
+<section id="kiln-page" aria-label="Kiln complete Needs you page proposal">
+<header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Example feature / Phase 4b</span><span class="kp-muted kp-small">Connected · Enso Method</span></header>
+<main class="kp-body">
+  <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
+  <div class="kp-between"><span class="kp-eyebrow" id="kp-status">Needs you · Kiln is waiting</span><span class="kp-muted kp-small">Design preview · illustrative question</span></div>
+  <h1 id="kp-heading">Phase 4b needs your input.</h1>
+  <p class="kp-muted" id="kp-subheading">Resolve it here or in your terminal. Then choose who finishes the phase.</p>
+  <div id="kp-waiting">
+    <section class="kp-question" aria-labelledby="kp-last-message">
+      <div class="kp-between"><span class="kp-muted kp-small" id="kp-last-message">LAST MESSAGE FROM CLAUDE</span><span class="kp-muted kp-small">Phase 4b · session ended</span></div>
+      <blockquote>Should I include the optional settings screen in this phase, or leave it for later? I need that decision before I finish the implementation.</blockquote>
+      <p class="kp-muted kp-small">Sample session: exit 0 · stopped 4:00 PM EDT · last skill: implement-from-requirements</p>
+      <details><summary class="cursor-interaction kp-small">View session output</summary><p class="kp-muted kp-small">Illustrative session excerpt</p><p class="kp-small">Claude: The core flow is implemented. The remaining scope decision is whether to include the optional settings screen.</p></details>
+    </section>
+    <h2 class="kp-section-title">How would you like to resolve this?</h2>
+    <div class="kp-two">
+      <section class="kp-option" aria-labelledby="kp-quick-title">
+        <h2 id="kp-quick-title">Reply here and let Kiln finish</h2>
+        <p class="kp-muted kp-description">For a straightforward answer. Your reply goes to the same conversation, and Kiln resumes Phase 4b.</p>
+        <label for="kp-reply">Your reply to Claude</label>
+        <textarea id="kp-reply" placeholder="Leave the settings screen for later. Finish the rest of this phase."></textarea>
+        <div class="kp-controls"><button type="button" id="kp-send" class="kp-primary cursor-interaction" disabled><i data-lucide="send" aria-hidden="true"></i>Send reply &amp; resume Phase 4b</button><p class="kp-note">Kiln handles the remaining work, then follows the plan.</p></div>
+      </section>
+      <section class="kp-option" aria-labelledby="kp-terminal-title">
+        <h2 id="kp-terminal-title">Open the conversation in your terminal</h2>
+        <p class="kp-muted kp-description">For a back-and-forth with Claude, or to finish the phase yourself. The full conversation comes with you.</p>
+        <div class="kp-command"><code>cd &lt;saved-workspace&gt; &amp;&amp; claude --resume &lt;saved-session-id&gt;</code><button type="button" id="kp-copy" class="cursor-interaction"><i data-lucide="copy" aria-hidden="true"></i>Copy resume command</button><p class="kp-note" id="kp-copy-feedback" role="status" hidden>Preview only. Kiln supplies and copies the exact workspace and session command for this conversation.</p></div>
+        <p class="kp-note"><strong>Changed the plan?</strong> Ask Claude to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
+        <div class="kp-controls"><p class="kp-muted">When you’re done, exit Claude and use <strong>Back from your terminal?</strong> below.</p></div>
+      </section>
+    </div>
+    <section class="kp-return" aria-labelledby="kp-return-title">
+      <h2 id="kp-return-title">Back from your terminal?</h2>
+      <p class="kp-muted">Exit the Claude session first. Choose based on how much work you finished.</p>
+      <div class="kp-return-grid">
+        <section aria-labelledby="kp-handback-title">
+          <h3 id="kp-handback-title">We resolved the question. Kiln can finish.</h3>
+          <p class="kp-muted">Pick up the same conversation and finish the remaining work in Phase 4b. You don’t need to repeat your answer.</p>
+          <div class="kp-actions"><button type="button" id="kp-resume" class="kp-primary cursor-interaction"><i data-lucide="play" aria-hidden="true"></i>Resume Phase 4b in Kiln</button></div>
+          <p class="kp-note">The phase can still be open, with uncommitted work.</p>
+        </section>
+        <section class="kp-finished" aria-labelledby="kp-finished-title">
+          <h3 id="kp-finished-title">I finished the entire phase myself.</h3>
+          <p class="kp-muted">Check that Phase 4b is complete, then move to the next step in the plan.</p>
+          <div id="kp-requirements" style="margin-top:16px"><p class="kp-note" id="kp-checked" role="status">Last checked when Kiln stopped · 1 of 3 passed</p><ul class="kp-checks" aria-label="Last phase completion check"><li><span>Phase marked complete<br><span class="kp-muted" id="kp-closed-fact">No Closed line in phase-4b-settings.md</span></span><span class="kp-check-state" id="kp-closed">Not yet</span></li><li><span>All changes committed<br><span class="kp-muted" id="kp-committed-fact">example-app: 2 files changed, not committed</span></span><span class="kp-check-state" id="kp-committed">Not yet</span></li><li><span>All commits pushed<br><span class="kp-muted">example-app: no commits waiting to be pushed</span></span><span class="kp-pass">Passed</span></li></ul></div>
+          <div class="kp-actions"><button type="button" id="kp-verify" class="cursor-interaction">Verify Phase 4b &amp; advance<i data-lucide="arrow-right" aria-hidden="true"></i></button></div>
+          <p class="kp-note">Rechecks all three requirements. Advances only if all pass.</p>
+          <div id="kp-check-feedback" class="kp-feedback" role="status" hidden><strong>Phase 4b is still unfinished.</strong><p>The phase is open and changes remain uncommitted. Finish them in your terminal, or use <strong>Resume Phase 4b in Kiln</strong> for Kiln to finish.</p></div>
+        </section>
+      </div>
+    </section>
+    <footer class="kp-footer"><span>Claude Code · same saved conversation</span><span>Later phases wait until Phase 4b is complete.</span></footer>
+  </div>
+  <section class="kp-result" id="kp-result" aria-live="polite" hidden><h2 id="kp-result-title"></h2><p class="kp-muted" id="kp-result-text"></p><p class="kp-feedback" id="kp-unsent" hidden>Your reply has not been sent. It is preserved if you return to this page.</p><div class="kp-actions"><button type="button" id="kp-advance" class="kp-primary cursor-interaction" hidden>Advance to the next step</button><button type="button" id="kp-back" class="kp-link cursor-interaction">Back to page preview</button></div></section>
+</main>
+</section>
+<script>
+(function(){
+ const root=document.getElementById('kiln-page');
+ const q=id=>root.querySelector('#'+id);
+ const options={outcome:'unfinished'};
+ let checking=false;
+ function setBusy(value){
+  checking=value;
+  for(const id of ['kp-resume','kp-verify','kp-copy'])q(id).disabled=value;
+  q('kp-send').disabled=value||!q('kp-reply').value.trim();
+  q('kp-verify').textContent=value?'Checking all three requirements…':'Verify Phase 4b & advance';
+  q('kp-requirements').setAttribute('aria-busy',String(value));
+ }
+ function showChecks(complete,when){
+  q('kp-checked').textContent=when+' · '+(complete?'3':'1')+' of 3 passed';
+  for(const id of ['kp-closed','kp-committed']){q(id).textContent=complete?'Passed':'Not yet';q(id).className=complete?'kp-pass':'kp-check-state';}
+  q('kp-closed-fact').textContent=complete?'phase-4b-settings.md has a Closed line':'No Closed line in phase-4b-settings.md';
+  q('kp-committed-fact').textContent=complete?'example-app: working tree is clean':'example-app: 2 files changed, not committed';
+ }
+ function reset(){
+  q('kp-waiting').hidden=false;q('kp-result').hidden=true;q('kp-advance').hidden=true;q('kp-unsent').hidden=true;q('kp-subheading').hidden=false;
+  q('kp-status').textContent='Needs you · Kiln is waiting';q('kp-heading').textContent='Phase 4b needs your input.';q('kp-check-feedback').hidden=true;
+  showChecks(false,'Last checked when Kiln stopped');setBusy(false);
+ }
+ function result(status,title,text){q('kp-waiting').hidden=true;q('kp-result').hidden=false;q('kp-subheading').hidden=true;q('kp-status').textContent=status;q('kp-heading').textContent=title;q('kp-result-title').textContent='Phase 4b';q('kp-result-text').textContent=text;}
+ function resume(withReply){
+  if(options.outcome==='error'){
+   result('Needs you · Kiln is waiting','The completion check could not run.','Kiln could not read the repository. No work was resumed and the phase has not advanced. Return to try again.');return;
+  }
+  if(options.outcome==='complete'){
+   result('Ready for the next step','Phase 4b is already complete.','The completion checks passed. Choose whether to advance; no conversation has been resumed.');
+   const hasDraft=Boolean(q('kp-reply').value.trim());
+   q('kp-unsent').hidden=!hasDraft;q('kp-advance').hidden=false;
+   q('kp-advance').textContent=hasDraft?'Advance without sending reply':'Advance to the next step';return;
+  }
+  result('Working · Kiln has control','Kiln is finishing Phase 4b.',withReply?'Your reply was sent to the same Claude conversation. Kiln is finishing the remaining work, then will follow the plan.':'The same Claude conversation has resumed, including your terminal discussion. Kiln is finishing the remaining work, then will follow the plan.');
+ }
+ function advance(){
+  q('kp-unsent').hidden=true;q('kp-advance').hidden=true;
+  if(options.outcome!=='complete'){
+   result('Needs you · Kiln is waiting','Phase 4b has not advanced.',options.outcome==='error'?'The current completion check could not read the repository. Your reply has not been sent. Return to try again.':'The phase is no longer complete. Your reply has not been sent. Return to review the remaining work.');return;
+  }
+  result('Phase complete','Phase 4b is complete.','Kiln verified the phase is closed, all changes committed and all commits pushed. The plan proceeds to its next step, respecting any requested pause.');
+ }
+ q('kp-reply').addEventListener('input',()=>q('kp-send').disabled=checking||!q('kp-reply').value.trim());
+ q('kp-send').addEventListener('click',()=>resume(true));q('kp-resume').addEventListener('click',()=>resume(false));q('kp-back').addEventListener('click',reset);q('kp-advance').addEventListener('click',advance);
+ q('kp-copy').addEventListener('click',()=>q('kp-copy-feedback').hidden=false);
+ q('kp-verify').addEventListener('click',()=>{
+  setBusy(true);q('kp-check-feedback').hidden=true;
+  // A short local delay demonstrates the in-progress state; no real check is run.
+  const outcome=options.outcome;
+  setTimeout(()=>{
+   setBusy(false);
+   if(outcome==='error'){
+    q('kp-check-feedback').textContent='Could not refresh: the repository could not be read. The results above are from the last successful check. Nothing advanced; try Verify again after the repository is available.';
+    q('kp-check-feedback').hidden=false;return;
+   }
+   const checkedAt=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',timeZone:'America/New_York',timeZoneName:'short'}).format(new Date());
+   showChecks(outcome==='complete','Checked '+checkedAt);
+   if(outcome==='complete'){advance();return;}
+   q('kp-check-feedback').textContent='Phase 4b is still open and changes remain uncommitted. Finish them in your terminal and verify again, or use Resume Phase 4b in Kiln to let Kiln finish.';
+   q('kp-check-feedback').hidden=false;
+  },650);
+ });
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:reset});tweak.addSelect(options,'outcome',{label:'Next completion check returns',options:[{label:'Still unfinished',value:'unfinished'},{label:'All requirements passed',value:'complete'},{label:'Repository could not be read',value:'error'}]});}
+})();
+</script>

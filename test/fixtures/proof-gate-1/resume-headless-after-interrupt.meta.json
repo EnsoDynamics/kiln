@@ -1,0 +1,42 @@
+{
+  "command": [
+    "claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--resume",
+    "6ebaa77b-323c-4b4f-afee-271b1a243203",
+    "--model",
+    "claude-sonnet-5-5",
+    "--effort",
+    "low",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--forward-subagent-text",
+    "--permission-mode",
+    "auto",
+    "--permission-prompts",
+    "none"
+  ],
+  "cwd": "/tmp/kiln-gates/repo",
+  "startedAt": "2026-10-17T18:43:53.842Z",
+  "pid": 21964,
+  "init": {
+    "at": "2026-10-17T18:43:55.142Z",
+    "model": "claude-sonnet-5-5",
+    "session_id": "6ebaa77b-323c-4b4f-afee-271b1a243203",
+    "permissionMode": "auto",
+    "claude_code_version": "2.1.299"
+  },
+  "result": {
+    "at": "2026-10-17T18:43:56.553Z",
+    "subtype": "success",
+    "is_error": false,
+    "result": "PELICAN-42, `./slow-task.sh`"
+  },
+  "endedAt": "2026-10-17T18:43:57.181Z",
+  "exitCode": 0,
+  "signal": null
+}

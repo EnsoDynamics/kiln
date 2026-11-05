@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+    # Keep only the documentation fixtures and browser references tests consume.
+    # README.md is packaged, and prompts/ contains runtime inputs; neither is skipped.
+    # Add new documentation dependencies to both lists when tests start reading them.
+    # npm's explicit package.json files list takes precedence over root .gitignore.
+    paths:
+      - '**'
+      - '!.gitignore'
+      - '!docs/**'
+      - 'docs/prds/kiln-v1/kiln-v1-prd.md'
+      - 'docs/prds/kiln-v1/technical-design.md'
+      - 'docs/prds/kiln-v1/assumptions.md'
+      - 'docs/design/mockups/**'
+      - 'docs/changes/kiln-multi-repo-delivery/mockups/**'
+      - 'docs/changes/kiln-usage-limit-recovery/mockups/**'
+      - 'docs/changes/kiln-billing-safeguards/mockups/**'
+  pull_request:
+    paths:
+      - '**'
+      - '!.gitignore'
+      - '!docs/**'
+      - 'docs/prds/kiln-v1/kiln-v1-prd.md'
+      - 'docs/prds/kiln-v1/technical-design.md'
+      - 'docs/prds/kiln-v1/assumptions.md'
+      - 'docs/design/mockups/**'
+      - 'docs/changes/kiln-multi-repo-delivery/mockups/**'
+      - 'docs/changes/kiln-usage-limit-recovery/mockups/**'
+      - 'docs/changes/kiln-billing-safeguards/mockups/**'
+  # Main uses Release, which calls this workflow once after its publishing preflight.
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+    outputs:
+      filename:
+        description: The package archive tested on macOS
+        value: ${{ jobs.build.outputs.filename }}
+
+# Cancel superseded CI, with separate groups for each workflow, event and ref.
+# A reusable main-release invocation must finish its required checks.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') }}
+
+# Full development verification runs on Ubuntu. Main candidates retain full macOS validation and
+# Windows build/pack checks; Linux/Windows native runtime is still best effort.
+permissions:
+  contents: read
+jobs:
+  preflight:
+    name: Package and version preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - id: scope
+        env:
+          FULL_CHECKS: ${{ inputs.full || github.base_ref == 'main' }}
+        run: echo "full=$FULL_CHECKS" >> "$GITHUB_OUTPUT"
+      - run: node scripts/release.mjs metadata
+      - if: steps.scope.outputs.full == 'true'
+        run: node scripts/release.mjs candidate
+
+  build:
+    name: Ubuntu checks and package
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      filename: ${{ steps.pack.outputs.filename }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - if: needs.preflight.outputs.full != 'true'
+        run: npm run verify
+      - if: needs.preflight.outputs.full == 'true'
+        run: npm run verify:development
+      - id: pack
+        run: node scripts/pack-release.mjs "$RUNNER_TEMP/kiln-package"
+      - if: needs.preflight.outputs.full != 'true'
+        run: npm run test:package
+        env:
+          KILN_PACKAGE_TARBALL: ${{ runner.temp }}/kiln-package/${{ steps.pack.outputs.filename }}
+      - if: needs.preflight.outputs.full == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kiln-npm-package
+          path: ${{ runner.temp }}/kiln-package/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  macos:
+    name: macOS tests and installed candidate
+    needs: [preflight, build]
+    if: needs.preflight.outputs.full == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - uses: actions/download-artifact@v8
+        with:
+          name: kiln-npm-package
+          path: ${{ runner.temp }}/kiln-package
+      - name: Check the candidate checksum
+        working-directory: ${{ runner.temp }}/kiln-package
+        run: shasum -a 256 -c SHA256SUMS
+      - run: npm run test:package
+        env:
+          KILN_PACKAGE_TARBALL: ${{ runner.temp }}/kiln-package/${{ needs.build.outputs.filename }}
+
+  windows:
+    name: Build and pack (windows-latest)
+    needs: preflight
+    if: needs.preflight.outputs.full == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack --ignore-scripts

@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-17
+**Last Updated**: 2026-10-25
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -50,7 +50,9 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 
 ---
 
-### UI-007. Do the Needs you screens nobody drew reuse the drawn layout and change only these lines?
+### UI-007. Do the Needs you screens nobody drew reuse the drawn layout and change only these lines? — ⏳ PENDING (updated 2026-10-17; 80% confidence)
+
+*Updated 2026-10-17, as built in Phase 5: item 2's line when no time was recorded, and item 3's step numbers, its "phase <n>" in lowercase, and its side column.*
 
 **Assumption**: Four kinds of **Needs you** stop have no mockup. Each **reuses the drawn Needs you layout** and changes **only the lines below**; everything else stays as drawn. This is screen copy: please confirm it or correct the wording.
 
@@ -65,7 +67,7 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 
 **2. An interrupted session can't be resumed** (AC-KEEP-05):
 - Headline unchanged: "Phase <n> ended before it was done."
-- Line under it: **"Kiln was interrupted at <time> while this session was working, and couldn't resume it. These are the last lines it wrote."** If Kiln was shut down so abruptly that it recorded no time, the line says **"last output at <time>"** in place of "interrupted at <time>".
+- Line under it: **"Kiln was interrupted at <time> while this session was working, and couldn't resume it. These are the last lines it wrote."** If Kiln was shut down so abruptly that it recorded no time, it reads **"Kiln was interrupted while this session was working, and couldn't resume it. Its last output was at <time>. These are the last lines it wrote."**
 - **No exit code or last-skill row**: AC-KEEP-05 shows when the session was interrupted in place of that list.
 - Step 1 becomes **"Start a fresh Claude Code session in the worktree"**: the commands `cd <worktree>` and `claude`, then the fresh-session prompt with a **Copy prompt** button and the note **"Points the new session at <phase doc>."**
 - The **"Session can't be opened?"** link is removed, since step 1 already offers the fresh session.
@@ -75,9 +77,9 @@ At **Needs you**, which shows no pause controls (UI-006), a pause requested befo
 - Headline: **"Phase <n> hasn't started."**
 - Line under it: **"Kiln read the phase plan and found the problem shown on the right."**
 - **No session ran, so nothing about one appears**: none of AC-STOP-02's list (last message, exit code, last skill seen, last lines of output), no Full session output link, and no step 1 with AC-STOP-05's resume command. Beyond the lines listed here, the screen shows only the plan problem, the fresh-session prompt link and **Check again**.
-- Step 2 becomes **"Fix the phase plan"**, with **"Kiln only checks that the plan reads: every phase file has its own phase number, every `## Split into` row has a file, and every phase file is listed."**
-- Step 3 keeps **"Come back and check again"**, with the text **"Kiln reads the plan again. If it reads, Kiln starts Phase <n>, or pauses first if you pressed Pause."**
-- Side column: one row, **"Phase plan reads · Not yet · <problem>"**, for example "Phase plan reads · Not yet · phase-2-refund-routing.md lists 2c, which has no file".
+- With no step 1, the two steps are numbered **1 and 2**. Step 1 is **"Fix the phase plan"**, with **"Kiln only checks that the plan reads: every phase file has its own phase number, every `## Split into` row has a file, and every phase file is listed."**
+- Step 2 keeps **"Come back and check again"**, with the text **"Kiln reads the plan again. If it reads, Kiln starts phase <n>, or pauses first if you pressed Pause."** ("the pull request" in place of "phase <n>" when the stop is on it).
+- Side column: headed **"Kiln continues when"**, even when the stop is on the pull request, with one row, **"Phase plan reads · Not yet · <problem>"**, for example "Phase plan reads · Not yet · phase-2-refund-routing.md lists 2c, which has no file", and **no footnote** under Check again, since this isn't the check Kiln runs after a phase.
 
 **4. Claude Code couldn't be started** (Kiln couldn't launch `claude` for the session, for example because it isn't installed). When no earlier attempt of that session ever ran:
 - Headline unchanged: "Phase <n> ended before it was done."
@@ -108,9 +110,11 @@ Each variant **changes as little drawn copy as possible**, and every sentence st
 
 ---
 
-### UI-010. Is the screen and terminal copy nobody drew worded and colored as below?
+### UI-010. Is the screen and terminal copy nobody drew worded and colored as below? — ⏳ PENDING (updated 2026-10-21; 75% confidence)
 
-**Assumption**: Twelve small pieces of copy have no mockup, or have only one case drawn. This is screen copy: please confirm it or correct the wording.
+*Updated 2026-10-17: item 13 added in Phase 5.*
+
+**Assumption**: Thirteen small pieces of copy have no mockup, or have only one case drawn. This is screen copy: please confirm it or correct the wording.
 
 **1. The `subagent` label** in session output uses **the same grey as the `tool` label**.
 
@@ -179,13 +183,14 @@ In "Ran … to …", each end follows the rule on its own, and a day shared by b
 | Problem | Its line |
 |---|---|
 | A phase to implement cites no acceptance criteria | "docs/prds/gift-cards/phase-3-returns.md cites no acceptance criteria." |
-| Uncommitted changes in the checkout | "The checkout has uncommitted changes: 3 files." |
+| Uncommitted changes in the checkout | "The checkout ~/devel/acme-shop has uncommitted changes in 5 files: README.md, src/cart.ts, src/gift-card.ts and 2 more." (the first three files `git status` lists) |
 | A dependency on a later phase | "phase-2-refunds.md depends on phase 3, which comes later in the plan." |
 | A dependency on a phase with no document | "phase-2-refunds.md depends on phase 5, which has no phase document." |
 | A plan that doesn't read | "phase-2-refunds.md lists 2c, which has no file." |
 | `gh` not signed in | "gh isn't signed in to github.com. Run gh auth login." |
 | `origin` not on GitHub | "origin isn't on GitHub: <url>" |
 | A tool missing | "gh isn't on the PATH." (likewise `claude` and `git`) |
+| A document there under both of its names | "There are two technical designs, technical-design.md and gift-cards-technical-design.md. Keep one." (likewise "two assumptions documents") |
 
 When documents are also missing, the drawn lines come first and these follow, before the drawn closing line.
 
@@ -204,6 +209,8 @@ When documents are also missing, the drawn lines come first and these follow, be
 - Some closed: **"4 phases to implement, in this order · 1 already closed"**
 - One left: **"1 phase to implement · 4 already closed"**
 - All closed: **"No phases left to implement · all 5 already closed"**
+
+**13. A phase stopped at Needs you in the phase plan**, which shows only on the Disconnected layout (UI-006). Its number sits in an **amber-outlined circle**, as an Interrupted phase's does, and its pill is **amber with the warning mark, reading "Needs you"**, as the header's Needs you pill is drawn.
 
 **Example**: The lines above use the mockups' fictional sample data (item 10 uses the terminal mockup's **Gift cards**): the feature **Customer returns**, stopped at **phase 2b, Store credit**, with **phase 3, Returns dashboard**, next and pull request **#218** at the end. Had the Needs you mockup's stop at 11:52 AM been looked at the next morning, its header would read "Needs you · Phase 2b · Store credit · Stopped yesterday 11:52 AM". Had phase 1, Return intake, been finished by hand before Start, Documents found would list it as "1 Return intake closed" and read "4 phases to implement, in this order · 1 already closed".
 
@@ -268,6 +275,28 @@ An unlisted saved model gets no message because Kiln **can't tell** whether the 
 
 ---
 
+### UI-012. When Kiln can't open the browser, does the terminal give the address and say why, worded as below? — ⏳ PENDING (Added 2026-10-17 — new question; 80% confidence)
+
+**Assumption**: The terminal mockup draws only the case where the browser opens ("● Opened <address>. Review it there and press Start."). When it **can't be opened** (for example a Linux machine with no `xdg-open`), Kiln **doesn't claim it opened**. It prints the address in the drawn line's place, then **one amber ✗ line saying why**, then the drawn grey line:
+
+- **"● Kiln’s view is at <address>. Review it there and press Start."**
+- **"✗ Couldn’t open the browser: <the reason>. Open <address> yourself."**
+
+For a feature already underway, the ● line ends at what Kiln does next, with no "Opened <address>", and the same ✗ line follows it.
+
+**Example**: In the terminal mockup (fictional sample data), had the browser failed to open for Customer returns, the lines would read "● Kiln’s view is at http://127.0.0.1:4700/customer-returns. Review it there and press Start." then "✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open http://127.0.0.1:4700/customer-returns yourself."
+
+**Evidence**: "Opened" would be untrue when nothing opened. The ✗ line reuses the **amber ✗** of the drawn start-check failure, since amber marks what needs the person. Kiln carries on either way: the view is served, and the person can open the address themselves. The alternative was to print the drawn line regardless; it lost because the terminal would say something Kiln didn't do.
+
+**Confirm or Correct**:
+- [ ] Correct — use this wording
+- [ ] Wrong — print the drawn "Opened" line regardless
+- [ ] Wrong — corrections to the wording: _______________
+
+**Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
+
+---
+
 ## Workflow Assumptions
 
 ### WORK-001. Does a draft pull request count as open?
@@ -303,4 +332,5 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 | UI-008 | A pause pressed during the last phase holds before the pull-request session | 2026-10-17 | Technical Design, engine loop and Snapshot |
 | UI-009 | Change edits model and effort in place, each choice and keep-awake saved at once | 2026-10-17 | Technical Design, Snapshot (Settings and each phase's model) |
 | PLAT-001 | Outside GNOME on Linux, keep-awake may also block a sleep chosen from the menu; screens keep "Stops idle sleep only" | 2026-10-17 | Technical Design, Keep-awake |
-| PLAT-002 | Windows is in v1, not a later release (decided over the proposed deferral) | 2026-10-17 | PRD AC-INSTALL-03; Technical Design, Windows |
+| PLAT-002 | macOS runtime/installation tests and Linux/Windows build-and-pack checks are required; Linux/Windows native runtime is unconfirmed and best effort | 2026-10-25 | Doug clarified: “Mac OS definitely needs to work for release for sure” and “Windows and Linux should definitely build okay. We're just not going to try running them on Windows or Linux to confirm it.” This replaces the 2026-10-17 native-test ruling. PRD AC-INSTALL-03 and AC-PROOF-01; Technical Design, Windows and Testing Approach |
+| REL-001 | MIT license, public Kiln repository and public `@ensodynamics/kiln` package, after separate explicit publication approval | 2026-10-25 | Doug requested public release preparation and MIT licensing, then reiterated “Don't actually publish it yet until I explicitly authorize that.” The intent grants no current visibility, tag or publication authority. |
