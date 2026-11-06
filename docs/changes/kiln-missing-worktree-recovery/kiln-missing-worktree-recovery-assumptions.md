@@ -37,15 +37,15 @@
 
 ## Git Safety Assumptions
 
-### WTR-003. May Start clear git's leftover record of the missing folder?
+### WTR-003. May Kiln, this once, tidy up git's leftover note about the deleted folder so the person can carry on from their branch?
 
-**Assumption**: **Yes.** When a worktree folder is deleted without git's own remove command, git keeps a record that the run's branch is checked out there. Until that record is cleared, git refuses to check the branch out in any other folder, or to make a new worktree at the saved path, unless forced. When that record would stop Start, Start clears that one record before creating the worktree, and the **Starting lets Kiln** list names the folder before Start is pressed. It clears only a record git itself reports as stale because its folder is gone: never a folder that exists, never another record. The folder is already gone, so this loses no work, and the branch and its commits are untouched. Without it, carrying on from the run's existing branch, the recovery offered first when the branch holds work not yet in the base branch, would have to force git past its refusal (`worktree add -f`). That works, but skips git's other checks on the new worktree and, at a new path, leaves the branch listed twice.
+**Assumption**: **Yes.** This departs from a rule already given: Kiln sets up the worktree and its branch and changes nothing else in git (Kiln v1, AC-GIT-01). The nearest case today follows that rule. When git leaves a worktree half made, Kiln removes nothing and shows the person the command to run (Multi-Repo Delivery, AC-ADD-02). What is new here: when someone deletes a worktree folder by hand, git keeps a note that the run's branch is still in use in that folder, and while the note stands git won't let the branch be used anywhere else. So carrying on from the run's branch, the recovery offered first when the branch holds work not yet in the base branch, can't start until the note is gone. Under this answer Start clears that one note as part of setting up, and the **Starting lets Kiln** list says so before the person presses Start. It clears only a note git itself reports as left behind by a folder that no longer exists, never a folder that exists and never any other note. The folder is already gone, so no work is lost, and the branch and its commits are untouched.
 
-**If they choose otherwise**: Starting from the existing branch is unavailable while git still records the missing folder. The page shows the git command that clears the record, the person runs it themselves, then presses **Check again**.
+**If they choose otherwise**: Start has no clearing step. Starting from the existing branch is unavailable while git still records the missing folder. The page shows the git command that clears the record, the person runs it themselves, then presses **Check again**.
 
 **Confirm or Correct**:
-- [ ] Correct — Start clears git's record of the one missing folder it needs
-- [ ] Wrong — Kiln shows the command and the person clears the record
+- [ ] Correct — Start clears git's note about the one deleted folder
+- [ ] Wrong — keep the rule: Kiln shows the command and the person runs it
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 85% | **Impact**: 🟡 MEDIUM
