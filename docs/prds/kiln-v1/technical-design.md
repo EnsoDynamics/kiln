@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check and §Folder Missing (an unfinished run checks its folders before reading the plan and reports Folder missing, not progress).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Source Reconciliation → Completed feature discovery (completed-run current-plan checks only; fresh execution acceptance is separate).

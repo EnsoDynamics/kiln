@@ -31,7 +31,7 @@ import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
 import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
-import { formatCompletedPlanCheck, formatDecisionLine, formatSummaryLine } from "./underway-output.js";
+import { formatCompletedPlanCheck, formatDecisionLine, formatFolderMissing, formatSummaryLine } from "./underway-output.js";
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
 import type { AuditWaiverResult } from "./engine/waivers.js";
@@ -244,6 +244,7 @@ function makeEngine(
     onTerminal: (event) => {
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
+      if (event.kind === "folder_missing") event = { ...event, ...(run.stop.server ? { address: run.stop.server.address } : {}) };
       write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id)) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
@@ -359,12 +360,24 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
       return notStarted(run, engine.record, engine.startError);
     }
   }
+  // A missing folder is the answer (AC-GONE-03): no summary or ● line, nothing judged or started.
+  if (engine.folderMissing) {
+    const { address, openError } = await serveAndOpen(run, engine);
+    if (engine.folderMissing) write(formatFolderMissing(engine.folderMissing, openError === undefined ? address : undefined, colors));
+    if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
+    engine.startupFinished();
+    return stop.done;
+  }
   write(formatSummaryLine(engine, colors));
   const decision = await engine.decide({ review: !run.resumeImmediately });
   if (stop.stopping) return await stop.done;
   const { address, openError } = await serveAndOpen(run, engine);
-  write(formatDecisionLine(decision, engine, colors, openError === undefined ? address : undefined));
+  // A folder can go missing between the plan read and the judgement; the guard in decide() then answers.
+  const missing = engine.folderMissing as Engine["folderMissing"];
+  if (decision.kind === "folder_missing" && missing) write(formatFolderMissing(missing, openError === undefined ? address : undefined, colors));
+  else write(formatDecisionLine(decision, engine, colors, openError === undefined ? address : undefined));
   if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
+  engine.startupFinished();
   // Default restarts stay at review; --resume permits eligible continuation after serving.
   await engine.continue();
   // Kiln stays in the foreground, through Needs you, a pause and Complete, until Ctrl+C (AC-KEEP-01).
@@ -403,6 +416,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
   const columns = planColumns(record.plan ?? []);
   switch (event.kind) {
     case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
+    case "folder_missing": return formatFolderMissing(event.view, event.address, colors);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit": return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;

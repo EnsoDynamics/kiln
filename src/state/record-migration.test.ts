@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(19);
+    expect(SCHEMA_VERSION).toBe(20);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -113,12 +113,23 @@ it("validates durable control fields without inventing prior effects", () => {
   expect(() => migrateRecord({ ...current, controlFingerprint: "truncated" })).toThrow(/control metadata/);
 });
 
+describe("schema 20: the saved plan's read time (missing worktree recovery, Data Models)", () => {
+  it("leaves planReadAt unset when a schema 19 record is read, and refuses a malformed one", () => {
+    const nineteen = migrateRecord(schemaOne({}));
+    nineteen.schemaVersion = 19;
+    const twenty = migrateRecord(nineteen);
+    expect(twenty.schemaVersion).toBe(20);
+    expect(twenty).not.toHaveProperty("planReadAt");
+    expect(() => migrateRecord({ ...twenty, planReadAt: "yesterday-ish" })).toThrow(/plan read time/);
+  });
+});
+
 describe("schema 19: completion waivers (waivers technical design, Upgrade)", () => {
   it("gives a saved stop a finished stop-origin run, so Mark complete waits for a fresh recheck", () => {
     const eighteen = migrateRecord(schemaOne({ phases: { "3": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, stop: { kind: "done_check", at: "2026-11-01T23:12:40Z", checkedAt: "2026-11-01T23:12:40Z", checks: [{ name: "Pushed", passed: false, facts: ["4c1a9e0 isn't on origin yet"] }] } } } }));
     eighteen.schemaVersion = 18; delete eighteen.phases["3"]!.stop!.run;
     const nineteen = migrateRecord(eighteen);
-    expect(nineteen.schemaVersion).toBe(19);
+    expect(nineteen.schemaVersion).toBe(SCHEMA_VERSION);
     expect(nineteen.phases["3"]!.stop!.run).toMatchObject({ at: "2026-11-01T23:12:40Z", origin: "stop", finished: true });
     // Saved rows without items keep displaying as before.
     expect(nineteen.phases["3"]!.stop!.checks[0]).toEqual({ name: "Pushed", passed: false, facts: ["4c1a9e0 isn't on origin yet"] });

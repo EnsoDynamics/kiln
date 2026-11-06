@@ -55,6 +55,8 @@ export const start = (config: PageConfig, refinementConfirmed: boolean) => send(
 export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
 export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");
 export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
+/** Check again on the Folder missing page (missing worktree recovery AC-SETUP-06). */
+export const checkFolders = (config: PageConfig) => send(config, "POST", "/api/folder-setup/check");
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
 export const resume = (config: PageConfig, note: string) => send(config, "POST", "/api/resume", note.trim() === "" ? {} : { note });

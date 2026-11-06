@@ -35,7 +35,15 @@ import { noticeLines } from "./compatibility-notices.js";
 
 export const PR_TITLE = "Final pull request";
 
-export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete";
+export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete" | "folder_missing";
+
+/** The Folder missing page's facts (missing worktree recovery, "Interfaces"); the setup panel joins it in Phase 2. */
+export type FolderMissingSnapshot = Omit<import("./folder-facts.js").FolderMissingView, "existingBranch"> & {
+  /** Whether the folder can be put back could not be told, because a read it depends on failed (AC-FACTS-03). */
+  restoreUnknown?: true;
+  /** The stopped phase's last completion results, shown only as history with when they were checked (AC-GONE-02). */
+  stoppedResult?: { phaseId: string; checkedAt: string; passed: number; failed: number };
+};
 
 /**
  * A usage limit as the waiting screen and a usage-limit Needs you show it (usage-limit recovery
@@ -197,6 +205,8 @@ export interface RepositoryRow {
 }
 
 export interface Snapshot {
+  /** Set exactly when `feature.state` is `folder_missing` (AC-GONE-02). */
+  folderMissing?: FolderMissingSnapshot;
   /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
   compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
@@ -396,9 +406,12 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const leaves = recordedLeaves(plan);
   const stoppedKey = engine.stoppedPhaseKey();
   const waitingKey = engine.waitingPhaseKey();
+  const folderMissing = engine.isUnderway && !engine.currentlyComplete ? engine.folderMissing : undefined;
   const state: FeatureState = !engine.isUnderway
     ? "not_started"
-    : engine.currentlyComplete
+    : folderMissing
+      ? "folder_missing"
+      : engine.currentlyComplete
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -410,7 +423,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
           ? "paused"
           : "implementing";
 
-  const needsYou = stoppedKey === undefined ? undefined : needsYouView(engine, stoppedKey);
+  // While a folder is missing no phase state is current: earlier results are history only (AC-GONE-02).
+  const needsYou = stoppedKey === undefined || folderMissing ? undefined : needsYouView(engine, stoppedKey);
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
   const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
@@ -491,11 +505,20 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...optional("current", current),
     ...optional("needsYou", needsYou),
     ...optional("waiting", waiting),
+    ...(folderMissing ? { folderMissing: folderMissingSnapshot(folderMissing, engine) } : {}),
   };
   if (state === "not_started" && documents) {
     snapshot.documents = { ...documents, ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
+}
+
+function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingView, engine: Engine): FolderMissingSnapshot {
+  const { checkedAt, repositories, plans, restoreCommands, factsId } = view;
+  const stoppedKey = engine.stoppedPhaseKey();
+  const stop = stoppedKey === undefined ? undefined : engine.record.phases[stoppedKey]?.stop;
+  return { checkedAt, repositories, plans, restoreCommands, factsId, ...(view.existingBranch.available === "unknown" ? { restoreUnknown: true as const } : {}),
+    ...(stop ? { stoppedResult: { phaseId: engine.judgedId(stoppedKey!), checkedAt: stop.checkedAt, passed: stop.checks.filter(check => check.passed).length, failed: stop.checks.filter(check => !check.passed).length } } : {}) };
 }
 
 function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {

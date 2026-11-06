@@ -63,6 +63,8 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
     }
     case "paused":
       return { kind: "paused", label: "Paused", facts: [done] };
+    case "folder_missing":
+      return { kind: "needs_you", label: "Folder missing", facts: ["Nothing is running"] };
     case "complete": {
       const facts = [done];
       if (feature.startedAt && feature.completedAt) facts.push(feature.timing ? timingText(feature.timing, now.getTime()) : shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));

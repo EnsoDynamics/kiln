@@ -16,6 +16,8 @@ import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
+import { checkFolders, checkedEntries, type FolderCheck } from "./folder-check.js";
+import { gatherFolderFacts, type FolderMissingView } from "./folder-facts.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
 import { CommandJournal, ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
@@ -170,6 +172,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
+  | { kind: "folder_missing"; view: FolderMissingView; folders: FolderCheck; address?: string }
   | { kind: "completed_plan_checked"; check: CompletedPlanCheck }
   | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
   | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
@@ -302,7 +305,12 @@ export type UnderwayDecision =
   | { kind: "complete"; doneFirst?: DoneFirst }
   | { kind: "resume"; phaseKey: string; sessionId: string }
   | { kind: "waiting"; phaseKey: string; limit: { label: string; resetsAt?: string }; doneFirst?: DoneFirst }
-  | { kind: "setup_failed"; error: string };
+  | { kind: "setup_failed"; error: string }
+  | { kind: "folder_missing" };
+
+/** The journal actions that rerun the folder check before acting (AC-GONE-01). */
+const FOLDER_CHECKED_ACTIONS = new Set<string>(["reply", "resume", "verify-and-advance", "waive-and-advance", "check-again", "continue"]);
+const FOLDER_MISSING_REASON = "This run's folder is missing. Nothing can run until it is put back or the run is set up again.";
 
 type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" } | { kind: "waiting" } | { kind: "stopping" };
 
@@ -400,6 +408,16 @@ export class Engine {
   private takeoverReading: Promise<void> | undefined;
   private returningTakeover = false;
   private recoveredLive = false;
+  /**
+   * Folder missing (missing worktree recovery, "The Folder Check"): computed from disk and Git
+   * each time it is checked and never saved. Set while any set-up repository's saved folder is
+   * not the run's worktree; the facts are gathered on entry and on Check again.
+   */
+  folderMissing: (FolderMissingView & { folders: FolderCheck }) | undefined;
+  private folderChecking: Promise<boolean> | undefined;
+  private leavingFolderMissing = false;
+  /** Startup prints Folder missing itself; later entries print through a terminal event. */
+  private announceFolderMissing = false;
   private recoveredTimer: NodeJS.Timeout | undefined;
   /** Counts field checks, so only the latest one's result is shown. */
   private fieldCheckRun = 0;
@@ -632,6 +650,13 @@ export class Engine {
   }
 
   private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
+    // Commands that judge or start work rerun the folder check first; the live and settings controls
+    // only refuse while the mode is set (The Folder Check). Kiln's own resume at the end of a usage
+    // wait is checked where it dispatches, by the drive loop's guard.
+    if (FOLDER_CHECKED_ACTIONS.has(action) && receipt.source !== "automatic") {
+      const refused = await this.folderRefusal();
+      if (refused) return refused;
+    } else if (this.folderMissing && !action.startsWith("continuation-")) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
     if (action === "continuation-grant") return this.grantContinuationTarget(inputs, receipt);
     if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
     if (action === "continuation-retry") return this.retryContinuation(inputs);
@@ -1164,6 +1189,7 @@ export class Engine {
 
   /** Provider metadata reads use the controller's original environment. */
   get environment(): NodeJS.ProcessEnv { return this.options.env; }
+  get gitExecutable(): string { return this.options.tools.git; }
 
   get stateDirectory(): string {
     return this.options.stateDirectory;
@@ -1276,6 +1302,7 @@ export class Engine {
    */
   async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
     const { record } = this;
+    if (this.isUnderway) { const refused = await this.folderRefusal(); if (refused) return refused; }
     if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (!this.restartReview || this.restartReview.action === "start") {
@@ -1358,7 +1385,7 @@ export class Engine {
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       // The plan as Documents found showed it, until the worktree's own copy is read.
-      if (this.options.startPlan) record.plan = recordedPlan(this.options.startPlan);
+      if (this.options.startPlan) { record.plan = recordedPlan(this.options.startPlan); record.planReadAt = at; }
       try { this.save(); } catch (error) {
         for (const key of Object.keys(record)) Reflect.deleteProperty(record, key);
         Object.assign(record, beforeStart);
@@ -2541,7 +2568,7 @@ export class Engine {
       const continuation = structuredClone(old.continuation!);
       continuation.acceptances = continuation.acceptances.map(row => row.id === acceptance.id ? acceptanceSummary(acceptance) : row);
       if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
-      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
+      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReadAt: acceptance.activatedAt, planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
       this.billing.invalidate(false);
       for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
       Object.assign(old, active);
@@ -2640,6 +2667,79 @@ export class Engine {
     return reading;
   }
 
+  /**
+   * The folder guard (missing worktree recovery, "The Folder Check"): true when every set-up
+   * repository's saved folder is the run's worktree. A failing check sets Folder missing, gathering
+   * the facts on entry or when asked (Check again); a passing one, with `mayLeave`, leaves the mode
+   * and replays `kiln run`'s startup checks with the restart review. It writes nothing.
+   */
+  folderGuard(options: { gather?: boolean; mayLeave?: boolean } = {}): Promise<boolean> {
+    const mayLeave = options.mayLeave !== false;
+    // Only a check that may leave the mode is shared: a caller that must not replay startup
+    // (a session being settled, the dispatch path) never joins one that does.
+    if (this.folderChecking && mayLeave && !options.gather && !this.leavingFolderMissing) return this.folderChecking;
+    const checking = this.runFolderGuard(options.gather === true, mayLeave).finally(() => { if (this.folderChecking === checking) this.folderChecking = undefined; });
+    if (mayLeave) this.folderChecking = checking;
+    return checking;
+  }
+
+  private async runFolderGuard(gather: boolean, mayLeave: boolean): Promise<boolean> {
+    if (!checkedEntries(this.record).length || this.closed) return true;
+    const folders = await checkFolders(this.git, this.record, this.now());
+    if (this.stopping || this.closed) return !this.folderMissing;
+    if (folders.passed) {
+      // The replay's own checks pass while the mode is being left.
+      if (this.leavingFolderMissing) return true;
+      if (this.folderMissing && mayLeave) await this.leaveFolderMissing();
+      return !this.folderMissing;
+    }
+    const entering = !this.folderMissing;
+    const changedStates = this.folderMissing && JSON.stringify(this.folderMissing.folders.repositories.map(r => [r.name, r.state, r.holds])) !== JSON.stringify(folders.repositories.map(r => [r.name, r.state, r.holds]));
+    if (entering || gather || changedStates) {
+      const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+      const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now() });
+      this.folderMissing = { ...view, folders };
+    } else this.folderMissing = { ...this.folderMissing!, folders: { ...folders, checkedAt: this.folderMissing!.folders.checkedAt } };
+    if (entering) {
+      // No restart review, wait watcher or dispatch while a folder is missing.
+      this.restartReview = undefined; this.reviewingRestart = false; this.pendingResume = undefined; this.requestedResume = undefined;
+      this.unwatchWait(); this.updateKeepAwake();
+      if (this.announceFolderMissing) this.emit({ kind: "folder_missing", view: this.folderMissing, folders });
+    }
+    this.changed();
+    return false;
+  }
+
+  /**
+   * Every folder passes again: replay the startup sequence `kiln run` uses, then clear the mode, so
+   * nothing acts in between. A session this Kiln started that is still working, or still being
+   * settled, needs no replay: its own loop judges it once it ends, as if the folder never went.
+   */
+  private async leaveFolderMissing(): Promise<void> {
+    if (this.driving || this.current?.processRunning) { this.folderMissing = undefined; this.changed(); return; }
+    this.leavingFolderMissing = true;
+    try {
+      const prepared = await this.prepare();
+      if (prepared.ok) await this.decide({ review: true });
+    } finally { this.folderMissing = undefined; this.leavingFolderMissing = false; this.changed(); }
+  }
+
+  /** A command refused while a folder is missing, after the guard ran; undefined when the folders pass. */
+  private async folderRefusal(): Promise<{ ok: false; code: "folder_missing" | "folder_missing_resolved"; reason: string; status: 409 } | undefined> {
+    const wasMissing = !!this.folderMissing;
+    if (await this.folderGuard()) return wasMissing ? { ok: false, code: "folder_missing_resolved", reason: "The run's folders are back, and Kiln checked the run again. Review the page before acting.", status: 409 } : undefined;
+    return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
+  }
+
+  /** Check again on the Folder missing page: the folder check, the facts and, once every folder passes, leaving the mode. */
+  async checkFoldersAgain(): Promise<{ ok: true; folderMissing: boolean }> {
+    await this.folderGuard({ gather: true });
+    return { ok: true, folderMissing: !!this.folderMissing };
+  }
+
+  /** Called once `kiln run` has printed its startup lines; later entries print through a terminal event. */
+  startupFinished(): void { this.announceFolderMissing = true; }
+
   async prepare(): Promise<{ ok: true } | { ok: false; error: string }> {
     const authority = readPendingAuthority(this.stateDirectory, this.record);
     const active = this.record.continuation?.acceptances.find(row => row.id === this.record.continuation?.currentAcceptanceId && row.state === "active" && row.newExecutionId === this.record.executionId);
@@ -2651,6 +2751,8 @@ export class Engine {
       const setup = await this.finishSetup();
       if (!setup.ok) return setup;
     }
+    // A missing folder is the answer: no plan read, progress or judgement (AC-GONE-01).
+    if (!this.leavingFolderMissing && !await this.folderGuard()) return { ok: true };
     await this.readPlan();
     return { ok: true };
   }
@@ -2666,6 +2768,7 @@ export class Engine {
     this.quiet = true;
     try {
       const decision = await this.decideQuietly();
+      if (decision.kind === "folder_missing") { this.restartReview = undefined; this.reviewingRestart = false; this.changed(); return decision; }
       if (options.review) {
         this.restartReview = decision.kind === "start_phase" ? { activityKey: decision.phaseId, action: "start" }
           : decision.kind === "start_audit" ? { activityKey: decision.phaseKey, action: "start" }
@@ -2748,6 +2851,7 @@ export class Engine {
           this.recoveredTimer.unref();
         }
       }
+      if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
       await this.reconcileTakeover();
       return { kind: "needs_you", phaseKey: target.activityKey, again: true };
     }
@@ -2765,6 +2869,7 @@ export class Engine {
       return { kind: "needs_you", phaseKey: previous.phaseKey, again: true };
       }
     }
+    if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
     if (deliveryEnabled(record) && record.completedAt && !await this.obsoleteCompletedDeliveryArtifacts()) {
@@ -2896,7 +3001,10 @@ export class Engine {
       if (continuation && !this.commands.blocked && !this.stopping) { await this.prepareContinuation(continuation); if (this.record.executionId === continuation.completedExecutionId) return; }
       if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
+      if (this.folderMissing) return;
       if (this.requestedResume !== undefined) {
+        // The one dispatch path: every launch and resume checks the folders first (AC-GONE-01).
+        if (!await this.folderGuard({ mayLeave: false })) return;
         const request = this.requestedResume;
         this.requestedResume = undefined;
         const runCount = this.latestSession(request.phaseKey)?.runs.length;
@@ -2911,6 +3019,8 @@ export class Engine {
         this.watchWait();
         return;
       }
+      // Checked after a wait's watch starts, so the watch begins before this loop first waits on Git.
+      if (!await this.folderGuard({ mayLeave: false })) return;
       if (this.pendingResume !== undefined) {
         const key = this.pendingResume;
         this.pendingResume = undefined;
@@ -3915,6 +4025,8 @@ export class Engine {
       }
       if (this.commands.blocked) return { kind: "stopped" };
       if (this.stopping) return { kind: "stopping" };
+      // A session whose folder went missing while it worked is judged only after recovery.
+      if (!await this.folderGuard({ mayLeave: false })) { this.current = undefined; this.changed(); return { kind: "stopped" }; }
       if (this.record.billing?.hold?.phaseKey === phaseKey) return { kind: "stopped" };
       const run = this.latestSession(phaseKey)?.runs.at(-1);
       if (run?.interruptedBy !== "sleep") return this.judgeEndedSession(phaseKey, false);
@@ -4451,7 +4563,7 @@ export class Engine {
       const before = structuredClone(this.record);
       try {
         const accepted = effectiveAudit(this.stateDirectory, audit)!;
-        if (outcome.plan.ok) this.record.plan = recordedPlan(outcome.plan.plan);
+        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); }
         for (const phaseId of accepted.completionPhases()) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
@@ -4891,6 +5003,8 @@ export class Engine {
 
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
   private watchWait(): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     const key = this.waitingPhaseKey();
     if (this.reviewingRestart || key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
     this.unwatchWait();
@@ -4946,6 +5060,8 @@ export class Engine {
   }
 
   private codexReadingArrived(reading: AgentAccount): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
@@ -4969,6 +5085,8 @@ export class Engine {
    * no reset time and it is the wait's first reading.
    */
   private readingArrived(reading: AccountView): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     if (this.record.billing?.hold) return;
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
@@ -5592,6 +5710,7 @@ export class Engine {
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
     this.plan = baseline.active.plan;
     this.record.plan = recordedPlan(baseline.active.plan);
+    this.record.planReadAt = attemptedAt;
     try { this.save(); }
     catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }
     if (added.length) this.emit({ kind: "plan_updated", at: this.now(), addedPhaseIds: added, remainingCount: this.record.planReconciliation.handback!.remainingCount, source: baseline.active.path });
@@ -5636,7 +5755,7 @@ export class Engine {
 
   private emit(event: TerminalEvent): void {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
-    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated") this.options.onTerminal?.(event);
+    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated" || event.kind === "folder_missing") this.options.onTerminal?.(event);
   }
 }
 

@@ -77,11 +77,16 @@ it("refreshes incomplete checks, preserves old evidence on read error, and reche
   const worktree = h.engine.worktreePath;
   renameSync(worktree, `${worktree}-temporarily-unavailable`);
   try {
-    expect((await post("resume", { target: identity, note: "not sent" })).status).toBe(503);
-    const failed = buildSnapshot(h.engine).needsYou!;
-    expect(failed.phaseRecovery!.completion).toBe("unknown");
-    expect(failed.checkedAt).toBe(completed.checkedAt); expect(failed.checks).toEqual(completed.checks);
+    // A missing worktree is Folder missing, not an unreadable check (missing worktree recovery AC-GONE-01):
+    // nothing is rechecked or sent, and the stop's old evidence is kept as it was.
+    const refused = await post("resume", { target: identity, note: "not sent" });
+    expect(refused).toMatchObject({ status: 409, body: { code: "folder_missing" } });
+    expect(buildSnapshot(h.engine).feature.state).toBe("folder_missing");
+    const kept = h.engine.record.phases["1"]!.stop!;
+    expect(kept.checkedAt).toBe(completed.checkedAt); expect(kept.checks).toEqual(completed.checks);
   } finally { renameSync(`${worktree}-temporarily-unavailable`, worktree); }
+  // Check again finds the folder back and leaves the mode.
+  expect((await post("folder-setup/check", {})).body.state).toBe("needs_you");
   finish();
   expect((await post("resume", { target: identity, note: "never sent" })).body).toEqual({ ok: true, outcome: "already_complete", target: identity });
   expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();

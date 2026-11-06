@@ -18,3 +18,9 @@ Discarding the saved run (WTR-001), and everything the PRD's Out of Scope lists.
 ## Phase-specific notes
 - Each earlier design section this phase's work replaces gets its pointer in the feature commit (design, "Changes to Earlier Designs"): Kiln v1 §Worktree and Branch Setup, Continue Added Phases §Implemented integrated-prerequisite continuation (Phase 3a) and §Completion evidence from outside Kiln, Multi-Repo Delivery §The Workspace.
 - The start intent's supersede-on-pass rule (design, "The Folder Check") lands here, in Phase 1's leaving-the-mode path.
+
+## Carried forward from Phase 1
+- The facts and the existing-branch availability test are in `src/engine/folder-facts.ts` (`gatherFolderFacts`, `FolderMissingView.existingBranch`, three-valued). The engine holds them as `engine.folderMissing`; the snapshot's `folderMissing` block (`FolderMissingSnapshot` in `snapshot.ts`) is where `panel` joins.
+- Phase 1 left the mockup's references to the panel off the page: the introduction's closing ", and a setup to carry on in a new folder" (", and a setup to carry on" for several repositories) and the no-command line's "Set the run up above, or sort it out yourself and check again." (`view/src/lib/folder-missing.ts`, `intro` and `restoreText`). Put them back with the panel, and remove `withoutSetup` from `src/server/folder-missing-in-browser.integration.test.ts`, which compares every mockup case's words with the page.
+- While the mode is set, the server refuses every mutating route except `FOLDER_MISSING_ROUTES` (`src/server/local-server.ts`); add `/api/folder-setup/panel` and `/api/folder-setup/start` there.
+- Leaving the mode is `Engine.leaveFolderMissing` (the folder guard with `mayLeave`); the start intent's supersede-on-pass rule lands there.

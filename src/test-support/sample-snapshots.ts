@@ -763,3 +763,51 @@ export function completeWaivedSnapshot(): Snapshot {
   snapshot.waivers = [WAIVER, prWaiver];
   return snapshot;
 }
+
+/** The Folder missing mockup's clock: Nov 6, 8:35 AM EST, when Kiln checked (missing worktree recovery mockup). */
+export const FOLDER_MISSING_NOW = Date.parse("2026-11-06T13:35:00Z");
+export type FolderMissingCase = "merged" | "unmerged" | "gone" | "elsewhere" | "occupied" | "multi" | "unknown";
+
+/**
+ * Folder missing, with the mockup's sample data for each of its page cases
+ * (docs/changes/kiln-missing-worktree-recovery/mockups/kiln-missing-worktree-recovery.html).
+ */
+export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
+  type View = NonNullable<Snapshot["folderMissing"]>;
+  type Repo = View["repositories"][number];
+  const BR = "feature/invoice-evidence-collection";
+  const SAVED = "~/devel/.worktrees/invoice-evidence-collection/harbor-ledger";
+  const PORTAL = "~/devel/.worktrees/invoice-evidence-collection/harbor-portal";
+  const OCT23 = "2026-10-23T14:10:00Z"; const OCT24 = "2026-10-24T13:12:00Z";
+  const at = (sha: string) => ({ sha: sha.padEnd(40, "0"), date: OCT24 });
+  const repo = (overrides: Partial<Repo>): Repo => ({ name: "harbor-ledger", savedFolder: SAVED, branch: BR, setUpAt: OCT23, state: "missing", gitRecord: "listed", featureBranch: {}, unknown: [], ...overrides });
+  const developMerged = { source: "origin" as const, branch: "develop", sha: "0a3d75d".padEnd(40, "0"), total: 13, closed: 9, next: { id: "10", title: "Duplicate invoice guard" } };
+  const develop = { source: "origin" as const, branch: "develop", sha: "7e21b90".padEnd(40, "0"), total: 5, closed: 3, next: { id: "4", title: "Run reports and alerts" } };
+  const merged = { local: at("4c80c80"), origin: at("4c80c80"), relation: "same" as const, inBase: true };
+  const unmergedBranch = { local: at("bec1115"), origin: at("bec1115"), relation: "same" as const, inBase: false, notInBaseCount: 3 };
+  const restore = (path: string, repository = "harbor-ledger") => [`git -C ~/devel/${repository} worktree add -f ${path} ${BR}`];
+  const cases: Record<FolderMissingCase, Omit<View, "checkedAt" | "factsId">> = {
+    merged: { repositories: [repo({ featureBranch: merged, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: true } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "out_of_date", comparedWith: "base" }, base: developMerged }, restoreCommands: restore(SAVED) },
+    unmerged: { repositories: [repo({ featureBranch: unmergedBranch, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "matches_branch", comparedWith: "branch" }, base: develop, branchOnly: ["4"] }, restoreCommands: restore(SAVED) },
+    gone: { repositories: [repo({ gitRecord: "none", featureBranch: { gone: true }, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: false, inBase: false } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "ahead", aheadPhases: ["4"], comparedWith: "base" }, base: develop }, restoreCommands: [] },
+    elsewhere: { repositories: [repo({ gitRecord: "none", featureBranch: { ...merged, elsewhere: "~/devel/ledger-scratch" }, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: true } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "out_of_date", comparedWith: "base" }, base: developMerged }, restoreCommands: [] },
+    occupied: { repositories: [repo({ state: "holds_something_else", holds: "a plain folder, not a git worktree", gitRecord: "none", featureBranch: { origin: at("bec1115"), inBase: false, notInBaseCount: 3 }, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "matches_branch", comparedWith: "branch" }, base: develop, branchOnly: ["4"] }, restoreCommands: [] },
+    multi: { repositories: [
+      repo({ state: "in_place", gitRecord: "listed", featureBranch: unmergedBranch, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } }),
+      repo({ name: "harbor-portal", savedFolder: PORTAL, featureBranch: { local: at("91c4e02"), origin: at("91c4e02"), relation: "same", inBase: false, notInBaseCount: 2 }, lastPushed: { sha: "91c4e02".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } }),
+    ], plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "matches_branch", comparedWith: "branch" }, base: develop, branchOnly: ["4"] }, restoreCommands: restore(PORTAL, "harbor-portal") },
+    unknown: { repositories: [repo({ featureBranch: { local: at("4c80c80"), inBase: true }, unknown: [`${BR} on origin`], lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", inBase: true } })],
+      plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "not_compared" }, base: { ...developMerged, source: "local" } }, restoreCommands: [], restoreUnknown: true },
+  };
+  const multi = which === "multi";
+  return underway({
+    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
+    phases: ["1", "2", "3", "4"].map(id => ({ id, title: `Phase ${id} work`, file: `phase-${id}.md`, state: "done" as const, doneAt: OCT24, finishedByPerson: false })),
+    folderMissing: { checkedAt: new Date(FOLDER_MISSING_NOW).toISOString(), factsId: "f".repeat(64), ...cases[which] },
+  });
+}

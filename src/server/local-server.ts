@@ -127,6 +127,15 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value);
   });
 
+  // While a folder is missing, only Check again and reads act (missing worktree recovery, "Interfaces").
+  // The control route's actions reach the engine's own guard, which reruns the folder check.
+  app.use("/api/*", async (c, next) => {
+    if (engine.folderMissing && c.req.method !== "GET" && !FOLDER_MISSING_ROUTES.has(c.req.path) && !c.req.path.startsWith("/api/control/")) {
+      return c.json({ ok: false, code: "folder_missing", reason: "This run’s folder is missing. Nothing can run until it is put back or the run is set up again." }, 409);
+    }
+    await next();
+  });
+
   await installInspectionRoutes(app, engine, () => inspectionCacheError);
 
   app.get("/api/delivery/evidence/:digest", c => {
@@ -230,6 +239,14 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.get("/api/snapshot", (c) => c.json(snapshot()));
 
+  // Check again on the Folder missing page: the folder check, the facts and, once every folder passes, leaving the mode (AC-SETUP-06).
+  app.post("/api/folder-setup/check", async (c) => {
+    if (!engine.isUnderway || engine.currentlyComplete) return c.json({ ok: false, code: "wrong_activity", reason: "Only an unfinished run checks its folders." }, 409);
+    await engine.checkFoldersAgain();
+    const view = snapshot();
+    return c.json({ ok: true, state: view.feature.state, ...(view.folderMissing ? { folderMissing: view.folderMissing } : {}) });
+  });
+
   app.get("/api/events", (c) =>
     streamSSE(c, async (stream) => {
       streams.add(stream);
@@ -253,6 +270,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
       engine.checkBase();
+      // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
+      // The check is awaited before the first snapshot, so a page never opens on a stale phase state.
+      if (engine.isUnderway && !engine.currentlyComplete) await engine.folderGuard().catch(() => undefined);
       sendSnapshot();
       await closed;
       clearInterval(heartbeat);
@@ -538,6 +558,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     },
   };
 }
+
+/** The routes that act while a folder is missing: Check again, and refreshing agent information. */
+const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/metadata/refresh"]);
 
 function tokenMatches(given: string | undefined, token: string): boolean {
   if (given === undefined) return false;

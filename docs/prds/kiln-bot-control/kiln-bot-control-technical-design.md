@@ -149,6 +149,8 @@ Errors contain `{ code, message, retryable, next_command, next_argv }`; `next_*`
 
 ## Status, Conversations and Handoff
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check (a run whose folder is missing reports `folder_missing` and offers no resume or continuation).
+
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
 Targeted status always includes execution/PRD/repository identity, controller reachability, current work state/activity (phase, audit round or delivery), phase counts, agent/requested/effective model, start/latest activity times, pending pause, usage wait, completion outcome and recorded PR links. The complete stop includes its exact final message or explicit absence, reason, failed checks and their check times, human requests and browser recovery instructions. No quiet-time heuristic claims healthy or stuck. Disconnected facts retain their last-known dates; no executable controls or current status token are returned.

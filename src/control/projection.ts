@@ -29,6 +29,9 @@ import { markCompletePreview, progressRows, projectCheck, type AuditWaiverReader
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
+import { checkFoldersSync, type FolderCheck } from "../engine/folder-check.js";
+import { findExecutable } from "../platform/helper-process.js";
+import { displayPath } from "../engine/worktree-setup.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
@@ -211,7 +214,23 @@ function publicLimit(limit: LimitView, stale = false): Record<string, unknown> {
 function publicIdentity(view: NonNullable<Snapshot["waiting"]> | NonNullable<Snapshot["needsYou"]>): Record<string, unknown> {
   return { originalAccount: view.originalAccount ? publicProvenance(view.originalAccount) : null, attemptAccount: view.attemptAccount ? publicProvenance(view.attemptAccount) : null };
 }
+/**
+ * The folder check at read time (missing worktree recovery, "The Folder Check"), whether or not a
+ * controller is running: never a cached state. Undefined when every folder is the run's worktree.
+ */
+function failingFolders(record: SavedWork["record"], engine: Engine | undefined, deadline: number): FolderCheck | undefined {
+  const env = engine?.environment ?? process.env;
+  const git = engine?.gitExecutable ?? findExecutable("git", env) ?? "git";
+  const check = checkFoldersSync(git, env, record, deadline);
+  return check.passed ? undefined : check;
+}
+function folderFacts(check: FolderCheck, canonical: string): Record<string, unknown> {
+  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
+    set_up_again: { description: "Open the run with kiln run to see what Kiln still knows and set it up again.", argv: ["kiln", "run", canonical] } };
+}
 export function statusProjection(work: SavedWork, engine?: Engine, full = false, deadline = Date.now() + 5000): Result {
+  const folders = failingFolders(engine?.record ?? work.record, engine, deadline);
+  if (folders) return folderMissingStatus(work, engine, folders, full);
   const before = engine ? JSON.stringify(engine.record) : null;
   const cache = engine ? null : cached(work, deadline);
   const statusErrors = [];
@@ -311,6 +330,19 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   history.dispose(); return answer;
   } catch (error) { history.dispose(); throw error; }
 }
+/** `kiln status` while a folder is missing (AC-GONE-02): the state, no current activity, no stop, no phase progress. */
+function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {
+  const record = engine?.record ?? work.record;
+  const reachable = !!engine;
+  return result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
+    repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    controller: reachable ? "reachable" : "stopped", working_sessions: engine?.current?.processRunning ? 1 : 0, facts: { state: "current", observed_at: folders.checkedAt, reason: null },
+    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
+    progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
+    status_token: null, controls: PLANNED_CONTROLS.map(name => ({ name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null })), unsent_replies: [],
+    ...(full ? { plan: record.plan ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit } } : {}),
+  });
+}
 /** The audit store's waiver results, read through the same private, bounded reads as inspection. */
 function auditWaiverReader(root: string, stateDirectory: string, deadline: number): AuditWaiverReader {
   const store = new AuditStore(stateDirectory);
@@ -322,6 +354,16 @@ function auditWaiverReader(root: string, stateDirectory: string, deadline: numbe
   };
 }
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
+  const folders = failingFolders(engine?.record ?? work.record, engine, Date.now() + 5000);
+  if (folders) {
+    // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
+    return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
+      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId, phase_key: null, working_directory: null,
+      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
+      provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
+      resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
+    } });
+  }
   if (engine?.record.liveControl) await engine.reconcileTakeover();
   const activeId = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, activeId);
