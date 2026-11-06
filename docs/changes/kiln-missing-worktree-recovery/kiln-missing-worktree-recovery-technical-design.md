@@ -57,6 +57,8 @@ For each repository entry with `setupCompletedAt`, Kiln classifies the saved fol
 
 The guard runs: in `prepare()` before `readPlan()`; in `decide()` before any judgement; at snapshot rebuild after a page open or reload (as an awaited check, published through SSE); before every Verify, Mark complete, Check again, Resume, reply and continue command, from the browser or the control route; and on the dispatch path before every launch or resume, including usage-limit and audit sessions. A failing guard sets the engine's `folderMissing` and returns without acting; commands return `folder_missing` (409) with the reason. A session already running when its folder disappears is not stopped; its end is judged only after recovery (AC-SETUP-05's done check). The recovered-live adoption at the top of `decideQuietly` runs before the guard. It only watches the process; the stop it records when the process exits is checked again by Start's restart decision. Stopping Kiln in the terminal (`engine.stop`) is not a route and stays available; the live controls (pause request, takeover, message) return `folder_missing`.
 
+A page open or reload reruns only this folder check, which is local and fast. The facts and the panel preview (§The Facts, §The Setup Panel) are gathered when Folder missing is entered, on Check again and in Start's recheck; a page open or reload otherwise republishes the cached `folderMissing` block with its original `checkedAt`. Start recomputes everything and compares `factsId` and `previewId` before acting (§Start), so a cached page never drives a Start.
+
 While a Start in this engine holds an intent `in_progress`, a passing check does not end Folder missing; that Start ends it. Otherwise, when the engine's check passes for every folder, any start intent of the unfinished execution in state `failed` or `in_progress` is marked `superseded`. Its artifacts stay, and nothing else is written. A completed worktree step keeps its result, and the panel settings that Start did not save stay unsaved (AC-SAFE-01). `kiln status` and `kiln handoff` write nothing.
 
 The status and handoff projections (`kiln status`, `kiln handoff`) run the same classification, synchronously and within their deadline, whether or not a controller is running; a read that times out is Couldn't check. While any folder fails, status reports `state: "folder_missing"` with the per-repository classifications, no current activity and `stop: null`. Handoff reports `resumable: false` with the reason, and returns `resume_command`, `continuation_prompt` and `fresh_session_instructions` as null. Both name `kiln run <PRD-path>` as the way to set the run up again. A cached `folder_missing` state is not reused: the state comes from the check made at read time. Outside Folder Missing, while a pause request is pending and not active, status's "Will pause after" label names `requestedFor` when it is set.
@@ -87,7 +89,7 @@ Per repository:
 
 | Fact | Source |
 |---|---|
-| Checked at | the check's own time |
+| Checked at | when these facts were gathered (§The Folder Check says when); a republished page keeps it |
 | Saved folder, branch, set up date, state | `entry.worktreePath`, `settings.featureBranch`, `entry.setupCompletedAt`, the folder check |
 | Git still records a worktree there | the `worktree list` entry at the saved path, with `prunable` |
 | Feature branch, local and on origin | `localBranchCommit`, `originBranches`; commit dates by `log -1 --format=%cI`. When both exist and differ: `rev-list --left-right --count` gives ahead, behind or diverged |
@@ -171,7 +173,7 @@ A session that started in a worktree before a repository was added still matches
 
 | Route | Body | Result |
 |---|---|---|
-| `POST /api/folder-setup/check` | none | Reruns the folder check and facts (Check again); returns the snapshot's `folderMissing`, or leaves the mode |
+| `POST /api/folder-setup/check` | none | Reruns the folder check, facts and preview (Check again; a page open or reload reruns only the folder check, §The Folder Check); returns the snapshot's `folderMissing`, or leaves the mode |
 | `POST /api/folder-setup/panel` | `{ start: "base" \| "branch", fields: { worktreePath?, workspaceFolder?, featureBranch?, baseBranch?, bases?, model?, effort?, keepAwake?, resumeAfterUsageLimit? } }` | `{ panel }` with field errors and the preview; also published by SSE |
 | `POST /api/folder-setup/start` | `{ commandId, factsId, previewId, start, fields }` | `{ ok: true }` · `folder_setup_changed` (409) · `folder_setup_work_present` (409, names the location; nothing deleted) · `busy` (409: a session is still running, or another Start is in progress) · `folder_missing_check_failed` (503) · a step's error with `done[]` and `remaining[]` (500) |
 
