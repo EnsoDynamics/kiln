@@ -150,7 +150,7 @@ Recovery changes nothing until the person presses Start, and Start does only wha
 
 ## Assumptions
 
-Two product choices are declared in [the assumptions document](kiln-missing-worktree-recovery-assumptions.md): no choice to discard the saved run in this release (WTR-001), and Start may clear git's leftover record of the one missing folder it needs (WTR-003). One technical fact for the build team is declared there too: an interrupted session can be resumed from a new folder (WTR-004).
+Two product choices are declared in [the assumptions document](kiln-missing-worktree-recovery-assumptions.md): no choice to discard the saved run in this release (WTR-001), and Start may clear git's leftover record of the one missing folder it needs (WTR-003). Whether an interrupted session can be resumed from a new folder (WTR-004) is settled in the [technical design](kiln-missing-worktree-recovery-technical-design.md).
 
 ## Out of Scope
 
