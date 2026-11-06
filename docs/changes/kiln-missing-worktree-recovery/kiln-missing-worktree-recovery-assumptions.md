@@ -22,9 +22,9 @@
 
 ### WTR-001. Leave out a choice to discard the saved run in this release?
 
-**Assumption**: **Yes.** The Folder missing page offers using another folder, putting the folder back, and continuing from the base branch. It offers no **Discard this run and start over** choice. Every case the 2026-11-06 run raised is covered by continuing from the base branch, which keeps the run's history; discarding loses phase results and session links, and needs its own safeguards.
+**Assumption**: **Yes.** The Folder missing page offers setting the run up again, from the base branch or the run's existing feature branch. It offers no **Discard this run and start over** choice. Every case the 2026-11-06 run raised is covered by setting up again from the base branch, which keeps the run's history; discarding loses phase results and session links, and needs its own safeguards.
 
-**If they choose otherwise**: The page gets a fourth, quieter choice that archives the saved run and starts the PRD fresh at Documents found, with a confirmation that lists what history will be set aside.
+**If they choose otherwise**: The page gets a second, quieter choice that archives the saved run and starts the PRD fresh at Documents found, with a confirmation that lists what history will be set aside.
 
 **Confirm or Correct**:
 - [ ] Correct — no discard choice in this release
@@ -35,24 +35,8 @@
 
 ---
 
-## Behavior Assumptions
-
-### WTR-002. Kiln repairs the folder itself when the person chooses to?
-
-**Assumption**: **Yes.** **Put the folder back** and **Use that folder** are one-click actions: Kiln adds the worktree (or adopts the existing one) itself, within its existing Git limit of only adding worktrees. The git command is also shown, for a person who prefers to do it themselves (AC-FIX-05).
-
-**If they choose otherwise**: Those two choices become instructions with a copyable command and a **Check again** button; Kiln makes no change to any checkout during recovery.
-
-**Confirm or Correct**:
-- [ ] Correct — Kiln repairs the folder on the person's click
-- [ ] Wrong — show the command only; the person runs it
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 85% | **Impact**: 🟡 MEDIUM
-
----
-
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| WTR-002 | Kiln repairs the missing folder itself with a one-click action | Ruled 2026-11-06 | Doug's mockup review: recovery is a deliberate setup like a first Start, not a repair (PRD AC-SETUP-01/05) |
