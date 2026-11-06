@@ -58,3 +58,4 @@
 |----|------------|-----------|-------|
 | WTR-002 | Recovery is a pre-filled setup the person starts, not a one-click repair | Ruled 2026-11-06 | Doug's mockup review: recovery is a deliberate setup like a first Start, not a repair (PRD AC-SETUP-01/05) |
 | WTR-004 | An interrupted session can be resumed from a new folder | Written up 2026-11-06 | Researched: Claude Code resumes from another folder; Kiln resumes Codex only in its recorded folder, so that case goes to Needs you. Technical Design §Resuming a session in a new folder |
+| WTR-005 | A base-branch start counts every phase closed in the base branch as done, whoever closed it, and never reruns it | Ruled 2026-11-06 | Doug in chat: phases complete on develop must never be redone. PRD AC-SETUP-04; Technical Design §The Setup Panel |
