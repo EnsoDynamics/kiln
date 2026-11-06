@@ -19,6 +19,7 @@ Last updated: 2026-11-06
 |---|---|---|---|---|---|---|---|
 | 1 | 15 | 12 | 11 | 0 | 3 | 0 | 1 |
 | 2 | 10 (+2 conformance) | 12 | 12 | 0 | 3 | 0 | 0 |
+| 3 | 2 (+1 conformance) | 6 | 5 | 0 | 0 | 0 | 1 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -44,10 +45,12 @@ Last updated: 2026-11-06
 | Q22 | 2 | Carried pause request turns "Set up & start Phase N" into a pause; Start ends an active pause? | Technical (reclassified) | MEDIUM | 65 → 90 | Resolved by decision | PRD AC-SAFE-03; TD §Start, Data Models | — |
 | Q23 | 2 | Editing the single-repo Worktree field away from the saved path moves the session folder — counts as moved | Technical | MEDIUM | 80 → 92 | Resolved | TD §Resuming, §Start, §The draft | — |
 | Q24 | 2 | After Check again passes, what runs (startup work then restart review)? | Technical | MEDIUM | 85 → 90 | Resolved | TD §The Folder Check | — |
-| Q25 | 2 | Completion receipt shape for base-closed leaves (`kind:"external"`, engine.ts:5559) | Technical | LOW | 80 → 80 | Deferred | — |
-| Q26 | 2 | Folder missing detected mid-run: emit terminal block once via event stream | Technical | LOW | 80 → 80 | Deferred | — |
-| Q27 | 2 | Codex run whose folder moves: preview says it will stop at Needs you | Technical | LOW | 75 → 75 | Deferred | — |
-| Q28 | 2 | Start route lists no result for refusing to supersede a failed intent whose artifacts were changed, or for an intent `in_progress` (`busy`?) (conformance) | Technical | LOW | 75 → 75 | Pending | — |
+| Q25 | 2 | Completion receipt shape for base-closed leaves (`kind:"external"`, engine.ts:5559) | Technical | LOW | 80 → 92 | Resolved | TD §Start base step 4 |
+| Q26 | 2 | Folder missing detected mid-run: emit terminal block once via event stream | Technical | LOW | 80 → 92 | Resolved | TD §Interfaces Terminal |
+| Q27 | 2 | Codex run whose folder moves: preview says it will stop at Needs you | Technical | LOW | 75 → 90 | Dropped | — |
+| Q28 | 2 | Start route lists no result for refusing to supersede a failed intent whose artifacts were changed, or for an intent `in_progress` (`busy`?) (conformance) | Technical | LOW | 75 → 90 | Resolved | TD §Interfaces, §Data Models |
+| Q29 | 3 | Carried pause `requestedFor` must be honored at every pending-pause reader (engine.ts:2974, 3367, 3390, 3417; projection.ts:254-257), not only decide() | Technical | MEDIUM | 70 → 92 | Resolved | TD §Start Pause state, §Data Models, §The Folder Check |
+| Q30 | 3 | Mockup lacks the conditional Starting-lets lines and the busy / earlier-Kiln notice (AC-LOOK-01) | Technical | LOW | 80 → 90 | Resolved | TD §What will run, §Start |
 | Q5 | 1 | Squash-merged branch looks like "work not in base"; keep ancestry test | Technical (reclassified) | MEDIUM | 65 → 90 | Resolved | PRD AC-FACTS-01; TD §The Facts |
 | Q11 | 1 | Saved plan read date for older records when `planReconciliation.check` is failed | Technical | LOW | 75 → 92 | Resolved | TD §Data Models |
 | Q13 | 1 | History wording for an archived unfinished execution ("Ended … · set up again") | Business | LOW | 85 → 95 | Resolved (written up) | — |
@@ -81,6 +84,8 @@ Changed after pass 1: AC-SETUP-01 (billing wording), AC-SETUP-02 (Q8), AC-SAFE-0
 Pass 1: 2026-11-06 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (WTR-003 restated in plain words and cited as a departure from Kiln v1 AC-GIT-01 / Multi-Repo AC-ADD-02; folded)
 
 ## Noticed, out of scope
+- Continuation accept: `validatePreparedWorkspace` throws on user work (continuation-setup.ts:38), so the receipt goes indeterminate and freezes every control until reconciled (commands.ts:59, 216, 348); refusing a `preparing` acceptance returns 409 with no code (engine.ts:2459, commands.ts:339). Pre-existing, untested.
+- Single-repo base-branch draft forces workspaceFolder to `.worktrees/<PRD>-<n>` even for an edited Worktree path, so sessions get `--add-dir` to a folder that never exists; same pre-existing first-Start behaviour.
 - Single-repository Claude sessions always get the workspace folder as `--add-dir` (engine.ts:5318); predates this feature.
 - A base-branch start discards the old execution's in-flight development-delivery operations (`emptyDevelopmentLedger`); not covered by the PRD, rare.
 
@@ -89,4 +94,4 @@ Pass 1: 2026-11-06 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 2 conformance, then checkpoint commit, then pass 3 discovery (Q25-27 deferred first).
+Convergence reached (pass 3 yield 2 < 3, nothing deferred). Phase 7: final conformance (also pass-3 conformance), checkpoint commit, conflict re-check of Changed-after-pass-1 criteria + final verification.
