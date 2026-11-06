@@ -6,7 +6,7 @@
 
 An unfinished run now checks, at every entry point, that each repository's saved folder is still the run's worktree. When one is not, the engine enters a **Folder missing** mode that is computed, never saved: no phase state is shown or judged, no session launches, and the only actions are **Check again** and the setup panel's **Start**. The page shows read-only facts gathered from the shared checkouts and origin, and a setup panel built from Documents found's fields with recovery defaults. Start rechecks everything it showed, then either:
 
-- **from the base branch:** sets up a new feature branch and folder and activates a fresh execution through the existing continuation activation, the unfinished execution kept as history; or
+- **from the base branch:** sets up a new feature branch and folder and activates a fresh execution through the activation core continuations already use, the unfinished execution kept as history; or
 - **from the existing feature branch:** re-creates the missing worktrees on that branch, clearing git's stale record of the saved folder where AC-SAFE-04 allows, and resumes the same execution as an explicit Resume.
 
 WTR-001 (no discard choice) and WTR-003 (Start may clear the one stale record) are designed as stated. WTR-004 is settled below (§Resuming a session in a new folder).
@@ -15,11 +15,12 @@ WTR-001 (no discard choice) and WTR-003 (Start may clear the one stale record) a
 
 **Posture: Preserve.** Kiln is released; everything below keeps today's behavior outside the Folder missing mode.
 
-- **Reused:** `listWorktrees`, `originBranches`, `localBranchCommit`, `isAncestor` and the objects-only fetch (`git-reads.ts`, `worktree-setup.ts`); `observeGitPlan` and `remoteBase` for reading a plan from Git objects (`completed-plan-sources.ts`); the path, workspace and branch-name checks and `addEntryWorktree`; `defaultSettings` for AC-START-07's layout.
-- **Reused:** continuation activation (archive the old record with `retainExecution`, write the new record, rotate the control epoch, rebuild aliases) and the external-completion accounting of `completed-plan-accounting.ts`.
+- **Reused:** `listWorktrees`, `originBranches`, `localBranchCommit` and the objects-only fetch (`git-reads.ts`, `worktree-setup.ts`); `observeGitPlan` and `remoteBase` for reading a plan from Git objects (`completed-plan-sources.ts`); the path, workspace and branch-name checks and `addEntryWorktree`; `defaultSettings` for AC-START-07's layout.
+- **Extracted and shared:** the activation core inside `prepareContinuation` (`engine.ts`): archive the old record with `retainExecution`, append its `ExecutionSummary`, assemble and save the new record, rotate the control epoch and the command journal's execution, rebind aliases and legacy sessions, cache the inspection snapshot. Today it is inline and reads a `ContinuationAcceptance` and `old.completedAt!`; it becomes one function taking the archive row, the new record's settings, repositories, baseline, completions and carried state, called by continuation activation unchanged and by a base-branch start.
+- **Reused:** the external-completion accounting of `completed-plan-accounting.ts`.
 - **Reused:** the Documents found settings components, field wording and help text, and the existing done check and restart decision for the existing-branch start.
 - **Kept:** completed runs (AC-FIND-02) and runs whose setup never finished (`finishSetup`) are untouched; the folder check applies only to repository entries with `setupCompletedAt`.
-- **Kept:** Kiln's Git limits. The only new Git writes are those Start performs: `worktree add`, `branch` creation, and the one `worktree remove` of AC-SAFE-04.
+- **Kept:** Kiln's Git limits. The only new Git writes are those Start performs: `worktree add`, `branch` creation (with its `branch.<name>.remote` and `.merge` config when only origin has the branch), and the one `worktree remove` of AC-SAFE-04.
 - **Kept:** the Codex rule that a Codex conversation resumes only in its recorded working directory.
 
 ## Architecture
@@ -31,11 +32,11 @@ No new process, service or watcher. The engine owns the folder check, the facts,
 | Decision | Choice | Rationale |
 |---|---|---|
 | Where Folder missing lives | Computed in memory (`FolderCheck`), recomputed at each entry point; nothing persisted | AC-SAFE-01 forbids writes before Start; a saved flag could also go stale the same way the saved plan did |
-| The "run's worktree" predicate | Folder exists, `rev-parse --show-toplevel` is that folder, its common Git directory is the shared checkout's, and `worktree list --porcelain` has an entry at the path without `prunable` | The PRD's Terms, mapped to Git's own facts. `prunable` is git's own stale marker, which AC-SAFE-04 also relies on |
+| The "run's worktree" predicate | Folder exists, `rev-parse --show-toplevel` is that folder, its common Git directory is the shared checkout's, and `worktree list --porcelain` has an entry at the path without `prunable`; paths compared as real paths, as `addEntryWorktree` already compares them | The PRD's Terms, mapped to Git's own facts. `prunable` is git's own stale marker, which AC-SAFE-04 also relies on. Git also marks an entry `prunable` when its path holds a plain folder, so `prunable` alone never means the folder is gone: every use below also requires the path to be absent |
 | One gate for every entry point | A single engine guard called before plan reads, progress, completion checks, every hand-back/Verify action, and on the one dispatch path every launch and resume goes through | AC-GONE-01 lists many entry points; one guard at shared chokepoints is the only way none is missed |
-| Base-branch start | A fresh execution activated through continuation activation, with names and settings from the panel instead of the `-continue-<uuid>` names | AC-SETUP-04 says "as a finished run's accepted continuation does"; one activation path keeps archive, control-epoch and alias recovery identical |
+| Base-branch start | A fresh execution activated through the shared activation core (Existing Code), with names and settings from the panel instead of the `-continue-<uuid>` names, and no continuation acceptance or proposal | AC-SETUP-04 says "as a finished run's accepted continuation does"; one activation core keeps archive, control-epoch and alias handling identical, while the continuation offer's proposal and prerequisite checks do not apply to an unfinished run |
 | Remaining plan for a base-branch start | Its own rule, not the continuation classifier: unfinished leaves of the base plan run; leaves this run completed but not closed there run again (named per AC-SAFE-02); leaves closed there but not by this run go through external-completion accounting | The continuation classifier treats a reopened earlier phase as unresolved earlier work and blocks; AC-SAFE-02 instead asks for it to be named and run again |
-| What carries into the fresh execution | Panel settings, billing restrictions, development authorization (early merges), pending pause request, agent | AC-SAFE-03; continuation activation resets these to restricted, so recovery passes them through explicitly |
+| What carries into the fresh execution | Panel settings, agent, development authorization (early-merge grants), pending pause request (`pause.requestedAt`), `pendingContinuationAuthority` | AC-SAFE-03; continuation activation sets the authorization to `restrictedAuthorization()` and `pause` to `{}`, so a base-branch start passes these through explicitly. Billing state is bound to its execution (`newBillingState(executionId)`; an approval names its `executionId`), so the fresh execution starts a new one: no metered approval carries over and the billing check runs again before its first launch, which keeps the restriction rather than widening it |
 | Existing-branch start | Same execution; only the failing repositories' entries change; then the normal restart decision runs as an explicit Resume | AC-SETUP-05 keeps the execution and its stop state |
 | Clearing the stale record | `git worktree remove <saved path>` for that one entry, only when it is still listed `prunable` and the path is still absent, rechecked immediately before | Verified on git 2.50: `remove` on a prunable entry clears that entry alone; `prune` would clear every stale record (AC-SAFE-04 forbids) and `add -f` would skip git's other checks (WTR-003) |
 | Panel edits | Held as one in-memory draft in the engine, sent with each change; validated server-side with the Documents found field checks | AC-SAFE-01 forbids writing settings before Start; server-side checks keep one source of field wording |
@@ -85,7 +86,7 @@ Per repository:
 | Saved folder, branch, set up date, state | `entry.worktreePath`, `settings.featureBranch`, `entry.setupCompletedAt`, the folder check |
 | Git still records a worktree there | the `worktree list` entry at the saved path, with `prunable` |
 | Feature branch, local and on origin | `localBranchCommit`, `originBranches`; commit dates by `log -1 --format=%cI`. When both exist and differ: `rev-list --left-right --count` gives ahead, behind or diverged |
-| Already in the base branch | `merge-base --is-ancestor <feature tip> <base commit>`, the base commit as AC-FACTS-02 selects it |
+| Already in the base branch | `merge-base --is-ancestor <feature tip> <base commit>`, the base commit as AC-FACTS-02 selects it. Exit 0 is yes, exit 1 is no, any other exit is a failed read (AC-FACTS-03); the existing `isAncestor` returns false for every non-zero exit, so the facts use a read that keeps the three apart. The same applies to every other ancestry fact below |
 | Checked out in another folder | a `worktree list` entry with the feature branch at a path that exists on disk and is not the run's worktree; a missing saved folder's record does not count |
 | Last pushed commit | the `pushedSha` with the latest `doneAt` among this repository's phase facts; then whether it is an ancestor of origin's feature tip and of the base commit |
 
@@ -99,9 +100,9 @@ Per repository:
 
 The panel reuses Documents found's settings components and help text, in AC-SETUP-01's order, with recovery's extra help lines and fixed fields. The refinement confirmation is left out.
 
-**Starting points and defaults.** Exactly AC-SETUP-02's rules, read across repositories (AC-SETUP-07). The existing branch is unavailable, with the PRD's reason, when it is gone in any repository, checked out in another folder, or behind or diverged from origin; in a multi-repository run also when any failing repository's saved folder holds something else. The stem for a base-branch start's suffix is the branch and PRD folder name the run had at its first Start (`recoveryStem`, §Data Models), so a second recovery yields `-3`, not `-2-2`.
+**Starting points and defaults.** Exactly AC-SETUP-02's rules, read across repositories (AC-SETUP-07). The existing branch is unavailable, with the PRD's reason, when it is gone in any repository, checked out in another folder, or behind or diverged from origin; in a multi-repository run also when any failing repository's saved folder holds something else. The stem for a base-branch start's branch suffix is the feature branch the run had at its first Start (`branchStem`, §Data Models), so a second base-branch start yields `-3`, not `-2-2`; the folder's suffix goes on the PRD folder name, which the PRD's location already gives.
 
-**Path checks with a stale record.** The worktree-path and workspace-folder checks treat git's `prunable` entry at the saved path as absent, since Start removes it first; without this, re-creating the saved folder would fail as "inside a checkout".
+**Path checks with a stale record.** The worktree-path and workspace-folder checks treat git's `prunable` entry at the saved path as absent when nothing is at that path, since Start removes it first; without this, re-creating the saved folder would fail as "inside a checkout". An entry whose path holds a folder is never treated as absent.
 
 **The draft.** The engine holds one panel draft per PRD in memory, starting from the run's saved settings plus the defaults. Each change is posted; the engine reruns the field checks and the preview and publishes them. A restart starts the draft afresh. Fixed fields are rejected if changed.
 
@@ -112,23 +113,23 @@ The panel reuses Documents found's settings components and help text, in AC-SETU
 
 Each starting point's one-line summary, Start's label (`Set up & start Phase <id>`, or `Set up & check Phase <id> again` when the first leaf is closed on the branch and only its done check would run) and the Starting lets Kiln list come from the same preview. The list includes "Clear git's record of the missing folder <path>" exactly when Start will do it. The preview is digested into a `previewId`.
 
-**Put it back yourself (AC-SETUP-06).** When the existing branch is an available starting point and a saved folder is missing, the page shows `git -C <shared checkout> worktree add -f <saved folder> <branch>` per missing folder. It works while git still records the folder (checked on git 2.50, leaving one record). Otherwise no command is shown.
+**Put it back yourself (AC-SETUP-06).** When the existing branch is an available starting point and a saved folder is missing, the page shows `git -C <shared checkout> worktree add -f <saved folder> <branch>` per missing folder. It works while git still records the folder (checked on git 2.50, leaving one record). When only origin has the branch, the command is preceded by `git -C <shared checkout> fetch origin <branch>`: without a local or remote-tracking ref, `worktree add` fails with "invalid reference", and after the fetch it creates the local branch tracking origin's (checked on git 2.50). Otherwise no command is shown.
 
 ## Start (AC-SETUP-04, 05, AC-SAFE-01 to 04)
 
-`POST /api/recovery/start` carries the draft, `factsId` and `previewId`, under the command journal like continuation acceptance. Kiln reruns the folder check, the facts and the preview. If every folder now passes, Folder missing ends and Start does nothing. A different `factsId` or `previewId` returns `recovery_changed`, and the refreshed page is published. Otherwise Kiln writes a **start intent** sidecar (§Data Models) before any Git write, then does the steps below. Each step first checks whether its effect already exists as the intent describes; a step that fails leaves the intent with what was done and what remains, and the page shows both. The run's record changes only in the final step.
+`POST /api/folder-setup/start` carries the draft, `factsId` and `previewId`, under the command journal like continuation acceptance. Kiln reruns the folder check, the facts and the preview. If every folder now passes, Folder missing ends and Start does nothing. A different `factsId` or `previewId` returns `folder_setup_changed`, and the refreshed page is published. Otherwise Kiln writes a **start intent** sidecar (§Data Models) before any Git write, then does the steps below. Each step first checks whether its effect already exists as the intent describes; a step that fails leaves the intent with what was done and what remains, and the page shows both. The run's record changes only in the final step.
 
 **From the base branch (AC-SETUP-04).**
 
 1. Per repository, confirm the new branch name exists nowhere; then `addEntryWorktree` creates the branch at the base commit the page showed and the folder as its worktree. In a multi-repository run each repository uses its own base (AC-SETUP-07).
-2. Activate the fresh execution through continuation activation. The old record is archived with ending `folder_missing_recovery`. The new record takes the panel's settings and the carried authority (Design Decisions), a baseline of the start's plan, and the completions the preview carried. It keeps the run's `recoveryStem`. Later `kiln run`s use the new branch and folder because they are now the record's settings.
+2. Activate the fresh execution through the shared activation core. The old record is archived with ending `folder_missing_setup` and `endedAt` the activation time. The new record takes the panel's settings and the carried state (Design Decisions), a baseline of the start's plan, and the completions the preview carried. It keeps the run's `branchStem`. As a continuation acceptance does, Start enables the command journal's execution index before activation, and the record's `continuation` state is created if absent, with no acceptance row (§Data Models). Later `kiln run`s use the new branch and folder because they are now the record's settings.
 3. The engine loop starts the first leaf, as after a continuation's activation.
 
 **From the existing feature branch (AC-SETUP-05).**
 
-1. When only origin has the branch, create the shared checkout's branch at origin's tip, tracking origin's branch.
+1. When only origin has the branch, bring origin's tip in with the objects-only fetch, create the shared checkout's branch there with `git branch --no-track <branch> <sha>`, then set `branch.<branch>.remote` to `origin` and `branch.<branch>.merge` to `refs/heads/<branch>`. `--track` and `branch -u` need a remote-tracking ref, which the objects-only fetch never writes (checked on git 2.50: `branch -u` fails with "the requested upstream branch does not exist").
 2. When git records the missing saved folder and that record blocks the add (same path, or the branch is recorded there), recheck that the entry is still `prunable` and the path still absent, then `git worktree remove <saved folder>` (AC-SAFE-04).
-3. `git worktree add <folder> <branch>`, for the failing repositories only.
+3. `git worktree add <folder> <branch>`, for the failing repositories only. This step counts as done only when the folder check's predicate holds for the folder. `addEntryWorktree`'s own completion test (a `worktree list` entry at the path on the branch) also matches a `prunable` record, so it is not used here.
 4. Save: the changed entries' `worktreePath`, `settings.worktreePath` when the folder was suffixed, `setupCompletedAt`, and the panel's editable settings.
 5. Run the restart decision with the review released, as an explicit Resume: plan read in the new worktree, the done check for the stopped phase, then Needs you, resume or launch exactly as `decide()` does today.
 
@@ -140,9 +141,9 @@ Each starting point's one-line summary, Start's label (`Set up & start Phase <id
 
 | Route | Body | Result |
 |---|---|---|
-| `POST /api/recovery/check` | none | Reruns the folder check and facts (Check again); returns the snapshot's `folderMissing`, or leaves the mode |
-| `POST /api/recovery/panel` | `{ start: "base" \| "branch", fields: { worktreePath?, workspaceFolder?, featureBranch?, baseBranch?, bases?, model?, effort?, keepAwake?, resumeAfterUsageLimit? } }` | `{ panel }` with field errors and the preview; also published by SSE |
-| `POST /api/recovery/start` | `{ commandId, factsId, previewId, start, fields }` | `{ ok: true }` · `recovery_changed` (409) · `folder_missing_check_failed` (503) · a step's error with `done[]` and `remaining[]` (500) |
+| `POST /api/folder-setup/check` | none | Reruns the folder check and facts (Check again); returns the snapshot's `folderMissing`, or leaves the mode |
+| `POST /api/folder-setup/panel` | `{ start: "base" \| "branch", fields: { worktreePath?, workspaceFolder?, featureBranch?, baseBranch?, bases?, model?, effort?, keepAwake?, resumeAfterUsageLimit? } }` | `{ panel }` with field errors and the preview; also published by SSE |
+| `POST /api/folder-setup/start` | `{ commandId, factsId, previewId, start, fields }` | `{ ok: true }` · `folder_setup_changed` (409) · `folder_missing_check_failed` (503) · a step's error with `done[]` and `remaining[]` (500) |
 
 Every other mutating route and control action returns `folder_missing` (409) while the mode is set.
 
@@ -193,12 +194,13 @@ The `kiln run` lines in §Folder Missing, replacing the underway summary for thi
 Schema version 20.
 
 - **`PrdRecord.planReadAt?: string`**: written with every successful write of `record.plan`. For records from earlier schemas, the saved plan's date is the accepted `planReconciliation.check.attemptedAt`, the last time Kiln accepted that plan.
-- **`PrdRecord.recoveryStem?: { branch: string; folder: string }`**: the feature branch and PRD folder name at the first Start; set when a base-branch start activates a fresh execution, carried to every later one, and read in place of `settings.featureBranch` when present.
-- **`ExecutionSummary`**: `completedAt` becomes optional; add `endedAt: string` and `ending: "completed" | "folder_missing_recovery"`. Existing summaries read as `ending: "completed"`, `endedAt = completedAt`. Archive validation compares `endedAt` and `ending`, not only `completedAt`.
-- **Start intent, `recovery-starts/<command id>.json`** (private, durable, like continuation acceptances):
+- **`PrdRecord.branchStem?: string`**: the feature branch at the first Start; set when a base-branch start activates a fresh execution, carried to every later one, and read in place of `settings.featureBranch` when present. The folder needs no stem: its suffix goes on the PRD folder name, derived from `prdDirectory`.
+- **`ExecutionSummary`**: `completedAt` becomes optional; add `endedAt: string` and `ending: "completed" | "folder_missing_setup"`. Existing summaries read as `ending: "completed"`, `endedAt = completedAt`. Archive validation (`readExecution`, `assertContinuationState`) compares `endedAt` and `ending`, not only `completedAt`.
+- **`ContinuationState.currentAcceptanceId`** becomes optional, required only when `acceptances` is non-empty: a base-branch start on a run that never continued creates the state with an empty `acceptances` list and its archived execution in `executions`. Today's validation requires `currentAcceptanceId` to name an acceptance.
+- **Start intent, `folder-setup-starts/<command id>.json`** (private, durable, like continuation acceptances):
 
 ```
-RecoveryStart:
+FolderSetupStart:
   formatVersion: 1
   id, commandId, executionId: string          // the unfinished execution
   kind: "base" | "branch"
@@ -221,7 +223,7 @@ Each pointer is added under the named heading when this change is built.
 - Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does (an unfinished run checks its folders before reading the plan and reports Folder missing, not progress).
 - Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (a later `kiln run` may create a second branch and worktree, or a new worktree on the run's existing branch and its local branch from origin).
 - Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Active execution handback (a missing assigned worktree is Folder missing, not an unreadable active plan, and its plan is read read-only outside the worktree).
-- Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a) (activation also serves a recovery start, from an unfinished execution, with panel names and carried authority).
+- Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a) (the activation core is shared with a base-branch start from an unfinished execution, which brings panel names and carried state and no acceptance).
 - Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Workspace (a recovery re-creates missing worktrees in the saved workspace, or sets up a new workspace and branch).
 
 ## Integration Points
@@ -247,4 +249,4 @@ Each pointer is added under the named heading when this change is built.
 
 ## Open Questions
 
-1. **Can the 2026-11-06 case start from the base branch?** In that run, phases 6 to 9 were added and closed on `develop` after the run last read its plan, so this execution holds no receipt for them. AC-SETUP-04 accepts them only under the existing external-completion rules, which need a retained Kiln receipt or an `## External completion evidence` entry. Without one, the base-branch start is blocked with the accounting's problem, while the mockup shows "Set up & start Phase 10". The design follows the PRD's rule. Should the build find these phases unverified for that run, it is a PRD question, not a design one.
+1. **Can the 2026-11-06 case start from the base branch?** In that run, phases 6 to 9 were added and closed on `develop` after the run last read its plan, so this execution holds no receipt for them. AC-SETUP-04 accepts them only under the existing external-completion rules, which need a retained Kiln receipt or an `## External completion evidence` entry. Without one, the base-branch start is blocked with the accounting's problem, while the mockup shows "Set up & start Phase 10". The design follows the PRD's rule. Waivers (AC-WAIVE-02 in Kiln Completion Waivers) are no way through either: they are offered only at a stopped activity after a failed recheck, and the setup panel is not one. Should the build find these phases unverified for that run, it is a PRD question, not a design one.
