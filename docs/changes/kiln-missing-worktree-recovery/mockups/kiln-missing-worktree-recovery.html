@@ -49,7 +49,12 @@ select.kp-input{font-family:inherit}
 .kp-run{margin-top:22px;border-top:1px solid var(--kp-line);padding-top:18px}
 .kp-phases{list-style:none;padding:0;margin:10px 0 0}.kp-phases li{padding:7px 0;border-bottom:1px solid var(--kp-line);display:flex;justify-content:space-between;gap:12px;font-size:13px}
 .kp-caution{border-left:3px solid var(--kp-amber);padding:8px 12px;margin-top:12px;font-size:13px;background:var(--kp-inset)}
-.kp-allowed{font-size:12px;color:var(--kp-muted);margin-top:14px}
+.kp-seg{display:inline-flex;border:1px solid var(--kp-line);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+#kiln-page .kp-seg button{border:0;border-right:1px solid var(--kp-line);border-radius:0;min-height:36px;padding:6px 14px}
+#kiln-page .kp-seg button.kp-pressed{background:var(--kp-button);color:var(--kp-button-text)}
+.kp-check{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:13px}.kp-check input{margin-top:3px;accent-color:var(--kp-button)}
+.kp-fixed{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:16px 0 0;font-size:13px}.kp-fixed dt{color:var(--kp-muted)}.kp-fixed dd{margin:0}
+.kp-allowed-list{list-style:none;padding:0;margin:6px 0 0;font-size:13px}.kp-allowed-list li{padding:2px 0}
 .kp-startrow{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-top:20px}
 #kiln-page button{font:inherit;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:var(--kp-text);border:1px solid var(--kp-line);border-radius:7px;padding:9px 16px;cursor:pointer;white-space:nowrap}
 #kiln-page button:hover{border-color:var(--kp-muted)}#kiln-page button.kp-primary{background:var(--kp-button);color:var(--kp-button-text);border-color:var(--kp-button)}
@@ -176,17 +181,29 @@ Set the run up again: <span class="y">http://localhost:4317/invoice-evidence-col
   const fromBase=pick==='base';
   return `<span class="kp-field-label">Start from</span>
   <div class="kp-starts">${startCard('base','develop',c.base)}${startCard('branch','The run’s existing branch',c.branch)}</div>
-  <div class="kp-grid">
-   <div><span class="kp-field-label">${fromBase?'New feature branch':'Feature branch'}</span><input class="kp-input" ${fromBase?'':'readonly'} value="${fromBase?NEWBR:BR}"><p class="kp-help">${fromBase?`New, from develop. <code>${BR}</code> already exists, so Kiln won’t reuse it.`:'Existing branch. Kiln creates no new branch.'}</p></div>
-   <div><span class="kp-field-label">Folder Kiln will create</span><input class="kp-input" value="${fromBase?NEWDIR:SAVED}"><p class="kp-help">${fromBase?'Named after the new branch.':'The run’s saved path.'} Must be new or empty.</p></div>
-   <div><span class="kp-field-label">Delivers into</span><select class="kp-input"><option>develop</option><option>main</option></select><p class="kp-help">The pull request goes here when every phase closes.</p></div>
-   <div><span class="kp-field-label">Agent</span><div class="kp-agent"><select class="kp-input"><option>Claude Code</option><option>Codex</option></select><select class="kp-input"><option>Opus</option><option>Sonnet</option></select><select class="kp-input"><option>High effort</option><option>Extra high</option><option>Medium</option></select></div><p class="kp-help">Kept from this run.</p></div>
-  </div>
   <div class="kp-run"><div class="kp-between"><h3>What will run</h3><span class="kp-muted kp-small">${s.done} · their results are kept</span></div>
    <ul class="kp-phases">${s.run.map((n,i)=>`<li><span><strong>Phase ${n}</strong> · ${P[n]}</span><span class="kp-muted kp-small">${i===0?'runs first':'then'}</span></li>`).join('')}</ul>
-   ${s.caution?`<p class="kp-caution">${s.caution}</p>`:''}
-   <p class="kp-allowed">Kiln may commit and push to <code>${fromBase?NEWBR:BR}</code> and open one pull request into develop. It never merges, deploys, or changes other branches.</p></div>
-  <div class="kp-startrow"><span class="kp-muted kp-small">Earlier phases, sessions and delivery links stay in this run’s history.</span><button type="button" class="kp-primary" data-act="start">Set up &amp; start Phase ${s.run[0]}</button></div>`;
+   ${s.caution?`<p class="kp-caution">${s.caution}</p>`:''}</div>
+  <div class="kp-run"><span class="kp-eyebrow">How Kiln will deliver it</span>
+  <div class="kp-grid" style="grid-template-columns:1fr;margin-top:14px">
+   <div><span class="kp-field-label">Worktree</span><input class="kp-input" value="${fromBase?NEWDIR:SAVED}"><p class="kp-help">One worktree and one branch for the whole PRD. Every phase works here in turn. ${fromBase?'A new folder, named after the new branch.':'The run’s saved path.'}</p></div>
+  </div>
+  <div class="kp-grid" style="margin-top:16px">
+   <div><span class="kp-field-label">Feature branch</span><input class="kp-input" ${fromBase?'':'readonly'} value="${fromBase?NEWBR:BR}"><p class="kp-help">${fromBase?`New. <code>${BR}</code> already exists, so Kiln won’t reuse it.`:'The existing branch. Kiln creates no new branch.'}</p></div>
+   <div><span class="kp-field-label">${fromBase?'Branch from, and PR into':'PR into'}</span><select class="kp-input" style="font-family:ui-monospace,monospace"><option>develop</option><option>main</option></select></div>
+   <div><span class="kp-field-label">Agent</span><select class="kp-input"><option>Claude Code</option><option>Codex</option></select><p class="kp-help">Kept from this run.</p></div>
+   <div><span class="kp-field-label">Model</span><select class="kp-input"><option>Opus</option><option>Sonnet</option></select></div>
+  </div>
+  <div style="margin-top:16px"><span class="kp-field-label">Effort</span><div class="kp-seg">${['Low','Medium','High','Extra high','Max'].map(e=>`<button type="button" class="${e==='High'?'kp-pressed':''}">${e}</button>`).join('')}</div><p class="kp-help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</p></div>
+  <label class="kp-check"><input type="checkbox" checked> <span>Keep this computer awake while a session works or Kiln waits</span></label>
+  <label class="kp-check"><input type="checkbox" checked> <span>Resume after a usage limit</span></label>
+  <dl class="kp-fixed"><dt>Pushes</dt><dd>After every phase</dd><dt>Ends at</dt><dd>One PR, ready for review. Kiln won’t merge.</dd></dl>
+  </div>
+  <div class="kp-run kp-before"><span class="kp-eyebrow">Before you start</span>
+   <div class="kp-between" style="align-items:flex-end;margin-top:10px">
+    <div><span class="kp-muted kp-small">Starting lets Kiln</span><ul class="kp-allowed-list"><li>✓ Commit and push to <code>${fromBase?NEWBR:BR}</code></li><li>✓ Open one pull request into <code>develop</code> once every phase closes</li><li class="kp-muted">✕ Never merge, deploy, or touch other branches</li></ul></div>
+    <div style="text-align:right"><button type="button" class="kp-primary" data-act="start">Set up &amp; start Phase ${s.run[0]}</button><p class="kp-help">Earlier phases, sessions and delivery links stay in this run’s history.</p></div>
+   </div></div>`;
  }
  function render(){
   const c=CASES[current];

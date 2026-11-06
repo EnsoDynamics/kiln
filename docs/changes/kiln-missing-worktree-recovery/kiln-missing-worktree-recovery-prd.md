@@ -46,7 +46,8 @@ Kiln checks that each of the run's folders is there before it reads the plan, re
 The person decides better when they can see where the work actually is. Kiln looks in the places that are still there, read-only, and says what it found and what it could not check.
 
 - [ ] **AC-FACTS-01 — The missing folder and the branch are described.** For each repository the page shows:
-  - the saved folder, and whether it is missing or holds something else (and what: another branch, or no worktree);
+  - when Kiln checked;
+  - the saved folder, its branch and the date it was set up, and whether it is missing or holds something else (and what: another branch, or no worktree);
   - whether the run's feature branch still exists in the shared checkout and on the remote, with its latest commit and date;
   - whether that commit is already in the base branch;
   - whether the branch is checked out in another folder, and that folder's path;
@@ -61,20 +62,24 @@ The person decides better when they can see where the work actually is. Kiln loo
 
 ### Set the run up again
 
-Recovering from a missing folder means setting the run up again in a new folder. The person sees the same choices they made at the first Start, already filled in from what Kiln found, and starts the run themselves. Kiln never works directly in the base branch or in the person's own checkout.
+Recovering from a missing folder means setting the run up again in a new folder. The person sees the same choices they made at the first Start, in the same words as Documents found, already filled in from what Kiln found, and starts the run themselves. Kiln never works directly in the base branch or in the person's own checkout.
 
-- [ ] **AC-SETUP-01 — The setup panel has the first-Start settings.** The Folder missing page has a setup panel with the settings Documents found shows before a first Start, each editable before Start:
-  - the starting point (AC-SETUP-02);
-  - the folder Kiln will create;
-  - the feature branch;
-  - the base branch the run delivers into;
-  - the agent, model and effort level, kept from the run;
-  - the other settings the run saved.
+- [ ] **AC-SETUP-01 — The setup panel has the first-Start settings, in the first-Start words.** The Folder missing page has a setup panel titled **Set the run up again**, in this order:
+  1. **Start from**, the choice of starting point (AC-SETUP-02).
+  2. **What will run** (AC-SETUP-03).
+  3. **How Kiln will deliver it**, with the fields, labels, help text and order that Documents found uses for the run's repositories:
+     - **Worktree** (for several repositories, Workspace folder);
+     - **Feature branch**;
+     - **Branch from, and PR into**, labelled **PR into** when starting from the existing feature branch;
+     - **Agent**, **Model** and **Effort**;
+     - the keep-awake and **Resume after a usage limit** switches;
+     - **Pushes** and **Ends at**.
+  4. **Before you start**, with the **Starting lets Kiln** list and the Start button.
 
-  It also shows what Kiln may do, as Documents found does. Start is the only action that changes anything. The run's saved settings are updated only when Start succeeds.
+  The fields start with the run's saved choices, except where AC-SETUP-02 sets a default. Each can be changed before Start, as on Documents found. Start is the only action that changes anything. The run's saved settings are updated only when Start succeeds.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the settings panel is also shown, pre-filled, when an unfinished run's folder is missing).
 - [ ] **AC-SETUP-02 — The starting point and defaults follow the facts.** The panel offers two starting points, **the base branch** and **the run's existing feature branch**, and pre-selects one by the first row of the table that applies. A starting point that cannot work is shown unavailable, with the reason. The folder and feature-branch defaults follow the starting point:
-  - **Starting from the base branch**: Kiln creates a new feature branch. Its default name is the run's feature branch name with the next free numeric suffix (`-2`, `-3`). Its default folder is named after it, in the same parent folder as the saved folder.
+  - **Starting from the base branch**: Kiln creates a new feature branch. Its default name is the run's feature branch name (`feature/<PRD folder name>` unless the person changed it at the first Start) with the next free numeric suffix (`-2`, `-3`). Its default worktree is named the same way, in the same parent folder as the saved folder. A help line under the branch says the old name already exists and is not reused.
   - **Starting from the existing feature branch**: Kiln creates no branch. The default folder is the saved folder's path.
 
   | What Kiln found | Pre-selected starting point | The other starting point |
@@ -89,13 +94,13 @@ Recovering from a missing folder means setting the run up again in a new folder.
   - the phases still to run, in plan order, and which one runs first;
   - that earlier phase results, sessions and delivery links are kept.
 
-  Start's label names the first phase ("Set up & start Phase 10"). Changing the starting point updates this before Start can be pressed.
+  Each starting point's choice shows that start's plan in one line (its latest commit, phase count and how many are done), and whether it holds all of this run's work. Start's label names the first phase ("Set up & start Phase 10"). Changing the starting point updates What will run, the feature branch and worktree defaults, and the Starting lets Kiln list before Start can be pressed.
 - [ ] **AC-SETUP-04 — Starting from the base branch is a fresh execution.** Start creates the new feature branch from the current base branch, and the folder as a worktree of it. Then it runs the remaining plan as a finished run's accepted continuation does. Phases closed in the base branch but not by this run are accepted only as the existing rules for work completed outside Kiln allow. The feature branch name must not already exist; Kiln never reuses, resets or deletes a branch.
   - Replaces in part: AC-CONTINUE-06 and AC-OFFER-02/03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (an unfinished run whose folder is missing can also continue from the current base branch, accepted through the setup panel's Start rather than the continuation offer).
   - Replaces in part: AC-SPACE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the fresh execution sets up its workspace as a continuation does, with the panel's settings).
 - [ ] **AC-SETUP-05 — Starting from the existing feature branch makes a new worktree on it.** Start creates a worktree of the existing feature branch at the chosen folder, after the checks a worktree path gets at a first Start (new or empty, not inside a checkout). It creates no branch. Kiln then reads the plan there and carries on as at any reopening, under the run's existing execution.
   - Replaces in part: AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a later `kiln run` may create a new worktree on the run's existing feature branch; it still never creates a branch that already exists).
-- [ ] **AC-SETUP-06 — A folder put back by hand is found.** The page says that a person who moved or removed the folder on purpose can restore it at the saved path themselves, then press **Check again**. Check again reruns AC-GONE-01 and leaves the Folder missing state once every folder passes.
+- [ ] **AC-SETUP-06 — A folder put back by hand is found.** The page says that a person who moved or removed the folder on purpose can restore it at the saved path themselves, using the git command the page shows, then press **Check again**. Check again reruns AC-GONE-01 and leaves the Folder missing state once every folder passes.
 
 ### Keep the person's work and permissions safe
 
