@@ -13,6 +13,7 @@ import { recoveryRequest } from "./test-support/phase-recovery-request.js";
 import { buildSnapshot } from "./engine/snapshot.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { endProcessTree } from "./platform/helper-process.js";
+import type { BrowserOpening } from "./platform/open-browser.js";
 import { isProcessLive } from "./platform/process-start-time.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "./test-support/engine-harness.js";
 import { git } from "./test-support/git-repositories.js";
@@ -49,7 +50,7 @@ function kilnRun(h: Harness) {
  * `kiln run` in this process until its output shows `until`, then Ctrl+C, as a person stops a
  * Kiln that would otherwise stay in the foreground. The stop's own line is the output's last.
  */
-async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whileRunning?: (rawStdout: () => string) => Promise<void>, resumeImmediately = true) {
+async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whileRunning?: (rawStdout: () => string) => Promise<void>, resumeImmediately = true, opening: BrowserOpening = { kind: "opened" }) {
   let stdout = "";
   let stderr = "";
   const signals = new EventEmitter();
@@ -63,7 +64,7 @@ async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whil
     signals,
     openBrowser: async (address) => {
       opened.push({ address, claudeCalls: h.claudeCalls().length });
-      return undefined;
+      return opening;
     },
   });
   let ended = false;
@@ -102,6 +103,20 @@ describe("kiln run on a feature underway", () => {
     expect(address).toBeDefined();
     await expect(fetch(address!)).rejects.toThrow();
     expect(h.claudeCalls()).toEqual(calls);
+  });
+  it("over SSH, says where the view is and how to tunnel to it after the line saying what Kiln does next", async () => {
+    harness = await createHarness({ sessions: [{ actions: [{ result: "Waiting for a decision." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const run = await kilnRunUntil(h, stdout => stdout.includes("For example: ssh"), undefined, true, { kind: "remote" });
+    const address = /view is at (\S+)/.exec(run.stdout)![1]!;
+    const port = new URL(address).port;
+    expect(run.stdout.split("\n").slice(1, 4)).toEqual([
+      "● Phase 1 still needs you.",
+      `● Kiln’s view is at ${address} on this remote machine. Open it from your own computer through an SSH tunnel to port ${port}.`,
+      `  For example: ssh -N -L ${port}:127.0.0.1:${port} <this host>`,
+    ]);
   });
   it("checks a stopped phase again, and carries on with the next phase once the person has finished it", async () => {
     harness = await createHarness({

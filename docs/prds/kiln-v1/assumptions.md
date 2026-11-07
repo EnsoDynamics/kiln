@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-10-25
+**Last Updated**: 2026-11-07
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -275,28 +275,6 @@ An unlisted saved model gets no message because Kiln **can't tell** whether the 
 
 ---
 
-### UI-012. When Kiln can't open the browser, does the terminal give the address and say why, worded as below? — ⏳ PENDING (Added 2026-10-17 — new question; 80% confidence)
-
-**Assumption**: The terminal mockup draws only the case where the browser opens ("● Opened <address>. Review it there and press Start."). When it **can't be opened** (for example a Linux machine with no `xdg-open`), Kiln **doesn't claim it opened**. It prints the address in the drawn line's place, then **one amber ✗ line saying why**, then the drawn grey line:
-
-- **"● Kiln’s view is at <address>. Review it there and press Start."**
-- **"✗ Couldn’t open the browser: <the reason>. Open <address> yourself."**
-
-For a feature already underway, the ● line ends at what Kiln does next, with no "Opened <address>", and the same ✗ line follows it.
-
-**Example**: In the terminal mockup (fictional sample data), had the browser failed to open for Customer returns, the lines would read "● Kiln’s view is at http://127.0.0.1:4700/customer-returns. Review it there and press Start." then "✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open http://127.0.0.1:4700/customer-returns yourself."
-
-**Evidence**: "Opened" would be untrue when nothing opened. The ✗ line reuses the **amber ✗** of the drawn start-check failure, since amber marks what needs the person. Kiln carries on either way: the view is served, and the person can open the address themselves. The alternative was to print the drawn line regardless; it lost because the terminal would say something Kiln didn't do.
-
-**Confirm or Correct**:
-- [ ] Correct — use this wording
-- [ ] Wrong — print the drawn "Opened" line regardless
-- [ ] Wrong — corrections to the wording: _______________
-
-**Confidence**: 80% | **Impact if Wrong**: 🟢 LOW
-
----
-
 ## Workflow Assumptions
 
 ### WORK-001. Does a draft pull request count as open?
@@ -331,6 +309,7 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 | UI-006 | At Needs you the browser shows only the Needs you screen; the plan's Needs you row shows only on Disconnected | 2026-10-17 | Technical Design, HTTP API |
 | UI-008 | A pause pressed during the last phase holds before the pull-request session | 2026-10-17 | Technical Design, engine loop and Snapshot |
 | UI-009 | Change edits model and effort in place, each choice and keep-awake saved at once | 2026-10-17 | Technical Design, Snapshot (Settings and each phase's model) |
+| UI-012 | When Kiln doesn't open the browser, the terminal gives the view's address and says where to open it: over SSH, from the person's own computer through an SSH tunnel to the same port, with an example command; with no opener on the machine, in their browser. Only an opener that fails gets the amber ✗ line saying why | 2026-11-07 | Doug, after a `kiln run` over SSH printed the ✗ line as though Kiln had failed: over SSH, try no browser and print a normal ● line, not ✗. PRD AC-START-03; Technical Design, Ports and one Kiln per PRD (Opening the view) |
 | PLAT-001 | Outside GNOME on Linux, keep-awake may also block a sleep chosen from the menu; screens keep "Stops idle sleep only" | 2026-10-17 | Technical Design, Keep-awake |
 | PLAT-002 | macOS runtime/installation tests and Linux/Windows build-and-pack checks are required; Linux/Windows native runtime is unconfirmed and best effort | 2026-10-25 | Doug clarified: “Mac OS definitely needs to work for release for sure” and “Windows and Linux should definitely build okay. We're just not going to try running them on Windows or Linux to confirm it.” This replaces the 2026-10-17 native-test ruling. PRD AC-INSTALL-03 and AC-PROOF-01; Technical Design, Windows and Testing Approach |
 | REL-001 | MIT license, public Kiln repository and public `@ensodynamics/kiln` package, after separate explicit publication approval | 2026-10-25 | Doug requested public release preparation and MIT licensing, then reiterated “Don't actually publish it yet until I explicitly authorize that.” The intent grants no current visibility, tag or publication authority. |

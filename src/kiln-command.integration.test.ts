@@ -55,6 +55,18 @@ beforeAll(() => {
 afterAll(() => sandbox.cleanup());
 
 describe("kiln run", () => {
+  it("refuses a KILN_PORT_RANGE that isn't a block of ports from 1024 to 65535, naming the value, and starts nothing", () => {
+    for (const value of ["4800", "abc-def", "4899-4800", "80-4799", "4700-70000"]) {
+      const result = spawnSync(process.execPath, [cli, "run", `docs/prds/${FOLDER}/`], { cwd: repository, env: { ...envWithPath(pathWithStandIns), KILN_PORT_RANGE: value }, encoding: "utf8", timeout: 50_000 });
+      expect({ value, exitCode: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        value,
+        exitCode: 1,
+        stdout: "",
+        stderr: `kiln: KILN_PORT_RANGE is ${value}; it must be <first>-<last>, two ports from 1024 to 65535 with the first no greater than the last, such as 4800-4899.\n`,
+      });
+    }
+  });
+
   it("prints what it found and serves Documents found when every start check passes", async () => {
     const result = await kilnUntilServing(["run", `docs/prds/${FOLDER}/`]);
     expect(result.stderr).toBe("");

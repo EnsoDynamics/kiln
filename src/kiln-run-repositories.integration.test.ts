@@ -111,7 +111,7 @@ function startKiln(f: Feature, resumeImmediately = false) {
     stdout: { write: (text: string) => (stdout += text) },
     stderr: { write: (text: string) => (stdout += text) },
     signals,
-    openBrowser: async () => undefined,
+    openBrowser: async () => ({ kind: "opened" as const }),
     onServing: resolveAddress,
   });
   const lines = () => stdout.split("\n").filter((line) => line !== "" && !line.startsWith("✗ Can’t keep this computer awake"));

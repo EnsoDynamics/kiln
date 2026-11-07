@@ -1,6 +1,7 @@
 // What `kiln run` prints, in the terminal mockup's words and colors
 // (docs/design/mockups/kiln-screen-terminal-kickoff.html; assumptions UI-010 item 10).
 
+import type { BrowserOpening } from "./platform/open-browser.js";
 import type { StartCheckReport } from "./start-checks.js";
 
 export interface TerminalColors {
@@ -134,18 +135,38 @@ export function formatStartedLine(at: Date, branch: string, baseBranch: string, 
  *   ● Opened http://127.0.0.1:4700/customer-returns. Review it there and press Start.
  *     Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.
  *
- * When the browser couldn't be opened, the line gives the address alone and an amber line says
- * why. `addressGiven` is set when the ● line above already printed the address.
+ * When the browser wasn't opened, the line gives the address and says where to open it: over
+ * SSH, from the person's own computer through a tunnel to the same port (the view accepts only
+ * its own port in the Host header), with an example command under it; with no opener, in their
+ * browser. Only an opener that failed gets an amber ✗ line saying why. `decisionAbove` is set
+ * for a feature underway, whose ● line above says what Kiln does next: the lines here then only
+ * say where the view is, with no Start to press.
  */
-export function formatOpenedLine(address: string, openError: string | undefined, colors: TerminalColors, addressGiven = false): string {
-  const failure = openError === undefined ? [] : [`${colors.amber("✗")} Couldn’t open the browser: ${openError}. Open ${address} yourself.`];
-  if (addressGiven) return failure.join("\n");
-  const opened = openError === undefined ? `Opened ${colors.red(address)}` : `Kiln’s view is at ${colors.red(address)}`;
-  return [
-    `${colors.red("●")} ${opened}${colors.grey(". Review it there and press Start.")}`,
-    ...failure,
-    colors.grey("  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up."),
-  ].join("\n");
+export function formatOpenedLine(address: string, opening: BrowserOpening, colors: TerminalColors, decisionAbove = false): string {
+  const pressStart = (joiner: string) => (decisionAbove ? "" : `${joiner} press Start`);
+  const viewAt = (rest: string) => `${colors.red("●")} Kiln’s view is at ${colors.red(address)}${colors.grey(rest)}`;
+  let lines: string[];
+  switch (opening.kind) {
+    case "opened":
+      lines = decisionAbove ? [] : [`${colors.red("●")} Opened ${colors.red(address)}${colors.grey(". Review it there and press Start.")}`];
+      break;
+    case "failed":
+      lines = [...(decisionAbove ? [] : [viewAt(". Review it there and press Start.")]), `${colors.amber("✗")} Couldn’t open the browser: ${opening.reason}. Open ${address} yourself.`];
+      break;
+    case "no_opener":
+      lines = [viewAt(`. Open it in your browser${pressStart(" and")}.`)];
+      break;
+    case "remote": {
+      const port = new URL(address).port;
+      lines = [
+        viewAt(` on this remote machine. Open it from your own computer through an SSH tunnel to port ${port}${pressStart(", then")}.`),
+        colors.grey(`  For example: ssh -N -L ${port}:127.0.0.1:${port} <this host>`),
+      ];
+      break;
+    }
+  }
+  if (!decisionAbove) lines.push(colors.grey("  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up."));
+  return lines.join("\n");
 }
 
 /**

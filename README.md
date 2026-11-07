@@ -81,6 +81,18 @@ When a phase doesn't land, the **Needs you** screen shows the session's last mes
 
 A Resume that finds the phase already complete asks before advancing and keeps any reply you hadn't sent.
 
+## Running Kiln on a remote machine
+
+Over SSH, Kiln doesn't try to open a browser. It prints the view's address and an example tunnel command to run on your own computer, with `<this host>` standing for the name you SSH to:
+
+```sh
+ssh -N -L 4700:127.0.0.1:4700 <this host>
+```
+
+Then open the printed address in your browser. Forward the same port number on both ends, since the view only answers on its own port.
+
+If you run Kiln on several machines and tunnel them all to one computer, give each machine its own block of ports so their addresses don't collide: set `KILN_PORT_RANGE=<first>-<last>` in that machine's environment, for example `KILN_PORT_RANGE=4800-4899`. The default is 4700-4799. Kiln refuses a value that isn't two ports from 1024 to 65535 with the first no greater than the last.
+
 ## Update
 
 Stop any running Kiln first. Kiln reads its prompts and hooks from the installed package while it works, so replacing the package underneath a live run can mix two versions. List what's running with
@@ -212,7 +224,8 @@ Codex requires ChatGPT sign-in and the OpenAI provider before every launch and r
 | `The checkout … has uncommitted changes` | Commit or stash them. Kiln starts from a clean checkout. |
 | `The checkout has no origin remote` or origin isn't on GitHub | Kiln pushes branches and opens pull requests on GitHub, so `origin` must point there |
 | This PRD already has a running Kiln | Use the browser address it prints, or `kiln status` |
-| Port unavailable | Kiln uses ports 4700 to 4799. Free the reported port or stop a Kiln you no longer need. |
+| Port unavailable | Kiln uses ports 4700 to 4799, or the block `KILN_PORT_RANGE` sets. Free the reported port or stop a Kiln you no longer need. |
+| `KILN_PORT_RANGE is …` | Set it to a block such as `4800-4899`: two ports from 1024 to 65535, the first no greater than the last, or unset it |
 | Written by a newer Kiln | [Update Kiln](#update) |
 | Claude or Codex sign-in fails | `claude auth login` or `codex login`, then press Recheck in the browser |
 

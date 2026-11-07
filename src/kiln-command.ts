@@ -19,7 +19,7 @@ import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
 import { defaultBaseBranch, defaultSettings, prdTreeAtHead } from "./engine/worktree-setup.js";
 import { findExecutable, WINDOWS_CTRL_C_GRACE_MS } from "./platform/helper-process.js";
 import { KeepAwake } from "./platform/keep-awake.js";
-import { openBrowser } from "./platform/open-browser.js";
+import { openBrowser, type BrowserOpening } from "./platform/open-browser.js";
 import type { PhasePlan } from "./plan/phase-plan.js";
 import { runAddRepository } from "./add-repository-command.js";
 import type { FoundRepository } from "./engine/repositories.js";
@@ -44,11 +44,10 @@ export interface CommandContext {
   /** Where SIGINT, SIGHUP and SIGTERM arrive: the process itself, or a stand-in in tests. */
   signals?: { on(event: NodeJS.Signals, listener: () => void): unknown; off(event: NodeJS.Signals, listener: () => void): unknown };
   /**
-   * Opens the browser view; resolves with why it couldn't, or undefined. The platform's opener
-   * unless a test gives one; `KILN_NO_BROWSER=1` leaves the browser alone, for tests that run
-   * the built command.
+   * Opens the browser view; resolves with what came of it. The platform's opener unless a test
+   * gives one; `KILN_NO_BROWSER=1` leaves the browser alone, for tests that run the built command.
    */
-  openBrowser?: (address: string) => Promise<string | undefined>;
+  openBrowser?: (address: string) => Promise<BrowserOpening>;
   /** Called once the browser view is served, with its address; for tests. */
   onServing?: (address: string) => void;
 }
@@ -169,6 +168,10 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   const root = stateRoot(context.env);
   const stateDirectory = prdStateDirectory(root, location.mainCheckoutPath, location.repositoryName, location.prdDirectoryFromRoot);
   const range = portRange(context.env);
+  if ("problem" in range) {
+    context.stderr.write(`${range.problem}\n`);
+    return EXIT_START_CHECKS_FAILED;
+  }
   const lock = await takeInstanceLock(root, stateDirectory, { range });
   if (!lock.taken) {
     if (lock.reason === "already_running") {
@@ -271,8 +274,8 @@ function terminalWriter(run: KilnRun): (line: string) => void {
   };
 }
 
-/** Serves the browser view, then opens it; resolves with why the browser couldn't be opened. */
-async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters<typeof startLocalServer>[0]["documents"]): Promise<{ address: string; openError: string | undefined }> {
+/** Serves the browser view, then opens it; resolves with its address and what came of opening it. */
+async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters<typeof startLocalServer>[0]["documents"]): Promise<{ address: string; opening: BrowserOpening }> {
   const server = await startLocalServer({
     engine,
     ...(documents ? { documents } : {}),
@@ -283,8 +286,8 @@ async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters
   });
   run.stop.server = server;
   run.context.onServing?.(server.address);
-  const open = run.context.openBrowser ?? ((address: string) => (run.context.env.KILN_NO_BROWSER === "1" ? Promise.resolve(undefined) : openBrowser(address, run.context.env)));
-  return { address: server.address, openError: await open(server.address) };
+  const open = run.context.openBrowser ?? ((address: string): Promise<BrowserOpening> => (run.context.env.KILN_NO_BROWSER === "1" ? Promise.resolve({ kind: "opened" }) : openBrowser(address, run.context.env)));
+  return { address: server.address, opening: await open(server.address) };
 }
 
 /**
@@ -338,8 +341,8 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories }, location.repositoryName);
   const outColors = terminalColors(context.stdout, context.env);
   write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length));
-  const { address, openError } = await serveAndOpen(run, engine, documents);
-  write(formatOpenedLine(address, openError, outColors));
+  const { address, opening } = await serveAndOpen(run, engine, documents);
+  write(formatOpenedLine(address, opening, outColors));
   // Kiln lives in its terminal until Ctrl+C or a closed terminal (AC-KEEP-01); Start comes from the view.
   return stop.done;
 }
@@ -362,9 +365,9 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   write(formatSummaryLine(engine, colors));
   const decision = await engine.decide({ review: !run.resumeImmediately });
   if (stop.stopping) return await stop.done;
-  const { address, openError } = await serveAndOpen(run, engine);
-  write(formatDecisionLine(decision, engine, colors, openError === undefined ? address : undefined));
-  if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
+  const { address, opening } = await serveAndOpen(run, engine);
+  write(formatDecisionLine(decision, engine, colors, opening.kind === "opened" ? address : undefined));
+  if (opening.kind !== "opened") write(formatOpenedLine(address, opening, colors, true));
   // Default restarts stay at review; --resume permits eligible continuation after serving.
   await engine.continue();
   // Kiln stays in the foreground, through Needs you, a pause and Complete, until Ctrl+C (AC-KEEP-01).
@@ -444,12 +447,22 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
 }
 
 /**
- * The ports Kiln assigns from: 4700 to 4799. `KILN_PORT_RANGE=<first>-<last>` narrows it, for
- * tests that run several sandboxes at once, each with its own port registry.
+ * The ports Kiln assigns from: 4700 to 4799, or the block `KILN_PORT_RANGE=<first>-<last>` names
+ * (technical design, "Ports and one Kiln per PRD"), so that machines whose views are tunnelled
+ * to one computer can each keep to their own block. A value that isn't two ports from 1024 to
+ * 65535, the first no greater than the last, is refused rather than ignored:
+ *
+ *   portRange({ KILN_PORT_RANGE: "4800-4899" })  // { first: 4800, last: 4899 }
+ *   portRange({ KILN_PORT_RANGE: "4899-4800" })  // { problem: "kiln: KILN_PORT_RANGE is 4899-4800; …" }
  */
-function portRange(env: NodeJS.ProcessEnv): { first: number; last: number } {
-  const match = /^(\d+)-(\d+)$/.exec(env.KILN_PORT_RANGE ?? "");
-  return match ? { first: Number(match[1]), last: Number(match[2]) } : PORT_RANGE;
+function portRange(env: NodeJS.ProcessEnv): { first: number; last: number } | { problem: string } {
+  const value = env.KILN_PORT_RANGE;
+  if (value === undefined || value === "") return PORT_RANGE;
+  const match = /^(\d+)-(\d+)$/.exec(value);
+  const first = Number(match?.[1]);
+  const last = Number(match?.[2]);
+  if (match && first >= 1024 && last <= 65535 && first <= last) return { first, last };
+  return { problem: `kiln: KILN_PORT_RANGE is ${value}; it must be <first>-<last>, two ports from 1024 to 65535 with the first no greater than the last, such as 4800-4899.` };
 }
 
 /**

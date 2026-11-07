@@ -2103,7 +2103,7 @@
         "invalid_prd_path": "Exit 2: path does not exist, is outside Git, is not directly under docs/prds or docs/changes, names a different file, or cannot resolve the main checkout/worktrees. Correct the path; no controller is started.",
         "start_checks_failed": "Exit 1: missing Git/gh, failed GitHub authentication, missing/ambiguous requirements documents, invalid plan, dirty checkout, invalid GitHub origin or unavailable named repositories. Read all printed problems, correct them, then run the same path again.",
         "already_running": "Exit 1: this PRD already has a live controller. stdout gives its existing browser address; use it or kiln status rather than starting another controller.",
-        "port_unavailable": "Exit 1: the PRD's retained port is occupied, or every controller port is occupied (normally 4700–4799). Free the reported port or stop an unneeded controller, then retry; no second instance is started.",
+        "port_unavailable": "Exit 1: the PRD's retained port is occupied, or every controller port is occupied (4700–4799 unless KILN_PORT_RANGE sets another block). Free the reported port or stop an unneeded controller, then retry; no second instance is started. A KILN_PORT_RANGE that is not <first>-<last> within 1024–65535, first no greater than last, also exits 1 naming the value; correct or unset it.",
         "newer_saved_schema": "Exit 1: saved work was written by a newer Kiln schema. Use a compatible Kiln; never delete or downgrade saved history to bypass the refusal."
       }
     },

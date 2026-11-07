@@ -68,7 +68,7 @@ describe("formatDocumentsFound", () => {
 describe("the not-started ● line (AC-START-09)", () => {
   const plain = terminalColors({ isTTY: false }, {});
   it("says the view was opened, to review it there, and to keep the terminal open", () => {
-    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", undefined, plain).split("\n")).toEqual([
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain).split("\n")).toEqual([
       "● Opened http://127.0.0.1:4700/customer-returns. Review it there and press Start.",
       "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
     ]);
@@ -76,17 +76,38 @@ describe("the not-started ● line (AC-START-09)", () => {
 
   it("colors the ● and the address red and the rest grey, as drawn", () => {
     const colors = terminalColors({ isTTY: true }, {});
-    const [line] = formatOpenedLine("http://127.0.0.1:4700/customer-returns", undefined, colors).split("\n");
+    const [line] = formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, colors).split("\n");
     expect(line).toBe(`${colors.red("●")} Opened ${colors.red("http://127.0.0.1:4700/customer-returns")}${colors.grey(". Review it there and press Start.")}`);
   });
 
-  it("gives the address and why when the browser couldn't be opened", () => {
-    expect(formatOpenedLine("http://127.0.0.1:4700/x", "xdg-open isn’t on the PATH", plain).split("\n")).toEqual([
+  it("gives the address and why when the opener failed", () => {
+    const failed = { kind: "failed", reason: "xdg-open exited with code 3" } as const;
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", failed, plain).split("\n")).toEqual([
       "● Kiln’s view is at http://127.0.0.1:4700/x. Review it there and press Start.",
-      "✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open http://127.0.0.1:4700/x yourself.",
+      "✗ Couldn’t open the browser: xdg-open exited with code 3. Open http://127.0.0.1:4700/x yourself.",
       "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
     ]);
-    expect(formatOpenedLine("http://127.0.0.1:4700/x", "no display", plain, true)).toBe("✗ Couldn’t open the browser: no display. Open http://127.0.0.1:4700/x yourself.");
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", failed, plain, true)).toBe("✗ Couldn’t open the browser: xdg-open exited with code 3. Open http://127.0.0.1:4700/x yourself.");
+  });
+
+  it("says where the view is, with no error, when the machine has no opener", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "no_opener" }, plain).split("\n")).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4700/x. Open it in your browser and press Start.",
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "no_opener" }, plain, true)).toBe("● Kiln’s view is at http://127.0.0.1:4700/x. Open it in your browser.");
+  });
+
+  it("over SSH, says to open the view from the person's own computer through a tunnel to the same port", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4712/x", { kind: "remote" }, plain).split("\n")).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4712/x on this remote machine. Open it from your own computer through an SSH tunnel to port 4712, then press Start.",
+      "  For example: ssh -N -L 4712:127.0.0.1:4712 <this host>",
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+    expect(formatOpenedLine("http://127.0.0.1:4712/x", { kind: "remote" }, plain, true).split("\n")).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4712/x on this remote machine. Open it from your own computer through an SSH tunnel to port 4712.",
+      "  For example: ssh -N -L 4712:127.0.0.1:4712 <this host>",
+    ]);
   });
 });
 
