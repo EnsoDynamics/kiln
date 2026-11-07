@@ -57,7 +57,7 @@ import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { latestSol } from "../agents/codex-metadata.js";
-import { AGENT_NAMES, assertAgent, type AgentSettings } from "../state/records.js";
+import { AGENT_NAMES, assertAgent, type AgentSettings, type Effort } from "../state/records.js";
 import { selectedChoice } from "../state/records.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
@@ -70,7 +70,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "nod
 import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
-import { autoModeError, type ModelEntry } from "../account/model-list.js";
+import { autoModeError, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -1162,11 +1162,14 @@ export class Engine {
   get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
   get selectionError(): string | undefined { return this.selectionIssue(); }
   private selectionIssue(ignorePending = false): string | undefined {
+    return this.selectionIssueFor(selectedChoice(this.record.settings), ignorePending);
+  }
+  /** Model's field message for a model and effort: Documents found's for the saved choice, the setup panel's for its own (AC-SETUP-01). */
+  selectionIssueFor(choice: { model: string; effort?: string }, ignorePending = false): string | undefined {
     const metadata = this.agents.state;
     if (metadata.pending && !ignorePending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
     if (metadata.blockers.length) return metadata.blockers.join(" ");
     if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
-    const choice = selectedChoice(this.record.settings);
     const entry = this.modelEntry(choice.model);
     if (!entry) return `Choose an available ${AGENT_NAMES[metadata.agentId]} model. Saved choice: ${choice.model || "none"}.`;
     if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
@@ -2832,6 +2835,13 @@ export class Engine {
     return await isProcessLive(run.pid, run.processStartTime) ? latest.session : undefined;
   }
 
+  /** The setup panel's model and effort, checked as Documents found checks the saved ones; read at each snapshot too, so a catalogue change shows at once (AC-SETUP-01). */
+  folderModelCheck(choice: { model: string; effort?: string }): { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] } {
+    const entry = this.modelEntry(choice.model);
+    const error = this.selectionIssueFor(choice);
+    return { ...(error ? { error } : {}), effortLevels: effortLevelsFor(entry), ...(entry?.efforts ? { efforts: entry.efforts } : {}) };
+  }
+
   /** Why Start is refused as busy right now, for the line under the button; read at each snapshot, so it clears when the session ends (AC-SAFE-01). */
   folderBusy(): string | undefined {
     if (!(this.current?.processRunning || this.driving)) return undefined;
@@ -2847,15 +2857,24 @@ export class Engine {
       const sha = facts.repositories[prdName]?.pushedSha;
       completedByRun.set(this.judgedId(key), { doneAt: facts.doneAt, ...(sha ? { pushedSha: sha } : {}) });
     }
+    // Phases this run completed with commits in each repository, for the work a base-branch start leaves out (AC-SAFE-02).
+    const phasesByRepository = new Map<string, { id: string; pushedSha?: string }[]>();
+    for (const [key, facts] of Object.entries(this.record.phases).filter(([, facts]) => facts.doneAt).sort(([, a], [, b]) => a.doneAt!.localeCompare(b.doneAt!))) {
+      if (key === PR_PHASE_KEY || this.auditActivity(key)) continue;
+      for (const [name, repository] of Object.entries(facts.repositories)) if (repository.pushedSha || repository.commitCount) phasesByRepository.set(name, [...phasesByRepository.get(name) ?? [], { id: this.judgedId(key), ...(repository.pushedSha ? { pushedSha: repository.pushedSha } : {}) }]);
+    }
     const stoppedKey = this.stoppedPhaseKey();
     const stoppedPhaseId = stoppedKey !== undefined && stoppedKey !== PR_PHASE_KEY && !this.auditActivity(stoppedKey) ? this.judgedId(stoppedKey) : undefined;
+    const stoppedStarts = stoppedPhaseId !== undefined ? Object.fromEntries(Object.entries(this.record.phases[stoppedKey!]?.repositories ?? {}).map(([name, repository]) => [name, repository.startCommit])) : undefined;
     const pausePhaseId = (stoppedKey !== undefined ? (stoppedPhaseId ?? stoppedKey) : undefined) ?? recordedLeaves(this.record.plan ?? []).find(leaf => !leaf.closed && !this.waiverClosed(leaf.id) && !this.record.phases[leaf.id]?.doneAt)?.id;
     const leftOver = await this.leftOverSession();
     const intent = this.failedStartIntent();
     const busy = this.folderBusy();
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
-      completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
+      completedByRun, phasesByRepository, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
+      model: choice => this.folderModelCheck(choice),
+      ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
     };
@@ -2902,6 +2921,16 @@ export class Engine {
       else return { reason: `Unknown or malformed field ${key}.` };
     }
     if (fields.model !== undefined && !this.modelEntry(fields.model)) return { reason: "Choose a listed model." };
+    // Effort follows the model chosen in the panel, as on Documents found (AC-SETUP-01).
+    const saved = selectedChoice(this.record.settings);
+    const model = fields.model ?? this.folderDraft.edits[start].model ?? saved.model;
+    const entry = this.modelEntry(model);
+    if (fields.effort !== undefined && fields.effort !== "" && entry && !entry.supportedEffortLevels.includes(fields.effort)) return { reason: `${entry.displayName} doesn’t take that effort. Choose a supported effort.` };
+    if (fields.model !== undefined && fields.effort === undefined && entry) {
+      const effort = this.folderDraft.edits[start].effort ?? saved.effort ?? "";
+      if (!entry.supportsEffort) fields.effort = "";
+      else if (!entry.supportedEffortLevels.includes(effort)) fields.effort = entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort) ? entry.defaultEffort : "";
+    }
     // Starting from the existing branch fixes the branch, each repository's base and, for several repositories, the workspace folder.
     if (start === "branch") {
       const saved = this.record.settings;

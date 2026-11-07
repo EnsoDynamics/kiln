@@ -72,7 +72,8 @@ export function baseCard(view: FolderMissingSnapshot): { title: string; tag: str
   if ("error" in base) return { title: `Plan on ${base.branch}`, tag: "Couldn’t read", note: base.error };
   const where = base.source === "origin" ? `origin/${base.branch}` : `your checkout’s ${base.branch}`;
   const only = view.plans.branchOnly;
-  const next = only?.length ? `${only.length === 1 ? `Phase ${only[0]}’s` : `Phases ${only.slice(0, -1).join(", ")} and ${only.at(-1)}’s`} work is only on the feature branch` : view.plans.saved.comparedWith === "branch" ? "this run’s latest work is only on the feature branch" : base.next ? `next is Phase ${base.next.id}, ${base.next.title}` : "every phase is closed";
+  // The next unfinished phase is always named (AC-FACTS-02); phases closed only on the feature branch follow it.
+  const next = `${base.next ? `next is Phase ${base.next.id}, ${base.next.title}` : "every phase is closed"}${only?.length ? ` · ${only.length === 1 ? `Phase ${only[0]}’s` : `Phases ${only.slice(0, -1).join(", ")} and ${only.at(-1)}’s`} work is only on the feature branch` : ""}`;
   // The PRD's repository comes first; a multi-repository run's plan is read there.
   const prd = view.repositories.length > 1 ? `${view.repositories[0]!.name}’s ` : "";
   return {
@@ -121,7 +122,11 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
       if (last.inBase === true) pushed.push({ text: `in ${baseBranch}`, tone: "pass" });
       else if (last.onOrigin === true) { pushed.push({ text: "on origin", tone: "pass" }); if (multi && last.inBase === false) pushed.push({ text: ` · not in ${baseBranch}` }); }
       else if (last.inBase === false) pushed.push({ text: `not in ${baseBranch}`, tone: "fail" });
+      else if (last.onOrigin === false) pushed.push({ text: "not on origin", tone: "fail" });
       else pushed.push({ text: "Couldn’t check", tone: "unknown" });
+      // A read that failed is named in the row, never left out (AC-FACTS-03).
+      if (last.inBase !== true && last.onOrigin === undefined && last.inBase !== undefined) pushed.push({ text: " · " }, { text: "on origin: couldn’t check", tone: "unknown" });
+      if (last.inBase === undefined && last.onOrigin !== undefined) pushed.push({ text: " · " }, { text: `in ${baseBranch}: couldn’t check`, tone: "unknown" });
       pushedRow = { label: label("Last commit this run pushed"), value: pushed };
     }
     let recordRow: FactRow | undefined;
@@ -135,7 +140,9 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
     // One repository: what it pushed comes right after its branch; several: last, after where each branch is.
     const order = multi ? [featureRow, recordRow, elsewhereRow, pushedRow] : [featureRow, pushedRow, recordRow, elsewhereRow];
     rows.push(...order.filter((row): row is FactRow => !!row));
-    for (const read of repository.unknown.filter(read => read !== `${repository.branch} on origin`)) rows.push({ label: label(`${read.charAt(0).toUpperCase()}${read.slice(1)}`), value: [{ text: "Couldn’t check", tone: "unknown" }] });
+    // Reads the branch and pushed-commit rows already name are not repeated as rows of their own.
+    const inRow = (read: string) => read === `${repository.branch} on origin` || !!pushedRow && read.startsWith("whether this run’s last pushed commit");
+    for (const read of repository.unknown.filter(read => !inRow(read))) rows.push({ label: label(`${read.charAt(0).toUpperCase()}${read.slice(1)}`), value: [{ text: "Couldn’t check", tone: "unknown" }] });
   }
   return rows;
 }
@@ -153,6 +160,6 @@ export function lostNote(view: FolderMissingSnapshot): string {
 /** Beside Check again: the restore command, or why there is none (AC-SETUP-06). */
 export function restoreText(view: FolderMissingSnapshot): string {
   if (view.restoreCommands.length) return "Moved or removed the folder on purpose? Put it back at the saved path, then check again.";
-  if (view.restoreUnknown && failing(view).some(repository => repository.state === "missing")) return view.repositories.some(repository => repository.unknown.some(read => read.endsWith(" on origin"))) ? "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can reach origin." : "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can read what it needs about the branch.";
+  if (view.restoreUnknown && failing(view).some(repository => repository.state === "missing")) return view.repositories.some(repository => repository.unknown.includes(`${repository.branch} on origin`)) ? "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can reach origin." : "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can read what it needs about the branch.";
   return "This folder can’t be put back at the saved path as it was. Set the run up above, or sort it out yourself and check again.";
 }

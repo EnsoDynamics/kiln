@@ -8,10 +8,10 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { PlannedPhase } from "../plan/phase-plan.js";
-import type { PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
+import type { Effort, PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { ensureObjects, listWorktrees, originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
-import type { FolderMissingView, RepositoryRead } from "./folder-facts.js";
+import { inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
@@ -39,7 +39,8 @@ export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} } }
 
 /** Words with inline code, a date, or emphasis, as the page lays them out. */
 export interface Part { text?: string; tone?: "code" | "strong"; date?: string }
-export interface StartChoice { sha: string; total: number; done: number; holdsAllWork: boolean; behindBase: boolean; line: string }
+/** `holdsAllWork` is absent when a failed read decides it (AC-FACTS-03). */
+export interface StartChoice { sha: string; total: number; done: number; holdsAllWork?: boolean; behindBase: boolean; line: string }
 export interface PanelRepository { name: string; kind: RepositoryKind; baseBranch: string; baseChoices: string[]; problem?: string; leftOut?: true }
 export interface SetupPanel {
   suggested: StartKind;
@@ -54,6 +55,9 @@ export interface SetupPanel {
   repositories: PanelRepository[];
   /** The single repository's base choices. */
   baseChoices: string[];
+  /** The efforts the panel's model takes: `[]` for none, `null` when Kiln has no entry for it (Documents found's `effortLevels`). */
+  effortLevels: Effort[] | null;
+  efforts?: { value: string; label: string; description?: string }[];
   preview: { done: string; run: { id: string; title: string; note: string }[]; again: string[]; caution?: Part[]; startLabel: string; lets: { parts: Part[]; allowed: boolean }[] };
   /** Start is refused while a session runs (AC-SAFE-01): the line shown under the button. */
   busy?: string;
@@ -73,6 +77,10 @@ export interface PanelContext {
   completedByRun: Map<string, { doneAt: string; pushedSha?: string }>;
   /** The judged id of the phase the run stopped on, when it did. */
   stoppedPhaseId?: string;
+  /** The stopped phase's start commit in each repository it began in: commits after it on the branch are its work. */
+  stoppedStarts?: Record<string, string>;
+  /** By repository, the phases this run completed with commits there, in completion order, with the commit pushed there. */
+  phasesByRepository?: Map<string, { id: string; pushedSha?: string }[]>;
   /** The phase a pending pause request belongs to: the stopped phase, else the first unfinished leaf of the saved plan. */
   pausePhaseId?: string;
   /** A failed start intent of this execution, whose names the draft starts from. */
@@ -80,6 +88,8 @@ export interface PanelContext {
   /** A process left by an earlier Kiln that Start stops before any Git write. */
   stopsLeftOver?: number;
   busy?: string;
+  /** The panel's model and effort, checked as Documents found checks the saved ones: Model's field message, and the efforts that model takes (AC-SETUP-01). */
+  model?: (choice: { model: string; effort?: string }) => { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] };
   /** Repository identity checks for a newly named repository's origin. */
   originIdentity?: (path: string) => Promise<string | undefined>;
 }
@@ -166,9 +176,13 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   lets.push({ allowed: false, parts: [{ text: early ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches" }] });
 
   const preview = { ...chosen.preview, lets };
+  // Model and Effort as on Documents found: Model's field message, and the efforts the chosen model takes (AC-SETUP-01).
+  const modelCheck = context.model?.({ model: chosen.fields.model, ...(chosen.fields.effort ? { effort: chosen.fields.effort } : {}) });
+  const fieldErrors = { ...chosen.fieldErrors, ...(modelCheck?.error ? { model: modelCheck.error } : {}) };
   const panel: Omit<SetupPanel, "previewId"> = {
     suggested, selected, choices, multi,
-    fields: chosen.fields, fixed: chosen.fixed, fieldErrors: chosen.fieldErrors, helpLines: chosen.helpLines,
+    fields: chosen.fields, fixed: chosen.fixed, fieldErrors, helpLines: chosen.helpLines,
+    effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}),
     repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}) })).concat(chosen.leftOut.map(name => ({ name, kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
     baseChoices: chosen.repositories[0]?.origin ? baseBranchChoices(chosen.repositories[0].origin) : [chosen.fields.baseBranch],
     preview,
@@ -326,7 +340,6 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const leaves = leavesOf(plan.plan.phases);
   const done = leaves.filter(leaf => leaf.closed).map(leaf => leaf.id);
   const run = leaves.filter(leaf => !leaf.closed);
-  const again = run.filter(leaf => context.completedByRun.has(leaf.id)).map(leaf => leaf.id);
   if (!run.length) return { unavailable: `Every phase is already closed on ${prdBase}; there is nothing to start.`, known: true };
   const problem = set.find(r => r.problem);
   if (problem) return { unavailable: `${problem.problem}`, known: true };
@@ -334,33 +347,73 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const preparationProblems: string[] = [];
   await bindPreparation({ git, record, candidate: plan, first: run[0], repositories: set.map(r => ({ name: r.name, identity: r.github, path: r.mainCheckoutPath, baseBranch: r.baseBranch, baseRevision: baseCommits[r.name]! })), problems: preparationProblems });
   if (preparationProblems.length) return { unavailable: `${[...new Set(preparationProblems)].join(" ")} Then check again.`, known: true };
+  // Work this run committed, pushed or not, that the new start leaves out (AC-SAFE-02).
+  const runIds = new Set(run.map(leaf => leaf.id));
+  // The phase the run stopped on, when its commits are on the feature branch and not in the base branch: it runs again too.
+  const stopped = context.stoppedPhaseId;
+  const stoppedWorkIn = (read: RepositoryRead) => { const startCommit = context.stoppedStarts?.[read.name]; return !!startCommit && !!read.tip && read.tip !== startCommit && read.workNotInBase === true; };
+  const stoppedWork = stopped !== undefined && runIds.has(stopped) && !context.completedByRun.has(stopped) && reads.repositories.some(stoppedWorkIn);
+  const again = leaves.filter(leaf => runIds.has(leaf.id) && (context.completedByRun.has(leaf.id) || stoppedWork && leaf.id === stopped)).map(leaf => leaf.id);
+  // A phase's pushed work in a repository: in that repository's base branch, not, or unknown (AC-FACTS-01's test).
+  let workUnknown = reads.repositories.some(read => read.workNotInBase === "unknown");
+  const workLeftIn = async (read: RepositoryRead | undefined, sha: string | undefined): Promise<boolean> => {
+    if (!read?.base || !sha) return false;
+    const inBase = await inBaseBranch(git, expandHome(read.entry.mainCheckoutPath), record, read.entry, sha, read.base.sha);
+    if (inBase === "unknown") workUnknown = true;
+    return inBase === false;
+  };
+  // Phases this run completed that the base plan doesn't have, whose work isn't in the base branch: the new start never runs them.
+  const anyPlanIds = new Set(plan.plan.phases.map(phase => phase.id));
+  const notInPlan: string[] = [];
+  for (const [id, completed] of context.completedByRun) if (!anyPlanIds.has(id) && await workLeftIn(prdRead, completed.pushedSha)) notInPlan.push(id);
+  const leftWork = leftOut.filter(name => reads.repositories.find(read => read.name === name)?.workNotInBase === true);
+  // A left-out repository's phases whose work there isn't in its base branch, and the stopped phase when it committed there.
+  const leftPhaseIds = new Map<string, string[]>();
+  for (const name of leftWork) {
+    const read = reads.repositories.find(one => one.name === name)!;
+    const ids: string[] = [];
+    for (const phase of context.phasesByRepository?.get(name) ?? []) if (await workLeftIn(read, phase.pushedSha)) ids.push(phase.id);
+    if (stopped !== undefined && stoppedWorkIn(read)) ids.push(stopped);
+    leftPhaseIds.set(name, [...new Set(ids)]);
+  }
   const gone = reads.repositories.every(read => !read.tip);
   const verb = view.existingBranch.available === true ? "would" : "will";
-  let caution: Part[] | undefined;
+  const caution: Part[] = [];
+  const add = (parts: Part[]) => caution.push(...(caution.length ? [{ text: " " }] : []), ...parts);
   if (again.length) {
     const lead = `${phaseList(again)} ${verb} run again.`;
     const sha = again.length === 1 ? context.completedByRun.get(again[0]!)?.pushedSha : undefined;
     const their = again.length === 1 ? "Its" : "Their";
-    const tail = multi ? ` ${their} work is on the feature branch in ${reads.repositories.length === 2 ? "both repositories" : "every repository"}, not in ${prdBase}.`
+    const withWork = reads.repositories.filter(read => read.workNotInBase === true).map(read => read.name);
+    const tail = multi ? ` ${their} work is on the feature branch in ${withWork.length === reads.repositories.length ? (withWork.length === 2 ? "both repositories" : "every repository") : joinNames(withWork)}, not in ${prdBase}.`
       : gone ? ` ${their} pushed work${sha ? ` (${short(sha)})` : ""} was on the deleted branch and isn’t in ${prdBase}.`
       : ` ${their} work${sha ? ` (${short(sha)})` : ""} is on the feature branch, not in ${prdBase}.`;
-    caution = [{ text: lead, tone: "strong" }, { text: tail }];
+    add([{ text: lead, tone: "strong" }, { text: tail }]);
   }
-  const leftWork = leftOut.filter(name => reads.repositories.find(read => read.name === name)?.workNotInBase === true);
-  if (leftWork.length) caution = [...(caution ?? []), { text: `${caution ? " " : ""}Work this run committed in ${joinNames(leftWork)} isn’t in its base branch; it stays on that repository’s feature branch.` }];
-  const holdsAllWork = !again.length && !leftWork.length;
+  if (notInPlan.length) add([{ text: `${phaseList(notInPlan)} ${verb} not run.`, tone: "strong" }, { text: ` The plan on ${prdBase} has no such phase${notInPlan.length === 1 ? "" : "s"}, so ${notInPlan.length === 1 ? "its" : "their"} work stays on the earlier feature branch.` }]);
+  for (const name of leftWork) {
+    const phases = leftPhaseIds.get(name)!;
+    add([{ text: `Work this run committed in ${name}${phases.length ? ` (${phaseList(phases)})` : ""} isn’t in its base branch; it stays on that repository’s feature branch.` }]);
+  }
+  // "Holds all work" is withheld while a read of work not in the base branch failed (AC-FACTS-03). Phases are named in plan order.
+  // The run's saved plan places the phases it worked on, including one the base plan lacks; a phase only the base plan has follows.
+  const order = [...(record.plan ?? []).map(phase => phase.id), ...leaves.map(leaf => leaf.id)];
+  const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? order.length : index; };
+  const missing = [...new Set([...again, ...notInPlan, ...[...leftPhaseIds.values()].flat()])].sort((a, b) => rank(a) - rank(b));
+  const holdsAllWork = missing.length || leftWork.length ? false : workUnknown ? undefined : true;
+  const workLine = holdsAllWork === true ? "Has all of this run’s work." : holdsAllWork === undefined ? "Couldn’t check whether it has all of this run’s work." : `Missing ${missing.length ? phaseList(missing) : "some of this run"}’s work.`;
   const source = prdRead.base.source === "origin" ? `origin/${prdBase}` : prdBase;
   const counts = `${leaves.length} phases, ${done.length} done`;
   const line = multi
-    ? `A new workspace and branch in ${set.length === 2 ? "both repositories" : `all ${set.length} repositories`}, from ${source} · ${counts}. ${holdsAllWork ? "Has all of this run’s work." : `Missing ${phaseList(again.length ? again : leftWork)}’s work.`}`
-    : `${source} at ${short(prdTip)} · ${counts}. ${holdsAllWork ? "Has all of this run’s work." : `Missing ${again.length ? phaseList(again) : "some of this run"}’s work.`}`;
+    ? `A new workspace and branch in ${set.length === 2 ? "both repositories" : `all ${set.length} repositories`}, from ${source} · ${counts}. ${workLine}`
+    : `${source} at ${short(prdTip)} · ${counts}. ${workLine}`;
   return {
     kind: "base",
-    choice: { sha: prdTip, total: leaves.length, done: done.length, holdsAllWork, behindBase: false, line },
+    choice: { sha: prdTip, total: leaves.length, done: done.length, ...(holdsAllWork === undefined ? {} : { holdsAllWork }), behindBase: false, line },
     fields, fixed: ["agentId"], fieldErrors,
     helpLines: { folder: multi ? "New: a folder named for the new branch, with a new worktree of each repository." : "New: a folder named for the new branch.", featureBranch: "New, so this run’s earlier branch and pull request stay separate." },
     repositories: set, leftOut, folders, baseCommits, clearRecords: [], createLocal: {}, plan,
-    preview: { done: done.length ? `${phaseList(done)} done on ${prdBase}` : "No phase is done yet", run: run.map((leaf, index) => ({ id: leaf.id, title: leaf.title, note: index === 0 ? "runs first" : "then" })), again, ...(caution ? { caution } : {}), startLabel: `Set up & start Phase ${run[0]!.id}` },
+    preview: { done: done.length ? `${phaseList(done)} done on ${prdBase}` : "No phase is done yet", run: run.map((leaf, index) => ({ id: leaf.id, title: leaf.title, note: index === 0 ? "runs first" : "then" })), again, ...(caution.length ? { caution } : {}), startLabel: `Set up & start Phase ${run[0]!.id}` },
     runIds: run.map(leaf => leaf.id), suffix,
   };
 }

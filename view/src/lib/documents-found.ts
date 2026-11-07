@@ -83,7 +83,7 @@ export const EFFORT_LABELS: Record<Effort, string> = { low: "Low", medium: "Medi
 export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 /** An effort button is disabled when the chosen model doesn't take that level (UI-011). */
-export function effortDisabled(settings: Settings, effort: Effort): boolean {
+export function effortDisabled(settings: Pick<Settings, "effortLevels">, effort: Effort): boolean {
   return settings.effortLevels !== null && !settings.effortLevels.includes(effort);
 }
 

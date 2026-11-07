@@ -9,7 +9,8 @@
   import BillingPanel from "./BillingPanel.svelte";
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import { changeFolderPanel, checkFolders, startFolderSetup, type PageConfig } from "../lib/api.js";
-  import { accountLines, EFFORT_LABELS, EFFORTS, modelOptions } from "../lib/documents-found.js";
+  import CodeText from "./CodeText.svelte";
+  import { accountLines, EFFORT_LABELS, EFFORTS, effortDisabled, modelOptions } from "../lib/documents-found.js";
   import { day } from "../lib/folder-missing.js";
 
   /** What sessions may do in a repository they add, as on Documents found (multi-repo AC-ADD-01, AC-PRS-04). */
@@ -153,7 +154,7 @@
         <div class="field">
           <label for="fm-agent">Agent</label>
           <select id="fm-agent" disabled><option>{snapshot.settings.agent}</option></select>
-          <span class="help">{#if account.line}{account.line}{/if}{#if account.usage}<br />{account.usage}{/if}</span>
+          <span class="help">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
           <span class="help">Agent fixed for this PRD.</span>
         </div>
         <div class="field">
@@ -161,6 +162,8 @@
           <select id="fm-model" value={panel.fields.model} disabled={!connected} onchange={(event) => change(panel.selected, { model: event.currentTarget.value })}>
             {#each models as model (model.value)}<option value={model.value}>{model.displayName}</option>{/each}
           </select>
+          {#if panel.fieldErrors.model}<span class="message">{panel.fieldErrors.model}</span>{/if}
+          {#if snapshot.settings.modelListError}<span class="message">{snapshot.settings.modelListError}</span>{/if}
         </div>
       </div>
       <span class="help">Listed models do not guarantee account access.</span>
@@ -168,11 +171,13 @@
       <fieldset class="effort">
         <legend>Effort</legend>
         <div class="segments">
-          {#each snapshot.settings.effortLevels ?? EFFORTS as effort (effort)}
-            <button type="button" aria-pressed={panel.fields.effort === effort} class:pressed={panel.fields.effort === effort} disabled={!connected} onclick={() => change(panel.selected, { effort: effort as Effort })}>{snapshot.settings.efforts?.find((e) => e.value === effort)?.label ?? EFFORT_LABELS[effort] ?? effort}</button>
+          {#each panel.effortLevels ?? EFFORTS as effort (effort)}
+            {@const pressed = panel.effortLevels?.length !== 0 && panel.fields.effort === effort}
+            <button type="button" aria-pressed={pressed} class:pressed disabled={!connected || effortDisabled(panel, effort)} onclick={() => { if (!effortDisabled(panel, effort)) void change(panel.selected, { effort: effort as Effort }); }}>{panel.efforts?.find((e) => e.value === effort)?.label ?? EFFORT_LABELS[effort] ?? effort}</button>
           {/each}
         </div>
         <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
+        {#if panel.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
       </fieldset>
       <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span></label>
       <label class="check"><input type="checkbox" checked={panel.fields.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => change(panel.selected, { resumeAfterUsageLimit: event.currentTarget.checked })} /> <span>Resume after a usage limit<span class="help block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>

@@ -205,8 +205,9 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
   // Objects for origin's commits, written as objects only (no ref), then dates.
   const needed = [originSha, reads.base?.source === "origin" ? reads.base.sha : undefined].filter((sha): sha is string => !!sha);
   for (const sha of needed) await ensureObjects(git, main, sha);
-  if (localSha) facts.featureBranch.local = await commitFact(git, main, localSha);
-  if (originSha) facts.featureBranch.origin = await commitFact(git, main, originSha);
+  if (localSha) facts.featureBranch.local = await commitFact(git, main, localSha, facts);
+  if (originSha && originSha !== localSha) facts.featureBranch.origin = await commitFact(git, main, originSha, facts);
+  else if (originSha) facts.featureBranch.origin = facts.featureBranch.local!;
   if (localSha && originSha) {
     if (localSha === originSha) facts.featureBranch.relation = "same";
     else {
@@ -225,7 +226,9 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
       facts.featureBranch.inBase = inBase;
       if (!inBase) {
         const count = await runGit(git, main, ["rev-list", "--count", `${reads.base.sha}..${reads.tip}`]);
-        if (count.exitCode === 0) facts.featureBranch.notInBaseCount = Number.parseInt(count.stdout.trim(), 10);
+        const counted = Number.parseInt(count.stdout.trim(), 10);
+        if (count.exitCode === 0 && !Number.isNaN(counted)) facts.featureBranch.notInBaseCount = counted;
+        else facts.unknown.push(`how many commits on ${branch} aren’t in ${entry.baseBranch}`);
       }
     }
     // Origin unreachable: only the local tip having work not in the base branch settles it; origin's branch may hold more.
@@ -237,16 +240,19 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
   const pushed = Object.entries(record.phases).flatMap(([key, phase]) => phase.doneAt && phase.repositories?.[entry.name]?.pushedSha ? [{ key, doneAt: phase.doneAt, sha: phase.repositories[entry.name]!.pushedSha! }] : []).sort((a, b) => a.doneAt.localeCompare(b.doneAt)).at(-1);
   if (pushed) {
     const last: NonNullable<FolderMissingRepository["lastPushed"]> = { sha: pushed.sha, phaseId: pushed.key };
+    // A failed read is named (AC-FACTS-03); an unreachable origin or unread base is already named above.
     if (reads.originRead) {
       if (!originSha) last.onOrigin = false;
       else {
         const on = await ancestry(git, main, pushed.sha, originSha);
         if (on !== "unknown") last.onOrigin = on;
+        else facts.unknown.push(PUSHED_ON_ORIGIN);
       }
     }
     if (reads.base) {
       const inBase = await inBaseBranch(git, main, record, entry, pushed.sha, reads.base.sha);
       if (inBase !== "unknown") last.inBase = inBase;
+      else facts.unknown.push(pushedInBase(entry.baseBranch));
     }
     facts.lastPushed = last;
   }
@@ -264,9 +270,15 @@ function exists(path: string): boolean {
   try { lstatSync(path); return true; } catch { return false; }
 }
 
-async function commitFact(git: GitContext, cwd: string, sha: string): Promise<CommitFact> {
+/** The unknown-read wording for the last pushed commit; the page names these inside that commit's row (`factRows`). */
+const PUSHED_ON_ORIGIN = "whether this run’s last pushed commit is on origin";
+const pushedInBase = (base: string) => `whether this run’s last pushed commit is in ${base}`;
+
+async function commitFact(git: GitContext, cwd: string, sha: string, facts: FolderMissingRepository): Promise<CommitFact> {
   const date = await runGit(git, cwd, ["log", "-1", "--format=%cI", sha]);
-  return { sha, ...(date.exitCode === 0 && date.stdout.trim() ? { date: date.stdout.trim() } : {}) };
+  if (date.exitCode === 0 && date.stdout.trim()) return { sha, date: date.stdout.trim() };
+  facts.unknown.push(`the date of commit ${sha.slice(0, 7)}`);
+  return { sha };
 }
 
 /** `merge-base --is-ancestor`, keeping a failed read apart from "no". */

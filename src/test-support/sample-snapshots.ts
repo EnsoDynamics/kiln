@@ -854,6 +854,7 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     },
     repositories: multi ? [{ name: "harbor-ledger", kind: "prd", baseBranch: "develop", baseChoices: ["develop", "main"] }, { name: "harbor-portal", kind: "named", baseBranch: "develop", baseChoices: ["develop", "main"] }] : [],
     baseChoices: ["develop", "main"],
+    effortLevels: ["low", "medium", "high", "xhigh", "max"],
     preview: { ...preview, lets },
     previewId: "e".repeat(64),
   };

@@ -518,13 +518,31 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
 }
 
 function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingView, engine: Engine): FolderMissingSnapshot {
-  const { checkedAt, repositories, plans, restoreCommands, factsId } = view;
+  const { checkedAt, repositories, plans, factsId } = view;
   const stoppedKey = engine.stoppedPhaseKey();
   const stop = stoppedKey === undefined ? undefined : engine.record.phases[stoppedKey]?.stop;
-  return { checkedAt, repositories, plans, restoreCommands, factsId, ...(view.existingBranch.available === "unknown" ? { restoreUnknown: true as const } : {}),
+  // The put-it-back command only while the panel offers the existing branch as an available start (AC-SETUP-06);
+  // a panel that is blocked or withholds that start for a failed read can't yet tell (AC-FACTS-03).
+  const panel = engine.folderPanel;
+  const offered = !!panel && !("blocked" in panel) && !("unavailable" in panel.choices.branch);
+  const restoreCommands = offered ? view.restoreCommands : [];
+  const restoreUnknown = view.existingBranch.available === "unknown" || view.existingBranch.available === true && !offered;
+  return { checkedAt, repositories, plans, restoreCommands, factsId, ...(restoreUnknown ? { restoreUnknown: true as const } : {}),
     // The busy line is read now, so it clears as soon as the session ends (AC-SAFE-01).
-    ...(engine.folderPanel ? { panel: "blocked" in engine.folderPanel ? engine.folderPanel : (({ busy: _busy, ...panel }) => { void _busy; const busy = engine.folderBusy(); return { ...panel, ...(busy ? { busy } : {}) }; })(engine.folderPanel) } : {}), ...(engine.folderStartProgress ? { startProgress: engine.folderStartProgress } : {}),
+    ...(engine.folderPanel ? { panel: "blocked" in engine.folderPanel ? engine.folderPanel : livePanel(engine.folderPanel, engine) } : {}), ...(engine.folderStartProgress ? { startProgress: engine.folderStartProgress } : {}),
     ...(stop ? { stoppedResult: { phaseId: engine.judgedId(stoppedKey!), checkedAt: stop.checkedAt, passed: stop.checks.filter(check => check.passed).length, failed: stop.checks.filter(check => !check.passed).length } } : {}) };
+}
+
+/**
+ * The stored panel with what can change without a rebuild read now: the busy line (AC-SAFE-01), and
+ * Model's message and the efforts the panel's model takes, as the model catalogue arrives (AC-SETUP-01).
+ */
+function livePanel(stored: import("./folder-setup.js").SetupPanel, engine: Engine): import("./folder-setup.js").SetupPanel {
+  const { busy: _busy, efforts: _efforts, fieldErrors: { model: _model, ...fieldErrors }, ...panel } = stored;
+  void _busy; void _efforts; void _model;
+  const busy = engine.folderBusy();
+  const model = engine.folderModelCheck({ model: panel.fields.model, ...(panel.fields.effort ? { effort: panel.fields.effort } : {}) });
+  return { ...panel, fieldErrors: { ...fieldErrors, ...(model.error ? { model: model.error } : {}) }, effortLevels: model.effortLevels, ...(model.efforts ? { efforts: model.efforts } : {}), ...(busy ? { busy } : {}) };
 }
 
 function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
