@@ -242,7 +242,7 @@ npm run verify
 
 `verify` runs the dependency audit, lint, typecheck, unit tests, and the integration tests, which build `dist/` first and run real `git` against temporary repositories. `npm run test:package` packs Kiln, installs the archive globally into a temporary folder and runs that `kiln`.
 
-To try a local build exactly as npm would install it:
+To try a local build installed the way npm installs it (its `kiln --version` adds `(dev build, <when built>)`):
 
 ```sh
 npm ci

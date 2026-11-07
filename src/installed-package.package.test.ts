@@ -140,7 +140,10 @@ describe("the installed package", () => {
     expect(help.text()).toContain("Bots and scripts: kiln --help --json");
     const version = collect(runInstalled(["--version"], sandbox.root));
     expect(await version.exit).toBe(0);
-    expect(version.text()).toBe(`${(JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version}\n`);
+    const expected = (JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version;
+    // AC-HELP-03: the release candidate's archive prints the version alone; a package packed anywhere else says it is a dev build and when it was built.
+    if (process.env.KILN_RELEASE_BUILD === "true") expect(version.text()).toBe(`${expected}\n`);
+    else expect(version.text()).toMatch(new RegExp(`^${expected.replace(/\./g, "\\.")} \\(dev build, [^)]*\\d[^)]*\\)\\n$`));
   });
 
   // AC-PKG-02: no source maps, and no JavaScript pointing at one.

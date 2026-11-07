@@ -72,6 +72,10 @@ describe("a schema 1 record read by this Kiln", () => {
     const engine = reopenAsSchemaOne(harness);
     // Settle auth-only startup before the independent fresh usage read. Phase 6
     // deliberately gives those observations separate dates and freshness states.
+    // Startup's own account read is joined first, since a refresh during it joins it
+    // rather than reading again; its launch read may finish after it and mark the
+    // retained usage stale. Only the read started after both is fresh.
+    await engine.agents.refresh();
     await engine.refreshBilling();
     await engine.agents.refresh();
     // The next kiln run checks the stop again, reading its commits from Git, as v1 does.

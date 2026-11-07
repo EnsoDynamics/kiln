@@ -57,7 +57,7 @@ describe("the README's requirements", () => {
 
 // AC-NOTES-01: the 1.0.0 notes say what Kiln is, how to install it, what it requires and where to report problems.
 describe("the 1.0.0 release notes", () => {
-  const notes = readFileSync(new URL(`../docs/release/notes/kiln-release-notes-${manifest.version}.md`, import.meta.url), "utf8");
+  const notes = readFileSync(new URL(`../docs/release/notes/kiln-release-notes-1.0.0.md`, import.meta.url), "utf8");
 
   it("say what Kiln is, how to install it and where to report problems", () => {
     expect(notes).toMatch(/^# Kiln \d+\.\d+\.\d+\n/);

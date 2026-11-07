@@ -76,6 +76,9 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
   assert.equal(publishDownload.with.name, upload.with.name);
   assert.equal(ci.on.workflow_call.outputs.filename.value, '${{ jobs.build.outputs.filename }}');
   const installed = ci.jobs.macos.steps.find(step => step.run === 'npm run test:package');
+  // Candidate archives are release builds, and the installed candidate must print the plain version (AC-HELP-03).
+  assert.equal(ci.jobs.build.env.KILN_RELEASE_BUILD, '${{ needs.preflight.outputs.full }}');
+  assert.equal(ci.jobs.macos.env.KILN_RELEASE_BUILD, 'true');
   const published = release.jobs.publish.steps.find(step => step.run?.startsWith('npm publish '));
   assert.equal(installed.env.KILN_PACKAGE_TARBALL, '${{ runner.temp }}/kiln-package/${{ needs.build.outputs.filename }}');
   assert.equal(published.env.PACKAGE_FILE, '${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}');

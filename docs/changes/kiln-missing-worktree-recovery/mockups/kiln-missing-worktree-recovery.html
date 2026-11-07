@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln: Folder missing (mockup)</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;background:light-dark(#f6f4ed,#12110e)}
+#mock-controls{padding:12px 18px;border-bottom:1px solid light-dark(#d8d3c6,#3d3a30);background:light-dark(#ebe8dd,#0c0b09);color:light-dark(#2c2b24,#ece8dd);font:13px/1.5 system-ui;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#mock-controls select{font:inherit;padding:6px;background:light-dark(#fffef9,#1d1c17);color:inherit;border:1px solid light-dark(#d8d3c6,#3d3a30);border-radius:5px;max-width:100%}
+#kiln-page{--kp-bg:light-dark(#f6f4ed,#12110e);--kp-panel:light-dark(#fffef9,#1d1c17);--kp-inset:light-dark(#f0eee5,#15140f);--kp-text:light-dark(#2c2b24,#ece8dd);--kp-muted:light-dark(#6e695c,#b2ac9d);--kp-line:light-dark(#d8d3c6,#3d3a30);--kp-button:light-dark(#32362a,#e4dec9);--kp-button-text:light-dark(#fffdf6,#24261e);--kp-amber:light-dark(#795d1e,#d6b474);--kp-green:light-dark(#456247,#a8bd9b);--kp-red:light-dark(#8a3b2a,#e09a86);background:var(--kp-bg);color:var(--kp-text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-width:0}
+#kiln-page *{box-sizing:border-box}#kiln-page [hidden]{display:none!important}
+.kp-top{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:16px 32px;border-bottom:1px solid var(--kp-line)}
+.kp-brand{font:28px/1 Georgia,serif;letter-spacing:-1px}.kp-breadcrumb{color:var(--kp-muted);font-size:13px}.kp-body{padding:30px 32px 40px;max-width:1100px;margin:auto}
+#kiln-page h1{font:36px/1.2 Georgia,serif;margin:8px 0}#kiln-page h2{font-size:19px;line-height:1.35;font-weight:600;margin:0}#kiln-page h3{font-size:16px;font-weight:600;margin:0}#kiln-page p{margin:8px 0 0}
+.kp-muted{color:var(--kp-muted)}.kp-small{font-size:12px}.kp-eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--kp-amber);font-weight:600}
+.kp-between{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.kp-alert{border-left:3px solid var(--kp-amber);background:var(--kp-panel);padding:18px 22px;margin:24px 0 0}
+.kp-path{font:13px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
+.kp-missing{color:var(--kp-red);font-weight:600;white-space:nowrap}
+#kiln-page .kp-section-title{margin:34px 0 12px}
+.kp-plans{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:stretch}
+.kp-plan{background:var(--kp-panel);border:1px solid var(--kp-line);border-radius:12px;padding:18px 20px}
+.kp-plan.kp-stale{background:transparent;border-style:dashed}
+.kp-big{font:30px/1.1 Georgia,serif;margin-top:8px}.kp-big span{font-size:16px;color:var(--kp-muted)}
+.kp-arrow{align-self:center;color:var(--kp-muted);font-size:22px}
+.kp-tag{display:inline-block;font-size:11px;border:1px solid var(--kp-line);border-radius:99px;padding:1px 9px;color:var(--kp-muted);white-space:nowrap}
+.kp-tag.kp-unknown{color:var(--kp-amber);border-style:dashed}.kp-tag.kp-warn{color:var(--kp-amber);border-color:var(--kp-amber)}.kp-tag.kp-ok{color:var(--kp-green);border-color:var(--kp-green)}
+.kp-facts{list-style:none;margin:16px 0 0;padding:0;border-top:1px solid var(--kp-line)}
+.kp-facts li{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--kp-line);font-size:13px}
+.kp-facts .kp-val{text-align:right}.kp-pass{color:var(--kp-green)}.kp-fail{color:var(--kp-red)}.kp-unknown{color:var(--kp-amber)}
+code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
+.kp-setup{background:var(--kp-panel);border:1px solid var(--kp-line);border-radius:12px;padding:24px}
+.kp-field-label{font-size:12px;color:var(--kp-muted);margin:0 0 8px;display:block}
+.kp-starts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.kp-start{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--kp-line);border-radius:10px;padding:14px 16px;cursor:pointer;background:var(--kp-bg)}
+.kp-start input{margin-top:4px;accent-color:var(--kp-button)}
+.kp-start.kp-on{border:2px solid var(--kp-button);padding:13px 15px}
+.kp-start.kp-off{opacity:.55;cursor:not-allowed}
+.kp-start strong{display:block}.kp-start .kp-why{font-size:13px;color:var(--kp-muted);margin-top:3px}
+.kp-start .kp-tag{margin-left:6px;vertical-align:1px}
+.kp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;margin-top:22px}
+.kp-input{width:100%;font:13px/1.4 ui-monospace,SFMono-Regular,monospace;background:var(--kp-inset);color:var(--kp-text);border:1px solid var(--kp-line);border-radius:7px;padding:10px 12px}
+.kp-input:disabled{opacity:.6;cursor:not-allowed}
+select.kp-input{font-family:inherit}
+.kp-help{font-size:12px;color:var(--kp-muted);margin-top:5px}
+.kp-agent{display:flex;gap:10px;flex-wrap:wrap}.kp-agent select{width:auto;flex:1;min-width:110px}
+.kp-run{margin-top:22px;border-top:1px solid var(--kp-line);padding-top:18px}
+.kp-phases{list-style:none;padding:0;margin:10px 0 0}.kp-phases li{padding:7px 0;border-bottom:1px solid var(--kp-line);display:flex;justify-content:space-between;gap:12px;font-size:13px}
+.kp-caution{border-left:3px solid var(--kp-amber);padding:8px 12px;margin-top:12px;font-size:13px;background:var(--kp-inset)}
+.kp-seg{display:inline-flex;border:1px solid var(--kp-line);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+#kiln-page .kp-seg button{border:0;border-right:1px solid var(--kp-line);border-radius:0;min-height:36px;padding:6px 14px}
+#kiln-page .kp-seg button.kp-pressed{background:var(--kp-button);color:var(--kp-button-text)}
+.kp-check{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:13px}.kp-check input{margin-top:3px;accent-color:var(--kp-button)}
+.kp-fixed{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:16px 0 0;font-size:13px}.kp-fixed dt{color:var(--kp-muted)}.kp-fixed dd{margin:0}
+.kp-allowed-list{list-style:none;padding:0;margin:6px 0 0;font-size:13px}.kp-allowed-list li{padding:2px 0}
+.kp-startrow{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-top:20px}
+#kiln-page button{font:inherit;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:var(--kp-text);border:1px solid var(--kp-line);border-radius:7px;padding:9px 16px;cursor:pointer;white-space:nowrap}
+#kiln-page button:hover{border-color:var(--kp-muted)}#kiln-page button.kp-primary{background:var(--kp-button);color:var(--kp-button-text);border-color:var(--kp-button)}
+#kiln-page button:disabled{opacity:.45;cursor:not-allowed}
+#kiln-page button:focus-visible,#kiln-page input:focus-visible,#kiln-page select:focus-visible,#kiln-page summary:focus-visible{outline:2px solid var(--kp-amber);outline-offset:3px}
+.kp-link{border:0!important;padding:5px 0!important;min-height:30px!important;color:var(--kp-muted)!important;text-decoration:underline;text-underline-offset:3px}
+.kp-self{margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--kp-muted)}
+.kp-self details{margin-top:6px}.kp-self summary{cursor:pointer}
+.kp-command{background:var(--kp-inset);border:1px solid var(--kp-line);border-radius:7px;padding:10px 12px;margin-top:8px}
+.kp-footer{border-top:1px solid var(--kp-line);margin-top:26px;padding-top:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;color:var(--kp-muted);font-size:12px}
+.kp-result{padding:24px;border:1px solid var(--kp-line);border-radius:12px;margin-top:24px;background:var(--kp-panel)}
+.kp-term{background:#141410;color:#e7e3d6;border-radius:10px;padding:18px 20px;font:13px/1.65 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:22px}
+.kp-term .y{color:#d6b474}.kp-term .d{color:#9a9585}.kp-term .r{color:#e09a86}
+.kp-note{font-size:12px;color:var(--kp-muted);margin-top:8px}
+@media(max-width:720px){.kp-body{padding:22px 18px}.kp-top{padding:14px 18px}#kiln-page h1{font-size:29px}.kp-plans,.kp-starts,.kp-grid{grid-template-columns:1fr}.kp-arrow{display:none}.kp-facts li{flex-direction:column;gap:2px}.kp-facts .kp-val{text-align:left}.kp-setup{padding:18px}}
+</style>
+</head>
+<body>
+<div id="mock-controls"><label for="mock-case">Mockup only — case:</label>
+<select id="mock-case">
+ <option value="merged">Branch merged, plan moved on (the 2026-11-06 case)</option>
+ <option value="unmerged">Branch has work not yet in develop</option>
+ <option value="gone">Branch gone, some work not in develop</option>
+ <option value="elsewhere">Branch checked out in another folder</option>
+ <option value="occupied">Saved folder holds something else</option>
+ <option value="multi">Two repositories, one folder missing</option>
+ <option value="unknown">A check could not run</option>
+ <option value="terminal">Terminal message</option>
+</select>
+<span style="opacity:.7">Fictional repository, paths and commits. Counts and dates follow the real run.</span></div>
+
+<section id="kiln-page" aria-label="Kiln Folder missing page proposal">
+<header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Invoice evidence collection / Folder missing</span><span class="kp-muted kp-small">Connected · Enso Method</span></header>
+<main class="kp-body">
+ <p class="kp-muted kp-small">harbor-ledger · docs/prds/invoice-evidence-collection</p>
+
+ <div id="v-page">
+  <div class="kp-between"><span class="kp-eyebrow">Stopped · nothing is running</span><span class="kp-muted kp-small">Checked Nov 6, 8:35 AM EST</span></div>
+  <h1 id="p-h1"></h1>
+  <p class="kp-muted" id="p-intro" style="font-size:16px;max-width:780px"></p>
+
+  <section class="kp-alert" aria-label="Saved folders" id="alert"></section>
+
+  <h2 class="kp-section-title">What Kiln found</h2>
+  <div class="kp-plans">
+   <div class="kp-plan kp-stale"><div class="kp-between"><h3>Plan Kiln saved</h3><span class="kp-tag kp-warn" id="p-saved-tag"></span></div>
+    <div class="kp-big">4 <span>of 5 phases done</span></div>
+    <p class="kp-muted kp-small">Read Oct 24 in the run’s saved folder.</p></div>
+   <div class="kp-arrow" aria-hidden="true">→</div>
+   <div class="kp-plan"><div class="kp-between"><h3>Plan on develop</h3><span class="kp-tag" id="p-cur-tag"></span></div>
+    <div class="kp-big" id="p-cur"></div>
+    <p class="kp-muted kp-small" id="p-cur-note"></p></div>
+  </div>
+  <ul class="kp-facts" id="facts"></ul>
+  <p class="kp-note" id="p-lost"></p>
+
+  <h2 class="kp-section-title">Set the run up again</h2>
+  <p class="kp-muted" style="margin:-4px 0 14px">The same settings as when you first started this run, filled in from what Kiln found. Nothing changes until you press Start.</p>
+  <section class="kp-setup" id="setup" aria-label="Setup"></section>
+
+  <div class="kp-self">
+   <div id="self-text"></div>
+   <button type="button" data-act="recheck">Check again</button>
+  </div>
+
+  <footer class="kp-footer"><span>Claude Code · nothing has run since Oct 24</span><span>Earlier phase results stay in this run’s history.</span></footer>
+ </div>
+
+ <section id="v-result" hidden></section>
+
+ <div id="v-terminal" hidden>
+  <div class="kp-term"><span class="d">~/devel/harbor-ledger (develop) $</span> kiln run docs/prds/invoice-evidence-collection
+
+<span class="y">Folder missing</span> · nothing has run
+This run’s folder no longer exists:
+  ~/devel/.worktrees/invoice-evidence-collection/harbor-ledger  <span class="r">missing</span>
+
+The plan on origin/develop (0a3d75d) has 13 phases, 9 done. Kiln’s saved plan is out of date.
+Set the run up again: <span class="y">http://localhost:4317/invoice-evidence-collection</span></div>
+  <p class="kp-note">Replaces today’s “4 of 5 phases done · phase 5 needs you”. No phase count or status from the saved plan is printed.</p>
+ </div>
+</main>
+</section>
+
+<script>
+(function(){
+ const $=id=>document.getElementById(id);
+ const pass=t=>`<span class="kp-pass">${t}</span>`, fail=t=>`<span class="kp-fail">${t}</span>`, unk=t=>`<span class="kp-unknown">${t}</span>`;
+ const fact=(k,v)=>`<li><span>${k}</span><span class="kp-val">${v}</span></li>`;
+ const BR='feature/invoice-evidence-collection', NEWBR=BR+'-2';
+ const WT='~/devel/.worktrees/invoice-evidence-collection', WT2='~/devel/.worktrees/invoice-evidence-collection-2';
+ const SAVED=WT+'/harbor-ledger', NEWDIR=WT2+'/harbor-ledger';
+ const SESSIONS_ADD='Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.';
+ const P={10:'Duplicate invoice guard',11:'Supplier read rules',12:'Run ledger and alerts',13:'Review screens',4:'Run reports and alerts',5:'First week in production'};
+ const one=(state,extra)=>[{repo:'harbor-ledger',path:SAVED,state,extra}];
+ const gitRecord=fact('Git’s record of the missing folder','Still listed · git keeps it when a folder is deleted by hand');
+ const restoreCmd=(repo,path)=>`<code>git -C ~/devel/${repo} worktree add -f ${path} ${BR}</code>`;
+ const MERGED_FACTS=[fact(`Feature branch <code>${BR}</code>`,'In your checkout and on origin, both at 4c80c80, Oct 24 · '+pass('fully merged into develop')),fact('Last commit this run pushed','bec1115 (Phase 4) · '+pass('in develop'))];
+ const CASES={
+  merged:{folders:one('missing'),stale:true,restore:[['harbor-ledger',SAVED]],saved:['Out of date','warn'],cur:['9','of 13 phases done'],curTag:'origin/develop',curNote:'origin/develop at 0a3d75d · next is Phase 10, Duplicate invoice guard',
+   facts:[...MERGED_FACTS,gitRecord,fact('Checked out in another folder?','No')],
+   pick:'base',
+   base:{why:'origin/develop at 0a3d75d · 13 phases, 9 done. Has all of this run’s work.',done:'Phases 1–9 done on develop',run:[10,11,12,13]},
+   branch:{why:'Last commit 4c80c80 · 5 phases, all closed. Already merged into develop.',done:'Phases 1–5 closed on the branch',run:[5],again:true,merged:true,caution:'This branch is behind develop: it knows 5 of develop’s 13 phases. Phase 5 is already closed on it (4c80c80, Oct 24), so Kiln would only check Phase 5 again and end on the old plan.'}},
+  unmerged:{folders:one('missing'),stale:true,restore:[['harbor-ledger',SAVED]],saved:['Matches the branch','ok'],cur:['3','of 5 phases done'],curTag:'origin/develop',curNote:'origin/develop at 7e21b90 · Phase 4’s work is only on the feature branch',
+   facts:[fact(`Feature branch <code>${BR}</code>`,'In your checkout and on origin, both at bec1115, Oct 24 · '+unk('3 commits not in develop')),fact('Last commit this run pushed','bec1115 (Phase 4) · '+pass('on origin')),gitRecord,fact('Checked out in another folder?','No')],
+   pick:'branch',
+   base:{why:'origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.',done:'Phases 1–3 done on develop',run:[4,5],caution:'<strong>Phase 4 would run again.</strong> Its work (bec1115) is on the feature branch, not in develop.'},
+   branch:{why:'Last commit bec1115 · 5 phases, 4 done. Has all of this run’s work.',done:'Phases 1–4 done on the branch',run:[5]}},
+  gone:{folders:one('missing'),lost:'Kiln can’t recover changes that were never committed in the deleted folder, nor commits on the deleted branch that were never pushed.',saved:['Ahead of develop','warn'],cur:['3','of 5 phases done'],curTag:'origin/develop',curNote:'origin/develop at 7e21b90 · next is Phase 4, Run reports and alerts',
+   facts:[fact(`Feature branch <code>${BR}</code>`,fail('Deleted')+' locally and on origin'),fact('Last commit this run pushed','bec1115 (Phase 4) · '+fail('not in develop')),fact('Git’s record of the missing folder','None'),fact('Checked out in another folder?','No')],
+   pick:'base',
+   base:{why:'origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.',done:'Phases 1–3 done on develop',run:[4,5],caution:'<strong>Phase 4 will run again.</strong> Its pushed work (bec1115) was on the deleted branch and isn’t in develop.'},
+   branch:{off:'Unavailable: the branch was deleted.'}},
+  elsewhere:{folders:one('missing'),saved:['Out of date','warn'],cur:['9','of 13 phases done'],curTag:'origin/develop',curNote:'origin/develop at 0a3d75d · next is Phase 10, Duplicate invoice guard',
+   facts:[...MERGED_FACTS,fact('Git’s record of the missing folder','None'),fact('Checked out in another folder?',unk('Yes')+' · ~/devel/ledger-scratch')],
+   pick:'base',
+   base:{why:'origin/develop at 0a3d75d · 13 phases, 9 done. Has all of this run’s work.',done:'Phases 1–9 done on develop',run:[10,11,12,13]},
+   branch:{off:'Unavailable: it’s checked out in ~/devel/ledger-scratch, and git allows a branch in one folder at a time.'}},
+  occupied:{folders:one('holds','Now a plain folder, not a git worktree'),h1:'This run’s folder now holds something else.',intro:'Kiln set this run up on Oct 23 in its own folder, and that path now holds a plain folder instead of the run’s worktree. Kiln won’t report progress from a folder that isn’t the run’s. Below is what it can still find, and a setup to carry on in a new folder.',
+   lost:'Kiln can’t recover changes that were never committed in the worktree that was at the saved path.',
+   saved:['Matches the branch','ok'],cur:['3','of 5 phases done'],curTag:'origin/develop',curNote:'origin/develop at 7e21b90 · Phase 4’s work is only on the feature branch',
+   facts:[fact(`Feature branch <code>${BR}</code>`,'Only on origin · last commit bec1115, Oct 24 · '+unk('3 commits not in develop')),fact('Last commit this run pushed','bec1115 (Phase 4) · '+pass('on origin')),fact('Git’s record of the saved folder','None · the worktree was removed with git'),fact('Checked out in another folder?','No')],
+   pick:'branch',branchDir:NEWDIR,branchDirHelp:'New: the saved path holds something else, so Kiln uses a new folder.',branchBrHelp:'The run’s existing branch, now only on origin. Kiln creates no new branch; your checkout gets a branch of the same name that tracks it.',
+   base:{why:'origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.',done:'Phases 1–3 done on develop',run:[4,5],caution:'<strong>Phase 4 would run again.</strong> Its work (bec1115) is on the feature branch, not in develop.'},
+   branch:{why:'Last commit bec1115 · 5 phases, 4 done. Has all of this run’s work.',done:'Phases 1–4 done on the branch',run:[5]}},
+  multi:{multi:true,folders:[{repo:'harbor-ledger',path:SAVED,state:'ok'},{repo:'harbor-portal',path:WT+'/harbor-portal',state:'missing'}],stale:'harbor-portal',restore:[['harbor-portal',WT+'/harbor-portal']],
+   h1:'One of this run’s folders is gone.',lost:'Kiln can’t recover changes that were never committed in harbor-portal’s deleted folder.',intro:'Kiln set this run up on Oct 23 in one workspace, and harbor-portal’s folder in it no longer exists. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on.',
+   saved:['Matches the branch','ok'],cur:['3','of 5 phases done'],curTag:'origin/develop',curNote:'harbor-ledger’s origin/develop at 7e21b90 · Phase 4’s work is only on the feature branch',
+   facts:[fact(`harbor-portal · feature branch <code>${BR}</code>`,'In your checkout and on origin, both at 91c4e02, Oct 24 · '+unk('2 commits not in develop')),fact('harbor-portal · git’s record of the missing folder','Still listed · git keeps it when a folder is deleted by hand'),fact('harbor-portal · checked out in another folder?','No'),fact('harbor-portal · last commit this run pushed','91c4e02 (Phase 4) · '+pass('on origin')+' · not in develop'),
+    fact(`harbor-ledger · feature branch <code>${BR}</code>`,'In your checkout and on origin, both at bec1115, Oct 24 · '+unk('3 commits not in develop')),fact('harbor-ledger · checked out in another folder?','No · only in its saved folder'),fact('harbor-ledger · last commit this run pushed','bec1115 (Phase 4) · '+pass('on origin')+' · not in develop')],
+   pick:'branch',
+   base:{why:'A new workspace and branch in both repositories, from origin/develop · 5 phases, 3 done. Missing Phase 4’s work.',done:'Phases 1–3 done on develop',run:[4,5],caution:'<strong>Phase 4 would run again.</strong> Its work is on the feature branch in both repositories, not in develop.'},
+   branch:{why:'Re-creates harbor-portal’s worktree in the saved workspace and keeps harbor-ledger’s · 5 phases, 4 done.',done:'Phases 1–4 done on the branch',run:[5]}},
+  unknown:{folders:one('missing'),selfText:'Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can reach origin.',saved:['Not compared','unknown'],cur:['9','of 13 phases done'],curTag:'Your checkout’s develop',curNote:'Couldn’t reach origin · your checkout’s develop at 0a3d75d · next is Phase 10, Duplicate invoice guard',
+   facts:[fact(`Feature branch <code>${BR}</code>`,'In your checkout · last commit 4c80c80, Oct 24 · '+unk('on origin: couldn’t check')),fact('Is this run’s pushed work in origin’s develop?',unk('Couldn’t check')),gitRecord,fact('Checked out in another folder?','No')],
+   blocked:true}
+ };
+ let current='merged', pick='base';
+ const opt=(v,list,dis)=>`<select class="kp-input" style="font-family:ui-monospace,monospace" ${dis?'disabled':''}>${list.map(o=>`<option${o===v?' selected':''}>${o}</option>`).join('')}</select>`;
+ function setupHtml(c){
+  if(c.blocked)return `<p class="kp-caution" style="margin-top:0">Kiln couldn’t reach origin, so it can’t tell whether the branch there has work your checkout doesn’t, and can’t suggest where to start yet. Check the connection to origin, then check again.</p><div class="kp-startrow"><span></span><button type="button" class="kp-primary" data-act="recheck">Check again</button></div>`;
+  const s=c[pick], startCard=(key,title,o)=>{const off=!!o.off, on=!off&&pick===key;return `<label class="kp-start${on?' kp-on':''}${off?' kp-off':''}"><input type="radio" name="start" value="${key}" ${on?'checked':''} ${off?'disabled':''}><span><strong>${title}${c.pick===key?'<span class="kp-tag kp-ok">Suggested</span>':''}</strong><span class="kp-why" style="display:block">${off?o.off:o.why}</span></span></label>`;};
+  const fromBase=pick==='base', br=fromBase?NEWBR:BR;
+  const brHelp=fromBase?'New, so this run’s earlier branch and pull request stay separate.':(c.branchBrHelp||'The run’s existing branch. Kiln creates no new branch.');
+  let where;
+  if(c.multi){
+   where=`<div class="kp-grid" style="grid-template-columns:1fr;margin-top:14px">
+   <div><span class="kp-field-label">Workspace folder</span><input class="kp-input" ${fromBase?'':'disabled'} value="${fromBase?WT2:WT}/"><p class="kp-help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</p><p class="kp-help">${fromBase?'New: a folder named for the new branch, with a new worktree of each repository.':'The run’s saved workspace. Kiln re-creates harbor-portal’s worktree in it and keeps harbor-ledger’s.'}</p></div>
+   <div><span class="kp-field-label">Feature branch</span><input class="kp-input" ${fromBase?'':'disabled'} value="${br}"><p class="kp-help">Used in every repository.</p><p class="kp-help">${brHelp}</p></div>
+   <div><div class="kp-between"><span class="kp-field-label">Repositories</span><span class="kp-help" style="margin:0">${fromBase?'Branch from, and PR into':'PR into'}</span></div>
+    <ul class="kp-phases" style="margin-top:0"><li><span><code>harbor-ledger</code> <span class="kp-tag">PRD’s repository</span></span>${opt('develop',['develop','main'],!fromBase)}</li><li><span><code>harbor-portal</code></span>${opt('develop',['develop','main'],!fromBase)}</li></ul>
+    <p class="kp-help">${SESSIONS_ADD}</p><p class="kp-help">Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.</p></div>
+   </div>`;
+  } else {
+   const dir=fromBase?NEWDIR:(c.branchDir||SAVED);
+   const dirHelp=fromBase?'New: a folder named for the new branch.':(c.branchDirHelp||'The run’s saved path.');
+   where=`<div class="kp-grid" style="grid-template-columns:1fr;margin-top:14px">
+   <div><span class="kp-field-label">Worktree</span><input class="kp-input" value="${dir}"><p class="kp-help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</p><p class="kp-help">${dirHelp}</p></div>
+   </div>
+   <div class="kp-grid" style="margin-top:16px">
+   <div><span class="kp-field-label">Feature branch</span><input class="kp-input" ${fromBase?'':'disabled'} value="${br}"><p class="kp-help">${brHelp}</p></div>
+   <div><span class="kp-field-label">${fromBase?'Branch from, and PR into':'PR into'}</span>${opt('develop',['develop','main'],!fromBase)}</div>
+   </div><p class="kp-help">${SESSIONS_ADD}</p>`;
+  }
+  const staleRepo=c.stale===true?'harbor-ledger':c.stale;
+  const clearItem=(!fromBase&&staleRepo)?`<li>✓ Clear git’s record of the missing folder <code>${staleRepo==='harbor-ledger'?SAVED:WT+'/harbor-portal'}</code></li>`:'';
+  const lets=c.multi?`<li>✓ In each repository, commit and push to <code>${br}</code></li><li>✓ In each repository, open one pull request into its base branch once every phase closes</li>`:`<li>✓ Commit and push to <code>${br}</code></li><li>✓ Open one pull request into <code>develop</code> once every phase closes</li>`;
+  const label=s.again?`Set up &amp; check Phase ${s.run[0]} again`:`Set up &amp; start Phase ${s.run[0]}`;
+  return `<span class="kp-field-label">Start from</span>
+  <div class="kp-starts">${startCard('base','develop',c.base)}${startCard('branch','The run’s existing branch',c.branch)}</div>
+  <div class="kp-run"><div class="kp-between"><h3>What will run</h3><span class="kp-muted kp-small">${s.done} · their results are kept</span></div>
+   <ul class="kp-phases">${s.run.map((n,i)=>`<li><span><strong>Phase ${n}</strong> · ${P[n]}</span><span class="kp-muted kp-small">${s.again?'checked again':i===0?'runs first':'then'}</span></li>`).join('')}</ul>
+   ${s.caution?`<p class="kp-caution">${s.caution}</p>`:''}</div>
+  <div class="kp-run"><span class="kp-eyebrow">How Kiln will deliver it</span>
+  ${where}
+  <div class="kp-grid" style="margin-top:16px">
+   <div><span class="kp-field-label">Agent</span><select class="kp-input" disabled><option>Claude Code</option></select><p class="kp-help">you@example.com · Max<br>Used: 5-hour 12% · weekly 31%</p><p class="kp-help">Agent fixed for this PRD.</p></div>
+   <div><span class="kp-field-label">Model</span><select class="kp-input"><option>Opus</option><option>Sonnet</option></select></div>
+  </div>
+  <p class="kp-help">Listed models do not guarantee account access.</p>
+  <button type="button" style="margin-top:8px">Refresh agent information</button>
+  <div style="margin-top:16px"><span class="kp-field-label">Effort</span><div class="kp-seg">${['Low','Medium','High','Extra high','Max'].map(e=>`<button type="button" class="${e==='High'?'kp-pressed':''}">${e}</button>`).join('')}</div><p class="kp-help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</p></div>
+  <label class="kp-check"><input type="checkbox" checked> <span>Keep this computer awake while a session works or Kiln waits<span class="kp-help" style="display:block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span></label>
+  <label class="kp-check"><input type="checkbox" checked> <span>Resume after a usage limit<span class="kp-help" style="display:block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>
+  <dl class="kp-fixed"><dt>Pushes</dt><dd>After every phase</dd><dt>Ends at</dt><dd>${c.multi?'One PR in each repository that changed, ready for review. Kiln won’t merge.':'One PR, ready for review. Kiln won’t merge.'}</dd></dl>
+  <div class="kp-plan" style="margin-top:16px;padding:14px 16px"><span class="kp-eyebrow">Billing used to launch this session</span><p style="margin-top:6px"><strong>Claude subscription</strong><br><span class="kp-small">you@example.com</span></p><p class="kp-small">Billing follows your Claude account settings.</p><p class="kp-help">Observed Oct 24, 9:12 AM. Settings are checked before the next launch.</p><button type="button" style="margin-top:6px">Recheck billing</button></div>
+  </div>
+  <div class="kp-run kp-before"><span class="kp-eyebrow">Before you start</span>
+   <div class="kp-between" style="align-items:flex-end;margin-top:10px">
+    <div><span class="kp-muted kp-small">Starting lets Kiln</span><ul class="kp-allowed-list">${lets}${clearItem}<li class="kp-muted">✕ Never merge, deploy, or touch other branches</li></ul></div>
+    <div style="text-align:right"><button type="button" class="kp-primary" data-act="start">${label}</button><p class="kp-help">Earlier phases, sessions and delivery links stay in this run’s history.</p></div>
+   </div></div>`;
+ }
+ function alertHtml(c){
+  return c.folders.map((f,i)=>{const st=f.state==='missing'?'<span class="kp-missing">Missing</span>':f.state==='holds'?'<span class="kp-missing">Holds something else</span>':'<span class="kp-pass" style="font-weight:600">In place</span>';
+   return `<div${i?' style="margin-top:14px;border-top:1px solid var(--kp-line);padding-top:12px"':''}><div class="kp-between"><span class="kp-muted kp-small">${c.multi?f.repo.toUpperCase()+' · SAVED FOLDER':'THE RUN’S SAVED FOLDER'}</span>${st}</div>
+   <p class="kp-path" style="margin-top:6px">${f.path}</p>
+   <p class="kp-muted kp-small">on branch <code>${BR}</code> · set up Oct 23${f.extra?' · '+f.extra:''}</p></div>`;}).join('');
+ }
+ function render(){
+  const c=CASES[current];
+  $('v-terminal').hidden=current!=='terminal';$('v-page').hidden=current==='terminal';$('v-result').hidden=true;
+  if(current==='terminal')return;
+  if(c.pick)pick=c.pick;
+  $('p-h1').textContent=c.h1||'This run’s folder is gone.';
+  $('p-intro').textContent=c.intro||'Kiln set this run up on Oct 23 in its own folder, and that folder no longer exists. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on in a new folder.';
+  $('alert').innerHTML=alertHtml(c);
+  $('p-lost').textContent=c.lost||'Kiln can’t recover changes that were never committed in the deleted folder.';
+  $('p-cur').innerHTML=`${c.cur[0]} <span>${c.cur[1]}</span>`;$('p-cur-note').textContent=c.curNote;$('p-cur-tag').textContent=c.curTag;
+  const t=$('p-saved-tag');t.textContent=c.saved[0];t.className='kp-tag kp-'+c.saved[1];
+  $('facts').innerHTML=c.facts.join('');
+  $('setup').innerHTML=setupHtml(c);
+  $('self-text').innerHTML=c.restore?`Moved or removed the folder on purpose? Put it back at the saved path, then check again.<details><summary>Show the command</summary><div class="kp-command">${c.restore.map(r=>restoreCmd(r[0],r[1])).join('<br>')}</div></details>`:c.selfText||'This folder can’t be put back at the saved path as it was. Set the run up above, or sort it out yourself and check again.';
+ }
+ function act(a){
+  if(a==='back'||a==='recheck'){render();return;}
+  if(a==='start'){const c=CASES[current],s=c[pick],fromBase=pick==='base';
+   const what=c.multi?(fromBase?`Kiln created <code>${NEWBR}</code> from develop in both repositories, in a new workspace at ${WT2}/.`:`Kiln re-created harbor-portal’s worktree in ${WT}/ on the existing branch <code>${BR}</code>.`):(fromBase?`Kiln created <code>${NEWBR}</code> from origin/develop and a new folder at ${NEWDIR}.`:`Kiln created a new folder at ${c.branchDir||SAVED} on the existing branch <code>${BR}</code>.`);
+   $('v-page').hidden=true;const r=$('v-result');r.hidden=false;
+   r.innerHTML=`<div class="kp-result"><span class="kp-eyebrow">Working · Kiln has control</span><h2 style="margin-top:8px">Phase ${s.run[0]} is ${s.again?'being checked':'starting'}.</h2><p class="kp-muted">${what} ${s.done}; their history is kept.</p><div class="kp-startrow"><button type="button" class="kp-link" data-act="back">Back to the mockup</button></div></div>`;}
+ }
+ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b)act(b.dataset.act);});
+ document.addEventListener('change',e=>{if(e.target.name==='start'){pick=e.target.value;$('setup').innerHTML=setupHtml(CASES[current]);}if(e.target.id==='mock-case'){current=e.target.value;render();}});
+ const q=new URLSearchParams(location.search).get('case');if(q&&CASES[q]!==undefined||q==='terminal'){current=q;$('mock-case').value=q;}
+ render();
+})();
+</script>
+</body>
+</html>

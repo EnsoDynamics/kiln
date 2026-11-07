@@ -195,13 +195,15 @@ const toolCall = (name, input) => {
   if (runHooks("PreToolUse", { tool_name: name, tool_use_id: id, tool_input: input }).some(answer => answer.status === 2 || answer.output?.hookSpecificOutput?.permissionDecision === "deny")) deniedTools.add(id);
   return id;
 };
-const toolResult = (id, content, isError = false) => {
-  const denied = deniedTools.has(id);
-  const message = { content: [{ type: "tool_result", tool_use_id: id, content: denied ? "Denied by a PreToolUse hook." : content, is_error: isError || denied }] };
+// A call rejected after its PreToolUse hook (rejection metadata given, as the auto-mode
+// classifier's) gets no post hook; Claude Code sends the rejection in tool_result_meta.
+const toolResult = (id, content, isError = false, rejection) => {
+  const denied = deniedTools.has(id) || rejection !== undefined;
+  const message = { content: [{ type: "tool_result", tool_use_id: id, content: deniedTools.has(id) ? "Denied by a PreToolUse hook." : content, is_error: isError || denied }] };
   // As in Claude Code, the post hook runs before the tool's result is sent on.
   if (!denied) runHooks(isError ? "PostToolUseFailure" : "PostToolUse", { tool_name: toolNames.get(id), tool_use_id: id, ...(isError ? { error: content } : { tool_response: content }) });
   keepRecord("user", message);
-  emit({ type: "user", parent_tool_use_id: null, message });
+  emit({ type: "user", parent_tool_use_id: null, message, ...(rejection ? { tool_result_meta: [{ id, ...rejection }] } : {}) });
   if (runHooks("PostToolBatch", {}).some(answer => answer.output?.continue === false)) turnStopped = true;
 };
 
@@ -405,6 +407,8 @@ for (const action of session.actions) {
     const id = toolCall("Bash", { command: action.bash });
     const run = deniedTools.has(id) ? { stdout: "", stderr: "", status: 1 } : spawnSync("sh", ["-c", action.bash], { cwd: process.cwd(), encoding: "utf8" });
     toolResult(id, `${run.stdout ?? ""}${run.stderr ?? ""}`, run.status !== 0);
+  } else if (action.rejected) {
+    toolResult(toolCall("Bash", { command: action.rejected.command }), "Error: Permission for this action was denied.", true, action.rejected.meta);
   } else if (action.powershell) {
     toolResult(toolCall("PowerShell", { command: action.powershell }), "");
   } else if (action.stderr) {
