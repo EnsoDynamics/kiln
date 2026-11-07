@@ -291,7 +291,10 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     if (!options.live) { child.stdin!.end(); return; }
     await withGate(options.live.gateDirectory, gate => {
       const accounted = Object.values(gate.inputs ?? {}).every(input => input.terminal);
-      if ((gate.held || accounted) && unsettled(gate).length === 0 && !writing) {
+      // A final result with every accepted input answered ends the conversation. Unsettled tool
+      // calls matter only to a takeover hold, whose release needs their completion evidence:
+      // a hook that never reported one must not keep a finished session open.
+      if ((gate.held ? unsettled(gate).length === 0 : accounted) && !writing) {
         gate.sealed = true;
         child.stdin!.end();
       }

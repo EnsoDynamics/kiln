@@ -170,7 +170,8 @@ const keepRecord = (type, message) => {
 // or PostToolUseFailure after its result, then PostToolBatch (continue: false ends the turn).
 // Each hook call is logged to <scenario>.hooks.jsonl. KILN_STANDIN_HOOK_MUTATION changes what
 // Kiln reads: "no-tool-use-id" leaves tool_use_id out of every hook input, "no-post-tool-use-id"
-// out of PostToolUse only.
+// out of PostToolUse only; "post-tool-use-fails" makes PostToolUse exit 2 without running Kiln's
+// hook, as a hook that crashed or timed out does.
 const hookSettings = (() => { const value = flag("--settings"); return value ? JSON.parse(value).hooks ?? {} : {}; })();
 const runHooks = (eventName, fields) => (hookSettings[eventName] ?? []).flatMap(group => (group.hooks ?? []).map(hook => {
   const mutation = process.env.KILN_STANDIN_HOOK_MUTATION;
@@ -179,6 +180,10 @@ const runHooks = (eventName, fields) => (hookSettings[eventName] ?? []).flatMap(
   // Under the test runner Kiln names its hook beside its TypeScript source; the packaged hook is
   // the built one (npm run test:integration builds first), as the hook's own tests use.
   const hookArgs = (hook.args ?? []).map(arg => /[\\/]src[\\/]live[\\/]checkpoint-hook\.js$/.test(arg) && !existsSync(arg) ? arg.replace(/([\\/])src([\\/]live[\\/]checkpoint-hook\.js)$/, "$1dist$2") : arg);
+  if (mutation === "post-tool-use-fails" && eventName === "PostToolUse") {
+    appendFileSync(`${scenarioPath}.hooks.jsonl`, `${JSON.stringify({ event: eventName, input, status: 2, stdout: "", stderr: "hook failed" })}\n`);
+    return { status: 2, output: undefined };
+  }
   const run = spawnSync(hook.command, hookArgs, { input: JSON.stringify(input), encoding: "utf8", timeout: (hook.timeout ?? 60) * 1000 });
   appendFileSync(`${scenarioPath}.hooks.jsonl`, `${JSON.stringify({ event: eventName, input, status: run.status, stdout: run.stdout, stderr: run.stderr })}\n`);
   return { status: run.status, output: run.status === 0 && run.stdout.trim() ? JSON.parse(run.stdout) : undefined };
