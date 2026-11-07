@@ -42,3 +42,20 @@ it("retains an accepted hold when a real helper dies before publishing its lock 
     expect(existsSync(lock)).toBe(true); expect(existsSync(join(lock, "owner.json"))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+it("lets every contender through when the lock is released between seeing its owner and reading it", async () => {
+  // A hook that read the owner just after its holder released the lock used to fail, so a tool's
+  // PostToolUse never settled it and the session never closed.
+  const root = mkdtempSync(join(tmpdir(), "kiln-gate-release-race-")); createGate(root, target);
+  try {
+    const rounds = 150;
+    const code = (name: string) => `import {withGate} from ${JSON.stringify(module)}; for (let i = 0; i < ${rounds}; i++) await withGate(${JSON.stringify(root)}, s => { s.operations['${name}-' + i] = { name: 'Bash', admittedAt: new Date().toISOString(), settled: true }; });`;
+    const helpers = ["a", "b", "c", "d"].map(name => {
+      const child = spawn(process.execPath, ["--input-type=module", "-e", code(name)], { stdio: ["ignore", "ignore", "pipe"] });
+      let stderr = ""; child.stderr!.on("data", chunk => { stderr += String(chunk); });
+      return once(child, "exit").then(([exitCode]) => ({ exitCode, stderr }));
+    });
+    expect(await Promise.all(helpers)).toEqual(["a", "b", "c", "d"].map(() => ({ exitCode: 0, stderr: "" })));
+    expect(Object.keys(readGate(root).operations)).toHaveLength(4 * rounds);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);

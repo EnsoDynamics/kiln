@@ -46,6 +46,10 @@ async function dead(pid: number, start: string): Promise<boolean> {
   try { process.kill(pid, 0); return false; }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ESRCH") return true; throw e; }
 }
+function readIfPresent(path: string): string | undefined {
+  try { return readFileSync(path, "utf8"); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw e; }
+}
 export async function withGate<T>(directory: string, update: (state: GateState) => T): Promise<T> {
   const lock = join(directory, "admission.lock"); const ownerFile = join(lock, "owner.json");
   const deadline = Date.now() + 5000; const generation = randomUUID();
@@ -59,8 +63,9 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
     catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       // Missing/partial identity is unknown; never break a lock by age.
-      if (existsSync(ownerFile)) {
-        const before = readFileSync(ownerFile, "utf8");
+      // The holder may release between the mkdir and this read: that is the lock coming free.
+      const before = readIfPresent(ownerFile);
+      if (before !== undefined) {
         const owner = JSON.parse(before) as { pid: number; start: string; generation: string };
         if (!Number.isSafeInteger(owner.pid) || !owner.start || !owner.generation) throw new Error("Admission owner identity is unknown.", { cause: e });
         if (await dead(owner.pid, owner.start)) {
