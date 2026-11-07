@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
+  "activityId": "a7766f64-fcbf-4ec8-9935-a6fec4f4196b",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Whole-PRD delivery audit of Kiln Missing Worktree Recovery at ba577bc, after Phases 3 and 4: 6 of 18 criteria are still partly implemented (AC-FACTS-01, AC-FACTS-03, AC-SETUP-01, AC-SETUP-03, AC-SAFE-01, AC-SAFE-02); the rest are implemented, and every gap Phases 3 and 4 targeted is closed. The remaining gaps are narrow edge cases: facts shown or derived when a read failed or the base was read locally, Documents found messages the setup panel still lacks, the behind-base note on each starting point, left-behind phases not named (waived, other repositories, the phase the run was on, an edited base), and an earlier Kiln's live Claude session not adopted when Kiln starts with a folder already missing. Two completion phases were added: Phase 5 for the page and panel, Phase 6 for the left-behind work and the left-over session. All four rounds confirmed new gaps, so the next delivery audit should read closely.",
+  "completionPhases": ["5", "6"],
+  "needsYou": []
+}
