@@ -150,8 +150,10 @@ export async function observeGate(directory: string, event: Record<string, unkno
         // admitted; its tool result in the stream settles it, so it never keeps input open.
         if (operation.hookSettled || state.contract) settleByResult(state, block.tool_use_id, response);
       }
-      const denied = event.tool_result_meta as { id?: string; non_execution_kind?: string; permission_decision?: { source?: string } }[] | undefined;
-      if (operation && denied?.some(m => m.id === block.tool_use_id && m.non_execution_kind === "permission-rule" && m.permission_decision?.source === "hook")) operation.settled = true;
+      // A rejected tool never ran and never gets PostToolUse: a hook's denial, or any decision
+      // `reject`, such as the auto-mode classifier's (`automode-blocked`).
+      const denied = event.tool_result_meta as { id?: string; non_execution_kind?: string; permission_decision?: { source?: string; decision?: string } }[] | undefined;
+      if (operation && denied?.some(m => m.id === block.tool_use_id && (m.permission_decision?.decision === "reject" || m.non_execution_kind === "permission-rule" && m.permission_decision?.source === "hook"))) operation.settled = true;
     }
   });
 }
