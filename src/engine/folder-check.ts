@@ -93,17 +93,20 @@ function summary(repositories: FolderClassification[], checkedAt: string): Folde
 
 /** The engine's check: Git calls as detached helpers. */
 export async function checkFolders(git: GitContext, record: PrdRecord, now = new Date()): Promise<FolderCheck> {
-  const repositories = await Promise.all(checkedEntries(record).map(async entry => {
-    const steps = classifySteps(entry);
-    let next = steps.next();
-    while (!next.done) {
-      const call = next.value;
-      const result = await runGit(git, call.cwd, call.args, 30_000);
-      next = steps.next({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr || result.failure || "" });
-    }
-    return next.value;
-  }));
+  const repositories = await Promise.all(checkedEntries(record).map(entry => checkFolder(git, entry)));
   return summary(repositories, now.toISOString());
+}
+
+/** One entry's classification: whether its `worktreePath` is the run's worktree (Design Decisions, the run's-worktree predicate). */
+export async function checkFolder(git: GitContext, entry: RepositoryEntry): Promise<FolderClassification> {
+  const steps = classifySteps(entry);
+  let next = steps.next();
+  while (!next.done) {
+    const call = next.value;
+    const result = await runGit(git, call.cwd, call.args, 30_000);
+    next = steps.next({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr || result.failure || "" });
+  }
+  return next.value;
 }
 
 /** `kiln status` and `kiln handoff`'s check: synchronous, each read bounded, a read that times out Couldn't check. */

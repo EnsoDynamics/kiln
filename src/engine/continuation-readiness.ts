@@ -47,7 +47,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   const problems = [...input.problems]; const repositories: ContinuationProposal["repositories"] = [];
   const added = accounting.leaves.filter(row => row.classification === "new_unfinished").map(({ id, title, file }) => ({ id, title, file }));
   const first = leavesOf(candidate.plan).find(phase => added.some(row => row.id === phase.id));
-  const preparation: PreparationBinding[] = []; const prerequisites: ReadinessPrerequisite[] = [];
+  const prerequisites: ReadinessPrerequisite[] = [];
   const names = added.length ? [...new Set([record.repository.name, ...candidate.plan.phases.flatMap(phase => phase.repositories)])] : [];
   for (const name of names) {
     let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(one => one.name === name);
@@ -67,6 +67,97 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const baseRevision = await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision }));
     repositories.push({ name, identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
   }
+  const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
+  const preparation = extracted.preparation;
+  for (const row of accounting.leaves) {
+    if (row.classification === "new_unfinished") continue;
+    const integrationProblems: string[] = [];
+    if (row.classification === "carried_completed" && added.length) {
+      const receipt = baseline.completions[row.id];
+      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id))])];
+      for (const name of affected) {
+        const repo = repositories.find(repo => repo.name === name);
+        const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
+        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${name} completion revision before checking integration.`); continue; }
+        const result = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, repo.baseRevision]);
+        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
+        if (result.exitCode === 1) {
+          let covered = false;
+          const retained = receipt?.repositories?.[name];
+          if (retained?.identity.toLowerCase() === repo.identity.toLowerCase() && retained.integration?.sourceRevision === revision && /^[a-f0-9]{40,64}$/.test(retained.integration.baseRevision)) {
+            const priorBase = await runGit(git, repo.path, ["merge-base", "--is-ancestor", retained.integration.baseRevision, repo.baseRevision]);
+            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${name}.`);
+            covered = priorBase.exitCode === 0;
+          }
+          for (const checkpoint of record.developmentDelivery?.checkpoints ?? []) {
+            const merge = checkpoint.merge;
+            if (!merge || checkpoint.mergeUnresolvedReason || checkpoint.supersededBy || checkpoint.target.repository !== `github.com/${repo.identity}`.toLowerCase() || checkpoint.target.baseBranch !== repo.baseBranch || merge.sourceHead !== checkpoint.headSha || merge.mergedHead !== merge.sourceHead) continue;
+            const source = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, merge.sourceHead]);
+            const target = await runGit(git, repo.path, ["merge-base", "--is-ancestor", merge.resultSha, repo.baseRevision]);
+            if (source.exitCode === 0 && target.exitCode === 0) covered = true;
+          }
+          if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
+        }
+      }
+    }
+    if (row.classification === "externally_verified" || row.classification === "carried_completed" && !integrationProblems.length) {
+      prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
+    }
+    const bindings = preparation.filter(binding => preparesPhase(binding, row.id));
+    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
+    // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
+    const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && preparesPhase({ prerequisites: dependencyIds(first.dependenciesText) }, row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
+    if (eligible && !extracted.extractedProblems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });
+    else { problems.push(...row.problems, ...integrationProblems); prerequisites.push({ phaseId: row.id, status: "blocked", evidence: [...row.problems, ...integrationProblems], recovery: "Restore the missing evidence or reconcile an explicit authorized preparation in the first unfinished phase, then check again." }); }
+  }
+  if (first) for (const id of dependencyIds(first.dependenciesText)) {
+    const descendants = accounting.leaves.filter(row => row.id === id || isAncestorOf(id, row.id));
+    if (!descendants.length || descendants.some(row => row.classification === "new_unfinished" || !prerequisites.some(value => value.phaseId === row.id && ["integrated_verified", "preparation_available"].includes(value.status)))) problems.push(`Phase ${first.id}: prerequisite ${id} is not ready. Reconcile its evidence/preparation before starting dependent implementation.`);
+  }
+  for (const repo of repositories) {
+    const revision = await remoteBase(git, repo.path, repo.baseBranch, false);
+    input.observeInput?.({ kind: "base", repository: repo.name, branch: repo.baseBranch, revision });
+    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
+  }
+  for (const binding of preparation) {
+    const repo = repositories.find(one => one.name === binding.repository)!;
+    const revision = (await gitRead(git, repo.path, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim();
+    input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
+    if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
+  }
+  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.sharedDigest ? { sharedDigest: input.sharedDigest } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
+  const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
+  if (preparation.length && preparation.every(binding => binding.valid)) {
+    const proposed = { ...body, id: authorityDigest(body) };
+    const permissionRecord: PrdRecord = { ...record, preparation: newPreparationState(proposed), repositories: repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" : "named", github: repo.identity, mainCheckoutPath: repo.path, worktreePath: repo.path, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision })) };
+    let observedPermissionDigest: string | undefined;
+    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true, (repository, digest) => { permissionInputs.push({ repository, digest }); }, digest => { observedPermissionDigest = digest; }); }
+    catch (error) { body.permissionDigest = authorityDigest((error as Error).message); problems.push((error as Error).message); body.problems.push((error as Error).message); }
+    for (const observation of permissionInputs) input.observeInput?.({ kind: "provider_settings", ...observation });
+    if (observedPermissionDigest) input.observeInput?.({ kind: "permissions", digest: observedPermissionDigest });
+  }
+  const scopeDigest = authorityDigest(body);
+  const retained = readPendingAuthority(input.directory, record);
+  const pending = pendingForProposal(retained, { scopeDigest, completedExecutionId: record.executionId });
+  const targets = [...new Map(preparation.filter(binding => binding.authorization === "delivery_target" && binding.destination === binding.baseBranch).map(binding => {
+    const target = { repository: `github.com/${binding.repositoryIdentity}`.toLowerCase(), baseBranch: binding.baseBranch };
+    return [mergeTargetKey(target), target];
+  })).values()].map(target => ({ target, granted: !!pending?.authorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target)) }));
+  const bound = { ...body, ...(permissionInputs.length ? { permissionInputs } : {}), scopeDigest, grantEligible: !problems.length, authorization: { revision: pending?.authorization.revision ?? 0, ...(pending ? { executionId: pending.executionId } : {}), superseded: !!retained && !pending, targets } };
+  for (const { target, granted } of targets) if (!granted) bound.problems.push(`${target.repository}/${target.baseBranch} needs an explicit early-merge target grant for the proposed fresh run. Earlier execution grants do not apply; existing CI/CD may run before the PRD finishes.`);
+  bound.readiness = bound.problems.length ? "blocked" : "ready";
+  return { ...bound, id: authorityDigest(bound) };
+}
+
+/**
+ * The preparation binding (extraction, source and revision pinning, repository identity, base,
+ * prerequisite scope, destination and check validation) for a plan's first leaf, shared by
+ * continuation readiness and a base-branch start from the Folder missing page (missing worktree
+ * recovery, "Start", From the base branch, step 3). Problems are appended to `input.problems`.
+ */
+export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
+  const { git, record, candidate, first, repositories, problems } = input;
+  const preparation: PreparationBinding[] = [];
   const extracted = first ? extractPreparation(candidate, record.prdDirectory, first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
   problems.push(...extracted.problems);
   for (const instruction of extracted.instructions) {
@@ -112,84 +203,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
 
     binding.valid = problems.length === problemCount;
   }
-  for (const row of accounting.leaves) {
-    if (row.classification === "new_unfinished") continue;
-    const integrationProblems: string[] = [];
-    if (row.classification === "carried_completed" && added.length) {
-      const receipt = baseline.completions[row.id];
-      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id))])];
-      for (const name of affected) {
-        const repo = repositories.find(repo => repo.name === name);
-        const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
-        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${name} completion revision before checking integration.`); continue; }
-        const result = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, repo.baseRevision]);
-        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
-        if (result.exitCode === 1) {
-          let covered = false;
-          const retained = receipt?.repositories?.[name];
-          if (retained?.identity.toLowerCase() === repo.identity.toLowerCase() && retained.integration?.sourceRevision === revision && /^[a-f0-9]{40,64}$/.test(retained.integration.baseRevision)) {
-            const priorBase = await runGit(git, repo.path, ["merge-base", "--is-ancestor", retained.integration.baseRevision, repo.baseRevision]);
-            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${name}.`);
-            covered = priorBase.exitCode === 0;
-          }
-          for (const checkpoint of record.developmentDelivery?.checkpoints ?? []) {
-            const merge = checkpoint.merge;
-            if (!merge || checkpoint.mergeUnresolvedReason || checkpoint.supersededBy || checkpoint.target.repository !== `github.com/${repo.identity}`.toLowerCase() || checkpoint.target.baseBranch !== repo.baseBranch || merge.sourceHead !== checkpoint.headSha || merge.mergedHead !== merge.sourceHead) continue;
-            const source = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, merge.sourceHead]);
-            const target = await runGit(git, repo.path, ["merge-base", "--is-ancestor", merge.resultSha, repo.baseRevision]);
-            if (source.exitCode === 0 && target.exitCode === 0) covered = true;
-          }
-          if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
-        }
-      }
-    }
-    if (row.classification === "externally_verified" || row.classification === "carried_completed" && !integrationProblems.length) {
-      prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
-    }
-    const bindings = preparation.filter(binding => preparesPhase(binding, row.id));
-    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
-    // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
-    const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && preparesPhase({ prerequisites: dependencyIds(first.dependenciesText) }, row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
-    if (eligible && !extracted.problems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });
-    else { problems.push(...row.problems, ...integrationProblems); prerequisites.push({ phaseId: row.id, status: "blocked", evidence: [...row.problems, ...integrationProblems], recovery: "Restore the missing evidence or reconcile an explicit authorized preparation in the first unfinished phase, then check again." }); }
-  }
-  if (first) for (const id of dependencyIds(first.dependenciesText)) {
-    const descendants = accounting.leaves.filter(row => row.id === id || isAncestorOf(id, row.id));
-    if (!descendants.length || descendants.some(row => row.classification === "new_unfinished" || !prerequisites.some(value => value.phaseId === row.id && ["integrated_verified", "preparation_available"].includes(value.status)))) problems.push(`Phase ${first.id}: prerequisite ${id} is not ready. Reconcile its evidence/preparation before starting dependent implementation.`);
-  }
-  for (const repo of repositories) {
-    const revision = await remoteBase(git, repo.path, repo.baseBranch, false);
-    input.observeInput?.({ kind: "base", repository: repo.name, branch: repo.baseBranch, revision });
-    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
-  }
-  for (const binding of preparation) {
-    const repo = repositories.find(one => one.name === binding.repository)!;
-    const revision = (await gitRead(git, repo.path, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim();
-    input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
-    if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
-  }
-  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.sharedDigest ? { sharedDigest: input.sharedDigest } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
-  const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
-  if (preparation.length && preparation.every(binding => binding.valid)) {
-    const proposed = { ...body, id: authorityDigest(body) };
-    const permissionRecord: PrdRecord = { ...record, preparation: newPreparationState(proposed), repositories: repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" : "named", github: repo.identity, mainCheckoutPath: repo.path, worktreePath: repo.path, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision })) };
-    let observedPermissionDigest: string | undefined;
-    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true, (repository, digest) => { permissionInputs.push({ repository, digest }); }, digest => { observedPermissionDigest = digest; }); }
-    catch (error) { body.permissionDigest = authorityDigest((error as Error).message); problems.push((error as Error).message); body.problems.push((error as Error).message); }
-    for (const observation of permissionInputs) input.observeInput?.({ kind: "provider_settings", ...observation });
-    if (observedPermissionDigest) input.observeInput?.({ kind: "permissions", digest: observedPermissionDigest });
-  }
-  const scopeDigest = authorityDigest(body);
-  const retained = readPendingAuthority(input.directory, record);
-  const pending = pendingForProposal(retained, { scopeDigest, completedExecutionId: record.executionId });
-  const targets = [...new Map(preparation.filter(binding => binding.authorization === "delivery_target" && binding.destination === binding.baseBranch).map(binding => {
-    const target = { repository: `github.com/${binding.repositoryIdentity}`.toLowerCase(), baseBranch: binding.baseBranch };
-    return [mergeTargetKey(target), target];
-  })).values()].map(target => ({ target, granted: !!pending?.authorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target)) }));
-  const bound = { ...body, ...(permissionInputs.length ? { permissionInputs } : {}), scopeDigest, grantEligible: !problems.length, authorization: { revision: pending?.authorization.revision ?? 0, ...(pending ? { executionId: pending.executionId } : {}), superseded: !!retained && !pending, targets } };
-  for (const { target, granted } of targets) if (!granted) bound.problems.push(`${target.repository}/${target.baseBranch} needs an explicit early-merge target grant for the proposed fresh run. Earlier execution grants do not apply; existing CI/CD may run before the PRD finishes.`);
-  bound.readiness = bound.problems.length ? "blocked" : "ready";
-  return { ...bound, id: authorityDigest(bound) };
+  return { preparation, extractedProblems: extracted.problems };
 }
 
 export function retainContinuationProposal(directory: string, proposal: ContinuationProposal): void {

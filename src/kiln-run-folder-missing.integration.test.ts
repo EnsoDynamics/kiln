@@ -4,7 +4,7 @@
 // Check again leaves the mode once the folder is put back.
 
 import { EventEmitter } from "node:events";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runKilnCommand } from "./kiln-command.js";
@@ -399,5 +399,30 @@ describe("an unfinished run whose folder is missing", () => {
     expect(missing.plans.saved.label).toBe("not_compared");
     expect(missing.existingBranch.available).toBe("unknown");
     expect(missing.restoreCommands).toEqual([]);
+  });
+
+  it("sets the run up again from the page: a panel edit saves nothing, and Start re-creates the folder and goes on (AC-SETUP-01, AC-SETUP-05, AC-SAFE-01)", async () => {
+    const h = await stoppedRun();
+    const saved = h.engine.worktreePath;
+    const keepAwakeBefore = h.engine.record.settings.keepAwake;
+    rmSync(saved, { recursive: true, force: true });
+    let answers: { edit: number; editKeep: unknown; start: number; after: string } | undefined;
+    await kilnRunUntil(h, stdout => stdout.includes("Set the run up again:"), async (p) => {
+      const view = (await p.snapshot()).folderMissing!;
+      const panel = view.panel as { selected: "base" | "branch"; previewId: string; fields: { keepAwake: boolean } };
+      const before = readWork(stateRoot(h.env), h.stateDirectory).record.settings.keepAwake;
+      const edit = await p.post("/api/folder-setup/panel", { start: panel.selected, fields: { keepAwake: !before } });
+      const editKeep = readWork(stateRoot(h.env), h.stateDirectory).record.settings.keepAwake === before;
+      const refreshed = (await p.snapshot()).folderMissing!;
+      const ready = refreshed.panel as { selected: "base" | "branch"; previewId: string };
+      const start = await p.post("/api/folder-setup/start", { commandId: "page-start-1", factsId: refreshed.factsId, previewId: ready.previewId, start: ready.selected, fields: {} });
+      await waitFor(async () => (await p.snapshot()).feature.state !== "folder_missing");
+      answers = { edit: edit.status, editKeep, start: start.status, after: (await p.snapshot()).feature.state };
+    });
+    expect(answers).toMatchObject({ edit: 200, editKeep: true, start: 200 });
+    expect(answers!.after).not.toBe("folder_missing");
+    expect(existsSync(join(saved, ".git"))).toBe(true);
+    // The panel's edit was saved with Start.
+    expect(readWork(stateRoot(h.env), h.stateDirectory).record.settings.keepAwake).toBe(!keepAwakeBefore);
   });
 });

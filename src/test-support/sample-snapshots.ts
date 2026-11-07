@@ -805,9 +805,56 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
       plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "not_compared" }, base: { ...developMerged, source: "local" } }, restoreCommands: [], restoreUnknown: true },
   };
   const multi = which === "multi";
+  cases[which].panel = folderMissingPanel(which);
   return underway({
     feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
     phases: ["1", "2", "3", "4"].map(id => ({ id, title: `Phase ${id} work`, file: `phase-${id}.md`, state: "done" as const, doneAt: OCT24, finishedByPerson: false })),
     folderMissing: { checkedAt: new Date(FOLDER_MISSING_NOW).toISOString(), factsId: "f".repeat(64), ...cases[which] },
   });
+}
+
+/** The setup panel each of the mockup's cases draws, with its sample words (missing worktree recovery AC-SETUP-01 to 07). */
+function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-setup.js").PanelView {
+  if (which === "unknown") return { blocked: "Kiln couldn’t reach origin, so it can’t tell whether the branch there has work your checkout doesn’t, and can’t suggest where to start yet. Check the connection to origin, then check again." };
+  type Panel = import("../engine/folder-setup.js").SetupPanel;
+  const BR = "feature/invoice-evidence-collection"; const NEWBR = `${BR}-2`;
+  const WT = "~/devel/.worktrees/invoice-evidence-collection"; const WT2 = "~/devel/.worktrees/invoice-evidence-collection-2";
+  const SAVED = `${WT}/harbor-ledger`; const NEWDIR = `${WT2}/harbor-ledger`;
+  const P: Record<string, string> = { 10: "Duplicate invoice guard", 11: "Supplier read rules", 12: "Run ledger and alerts", 13: "Review screens", 4: "Run reports and alerts", 5: "First week in production" };
+  const run = (ids: string[], again = false) => ids.map((id, index) => ({ id, title: P[id]!, note: again ? "checked again" : index === 0 ? "runs first" : "then" }));
+  const choice = (line: string) => ({ sha: "0".repeat(40), total: 5, done: 4, holdsAllWork: true, behindBase: false, line });
+  const multi = which === "multi";
+  const merged = which === "merged" || which === "elsewhere";
+  const pick: "base" | "branch" = which === "unmerged" || which === "occupied" || multi ? "branch" : "base";
+  const baseLine = merged ? "origin/develop at 0a3d75d · 13 phases, 9 done. Has all of this run’s work." : multi ? "A new workspace and branch in both repositories, from origin/develop · 5 phases, 3 done. Missing Phase 4’s work." : "origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.";
+  const branchChoice = which === "gone" ? { unavailable: "Unavailable: the branch was deleted." }
+    : which === "elsewhere" ? { unavailable: "Unavailable: it’s checked out in ~/devel/ledger-scratch, and git allows a branch in one folder at a time." }
+    : choice(merged ? "Last commit 4c80c80 · 5 phases, all closed. Already merged into develop." : multi ? "Re-creates harbor-portal’s worktree in the saved workspace and keeps harbor-ledger’s · 5 phases, 4 done." : "Last commit bec1115 · 5 phases, 4 done. Has all of this run’s work.");
+  const fromBase = pick === "base";
+  const branch = fromBase ? NEWBR : BR;
+  const preview: Omit<Panel["preview"], "lets"> = fromBase
+    ? merged ? { done: "Phases 1–9 done on develop", run: run(["10", "11", "12", "13"]), again: [], startLabel: "Set up & start Phase 10" }
+      : { done: "Phases 1–3 done on develop", run: run(["4", "5"]), again: ["4"], caution: [{ text: "Phase 4 will run again.", tone: "strong" }, { text: " Its pushed work (bec1115) was on the deleted branch and isn’t in develop." }], startLabel: "Set up & start Phase 4" }
+    : { done: "Phases 1–4 done on the branch", run: run(["5"]), again: [], startLabel: "Set up & start Phase 5" };
+  const lets: Panel["preview"]["lets"] = multi
+    ? [{ allowed: true, parts: [{ text: "In each repository, commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "In each repository, open one pull request into its base branch once every phase closes" }] }]
+    : [{ allowed: true, parts: [{ text: "Commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "Open one pull request into " }, { text: "develop", tone: "code" }, { text: " once every phase closes" }] }];
+  if (!fromBase && which !== "occupied") lets.push({ allowed: true, parts: [{ text: "Clear git’s record of the missing folder " }, { text: multi ? `${WT}/harbor-portal` : SAVED, tone: "code" }] });
+  lets.push({ allowed: false, parts: [{ text: "Never merge, deploy, or touch other branches" }] });
+  const folder = fromBase ? (multi ? WT2 : NEWDIR) : which === "occupied" ? NEWDIR : multi ? WT : SAVED;
+  return {
+    suggested: pick, selected: pick, multi,
+    choices: { base: choice(baseLine), branch: branchChoice },
+    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
+    fixed: fromBase ? ["agentId"] : ["agentId", "featureBranch", "baseBranch", "bases", ...(multi ? ["workspaceFolder"] : [])],
+    fieldErrors: {},
+    helpLines: {
+      folder: fromBase ? (multi ? "New: a folder named for the new branch, with a new worktree of each repository." : "New: a folder named for the new branch.") : which === "occupied" ? "New: the saved path holds something else, so Kiln uses a new folder." : multi ? "The run’s saved workspace. Kiln re-creates harbor-portal’s worktree in it and keeps harbor-ledger’s." : "The run’s saved path.",
+      featureBranch: fromBase ? "New, so this run’s earlier branch and pull request stay separate." : which === "occupied" ? "The run’s existing branch, now only on origin. Kiln creates no new branch; your checkout gets a branch of the same name that tracks it." : "The run’s existing branch. Kiln creates no new branch.",
+    },
+    repositories: multi ? [{ name: "harbor-ledger", kind: "prd", baseBranch: "develop", baseChoices: ["develop", "main"] }, { name: "harbor-portal", kind: "named", baseBranch: "develop", baseChoices: ["develop", "main"] }] : [],
+    baseChoices: ["develop", "main"],
+    preview: { ...preview, lets },
+    previewId: "e".repeat(64),
+  };
 }

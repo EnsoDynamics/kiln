@@ -2,11 +2,12 @@
   // Folder missing (missing worktree recovery mockup): an unfinished run's saved folder is gone or
   // holds something else, so no phase state is shown (AC-GONE-02). The page says which folder,
   // what Kiln can still find (AC-FACTS-01 to 03), the git command that puts the folder back when
-  // it can be (AC-SETUP-06), and Check again. The setup panel joins it in Phase 2.
+  // it can be (AC-SETUP-06), Check again, and the setup panel that sets the run up again (AC-SETUP-01 to 07).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
   import Pill from "../components/Pill.svelte";
+  import FolderSetupPanel from "../components/FolderSetupPanel.svelte";
   import { checkFolders } from "../lib/api.js";
   import { baseCard, day, factRows, folderLine, folderState, heading, intro, lostNote, restoreText, savedNote, savedTag, SAVED_TAGS, type Part } from "../lib/folder-missing.js";
   import { phaseName } from "../lib/progress.js";
@@ -78,6 +79,8 @@
     </ul>
     <p class="note">{lostNote(view)}</p>
   </section>
+
+  {#if view.panel}<FolderSetupPanel {snapshot} {config} {connected} />{/if}
 
   <div class="self">
     <div>

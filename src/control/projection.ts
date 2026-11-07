@@ -268,7 +268,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const savedActivity = { phase_id: audit ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === "pr" ? "final_delivery" : phase ? "implementation" : null), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
   const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
-  const pauseKey = record.pause.activeSince ? completedKey : view?.liveControl?.target.activityKey ?? phase;
+  // A pending request carried through a Folder missing base-branch start names its phase (missing worktree recovery, "The Folder Check").
+  const pauseKey = record.pause.activeSince ? completedKey : record.pause.requestedFor ?? view?.liveControl?.target.activityKey ?? phase;
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
   const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;

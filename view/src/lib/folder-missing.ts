@@ -29,12 +29,12 @@ export function intro(view: FolderMissingSnapshot): string {
   const when = setUp ? ` on ${day(setUp)}` : "";
   if (view.repositories.length > 1) {
     const names = bad.map(repository => repository.name).join(" and ");
-    return `Kiln set this run up${when} in one workspace, and ${names}’s folder in it ${bad.every(repository => repository.state === "missing") ? "no longer exists" : "isn’t the run’s worktree"}. Kiln won’t report progress from a folder it can’t read. Below is what it can still find.`;
+    return `Kiln set this run up${when} in one workspace, and ${names}’s folder in it ${bad.every(repository => repository.state === "missing") ? "no longer exists" : "isn’t the run’s worktree"}. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on.`;
   }
   const state = bad[0]?.state;
-  if (state === "holds_something_else") return `Kiln set this run up${when} in its own folder, and that path now holds ${bad[0]!.holds?.replace(/, not a git worktree$/, "") ?? "something else"} instead of the run’s worktree. Kiln won’t report progress from a folder that isn’t the run’s. Below is what it can still find.`;
-  if (state === "unknown") return `Kiln set this run up${when} in its own folder, and couldn’t check that it is still the run’s worktree. Kiln won’t report progress from a folder it can’t read. Below is what it can still find.`;
-  return `Kiln set this run up${when} in its own folder, and that folder no longer exists. Kiln won’t report progress from a folder it can’t read. Below is what it can still find.`;
+  if (state === "holds_something_else") return `Kiln set this run up${when} in its own folder, and that path now holds ${bad[0]!.holds?.replace(/, not a git worktree$/, "") ?? "something else"} instead of the run’s worktree. Kiln won’t report progress from a folder that isn’t the run’s. Below is what it can still find, and a setup to carry on in a new folder.`;
+  if (state === "unknown") return `Kiln set this run up${when} in its own folder, and couldn’t check that it is still the run’s worktree. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on in a new folder.`;
+  return `Kiln set this run up${when} in its own folder, and that folder no longer exists. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on in a new folder.`;
 }
 
 export function folderState(repository: Repository): { text: string; tone: Tone } {
@@ -154,5 +154,5 @@ export function lostNote(view: FolderMissingSnapshot): string {
 export function restoreText(view: FolderMissingSnapshot): string {
   if (view.restoreCommands.length) return "Moved or removed the folder on purpose? Put it back at the saved path, then check again.";
   if (view.restoreUnknown && failing(view).some(repository => repository.state === "missing")) return view.repositories.some(repository => repository.unknown.some(read => read.endsWith(" on origin"))) ? "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can reach origin." : "Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can read what it needs about the branch.";
-  return "This folder can’t be put back at the saved path as it was. Sort it out yourself and check again.";
+  return "This folder can’t be put back at the saved path as it was. Set the run up above, or sort it out yourself and check again.";
 }

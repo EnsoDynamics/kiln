@@ -8,8 +8,16 @@ import type { PrdRecord, RepositoryEntry } from "../state/records.js";
 import { readContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 
 export interface ExecutionSummary {
-  executionId: string; archiveId: string; startedAt?: string; completedAt: string;
+  executionId: string; archiveId: string; startedAt?: string;
+  /** Absent only for an execution set up again from the Folder missing page (`ending: "folder_missing_setup"`). */
+  completedAt?: string;
   branch: string; deliveries: { repository: string; url: string }[];
+  /** Schema 20; a summary without them reads as `ending: "completed"`, `endedAt = completedAt`. */
+  endedAt?: string; ending?: "completed" | "folder_missing_setup";
+}
+/** How an archived execution ended, with older summaries read as completed. */
+export function executionEnding(row: ExecutionSummary): { ending: "completed" | "folder_missing_setup"; endedAt: string } {
+  return { ending: row.ending ?? "completed", endedAt: row.endedAt ?? row.completedAt! };
 }
 export interface ContinuationAcceptance {
   formatVersion: 1; id: string; operationId: string; commandId: string; proposalId: string;
@@ -24,7 +32,8 @@ export interface AcceptanceSummary {
   state: ContinuationAcceptance["state"]; acceptedAt: string; reason?: string;
 }
 export interface ContinuationState {
-  formatVersion: 1; journalIndexed: true; currentAcceptanceId: string;
+  /** Absent after a base-branch start from the Folder missing page, which no acceptance produced. */
+  formatVersion: 1; journalIndexed: true; currentAcceptanceId?: string;
   acceptances: AcceptanceSummary[]; executions: ExecutionSummary[];
 }
 export interface CompletedExecution {
@@ -79,12 +88,12 @@ export function retainExecution(directory: string, record: PrdRecord): string {
 export function readExecution(directory: string, summary: ExecutionSummary): CompletedExecution {
   if (!/^[a-f0-9]{64}$/.test(summary.archiveId)) throw new Error("Invalid historical execution reference.");
   const archive = read<CompletedExecution>(directory, join(directory, "completed-executions", `${summary.archiveId}.json`));
-  if (archive.formatVersion !== 1 || digest(archive) !== summary.archiveId || archive.record.executionId !== summary.executionId || archive.record.completedAt !== summary.completedAt) throw new Error("Historical execution is unavailable or damaged.");
+  if (archive.formatVersion !== 1 || digest(archive) !== summary.archiveId || archive.record.executionId !== summary.executionId || archive.record.completedAt !== summary.completedAt || summary.completedAt === undefined && summary.ending !== "folder_missing_setup") throw new Error("Historical execution is unavailable or damaged.");
   return archive;
 }
 export function assertContinuationState(value: ContinuationState | undefined): void {
   if (value === undefined) return;
-  if (value.formatVersion !== 1 || value.journalIndexed !== true || !safeIdentity(value.currentAcceptanceId) || !Array.isArray(value.acceptances) || !Array.isArray(value.executions) || !value.acceptances.some(row => row.id === value.currentAcceptanceId)) throw new Error("Invalid continuation state; no new work authorized.");
+  if (value.formatVersion !== 1 || value.journalIndexed !== true || value.currentAcceptanceId !== undefined && (!safeIdentity(value.currentAcceptanceId) || !value.acceptances.some(row => row.id === value.currentAcceptanceId)) || !Array.isArray(value.acceptances) || !Array.isArray(value.executions)) throw new Error("Invalid continuation state; no new work authorized.");
   const ids = new Set<string>();
   for (const row of value.acceptances) {
     if (!safeIdentity(row.id) || !safeIdentity(row.commandId) || ids.has(row.id) || !safeIdentity(row.completedExecutionId) || !safeIdentity(row.newExecutionId) || !/^[a-f0-9]{64}$/.test(row.proposalId) || !["preparing", "blocked", "active", "superseded"].includes(row.state) || !Number.isFinite(Date.parse(row.acceptedAt))) throw new Error("Invalid continuation acceptance reference.");
@@ -92,7 +101,8 @@ export function assertContinuationState(value: ContinuationState | undefined): v
   }
   ids.clear();
   for (const row of value.executions) {
-    if (!safeIdentity(row.executionId) || ids.has(row.executionId) || !/^[a-f0-9]{64}$/.test(row.archiveId) || !Number.isFinite(Date.parse(row.completedAt)) || typeof row.branch !== "string" || !Array.isArray(row.deliveries)) throw new Error("Invalid historical execution reference.");
+    const ended = row.ending === "folder_missing_setup";
+    if (!safeIdentity(row.executionId) || ids.has(row.executionId) || !/^[a-f0-9]{64}$/.test(row.archiveId) || (row.completedAt === undefined ? !ended : !Number.isFinite(Date.parse(row.completedAt))) || row.ending !== undefined && !["completed", "folder_missing_setup"].includes(row.ending) || (row.endedAt === undefined ? ended : !Number.isFinite(Date.parse(row.endedAt))) || typeof row.branch !== "string" || !Array.isArray(row.deliveries)) throw new Error("Invalid historical execution reference.");
     ids.add(row.executionId);
   }
 }

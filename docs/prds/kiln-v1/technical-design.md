@@ -435,6 +435,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 ## Worktree and Branch Setup
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (a later `kiln run` may create a second branch and worktree, or a new worktree on the run's existing branch and its local branch from origin).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Settings before Start, §Setup at Start, §The workspace kept (defaults, field checks, setup and a failed Start, per repository)

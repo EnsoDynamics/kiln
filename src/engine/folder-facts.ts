@@ -13,6 +13,8 @@ import { displayPath, expandHome } from "./worktree-setup.js";
 import { worktreeAt, type FolderCheck, type FolderClassification, type FolderState } from "./folder-check.js";
 import { effectiveRecordedClosed } from "./waivers.js";
 import type { PlannedPhase } from "../plan/phase-plan.js";
+import type { PlanSource } from "./plan-reconciliation.js";
+import type { WorktreeEntry } from "./git-reads.js";
 
 export interface CommitFact { sha: string; date?: string }
 
@@ -68,6 +70,32 @@ export interface FolderMissingView {
   /** AC-SETUP-06; empty when none is offered. */
   restoreCommands: string[];
   factsId: string;
+  /** Internal: what the setup panel builds on (missing worktree recovery, "The Setup Panel"). Never published, and not in `factsId`. */
+  reads: FolderFactReads;
+}
+
+/** One repository's reads, for the setup panel and Start. */
+export interface RepositoryRead {
+  name: string;
+  entry: RepositoryEntry;
+  check: FolderClassification;
+  base?: { sha: string; source: "origin" | "local" };
+  localSha?: string;
+  originSha?: string;
+  tip?: string;
+  /** Git's worktree list in the shared checkout; absent when that read failed. */
+  worktrees?: WorktreeEntry[];
+  localRead: boolean;
+  originRead: boolean;
+  workNotInBase: boolean | "unknown";
+}
+
+export interface FolderFactReads {
+  repositories: RepositoryRead[];
+  /** The base branch's plan in the PRD's repository, at the base commit. */
+  basePlan?: PlanSource;
+  /** The feature branch's plan at its tip, when read. */
+  featurePlan?: PlanSource;
 }
 
 type Three = boolean | "unknown";
@@ -86,6 +114,9 @@ interface RepositoryReads {
   worktreesRead: boolean;
   originRead: boolean;
   localRead: boolean;
+  worktrees?: WorktreeEntry[];
+  localSha?: string;
+  originSha?: string;
 }
 
 const leavesOf = <T extends { splitInto?: string[] | undefined }>(phases: T[]) => phases.filter(phase => phase.splitInto === undefined);
@@ -98,7 +129,8 @@ export async function gatherFolderFacts(input: { git: GitContext; record: PrdRec
   const { git, record, check } = input;
   const branch = record.settings.featureBranch;
   const reads = await Promise.all(check.repositories.map(classification => readRepository(git, record, classification, branch)));
-  const plans = await readPlans(git, record, reads, input.prdDirectoryFromRoot);
+  const sources: { basePlan?: PlanSource; featurePlan?: PlanSource } = {};
+  const plans = await readPlans(git, record, reads, input.prdDirectoryFromRoot, sources);
   // The existing-branch start depends on the feature plan too (The Facts, "What can't be checked").
   const existingBranch = plans.featurePlanFailed ? { available: "unknown" as const, reason: `Kiln couldn’t read the plan on ${branch}.` } : availability(reads);
   delete plans.featurePlanFailed;
@@ -111,7 +143,8 @@ export async function gatherFolderFacts(input: { git: GitContext; record: PrdRec
     : [];
   const body = { repositories: reads.map(read => read.facts), plans, existingBranch, restoreCommands };
   const factsId = createHash("sha256").update(JSON.stringify(body)).digest("hex");
-  return { checkedAt: (input.now ?? new Date()).toISOString(), ...body, factsId };
+  const detail: FolderFactReads = { repositories: reads.map(read => ({ name: read.entry.name, entry: read.entry, check: read.check, ...(read.base ? { base: read.base } : {}), ...(read.localSha ? { localSha: read.localSha } : {}), ...(read.originSha ? { originSha: read.originSha } : {}), ...(read.tip ? { tip: read.tip } : {}), ...(read.worktrees ? { worktrees: read.worktrees } : {}), localRead: read.localRead, originRead: read.originRead, workNotInBase: read.workNotInBase })), ...sources };
+  return { checkedAt: (input.now ?? new Date()).toISOString(), ...body, factsId, reads: detail };
 }
 
 async function readRepository(git: GitContext, record: PrdRecord, check: FolderClassification, branch: string): Promise<RepositoryReads> {
@@ -132,6 +165,7 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
   if (list.exitCode === 0) {
     reads.worktreesRead = true;
     const worktrees = parseWorktreeList(list.stdout);
+    reads.worktrees = worktrees;
     facts.gitRecord = worktreeAt(worktrees, check.savedFolder) ? "listed" : "none";
     const saved = worktreeAt(worktrees, check.savedFolder);
     for (const worktree of worktrees.filter(one => one.branch === branch)) {
@@ -145,7 +179,7 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
 
   // The feature branch in the shared checkout and on origin.
   let localSha: string | undefined;
-  if (local.exitCode === 0) { reads.localRead = true; localSha = local.stdout.trim(); }
+  if (local.exitCode === 0) { reads.localRead = true; localSha = local.stdout.trim(); reads.localSha = localSha; }
   else if (local.exitCode === 1 && !local.stdout.trim()) reads.localRead = true;
   else facts.unknown.push(`your checkout’s ${branch}`);
   let originSha: string | undefined; let originBase: string | undefined;
@@ -153,7 +187,7 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
     reads.originRead = true;
     for (const line of remote.stdout.split(/\r?\n/)) {
       const [sha, ref] = line.trim().split(/\s+/);
-      if (ref === `refs/heads/${branch}`) originSha = sha;
+      if (ref === `refs/heads/${branch}` && sha) { originSha = sha; reads.originSha = sha; }
       if (ref === `refs/heads/${entry.baseBranch}`) originBase = sha;
     }
   } else facts.unknown.push(`${branch} on origin`);
@@ -282,7 +316,7 @@ function availability(reads: RepositoryReads[]): Availability {
   return { available: true };
 }
 
-async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryReads[], directory: string): Promise<FolderMissingPlans> {
+async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryReads[], directory: string, sources: { basePlan?: PlanSource; featurePlan?: PlanSource }): Promise<FolderMissingPlans> {
   const savedLeaves = leavesOf(record.plan ?? []);
   const savedClosed = new Map(savedLeaves.map(leaf => [leaf.id, effectiveRecordedClosed(record, leaf)]));
   const readAt = record.planReadAt ?? (record.planReconciliation?.check?.status === "accepted" ? record.planReconciliation.check.attemptedAt : undefined);
@@ -292,16 +326,18 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   if (!prd?.base) return { saved, base: { error: `${baseBranch} could not be read`, branch: baseBranch } };
   const main = prd.check.mainCheckoutPath;
   let basePlan: PlannedPhase[];
-  try { basePlan = (await observeGitPlan(git, main, directory, prd.base.sha, HISTORICAL_PLAN_READ)).plan.phases; }
+  try { sources.basePlan = await observeGitPlan(git, main, directory, prd.base.sha, HISTORICAL_PLAN_READ); basePlan = sources.basePlan.plan.phases; }
   catch (error) { prd.facts.unknown.push(`the plan on ${baseBranch}`); return { saved, base: { error: `The plan on ${baseBranch} couldn’t be read: ${(error as Error).message}`, branch: baseBranch } }; }
   const baseLeaves = leavesOf(basePlan);
   const next = baseLeaves.find(leaf => !leaf.closed);
   const base = { source: prd.base.source, branch: baseBranch, sha: prd.base.sha, total: baseLeaves.length, closed: baseLeaves.filter(leaf => leaf.closed).length, ...(next ? { next: { id: next.id, title: next.title } } : {}) };
+  // The feature plan, for the existing-branch start, whenever there is a tip (The Setup Panel, What will run).
+  if (prd.tip) { try { sources.featurePlan = await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ); } catch { /* Read again below where it decides the label. */ } }
   // Where the run's latest work lives: the feature branch when it has work not in the base branch.
   if (prd.workNotInBase === "unknown") return { saved, base };
   let compared: PlannedPhase[] = basePlan; let where: "branch" | "base" = "base";
   if (prd.workNotInBase && prd.tip) {
-    try { compared = (await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ)).plan.phases; where = "branch"; }
+    try { compared = (sources.featurePlan ?? await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ)).plan.phases; where = "branch"; }
     catch { prd.facts.unknown.push(`the plan on ${record.settings.featureBranch}`); return { saved, base, featurePlanFailed: true }; }
   }
   const baseClosed = new Set(baseLeaves.filter(leaf => leaf.closed).map(leaf => leaf.id));

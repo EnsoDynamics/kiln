@@ -11,7 +11,7 @@ import { markCompletePreview } from "./waiver-facts.js";
 
 export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance"] as const;
 export type Action = typeof ACTIONS[number];
-const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant"] as const;
+const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
 export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
@@ -112,6 +112,13 @@ function validateInternalInstruction(raw: unknown): Instruction {
   if (value.action === "continuation-grant") {
     const input = value.inputs;
     if (!input || Object.keys(input).sort().join() !== "authorization_revision,proposal_id,target" || typeof input.proposal_id !== "string" || !/^[a-f0-9]{64}$/.test(input.proposal_id) || !Number.isSafeInteger(input.authorization_revision) || !input.target || typeof input.target !== "object" || Array.isArray(input.target)) throw new ControlFailure("invalid_input", "Invalid continuation grant instruction.", 2);
+    validateInstruction({ ...value, action: "continue", inputs: {} });
+    return value;
+  }
+  if (value.action === "folder-setup-start") {
+    // Start on the Folder missing page (missing worktree recovery, "Interfaces"): the page's facts and preview identities, the start and the draft fields.
+    const input = value.inputs;
+    if (!input || Object.keys(input).sort().join() !== "facts_id,fields,preview_id,start" || typeof input.facts_id !== "string" || !/^[a-f0-9]{64}$/.test(input.facts_id) || typeof input.preview_id !== "string" || !/^[a-f0-9]{64}$/.test(input.preview_id) || !["base", "branch"].includes(input.start as string) || !input.fields || typeof input.fields !== "object" || Array.isArray(input.fields)) throw new ControlFailure("invalid_input", "Invalid Folder missing start instruction.", 2);
     validateInstruction({ ...value, action: "continue", inputs: {} });
     return value;
   }

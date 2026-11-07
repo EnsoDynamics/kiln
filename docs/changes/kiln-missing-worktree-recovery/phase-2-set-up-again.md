@@ -1,4 +1,5 @@
 # Phase 2: Set the run up again from the Folder missing page
+**Closed:** 2026-11-06
 
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md
 **Technical design:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md — relevant sections: "Existing Code" (the extracted activation core and preparation binding), "Design Decisions", "The Setup Panel", "Start", "Interfaces" (`/api/folder-setup/panel`, `/api/folder-setup/start`, `SetupPanel`), "Data Models", "Changes to Earlier Designs"

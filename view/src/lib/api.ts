@@ -57,6 +57,18 @@ export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pa
 export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
 /** Check again on the Folder missing page (missing worktree recovery AC-SETUP-06). */
 export const checkFolders = (config: PageConfig) => send(config, "POST", "/api/folder-setup/check");
+/** A Folder missing setup request: its answer as sent, uncertain only when no answer arrived. */
+async function folderSetup(config: PageConfig, path: string, body: unknown): Promise<CommandAnswer> {
+  try {
+    const response = await fetch(path, { method: "POST", headers: { "X-Kiln-Token": config.token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const answer = (await response.json()) as Record<string, unknown>;
+    return response.ok ? { ...answer, ok: true } : { ...answer, ok: false, reason: String(answer.reason ?? response.statusText) };
+  } catch (error) { return { ok: false, uncertain: true, reason: `${(error as Error).message} Start may have been accepted; pressing it again repeats the same instruction.` }; }
+}
+/** One change to the setup panel's draft; nothing is saved (missing worktree recovery AC-SETUP-01, AC-SAFE-01). */
+export const changeFolderPanel = (config: PageConfig, change: { start: "base" | "branch"; fields: Record<string, unknown> }) => folderSetup(config, "/api/folder-setup/panel", change);
+/** Start on the Folder missing page, with the facts and preview it was pressed on (AC-SETUP-04, AC-SETUP-05, AC-SAFE-01). */
+export const startFolderSetup = (config: PageConfig, body: { commandId: string; factsId: string; previewId: string; start: "base" | "branch"; fields: Record<string, unknown> }) => folderSetup(config, "/api/folder-setup/start", body);
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
 export const resume = (config: PageConfig, note: string) => send(config, "POST", "/api/resume", note.trim() === "" ? {} : { note });

@@ -57,6 +57,8 @@ Classify every observed leaf as carried completed, new unfinished, externally co
 
 ### Completion evidence from outside Kiln
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Setup Panel and §Start (a base-branch start here counts every phase closed in the base branch as done on its Closed line alone).
+
 For phases completed outside this execution, apply the applicable Closed, Committed, Pushed and workspace/provenance checks plus any required development-delivery evidence. An existing Kiln receipt is reusable only for its unchanged scope and identified repository revisions. For work completed before any Kiln session, add an explicit external-completion evidence path: bind the phase scope and repository identities to immutable work revisions, verify the Closed document and committed/published work, then verify its integration coverage. Record provider/workspace provenance as not applicable only when no Kiln session ever owned that work; this is not a passing Stayed receipt. A recorded Kiln session with missing provenance still fails its existing checks. If the source or scope cannot be established, show unresolved evidence.
 
 For work without a retained completion receipt, the governing PRD or technical design may identify immutable work under `## External completion evidence`, using ordinary prose `Phase <id>: repository <name> at commit <revision>.` Repository names and full commit IDs are backtick-quoted; each affected repository, including the PRD repository, has one entry. The phase ID uses the existing grammar. Read only non-quoted, non-fenced text in that section, normalizing Markdown emphasis and prose wrapping; retain its exact source spans. Keeping these references outside the phase document allows a later evidence amendment to identify the commit that contains the closed phase without making that commit refer to itself. These entries identify evidence, not completion or integration permission.
@@ -208,6 +210,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Sta
 Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision and §Recovery and Upgrade (reconciliation before finalization, required audit policy for a fresh continuation; historical legacy-complete executions remain historical).
 
 ### Implemented integrated-prerequisite continuation (Phase 3a)
+
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (the activation core is shared with a base-branch start from an unfinished execution, which brings panel names and carried state and no acceptance).
 
 Private schema 17 adds `continuation` with a current acceptance pointer, retained acceptance summaries and immutable execution archive references. The integrated path implements acceptance/retry, complete multi-repository setup and fresh activation. A preparation-dependent proposal stays read-only and acceptance returns `preparation_unverified`; pending target grants and the preparation runner remain Phase 3b.
 

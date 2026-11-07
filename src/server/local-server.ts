@@ -247,6 +247,22 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ ok: true, state: view.feature.state, ...(view.folderMissing ? { folderMissing: view.folderMissing } : {}) });
   });
 
+  // The setup panel's draft: one change, checked and previewed; nothing is saved (AC-SETUP-01, AC-SAFE-01).
+  app.post("/api/folder-setup/panel", async (c) => {
+    const body = await c.req.json().catch(() => undefined) as Record<string, unknown> | undefined;
+    if (!body || typeof body !== "object") return c.json({ ok: false, code: "invalid_input", reason: "Send the starting point and fields." }, 400);
+    const answer = await engine.changeFolderPanel(body);
+    return answer.ok ? c.json(answer) : c.json(answer, answer.status);
+  });
+
+  // Start on the Folder missing page (AC-SETUP-04, AC-SETUP-05, AC-SAFE-01 to 04).
+  app.post("/api/folder-setup/start", async (c) => {
+    const body = await c.req.json().catch(() => undefined) as Record<string, unknown> | undefined;
+    if (!body || typeof body !== "object") return c.json({ ok: false, code: "malformed_request", reason: "Send the displayed facts, preview and a command ID." }, 400);
+    const answer = await engine.folderSetupStartCommand(body);
+    return answer.ok ? c.json({ ok: true }) : c.json(answer, answer.status);
+  });
+
   app.get("/api/events", (c) =>
     streamSSE(c, async (stream) => {
       streams.add(stream);
@@ -560,7 +576,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 }
 
 /** The routes that act while a folder is missing: Check again, and refreshing agent information. */
-const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/metadata/refresh"]);
+const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/folder-setup/panel", "/api/folder-setup/start", "/api/metadata/refresh"]);
 
 function tokenMatches(given: string | undefined, token: string): boolean {
   if (given === undefined) return false;

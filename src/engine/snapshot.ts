@@ -38,7 +38,11 @@ export const PR_TITLE = "Final pull request";
 export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete" | "folder_missing";
 
 /** The Folder missing page's facts (missing worktree recovery, "Interfaces"); the setup panel joins it in Phase 2. */
-export type FolderMissingSnapshot = Omit<import("./folder-facts.js").FolderMissingView, "existingBranch"> & {
+export type FolderMissingSnapshot = Omit<import("./folder-facts.js").FolderMissingView, "existingBranch" | "reads"> & {
+  /** The setup panel (AC-SETUP-01 to 03, 07), or why it can't suggest a start (AC-FACTS-03, AC-SETUP-02). */
+  panel?: import("./folder-setup.js").PanelView;
+  /** What a Start that failed partway did, and what remains (AC-SAFE-01). */
+  startProgress?: { done: string[]; remaining: string[]; error: string };
   /** Whether the folder can be put back could not be told, because a read it depends on failed (AC-FACTS-03). */
   restoreUnknown?: true;
   /** The stopped phase's last completion results, shown only as history with when they were checked (AC-GONE-02). */
@@ -518,6 +522,8 @@ function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingVi
   const stoppedKey = engine.stoppedPhaseKey();
   const stop = stoppedKey === undefined ? undefined : engine.record.phases[stoppedKey]?.stop;
   return { checkedAt, repositories, plans, restoreCommands, factsId, ...(view.existingBranch.available === "unknown" ? { restoreUnknown: true as const } : {}),
+    // The busy line is read now, so it clears as soon as the session ends (AC-SAFE-01).
+    ...(engine.folderPanel ? { panel: "blocked" in engine.folderPanel ? engine.folderPanel : (({ busy: _busy, ...panel }) => { void _busy; const busy = engine.folderBusy(); return { ...panel, ...(busy ? { busy } : {}) }; })(engine.folderPanel) } : {}), ...(engine.folderStartProgress ? { startProgress: engine.folderStartProgress } : {}),
     ...(stop ? { stoppedResult: { phaseId: engine.judgedId(stoppedKey!), checkedAt: stop.checkedAt, passed: stop.checks.filter(check => check.passed).length, failed: stop.checks.filter(check => !check.passed).length } } : {}) };
 }
 

@@ -310,7 +310,12 @@ export interface PrdRecord {
   repositories: RepositoryEntry[];
   /** Keyed by the leaf Kiln launched, or `pr` for the pull-request session. */
   phases: Record<string, PhaseFacts>;
-  pause: { requestedAt?: string; activeSince?: string };
+  /** `requestedFor`: the phase a pending request carried through a base-branch start waits on (missing worktree recovery, "Pause state at Start"). */
+  pause: { requestedAt?: string; activeSince?: string; requestedFor?: string };
+  /** The feature branch at the first Start, set when a base-branch start from the Folder missing page activates a fresh execution (schema 20). */
+  branchStem?: string;
+  /** The `activated` Folder missing start intent that produced this execution (schema 20); never carried to the next. */
+  folderSetupStart?: { id: string; commandId: string; fromExecutionId: string };
   pullRequests?: PullRequestFacts[];
   mergedBranches?: MergedBranchFacts[];
   deliveryHistory?: DeliveryHistory;
