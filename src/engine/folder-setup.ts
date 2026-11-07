@@ -9,7 +9,7 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { PlannedPhase } from "../plan/phase-plan.js";
 import type { PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
-import { originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
+import { ensureObjects, listWorktrees, originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
 import type { FolderMissingView, RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
@@ -239,7 +239,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const prdTip = prdOrigin.value.branches.get(prdBase);
   if (!prdTip) return { unavailable: `${prdBase} isn’t on origin.`, known: true };
   if (prdTip !== prdRead.base.sha || prdBase !== prdRead.entry.baseBranch) {
-    await objects(git, prdRead.entry.mainCheckoutPath, prdTip);
+    await ensureObjects(git, prdRead.entry.mainCheckoutPath, prdTip);
     try { plan = await observeGitPlan(git, prdRead.entry.mainCheckoutPath, context.prdDirectoryFromRoot, prdTip, HISTORICAL_PLAN_READ); }
     catch { return { unavailable: `the plan on ${prdBase}`, known: false }; }
   }
@@ -267,7 +267,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     if (!base) problem ??= `Establish a configured delivery base for ${name}, then check again.`;
     const tip = base ? origin.value.branches.get(base) : undefined;
     if (base && !tip) problem ??= `${base} isn’t on origin.`;
-    if (tip) { await objects(git, found.mainCheckoutPath, tip); baseCommits[name] = tip; }
+    if (tip) { await ensureObjects(git, found.mainCheckoutPath, tip); baseCommits[name] = tip; }
     set.push({ name, kind: "named", mainCheckoutPath: found.mainCheckoutPath, github: found.github, baseBranch: base, origin: origin.value, ...(problem ? { problem } : {}), ...(entry ? { entry } : {}) });
   }
   const leftOut = record.repositories.filter(entry => entry.setupCompletedAt !== undefined && !names.includes(entry.name)).map(entry => entry.name);
@@ -493,14 +493,8 @@ async function newBranchError(git: GitContext, set: SetRepository[], name: strin
 }
 
 async function listTrees(git: GitContext, cwd: string): Promise<WorktreeEntry[] | undefined> {
-  const { listWorktrees } = await import("./git-reads.js");
   const list = await listWorktrees(git, cwd);
   return list.ok ? list.worktrees : undefined;
-}
-
-async function objects(git: GitContext, cwd: string, sha: string): Promise<void> {
-  const present = await runGit(git, cwd, ["cat-file", "-e", `${sha}^{commit}`]);
-  if (present.exitCode !== 0) await runGit(git, cwd, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", sha]);
 }
 
 /** Every start's build, for Start's recheck: the selected start's full computation with its draft. */

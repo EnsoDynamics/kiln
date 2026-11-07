@@ -10,7 +10,7 @@ import { checkedPath, privateJson } from "../control/private-state.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import type { AgentSettings, RepositoryEntry } from "../state/records.js";
 import { checkFolder } from "./folder-check.js";
-import { gitError, listWorktrees, localBranchCommit, runGit, type GitContext } from "./git-reads.js";
+import { ensureObjects, gitError, listWorktrees, localBranchCommit, runGit, type GitContext } from "./git-reads.js";
 import { worktreeAt } from "./folder-check.js";
 import { addEntryWorktree, expandHome, SETUP_TIMEOUT_MS } from "./worktree-setup.js";
 import { safeIdentity } from "./continuation-state.js";
@@ -149,11 +149,8 @@ export async function createLocalBranch(git: GitContext, repository: FolderSetup
   const sha = repository.createLocalFromOrigin!;
   const local = await localBranchCommit(git, main, repository.branch);
   if (local === undefined) {
-    const present = await runGit(git, main, ["cat-file", "-e", `${sha}^{commit}`]);
-    if (present.exitCode !== 0) {
-      const fetched = await runGit(git, main, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", sha], SETUP_TIMEOUT_MS);
-      if (fetched.exitCode !== 0) throw new Error(`Couldn’t fetch ${repository.branch} from origin: ${gitError(fetched)}`);
-    }
+    const failed = await ensureObjects(git, main, sha, SETUP_TIMEOUT_MS);
+    if (failed) throw new Error(`Couldn’t fetch ${repository.branch} from origin: ${gitError(failed)}`);
     const made = await runGit(git, main, ["branch", "--no-track", repository.branch, sha]);
     if (made.exitCode !== 0) throw new Error(gitError(made));
   } else if (local !== sha) throw new Error(`Your checkout now has its own ${repository.branch}. Nothing was changed; press Check again.`);

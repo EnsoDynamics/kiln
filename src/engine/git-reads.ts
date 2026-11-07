@@ -109,3 +109,14 @@ export function parseWorktreeList(stdout: string): WorktreeEntry[] {
   }
   return worktrees;
 }
+
+/**
+ * Brings one commit's objects into a checkout from origin when they aren't there, writing no ref
+ * (the objects-only fetch); returns the failed fetch, or undefined when the objects are present.
+ */
+export async function ensureObjects(context: GitContext, cwd: string, sha: string, timeoutMs?: number): Promise<HelperResult | undefined> {
+  const present = await runGit(context, cwd, ["cat-file", "-e", `${sha}^{commit}`]);
+  if (present.exitCode === 0) return undefined;
+  const fetched = await runGit(context, cwd, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", sha], timeoutMs);
+  return fetched.exitCode === 0 ? undefined : fetched;
+}

@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync } from "node:fs";
 import type { PrdRecord, RepositoryEntry } from "../state/records.js";
-import { parseWorktreeList, runGit, type GitContext } from "./git-reads.js";
+import { ensureObjects, parseWorktreeList, runGit, type GitContext } from "./git-reads.js";
 import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
 import { displayPath, expandHome } from "./worktree-setup.js";
 import { worktreeAt, type FolderCheck, type FolderClassification, type FolderState } from "./folder-check.js";
@@ -262,12 +262,6 @@ function shellWord(word: string): string {
 
 function exists(path: string): boolean {
   try { lstatSync(path); return true; } catch { return false; }
-}
-
-async function ensureObjects(git: GitContext, cwd: string, sha: string): Promise<void> {
-  const present = await runGit(git, cwd, ["cat-file", "-e", `${sha}^{commit}`]);
-  if (present.exitCode === 0) return;
-  await runGit(git, cwd, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", sha]);
 }
 
 async function commitFact(git: GitContext, cwd: string, sha: string): Promise<CommitFact> {
