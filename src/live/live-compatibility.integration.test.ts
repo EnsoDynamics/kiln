@@ -290,3 +290,15 @@ for (const when of ["still running", "exited"] as const) {
     } finally { if (controller.exitCode === null && controller.signalCode === null) controller.kill("SIGKILL"); await exited; }
   });
 }
+
+// A tool call the auto-mode classifier rejects is admitted by the PreToolUse hook and never gets
+// PostToolUse; its rejection, in the shape recorded in test/fixtures/proof-gate-1, settles it, so
+// Kiln ends the session's input after its result and the phase completes rather than hanging.
+darwin("Rejected tool: a call the auto-mode classifier rejects still lets the session close and the phase complete", async () => {
+  const meta = { non_execution_kind: "automode-blocked", permission_decision: { decision: "reject", source: "config", reason_type: "classifier" } };
+  await start("2.1.311", () => [landing("src/one.txt", [{ rejected: { command: "pkill -f vitest", meta } }])]);
+  await h!.engine.settled();
+  expect(h!.engine.record.phases["1"]!.doneAt).toEqual(expect.any(String));
+  expect(hookCalls().filter(call => call.input.tool_input && (call.input.tool_input as { command?: string }).command === "pkill -f vitest").map(call => call.event)).toEqual(["PreToolUse"]);
+  expect(readGate(run("1").live!.gateDirectory).operations).toSatisfy((operations: Record<string, { name: string; settled?: boolean; hookSettled?: boolean }>) => Object.values(operations).some(o => o.name === "Bash" && o.settled === true && o.hookSettled !== true));
+});
