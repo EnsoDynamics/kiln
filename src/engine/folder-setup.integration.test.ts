@@ -4,7 +4,7 @@
 // missing worktree re-created, git's stale record cleared, the same execution resumed).
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
@@ -12,7 +12,7 @@ import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { SetupPanel } from "./folder-setup.js";
 import { readPrdRecord } from "../state/records.js";
 import { readExecution } from "./continuation-state.js";
-import { readStartIntent, writeStartIntent } from "./folder-setup-start.js";
+import { plannedSteps, readStartIntent, writeStartIntent } from "./folder-setup-start.js";
 import { buildSnapshot } from "./snapshot.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import type { ModelEntry } from "../account/model-list.js";
@@ -770,5 +770,175 @@ describe("the put-it-back command while the existing branch can't be checked (AC
     expect(panel.choices.branch).toEqual({ unavailable: expect.stringMatching(/^Couldn’t check/) });
     expect(view.restoreCommands).toEqual([]);
     expect(view.restoreUnknown).toBe(true);
+  });
+});
+
+describe("Start's folder handling (Phase 4 of missing worktree recovery: AC-SETUP-05, AC-SAFE-04, AC-SAFE-01)", () => {
+  it("runs the first-Start path checks when re-creating the saved folder: one now inside a checkout is refused", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    // A checkout of this repository now sits around the missing saved folder.
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "elsewhere", dirname(saved), "develop");
+    await h.engine.folderGuard({ gather: true });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(panel.fields.worktreePath).toBe(saved.replace(process.env.HOME ?? "\0", "~"));
+    expect(panel.fieldErrors).toEqual({ worktreePath: "That folder is inside a checkout of this repository. Choose one outside it." });
+    expect(await start(h)).toMatchObject({ ok: false, status: 409 });
+    expect(existsSync(saved)).toBe(false);
+  });
+
+  it("clears git's stale record first when a base-branch start's Worktree is edited to the missing saved folder", async () => {
+    const h = await landedThenStopped();
+    const execution = h.engine.record.executionId!;
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain("prunable");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: { worktreePath: saved } });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("base");
+    expect(panel.fieldErrors).toEqual({});
+    expect(panel.preview.lets.map(row => text(row.parts))).toContain(`Clear git’s record of the missing folder ${saved.replace(process.env.HOME ?? "\0", "~")}`);
+
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.record.executionId).not.toBe(execution);
+    expect(h.engine.record.repositories[0]!.worktreePath).toBe(saved);
+    expect(git(h.sandbox, saved, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feature/customer-returns-2");
+    const list = git(h.sandbox, h.repository, "worktree", "list", "--porcelain");
+    expect(list).not.toContain("prunable");
+    // The earlier branch is untouched.
+    git(h.sandbox, h.repository, "rev-parse", "--verify", "refs/heads/feature/customer-returns");
+  });
+
+  /** A failed existing-branch start that made its worktree of the run's branch at `folder`, then stopped before saving. */
+  function failedBranchStart(h: Harness, folder: string, workspaceFolder: string, done: string[]) {
+    git(h.sandbox, h.repository, "worktree", "add", "-q", folder, "feature/customer-returns");
+    const settings = { ...structuredClone(h.engine.record.settings), worktreePath: folder, workspaceFolder };
+    const repositories = [{ name: "acme-shop", kind: "prd" as const, github: "acme/acme-shop", mainCheckoutPath: h.repository, baseBranch: "develop", branch: "feature/customer-returns", worktreePath: folder }];
+    writeStartIntent(h.stateDirectory, { formatVersion: 1, id: "intent-branch", commandId: "earlier-branch-start", executionId: h.engine.record.executionId!, kind: "branch", factsId: "a".repeat(64), previewId: "b".repeat(64), createdAt: new Date().toISOString(), settings, repositories,
+      steps: plannedSteps("branch", repositories, false).map(row => done.includes(row.name) ? { ...row, state: "done" as const } : row.name === "save" ? { ...row, state: "failed" as const, error: "stopped" } : row), state: "failed" });
+  }
+
+  it("resumes a failed base-branch start into the saved folder whose plan had no clear step, clearing git's record first", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    const base = git(h.sandbox, h.repository, "rev-parse", "origin/develop").trim();
+    const settings = { ...structuredClone(h.engine.record.settings), featureBranch: "feature/customer-returns-2", worktreePath: saved, workspaceFolder: join(h.sandbox.root, ".worktrees", "customer-returns-2") };
+    const repositories = [{ name: "acme-shop", kind: "prd" as const, github: "acme/acme-shop", mainCheckoutPath: h.repository, baseBranch: "develop", baseCommit: base, branch: "feature/customer-returns-2", worktreePath: saved }];
+    // The earlier attempt planned no clear, and its worktree step failed on git's record of the missing folder.
+    writeStartIntent(h.stateDirectory, { formatVersion: 1, id: "intent-base", commandId: "earlier-base-start", executionId: h.engine.record.executionId!, kind: "base", factsId: "a".repeat(64), previewId: "b".repeat(64), createdAt: new Date().toISOString(), settings, repositories,
+      steps: plannedSteps("base", repositories, false).map(row => row.name === "worktree:acme-shop" ? { ...row, state: "failed" as const, error: "already registered" } : row), state: "failed", newExecutionId: "new-execution-2" });
+    await h.engine.folderGuard({ gather: true });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("base");
+    expect(panel.fields.worktreePath).toBe(saved.replace(process.env.HOME ?? "\0", "~"));
+    expect(panel.preview.lets.map(row => text(row.parts))).toContain(`Clear git’s record of the missing folder ${saved.replace(process.env.HOME ?? "\0", "~")}`);
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readStartIntent(h.stateDirectory, "earlier-base-start")!.steps.map(row => [row.name, row.state])).toEqual([["clear:acme-shop", "done"], ["worktree:acme-shop", "done"], ["plan", "done"], ["activate", "done"]]);
+    expect(git(h.sandbox, saved, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feature/customer-returns-2");
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).not.toContain("prunable");
+  });
+
+  it("picks up a failed existing-branch start's own worktree in the suffixed folder when the saved path holds something else", async () => {
+    const h = await landedThenStopped();
+    const execution = h.engine.record.executionId!;
+    const saved = h.engine.worktreePath;
+    git(h.sandbox, h.repository, "worktree", "remove", "--force", saved);
+    mkdirSync(saved, { recursive: true });
+    writeFileSync(join(saved, "notes.txt"), "someone else's\n");
+    const workspace = join(h.sandbox.root, ".worktrees", "customer-returns-2");
+    const moved = join(workspace, "acme-shop");
+    failedBranchStart(h, moved, workspace, ["worktree:acme-shop"]);
+
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.featureBranch.elsewhere).toBeUndefined();
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(panel.fields.worktreePath).toBe(moved.replace(process.env.HOME ?? "\0", "~"));
+    expect(panel.fields.workspaceFolder).toBe(workspace);
+    expect(panel.fieldErrors).toEqual({});
+
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.record.executionId).toBe(execution);
+    expect(h.engine.record.repositories[0]!.worktreePath).toBe(moved);
+    expect(h.engine.record.settings.workspaceFolder).toBe(workspace);
+    expect(readStartIntent(h.stateDirectory, "earlier-branch-start")!.state).toBe("resumed");
+    expect(readFileSync(join(saved, "notes.txt"), "utf8")).toBe("someone else's\n");
+  });
+
+  it("picks up a failed existing-branch start's own worktree in an edited folder while the saved folder is missing", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    // The failed start had already cleared git's record of the missing folder.
+    git(h.sandbox, h.repository, "worktree", "prune");
+    const chosen = join(h.sandbox.root, "chosen", "acme-shop");
+    failedBranchStart(h, chosen, h.engine.record.settings.workspaceFolder, ["worktree:acme-shop"]);
+
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.featureBranch.elsewhere).toBeUndefined();
+    // Putting the saved folder back by hand would fail while the start's worktree holds the branch.
+    expect(view.restoreCommands).toEqual([]);
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(panel.fields.worktreePath).toBe(chosen.replace(process.env.HOME ?? "\0", "~"));
+    expect(panel.fieldErrors).toEqual({});
+    // Another folder would fail: the earlier Start's worktree still holds the branch.
+    await h.engine.changeFolderPanel({ start: "branch", fields: { worktreePath: join(h.sandbox.root, "other", "acme-shop") } });
+    expect(panelOf(h).fieldErrors.worktreePath).toContain("which an earlier Start made. Use that folder, or move it away and check again.");
+    await h.engine.changeFolderPanel({ start: "branch", fields: { worktreePath: chosen } });
+    expect(panelOf(h).fieldErrors).toEqual({});
+
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.record.repositories[0]!.worktreePath).toBe(chosen);
+    expect(h.engine.latestSession("2b")!.workingDirectory).toBe(chosen);
+    expect(readStartIntent(h.stateDirectory, "earlier-branch-start")!.state).toBe("resumed");
+  });
+});
+
+describe("Start's folder handling with several repositories (Phase 4 of missing worktree recovery: AC-SETUP-05, AC-SAFE-04)", () => {
+  it("runs the first-Start path checks for each re-created worktree: one now inside another repository's checkout is refused", async () => {
+    const h = await twoRepositories();
+    const workspace = dirname(h.engine.worktreePath);
+    const api = h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!;
+    rmSync(workspace, { recursive: true, force: true });
+    // A checkout of returns-api now sits where the saved workspace was, around both missing folders.
+    git(h.sandbox, api.mainCheckoutPath, "worktree", "add", "-q", "-b", "elsewhere", workspace, "develop");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(panel.fieldErrors.workspaceFolder).toContain("In acme-shop: That folder is inside a checkout of returns-api. Choose one outside it.");
+    expect(await start(h, { start: "branch" })).toMatchObject({ ok: false, status: 409 });
+    expect(existsSync(join(workspace, "acme-shop"))).toBe(false);
+  });
+
+  it("clears git's stale records first when a base-branch start's Workspace folder is edited to the missing saved workspace", async () => {
+    const h = await twoRepositories();
+    const workspace = dirname(h.engine.worktreePath);
+    rmSync(workspace, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: { workspaceFolder: workspace } });
+    const panel = panelOf(h);
+    expect(panel.fieldErrors).toEqual({});
+    const lets = panel.preview.lets.map(row => text(row.parts));
+    for (const name of ["acme-shop", "returns-api"]) expect(lets).toContain(`Clear git’s record of the missing folder ${join(workspace, name).replace(process.env.HOME ?? "\0", "~")}`);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    for (const entry of record.repositories) {
+      expect(entry.worktreePath).toBe(join(workspace, entry.name));
+      expect(git(h.sandbox, entry.worktreePath, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feature/customer-returns-2");
+      expect(git(h.sandbox, entry.mainCheckoutPath, "worktree", "list", "--porcelain")).not.toContain("prunable");
+    }
   });
 });

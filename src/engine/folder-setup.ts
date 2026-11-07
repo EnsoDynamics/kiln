@@ -15,7 +15,7 @@ import { inBaseBranch, type FolderMissingView, type RepositoryRead } from "./fol
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
-import { baseBranchChoices, checkWorkspaceFolder, checkWorktreePath, comparable, defaultBaseBranch, displayPath, expandHome, isWithin, joinNames, realPathOfNearestAncestor } from "./worktree-setup.js";
+import { baseBranchChoices, checkWorkspaceFolder, checkWorkspaceFolderPlacement, checkWorktreePath, comparable, defaultBaseBranch, displayPath, expandHome, isWithin, joinNames, realPathOfNearestAncestor } from "./worktree-setup.js";
 import { stillOwnArtifacts, type FolderSetupStart } from "./folder-setup-start.js";
 import { bindPreparation } from "./continuation-readiness.js";
 
@@ -117,6 +117,21 @@ function unrecorded(worktrees: WorktreeEntry[] | undefined, folder: string): boo
   if (!worktrees) return false;
   const wanted = comparable(realPathOfNearestAncestor(resolve(folder)));
   return !worktrees.some(tree => isWithin(comparable(tree.path), wanted) || isWithin(comparable(realPathOfNearestAncestor(resolve(tree.path))), wanted));
+}
+
+/**
+ * The worktree a failed existing-branch start made at this folder, still on the run's branch, which
+ * the next Start picks up instead of treating as taken (AC-SAFE-01: it does only what is still missing).
+ */
+export function ownStartFolder(context: Pick<PanelContext, "intent" | "view">, name: string, folder: string): boolean {
+  const intent = context.intent;
+  if (intent?.kind !== "branch" || intent.state !== "failed") return false;
+  const row = intent.repositories.find(repository => repository.name === name);
+  const path = expandHome(folder);
+  if (!row || comparable(expandHome(row.worktreePath)) !== comparable(path) || !existsSync(path)) return false;
+  const worktrees = context.view.reads.repositories.find(read => read.name === name)?.worktrees;
+  const tree = worktrees ? worktreeAt(worktrees, path) : undefined;
+  return tree !== undefined && tree.prunable === undefined && tree.branch === row.branch;
 }
 
 export function suffixedFolder(record: PrdRecord, prdFolder: string, n: number): string {
@@ -320,17 +335,24 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     ...sharedFields(record, { ...draft.edits.branch, ...draft.edits.base }),
   };
   const folders = Object.fromEntries(set.map(r => [r.name, multi ? join(expandHome(fields.workspaceFolder), r.name) : expandHome(fields.worktreePath)]));
+  // A folder edited to a missing saved folder that git still records: Start clears that one record first (AC-SAFE-04).
+  const clearRecords: string[] = [];
+  for (const repository of set) {
+    const read = reads.repositories.find(one => one.name === repository.name);
+    if (read?.check.state !== "missing" || comparable(folders[repository.name]!) !== comparable(read.check.savedFolder)) continue;
+    if (read.worktrees && worktreeAt(read.worktrees, read.check.savedFolder)?.prunable !== undefined) clearRecords.push(read.check.savedFolder);
+  }
 
   // Field checks, as Documents found runs them.
   const fieldErrors: Record<string, string> = {};
   const ownFolder = (path: string) => !!own && Object.values(own.repositories).some(r => comparable(expandHome(r.worktreePath)) === comparable(expandHome(path)));
   if (multi) {
     if (!ownFolder(join(fields.workspaceFolder, prdRead.name))) {
-      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath), fields.workspaceFolder);
+      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath), fields.workspaceFolder, clearRecords);
       if (error) fieldErrors.workspaceFolder = error;
     }
   } else if (!ownFolder(fields.worktreePath)) {
-    const error = await checkWorktreePath(git, set[0]!.mainCheckoutPath, fields.worktreePath);
+    const error = await checkWorktreePath(git, set[0]!.mainCheckoutPath, fields.worktreePath, clearRecords);
     if (error) fieldErrors.worktreePath = error;
   }
   const branchError = await newBranchError(git, set, fields.featureBranch, own?.settings.featureBranch, taken);
@@ -412,7 +434,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     choice: { sha: prdTip, total: leaves.length, done: done.length, ...(holdsAllWork === undefined ? {} : { holdsAllWork }), behindBase: false, line },
     fields, fixed: ["agentId"], fieldErrors,
     helpLines: { folder: multi ? "New: a folder named for the new branch, with a new worktree of each repository." : "New: a folder named for the new branch.", featureBranch: "New, so this run’s earlier branch and pull request stay separate." },
-    repositories: set, leftOut, folders, baseCommits, clearRecords: [], createLocal: {}, plan,
+    repositories: set, leftOut, folders, baseCommits, clearRecords, createLocal: {}, plan,
     preview: { done: done.length ? `${phaseList(done)} done on ${prdBase}` : "No phase is done yet", run: run.map((leaf, index) => ({ id: leaf.id, title: leaf.title, note: index === 0 ? "runs first" : "then" })), again, ...(caution.length ? { caution } : {}), startLabel: `Set up & start Phase ${run[0]!.id}` },
     runIds: run.map(leaf => leaf.id), suffix,
   };
@@ -438,7 +460,7 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
       let n = 2;
       for (; n < 1000; n++) {
         const folder = suffixedFolder(record, context.prdFolder, n);
-        if (empty(folder) && reads.repositories.every(other => unrecorded(other.worktrees, folder))) break;
+        if (empty(folder) && reads.repositories.every(other => unrecorded(other.worktrees, folder)) || ownStartFolder(context, read.name, join(folder, read.name))) break;
       }
       movedFolder = suffixedFolder(record, context.prdFolder, n);
       folders[read.name] = join(movedFolder, read.name);
@@ -459,14 +481,26 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
     bases: Object.fromEntries(reads.repositories.filter(read => read.entry.kind !== "prd").map(read => [read.name, read.entry.baseBranch])),
     ...sharedFields(record, { ...draft.edits.base, ...draft.edits.branch }),
   };
+  // The checks a worktree path gets at a first Start, for every folder Start creates; git's record of
+  // a missing saved folder that Start clears first counts as absent (Path checks with a stale record).
   const fieldErrors: Record<string, string> = {};
-  if (!multi && failing.length) {
-    const path = folders[prdRead.name]!;
-    // The stale record at the saved path counts as absent when nothing is there: Start removes it first (Path checks with a stale record).
-    const reCreating = comparable(path) === comparable(prdRead.check.savedFolder) && prdRead.check.state === "missing";
-    if (!reCreating) {
-      const error = await checkWorktreePath(git, expandHome(prdRead.entry.mainCheckoutPath), path);
-      if (error) fieldErrors.worktreePath = error;
+  const runCheckouts = reads.repositories.map(read => ({ name: read.name, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath) }));
+  for (const read of failing) {
+    const path = folders[read.name]!;
+    if (ownStartFolder(context, read.name, path)) continue;
+    // A failed start's own worktree elsewhere still holds the branch, and git allows a branch in one folder at a time.
+    const earlier = context.intent?.repositories.find(row => row.name === read.name);
+    if (earlier && ownStartFolder(context, read.name, earlier.worktreePath)) {
+      const error = `${branch} is checked out in ${displayPath(expandHome(earlier.worktreePath))}, which an earlier Start made. Use that folder, or move it away and check again.`;
+      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${read.name}: ${error}` : `In ${read.name}: ${error}`;
+      else fieldErrors.worktreePath = error;
+      continue;
+    }
+    const error = await checkWorktreePath(git, expandHome(read.entry.mainCheckoutPath), path, clearRecords)
+      ?? (multi ? await checkWorkspaceFolderPlacement(git, runCheckouts, path, clearRecords) : undefined);
+    if (error) {
+      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${read.name}: ${error}` : `In ${read.name}: ${error}`;
+      else fieldErrors.worktreePath = error;
     }
   }
 

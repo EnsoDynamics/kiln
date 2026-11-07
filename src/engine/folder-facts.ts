@@ -117,6 +117,8 @@ interface RepositoryReads {
   worktrees?: WorktreeEntry[];
   localSha?: string;
   originSha?: string;
+  /** A failed existing-branch start's own worktree holds the branch, at a folder other than the saved one. */
+  startFolderHoldsBranch?: boolean;
 }
 
 const leavesOf = <T extends { splitInto?: string[] | undefined }>(phases: T[]) => phases.filter(phase => phase.splitInto === undefined);
@@ -125,16 +127,17 @@ const leavesOf = <T extends { splitInto?: string[] | undefined }>(phases: T[]) =
  * The read-only facts for every set-up repository of a run whose folder check failed. Reads run
  * per repository in parallel under the signal the engine passes (its reconciliation deadline).
  */
-export async function gatherFolderFacts(input: { git: GitContext; record: PrdRecord; check: FolderCheck; prdDirectoryFromRoot: string; now?: Date }): Promise<FolderMissingView> {
+export async function gatherFolderFacts(input: { git: GitContext; record: PrdRecord; check: FolderCheck; prdDirectoryFromRoot: string; now?: Date; startFolders?: Record<string, string> }): Promise<FolderMissingView> {
   const { git, record, check } = input;
   const branch = record.settings.featureBranch;
-  const reads = await Promise.all(check.repositories.map(classification => readRepository(git, record, classification, branch)));
+  const reads = await Promise.all(check.repositories.map(classification => readRepository(git, record, classification, branch, input.startFolders?.[classification.name])));
   const sources: { basePlan?: PlanSource; featurePlan?: PlanSource } = {};
   const plans = await readPlans(git, record, reads, input.prdDirectoryFromRoot, sources);
   // The existing-branch start depends on the feature plan too (The Facts, "What can't be checked").
   const existingBranch = plans.featurePlanFailed ? { available: "unknown" as const, reason: `Kiln couldn’t read the plan on ${branch}.` } : availability(reads);
   delete plans.featurePlanFailed;
-  const restoreCommands = existingBranch.available === true
+  // A failed start's own worktree holds the branch, so putting the saved folder back by hand would fail.
+  const restoreCommands = existingBranch.available === true && !reads.some(read => read.startFolderHoldsBranch)
     ? reads.filter(read => read.check.state === "missing").flatMap(read => {
       const shared = shellWord(displayPath(expandHome(read.entry.mainCheckoutPath)));
       const onlyOrigin = !read.facts.featureBranch.local && !!read.facts.featureBranch.origin;
@@ -147,7 +150,8 @@ export async function gatherFolderFacts(input: { git: GitContext; record: PrdRec
   return { checkedAt: (input.now ?? new Date()).toISOString(), ...body, factsId, reads: detail };
 }
 
-async function readRepository(git: GitContext, record: PrdRecord, check: FolderClassification, branch: string): Promise<RepositoryReads> {
+/** `startFolder`: the folder a failed existing-branch start made on the branch, which is not "another folder" (AC-SAFE-01). */
+async function readRepository(git: GitContext, record: PrdRecord, check: FolderClassification, branch: string, startFolder?: string): Promise<RepositoryReads> {
   const entry = record.repositories.find(candidate => candidate.name === check.name)!;
   const main = check.mainCheckoutPath;
   const facts: FolderMissingRepository = { name: entry.name, savedFolder: displayPath(check.savedFolder), branch, ...(entry.setupCompletedAt ? { setUpAt: entry.setupCompletedAt } : {}), state: check.state, ...(check.holds ? { holds: check.holds } : {}), featureBranch: {}, unknown: [] };
@@ -168,8 +172,10 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
     reads.worktrees = worktrees;
     facts.gitRecord = worktreeAt(worktrees, check.savedFolder) ? "listed" : "none";
     const saved = worktreeAt(worktrees, check.savedFolder);
+    const started = startFolder ? worktreeAt(worktrees, startFolder) : undefined;
     for (const worktree of worktrees.filter(one => one.branch === branch)) {
       const isSaved = worktree === saved;
+      if (worktree === started && worktree.prunable === undefined && exists(worktree.path)) { reads.startFolderHoldsBranch = !isSaved; continue; }
       if (exists(worktree.path)) {
         // A saved folder that couldn't be checked leaves availability unknown, never "elsewhere".
         if (!isSaved || check.state === "holds_something_else") facts.featureBranch.elsewhere ??= displayPath(worktree.path);

@@ -27,7 +27,7 @@ export interface FolderSetupRepository {
   worktreePath: string;
   /** Existing-branch starts, when only origin has the branch: origin's tip. */
   createLocalFromOrigin?: string;
-  /** Existing-branch starts: the missing saved folder whose stale record Start clears (AC-SAFE-04). */
+  /** The missing saved folder whose stale record Start clears before creating the worktree (AC-SAFE-04). */
   clearStaleRecord?: string;
 }
 
@@ -100,6 +100,7 @@ export async function step(intent: FolderSetupStart, name: string, save: () => v
 export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupRepository[], multi: boolean): FolderSetupStart["steps"] {
   const where = (repository: FolderSetupRepository) => multi ? ` in ${repository.name}` : "";
   if (kind === "base") return [
+    ...repositories.filter(repository => repository.clearStaleRecord).map(repository => ({ name: `clear:${repository.name}`, label: `Clear git’s record of the missing folder${where(repository)}`, state: "pending" as const })),
     ...repositories.map(repository => ({ name: `worktree:${repository.name}`, label: `Create ${repository.branch} and its folder${where(repository)}`, state: "pending" as const })),
     { name: "plan", label: "Read the plan in the new folder", state: "pending" },
     { name: "activate", label: "Start the fresh execution", state: "pending" },
@@ -161,7 +162,7 @@ export async function createLocalBranch(git: GitContext, repository: FolderSetup
 }
 
 /**
- * Existing-branch start, step 2 (AC-SAFE-04): `git worktree remove` of the one stale record, only
+ * Before either start's worktree step (AC-SAFE-04): `git worktree remove` of the one stale record, only
  * while git still marks it `prunable` and nothing is at its path, rechecked immediately before.
  */
 export async function clearStaleRecord(git: GitContext, repository: FolderSetupRepository): Promise<void> {

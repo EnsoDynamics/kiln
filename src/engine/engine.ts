@@ -667,8 +667,10 @@ export class Engine {
   private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
     // Commands that judge or start work rerun the folder check first; the live and settings controls
     // only refuse while the mode is set (The Folder Check). Kiln's own resume at the end of a usage
-    // wait is checked where it dispatches, by the drive loop's guard.
-    if (FOLDER_CHECKED_ACTIONS.has(action) && receipt.source !== "automatic") {
+    // wait is checked in its wait check, before the completion check (recheckWait).
+    if (FOLDER_CHECKED_ACTIONS.has(action) && receipt.source === "automatic") {
+      if (this.folderMissing) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
+    } else if (FOLDER_CHECKED_ACTIONS.has(action)) {
       const refused = await this.folderRefusal();
       if (refused) return refused;
     } else if (this.folderMissing && action !== "folder-setup-start" && !action.startsWith("continuation-")) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
@@ -699,7 +701,7 @@ export class Engine {
       case "waive-and-advance": return this.markComplete(inputs, receipt);
       case "reply": case "resume":
         this.controlDispatch = receipt;
-        answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume"), { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
+        answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
         if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
         if (answer.ok && answer.noteSkipped) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced_reply_not_sent" }; }
         if (answer.ok && answer.outcome !== "already_complete") {
@@ -2749,7 +2751,7 @@ export class Engine {
     const changedStates = this.folderMissing && JSON.stringify(this.folderMissing.folders.repositories.map(r => [r.name, r.state, r.holds])) !== JSON.stringify(folders.repositories.map(r => [r.name, r.state, r.holds]));
     if (entering || gather || changedStates) {
       const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-      const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now() });
+      const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now(), ...this.startFolders() });
       this.folderMissing = { ...view, folders };
       await this.refreshFolderPanel();
     } else this.folderMissing = { ...this.folderMissing!, folders: { ...folders, checkedAt: this.folderMissing!.folders.checkedAt } };
@@ -2813,6 +2815,13 @@ export class Engine {
     const failed = intents.filter(intent => intent.state === "failed").at(-1);
     if (failed) this.startIntentsMayBeOpen = true;
     return failed;
+  }
+
+  /** The folders a failed existing-branch start made, which the facts and the next Start recognize as its own (AC-SAFE-01). */
+  private startFolders(): { startFolders?: Record<string, string> } {
+    const intent = this.failedStartIntent();
+    if (intent?.kind !== "branch") return {};
+    return { startFolders: Object.fromEntries(intent.repositories.map(repository => [repository.name, expandHome(repository.worktreePath)])) };
   }
 
   /** Every folder passes: a failed or interrupted start intent is superseded, its artifacts left in place (The Folder Check). */
@@ -2981,7 +2990,7 @@ export class Engine {
     const folders = await checkFolders(this.git, this.record, this.now());
     if (folders.passed) { await this.leaveFolderMissing(); return { ok: false, code: "folder_missing_resolved", reason: "The run’s folders are back, and Kiln checked the run again. Nothing was set up.", status: 409 }; }
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now() });
+    const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now(), ...this.startFolders() });
     this.folderMissing = { ...view, folders };
     const context = await this.folderPanelContext(view);
     const panel = await buildPanel(context, this.folderDraft);
@@ -3011,7 +3020,9 @@ export class Engine {
     const earlier = this.failedStartIntent();
     let intent: FolderSetupStart;
     if (earlier && earlier.kind === kind && names(earlier) === JSON.stringify(repositories.map(r => [r.name, r.branch, comparable(expandHome(r.worktreePath))]))) {
-      intent = { ...earlier, settings, factsId: view.factsId, previewId: panel.previewId, state: "in_progress", repositories: earlier.repositories.map((row, index) => ({ ...repositories[index]!, ...(row.baseCommit && earlier.steps.some(s => s.name === `worktree:${row.name}` && s.state === "done") ? { baseCommit: row.baseCommit } : {}) })) };
+      // The steps follow the new build (a clear it now needs is added), keeping what the earlier attempt did.
+      const steps = plannedSteps(kind, repositories, build.repositories.length > 1).map(planned => earlier.steps.find(row => row.name === planned.name) ?? planned);
+      intent = { ...earlier, settings, steps, factsId: view.factsId, previewId: panel.previewId, state: "in_progress", repositories: earlier.repositories.map((row, index) => ({ ...repositories[index]!, ...(row.baseCommit && earlier.steps.some(s => s.name === `worktree:${row.name}` && s.state === "done") ? { baseCommit: row.baseCommit } : {}) })) };
     } else {
       if (earlier) {
         // A different start first checks that each artifact the earlier one created is still its own and untouched.
@@ -3058,6 +3069,7 @@ export class Engine {
 
   /** From the base branch (AC-SETUP-04): branch and folder per repository, the plan, preparation, then the fresh execution. */
   private async runBaseStart(intent: FolderSetupStart, build: StartBuild, save: () => void, receipt: Receipt): Promise<void> {
+    for (const repository of intent.repositories.filter(row => row.clearStaleRecord)) await step(intent, `clear:${repository.name}`, save, () => clearStaleRecord(this.git, repository));
     for (const repository of intent.repositories) await step(intent, `worktree:${repository.name}`, save, () => createBranchAndFolder(this.git, repository));
     const prd = intent.repositories.find(repository => repository.kind === "prd")!;
     let source: PlanSource | undefined;
@@ -5367,7 +5379,10 @@ export class Engine {
    * wait, with these results, unless its transcript
    * is gone, or (except at Resume now) the setting is off: then it is Needs you.
    */
-  private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping"> {
+  private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping" | "folder_missing"> {
+    // The end of a wait checks the run's folders before its completion check (AC-GONE-01); the
+    // wait stays as it is, judged again after recovery.
+    if (mode === "limit_resume" && !await this.folderGuard({ mayLeave: false })) return "folder_missing";
     const facts = this.record.phases[phaseKey]!;
     let checks: CheckResult[];
     if (phaseKey === PR_PHASE_KEY) {
@@ -5414,7 +5429,7 @@ export class Engine {
    * Resume now, or the end of a wait: `checking` is held from here until the resumed run starts
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
-  private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+  private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<Awaited<ReturnType<Engine["recheckWait"]>> | undefined> {
     if (this.reviewingRestart) return;
     if (cause === "limit_resume" && !this.commands.active) {
       if (this.commands.busy || this.checking || this.driving) return;
@@ -5436,6 +5451,7 @@ export class Engine {
     }
     if (verdict === "failed" && !this.stopping) this.requestedResume = { phaseKey, cause };
     this.kick();
+    return verdict;
   }
 
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
