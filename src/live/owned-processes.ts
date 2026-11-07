@@ -20,7 +20,13 @@ export async function captureOwnedProcesses(directory: string, pid: number, star
     });
     // Capture conservatively from saved owners before any identity read can
     // fail. Release still validates each exact PID/start identity separately.
-    const parents = new Set([pid, ...gate.tracked.map(p => p.pid), ...(gate.processObservations ?? [])]);
+    // A tracked process missing from the full inventory has exited, so release no longer waits on it.
+    // Only entries saved before the inventory ran are judged by it; dropping them keeps a long
+    // session under the release bound and its gate small.
+    const listed = new Set(rows.map(([child]) => child));
+    const gone = gate.tracked.filter(p => !listed.has(p.pid));
+    if (gone.length) await withGate(directory, state => { state.tracked = state.tracked.filter(p => !gone.some(g => g.pid === p.pid && g.startTime === p.startTime)); });
+    const parents = new Set([pid, ...gate.tracked.filter(p => listed.has(p.pid)).map(p => p.pid), ...(gate.processObservations ?? [])]);
     // Save every observed descendant before reading any new identity. A failure
     // on the first lookup cannot discard the remaining observed siblings.
     const observed = new Set<number>();

@@ -449,6 +449,10 @@ nativeIt("honors existing Claude tool restrictions before any native project che
   expect(h.engine.record.preparation!.attempts).toHaveLength(0); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
   expect(existsSync(join(h.engine.worktreePath, "check-ran.txt"))).toBe(false);
 });
+// Every step here waits on a full plan check or preparation: dozens of git commands run one after
+// another, several seconds each on a loaded machine. The browser helper's 10-second default made
+// the test fail at whichever step ran long.
+const CHECK_MS = 60_000;
 nativeIt("shows the preparation offer, unavailable source, failed check, target grant and continuing states in Chrome", async () => {
   const f = await fixture(); const { startFixtureController } = await import("../test-support/controller-server.js"); const { launchChrome } = await import("../test-support/headless-chrome.js");
   const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token }); const chrome = await launchChrome();
@@ -458,27 +462,27 @@ nativeIt("shows the preparation offer, unavailable source, failed check, target 
     for (const width of [1200, 390]) {
       const page = await chrome.open(hosted.server.address, { width, height: 1100 });
       const button = (label: string) => `Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
-      const settled = async () => { await page.waitFor(`${button("Check for new phases")} && !${button("Check for new phases")}.disabled && !document.body.innerText.includes('Showing earlier results.')`); };
+      const settled = async () => { await page.waitFor(`${button("Check for new phases")} && !${button("Check for new phases")}.disabled && !document.body.innerText.includes('Showing earlier results.')`, CHECK_MS); };
       try {
-        await settled(); await page.waitFor("document.body.innerText.includes('Readiness: Ready')");
-        await page.evaluate(`${button("Not now")}.click()`); await page.waitFor("document.body.innerText.includes('Additional work is available when you are ready.')"); expect(h.claudeCalls()).toHaveLength(0);
+        await settled(); await page.waitFor("document.body.innerText.includes('Readiness: Ready')", CHECK_MS);
+        await page.evaluate(`${button("Not now")}.click()`); await page.waitFor("document.body.innerText.includes('Additional work is available when you are ready.')", CHECK_MS); expect(h.claudeCalls()).toHaveLength(0);
         await page.evaluate(`${button("Show continuation offer")}.click()`); expect(await page.evaluate(`${button("Continue with 7 phases")}.disabled`)).toBe(false);
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true); writeFileSync(`/tmp/kiln-preparation-ready-${width}.png`, await page.screenshot());
         publish(original.replace("`wt/catalog-accessibility`", "`unavailable-source`"));
-        await page.evaluate(`${button("Check for new phases")}.click()`); await settled(); await page.waitFor("document.body.innerText.includes('restore source unavailable-source')");
+        await page.evaluate(`${button("Check for new phases")}.click()`); await settled(); await page.waitFor("document.body.innerText.includes('restore source unavailable-source')", CHECK_MS);
         writeFileSync(`/tmp/kiln-preparation-missing-${width}.png`, await page.screenshot()); expect(await page.evaluate(`${button("Continue with 7 phases")}.disabled`)).toBe(true);
         const origin = git(h.sandbox, h.repository, "config", "--get", "remote.origin.url").trim(); git(h.sandbox, h.repository, "remote", "set-url", "origin", "file:///nonexistent-kiln-preparation-proof.git");
-        await page.evaluate(`${button("Check for new phases")}.click()`); await page.waitFor("document.body.innerText.includes('Could not check for new phases') && document.body.innerText.includes('current phase count is unknown')");
+        await page.evaluate(`${button("Check for new phases")}.click()`); await page.waitFor("document.body.innerText.includes('Could not check for new phases') && document.body.innerText.includes('current phase count is unknown')", CHECK_MS);
         writeFileSync(`/tmp/kiln-preparation-failed-${width}.png`, await page.screenshot()); git(h.sandbox, h.repository, "remote", "set-url", "origin", origin);
         publish(original.replace("into this phase's branch", "into branch `develop`")); await page.evaluate(`${button("Check for new phases")}.click()`); await settled();
-        await page.waitFor("document.body.innerText.includes('Authorize early merges to github.com/fictional/comet-library / develop')");
+        await page.waitFor("document.body.innerText.includes('Authorize early merges to github.com/fictional/comet-library / develop')", CHECK_MS);
         writeFileSync(`/tmp/kiln-preparation-permission-${width}.png`, await page.screenshot());
-        await page.evaluate("document.querySelector('input[type=checkbox]').click()"); await page.waitFor("document.body.innerText.includes('Authorized for this run: github.com/fictional/comet-library / develop')");
-        await page.waitFor(`${button("Continue with 7 phases")} && !${button("Continue with 7 phases")}.disabled`); expect(h.claudeCalls()).toHaveLength(0); expect(h.engine.record.continuation).toBeUndefined();
+        await page.evaluate("document.querySelector('input[type=checkbox]').click()"); await page.waitFor("document.body.innerText.includes('Authorized for this run: github.com/fictional/comet-library / develop')", CHECK_MS);
+        await page.waitFor(`${button("Continue with 7 phases")} && !${button("Continue with 7 phases")}.disabled`, CHECK_MS); expect(h.claudeCalls()).toHaveLength(0); expect(h.engine.record.continuation).toBeUndefined();
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true); writeFileSync(`/tmp/kiln-preparation-authorized-${width}.png`, await page.screenshot());
         if (width === 1200) { publish(original); await page.evaluate(`${button("Check for new phases")}.click()`); await settled(); }
         else {
-          await page.evaluate(`${button("Continue with 7 phases")}.click()`); await page.waitFor("document.body.innerText.includes('Preparing prerequisites') && document.body.innerText.includes('Earlier deliveries')");
+          await page.evaluate(`${button("Continue with 7 phases")}.click()`); await page.waitFor("document.body.innerText.includes('Preparing prerequisites') && document.body.innerText.includes('Earlier deliveries')", CHECK_MS);
           await waitFor(() => h.claudeCalls().length === 1); writeFileSync(`/tmp/kiln-preparation-continuing-${width}.png`, await page.screenshot());
           expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
         }
