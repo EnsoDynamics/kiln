@@ -21,6 +21,15 @@ prepared but not published; its changes are included here.
 
 ## Changed
 
+- **Over SSH, `kiln run` says how to reach the view instead of reporting an error.** Kiln no
+  longer tries to open a browser on a remote machine. It prints the view's address with an
+  example `ssh -N -L` command for opening it from your own computer through a tunnel to the same
+  port. On a machine with no way to open a browser, it says to open the address yourself. Only
+  an attempt to open the browser that fails is still reported as an error.
+- **`KILN_PORT_RANGE` is a supported setting.** Set `KILN_PORT_RANGE=<first>-<last>` to give a
+  machine its own block of ports, for example when several machines are tunnelled to one
+  computer. A value that isn't two ports from 1024 to 65535, first no greater than last, stops
+  `kiln run` with a message instead of quietly using 4700-4799.
 - **`kiln --version` says when a build is not a release.** A build packed or linked from a local
   checkout now prints `(dev build, <when it was built>)` after the version. Installed releases
   print the plain version, as before.
