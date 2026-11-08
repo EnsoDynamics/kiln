@@ -780,7 +780,7 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
   const PORTAL = "~/devel/.worktrees/invoice-evidence-collection/harbor-portal";
   const OCT23 = "2026-10-23T14:10:00Z"; const OCT24 = "2026-10-24T13:12:00Z";
   const at = (sha: string) => ({ sha: sha.padEnd(40, "0"), date: OCT24 });
-  const repo = (overrides: Partial<Repo>): Repo => ({ name: "harbor-ledger", savedFolder: SAVED, branch: BR, setUpAt: OCT23, state: "missing", gitRecord: "listed", featureBranch: {}, unknown: [], ...overrides });
+  const repo = (overrides: Partial<Repo>): Repo => ({ name: "harbor-ledger", savedFolder: SAVED, branch: BR, baseBranch: "develop", baseSource: "origin", setUpAt: OCT23, state: "missing", gitRecord: "listed", featureBranch: {}, unknown: [], ...overrides });
   const developMerged = { source: "origin" as const, branch: "develop", sha: "0a3d75d".padEnd(40, "0"), total: 13, closed: 9, next: { id: "10", title: "Duplicate invoice guard" } };
   const develop = { source: "origin" as const, branch: "develop", sha: "7e21b90".padEnd(40, "0"), total: 5, closed: 3, next: { id: "4", title: "Run reports and alerts" } };
   const merged = { local: at("4c80c80"), origin: at("4c80c80"), relation: "same" as const, inBase: true };
@@ -801,7 +801,7 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
       repo({ state: "in_place", gitRecord: "listed", featureBranch: unmergedBranch, lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } }),
       repo({ name: "harbor-portal", savedFolder: PORTAL, featureBranch: { local: at("91c4e02"), origin: at("91c4e02"), relation: "same", inBase: false, notInBaseCount: 2 }, lastPushed: { sha: "91c4e02".padEnd(40, "0"), phaseId: "4", onOrigin: true, inBase: false } }),
     ], plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "matches_branch", comparedWith: "branch" }, base: develop, branchOnly: ["4"] }, restoreCommands: restore(PORTAL, "harbor-portal") },
-    unknown: { repositories: [repo({ featureBranch: { local: at("4c80c80"), inBase: true }, unknown: [`${BR} on origin`], lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", inBase: true } })],
+    unknown: { repositories: [repo({ baseSource: "local", featureBranch: { local: at("4c80c80"), inBase: true }, unknown: [`${BR} on origin`], lastPushed: { sha: "bec1115".padEnd(40, "0"), phaseId: "4", inBase: true } })],
       plans: { saved: { total: 5, done: 4, readAt: OCT24, label: "not_compared" }, base: { ...developMerged, source: "local" } }, restoreCommands: [], restoreUnknown: true },
   };
   const multi = which === "multi";

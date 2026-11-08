@@ -262,6 +262,8 @@ describe("what can't be checked, and what a base start leaves out (AC-FACTS-03, 
     const view = buildSnapshot(h.engine).folderMissing!;
     expect(view.plans.base).toMatchObject({ source: "local" });
     expect(view.repositories[0]!.featureBranch).toMatchObject({ inBase: false, notInBaseCount: 1 });
+    // Each repository says where its own base branch was read, so its facts are worded against the checkout's (Phase 8: AC-FACTS-01).
+    expect(view.repositories[0]).toMatchObject({ baseBranch: "develop", baseSource: "local" });
   });
 
   it("names the phase a deleted branch's work leaves behind, and carries a pending pause to the phase it belongs to", async () => {
@@ -1279,5 +1281,97 @@ describe("starting-point lines and the existing-branch start's left-behind work 
     expect(panel.choices.branch).toMatchObject({ holdsAllWork: true, line: `Last commit ${tip} · 4 phases, 2 done. Has all of this run’s work.` });
     expect(panel.preview.again).toEqual([]);
     expect(panel.preview.caution).toBeUndefined();
+  });
+});
+
+describe("the folder facts (Phase 8 of missing worktree recovery: AC-FACTS-01, AC-FACTS-02, AC-FACTS-03)", () => {
+  /** The checkout's branch merged into develop; origin's copy then gets one more commit that develop lacks. */
+  async function originAheadOfMergedCheckout(): Promise<Harness> {
+    const h = await landedThenStopped();
+    mergedWithClosed(h, ["phase-1-return-intake.md"]);
+    const worktree = h.engine.worktreePath;
+    // The late work closes Phase 2b, which the saved plan has open.
+    const phase = join(worktree, "docs/prds/customer-returns/phase-2b-store-credit.md");
+    const [title, ...rest] = readFileSync(phase, "utf8").split("\n");
+    writeFileSync(phase, [title, "**Closed:** 2026-11-06", ...rest].join("\n"));
+    writeFileSync(join(worktree, "src/late.txt"), "late\n");
+    git(h.sandbox, worktree, "add", "src/late.txt", phase);
+    git(h.sandbox, worktree, "commit", "-qm", "Late work, pushed from elsewhere");
+    git(h.sandbox, worktree, "push", "-q", "origin", "feature/customer-returns");
+    git(h.sandbox, worktree, "reset", "-q", "--hard", "HEAD~1");
+    rmSync(worktree, { recursive: true, force: true });
+    return h;
+  }
+
+  it("counts origin's copy of the branch when it holds work the base branch lacks, though the checkout's tip is in it", async () => {
+    const h = await originAheadOfMergedCheckout();
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.featureBranch).toMatchObject({ relation: "behind", inBase: true });
+    // The run's latest work lives on origin's copy of the branch, so the saved plan is compared with the plan there,
+    // which closes Phase 2b: not with develop's, nor the checkout's older tip, where 2b is open.
+    expect(view.plans.saved).toMatchObject({ comparedWith: "branch", label: "out_of_date" });
+    expect(view.plans.branchOnly).toEqual(["2b"]);
+    expect(view.repositories[0]!.unknown).toEqual([]);
+  });
+
+  it.skipIf(process.platform === "win32")("names a failed read of whether origin's copy is in the base branch, and compares nothing", async () => {
+    const h = await originAheadOfMergedCheckout();
+    const originTip = git(h.sandbox, h.repository, "ls-remote", "origin", "refs/heads/feature/customer-returns").split(/\s+/)[0]!;
+    const develop = git(h.sandbox, h.repository, "ls-remote", "origin", "refs/heads/develop").split(/\s+/)[0]!;
+    failingGit(h, `"merge-base --is-ancestor ${originTip} ${develop}"`);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.unknown).toContain("whether origin’s feature/customer-returns is in develop");
+    expect(view.plans.saved.label).toBe("not_compared");
+    // The existing branch is unavailable for a known reason (behind origin's), so the unknown read doesn't block the base start.
+    expect(panelOf(h).choices.branch).toEqual({ unavailable: expect.stringContaining("behind origin’s") });
+  });
+
+  it.skipIf(process.platform === "win32")("names a failed read of the plan at origin's copy of the branch, and compares nothing", async () => {
+    const h = await originAheadOfMergedCheckout();
+    const originTip = git(h.sandbox, h.repository, "ls-remote", "origin", "refs/heads/feature/customer-returns").split(/\s+/)[0]!;
+    failingGit(h, `"ls-tree -r -z -l ${originTip}"*`);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.unknown).toEqual(["the plan on origin’s feature/customer-returns"]);
+    expect(view.plans.saved.label).toBe("not_compared");
+    expect(view.plans).not.toHaveProperty("branchOnly");
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("names a folder git records the branch at that Kiln can't stat, rather than calling it a folder that no longer exists", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    git(h.sandbox, h.repository, "worktree", "prune");
+    const locked = join(h.sandbox.root, "locked");
+    mkdirSync(locked);
+    git(h.sandbox, h.repository, "worktree", "add", "-q", join(locked, "scratch"), "feature/customer-returns");
+    chmodSync(locked, 0o000);
+    try {
+      await h.engine.folderGuard({ gather: true });
+      const view = buildSnapshot(h.engine).folderMissing!;
+      const repository = view.repositories[0]!;
+      expect(repository.featureBranch).not.toHaveProperty("recordedAtMissing");
+      expect(repository.featureBranch).not.toHaveProperty("elsewhere");
+      expect(repository.featureBranch.elsewhereUnknown).toBe(true);
+      expect(repository.unknown).toEqual([expect.stringMatching(/^the folder git records feature\/customer-returns at, \S*locked\/scratch \(EACCES/)]);
+      // The branch's availability is unknown, so nothing is offered on that wrong reason and no command is shown.
+      expect(h.engine.folderMissing!.existingBranch.available).toBe("unknown");
+      expect(JSON.stringify(view.panel)).not.toContain("no longer exists");
+      expect(view.restoreCommands).toEqual([]);
+    } finally { chmodSync(locked, 0o755); }
+  });
+
+  it("publishes each repository's own base branch and where it was read", async () => {
+    const h = await twoRepositories();
+    const api = h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!;
+    // returns-api delivers into main, which has a commit develop lacks.
+    git(h.sandbox, api.mainCheckoutPath, "push", "-q", "origin", "develop:main");
+    (h.engine.record.repositories.find(entry => entry.name === "returns-api")! as { baseBranch: string }).baseBranch = "main";
+    rmSync(api.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories.map(repository => [repository.name, repository.baseBranch, repository.baseSource])).toEqual([["acme-shop", "develop", "origin"], ["returns-api", "main", "origin"]]);
+    expect(view.repositories.flatMap(repository => repository.unknown)).toEqual([]);
   });
 });

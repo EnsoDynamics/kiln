@@ -23,6 +23,9 @@ export interface FolderMissingRepository {
   /** For display, under `~/`. */
   savedFolder: string;
   branch: string;
+  /** This repository's own base branch (AC-FACTS-02), and where it was read; `baseSource` is absent when neither could be read. */
+  baseBranch: string;
+  baseSource?: "origin" | "local";
   setUpAt?: string;
   state: FolderState;
   holds?: string;
@@ -42,6 +45,8 @@ export interface FolderMissingRepository {
     elsewhere?: string;
     /** A path git still records the branch at, that no longer exists and is not the saved folder. */
     recordedAtMissing?: string;
+    /** A folder git records the branch at couldn't be checked on disk, so whether it is checked out in another folder is unknown (AC-FACTS-03). */
+    elsewhereUnknown?: true;
   };
   lastPushed?: { sha: string; phaseId: string; onOrigin?: boolean; inBase?: boolean };
   /** Reads that failed, worded for the page. */
@@ -119,6 +124,8 @@ interface RepositoryReads {
   originSha?: string;
   /** A failed existing-branch start's own worktree holds the branch, at a folder other than the saved one. */
   startFolderHoldsBranch?: boolean;
+  /** Origin's copy of the branch, when it holds the run's latest work and the checkout's tip is in the base branch (AC-FACTS-02). */
+  workTip?: string;
 }
 
 const leavesOf = <T extends { splitInto?: string[] | undefined }>(phases: T[]) => phases.filter(phase => phase.splitInto === undefined);
@@ -154,7 +161,7 @@ export async function gatherFolderFacts(input: { git: GitContext; record: PrdRec
 async function readRepository(git: GitContext, record: PrdRecord, check: FolderClassification, branch: string, startFolder?: string): Promise<RepositoryReads> {
   const entry = record.repositories.find(candidate => candidate.name === check.name)!;
   const main = check.mainCheckoutPath;
-  const facts: FolderMissingRepository = { name: entry.name, savedFolder: displayPath(check.savedFolder), branch, ...(entry.setupCompletedAt ? { setUpAt: entry.setupCompletedAt } : {}), state: check.state, ...(check.holds ? { holds: check.holds } : {}), featureBranch: {}, unknown: [] };
+  const facts: FolderMissingRepository = { name: entry.name, savedFolder: displayPath(check.savedFolder), branch, baseBranch: entry.baseBranch, ...(entry.setupCompletedAt ? { setUpAt: entry.setupCompletedAt } : {}), state: check.state, ...(check.holds ? { holds: check.holds } : {}), featureBranch: {}, unknown: [] };
   const reads: RepositoryReads = { entry, check, facts, gone: "unknown", workNotInBase: "unknown", worktreesRead: false, originRead: false, localRead: false };
   if (check.state === "unknown" && check.unknown) facts.unknown.push(check.unknown);
 
@@ -175,8 +182,15 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
     const started = startFolder ? worktreeAt(worktrees, startFolder) : undefined;
     for (const worktree of worktrees.filter(one => one.branch === branch)) {
       const isSaved = worktree === saved;
-      if (worktree === started && worktree.prunable === undefined && exists(worktree.path)) { reads.startFolderHoldsBranch = !isSaved; continue; }
-      if (exists(worktree.path)) {
+      const present = presence(worktree.path);
+      // A folder Kiln can't stat is neither there nor gone: the read is named (AC-FACTS-03). The saved
+      // folder's own failure is already the folder check's, which leaves availability unknown.
+      if (typeof present === "string") {
+        if (!isSaved) { facts.unknown.push(`the folder git records ${branch} at, ${displayPath(worktree.path)} (${present})`); facts.featureBranch.elsewhereUnknown = true; }
+        continue;
+      }
+      if (worktree === started && worktree.prunable === undefined && present) { reads.startFolderHoldsBranch = !isSaved; continue; }
+      if (present) {
         // A saved folder that couldn't be checked leaves availability unknown, never "elsewhere".
         if (!isSaved || check.state === "holds_something_else") facts.featureBranch.elsewhere ??= displayPath(worktree.path);
       } else if (!isSaved) facts.featureBranch.recordedAtMissing ??= displayPath(worktree.path);
@@ -206,6 +220,7 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
   // The base commit: origin's when it can be reached, else the shared checkout's own (AC-FACTS-02).
   if (originBase) reads.base = { sha: originBase, source: "origin" };
   else if (!reads.originRead && localBase.exitCode === 0) reads.base = { sha: localBase.stdout.trim(), source: "local" };
+  if (reads.base) facts.baseSource = reads.base.source;
   else if (reads.originRead && !originBase) facts.unknown.push(`${entry.baseBranch} on origin`);
   else facts.unknown.push(`your checkout’s ${entry.baseBranch}`);
 
@@ -238,8 +253,9 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
         else facts.unknown.push(`how many commits on ${branch} aren’t in ${entry.baseBranch}`);
       }
     }
-    // Origin unreachable: only the local tip having work not in the base branch settles it; origin's branch may hold more.
-    reads.workNotInBase = inBase === "unknown" ? "unknown" : !inBase ? true : reads.originRead ? false : "unknown";
+    // Origin's copy of the branch counts too, unless the local tip already has work not in the base branch
+    // (The Facts, dependency table); with origin unreachable, origin's branch may hold more.
+    reads.workNotInBase = inBase === "unknown" ? "unknown" : !inBase ? true : !reads.originRead ? "unknown" : await originWorkNotInBase(git, main, record, entry, reads, facts);
   } else if (reads.gone === true) reads.workNotInBase = false;
   else if (!reads.localRead || reads.tip && !reads.base) facts.unknown.push(`whether ${branch} is in ${entry.baseBranch}`);
 
@@ -273,8 +289,22 @@ function shellWord(word: string): string {
   return `${home}'${word.slice(home.length).replace(/'/g, `'\\''`)}'`;
 }
 
-function exists(path: string): boolean {
-  try { lstatSync(path); return true; } catch { return false; }
+/** Whether something is at `path`: only ENOENT and ENOTDIR mean absent; any other error is a read that failed, returned as its message. */
+function presence(path: string): boolean | string {
+  try { lstatSync(path); return true; }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? false : (error as Error).message;
+  }
+}
+
+/** Whether origin's copy of the branch, when it differs from the shared checkout's tip, holds commits not in the base branch. */
+async function originWorkNotInBase(git: GitContext, cwd: string, record: PrdRecord, entry: RepositoryEntry, reads: RepositoryReads, facts: FolderMissingRepository): Promise<Three> {
+  if (!reads.originSha || reads.originSha === reads.tip) return false;
+  const inBase = await inBaseBranch(git, cwd, record, entry, reads.originSha, reads.base!.sha);
+  if (inBase === "unknown") facts.unknown.push(`whether origin’s ${facts.branch} is in ${entry.baseBranch}`);
+  if (inBase === false) reads.workTip = reads.originSha;
+  return inBase === "unknown" ? "unknown" : !inBase;
 }
 
 /** The unknown-read wording for the last pushed commit; the page names these inside that commit's row (`factRows`). */
@@ -324,7 +354,7 @@ function availability(reads: RepositoryReads[]): Availability {
     if (relation === "behind" || relation === "diverged") return { available: false, reason: named(`your checkout’s branch is ${relation === "behind" ? "behind" : "diverged from"} origin’s, so its first push would be rejected.`) };
     if (multi && read.check.state === "holds_something_else") return { available: false, reason: `${read.entry.name}’s saved folder holds something else.` };
   }
-  const unknown = reads.find(read => read.gone === "unknown" || !read.worktreesRead || !read.originRead || !read.localRead || read.check.state === "unknown" || read.facts.featureBranch.local && read.facts.featureBranch.origin && !read.facts.featureBranch.relation);
+  const unknown = reads.find(read => read.gone === "unknown" || !read.worktreesRead || read.facts.featureBranch.elsewhereUnknown || !read.originRead || !read.localRead || read.check.state === "unknown" || read.facts.featureBranch.local && read.facts.featureBranch.origin && !read.facts.featureBranch.relation);
   if (unknown) return { available: "unknown", reason: unknown.originRead ? "Kiln couldn’t read everything it needs about the branch." : "Kiln couldn’t reach origin." };
   return { available: true };
 }
@@ -353,7 +383,11 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   // Where the run's latest work lives: the feature branch when it has work not in the base branch.
   if (prd.workNotInBase === "unknown") return { saved, base };
   let compared: PlannedPhase[] = basePlan; let where: "branch" | "base" = "base";
-  if (prd.workNotInBase && prd.tip) {
+  if (prd.workNotInBase && prd.workTip) {
+    // The latest work is on origin's copy, not the checkout's tip: compare with the plan there.
+    try { compared = (await observeGitPlan(git, main, directory, prd.workTip, HISTORICAL_PLAN_READ)).plan.phases; where = "branch"; }
+    catch { prd.facts.unknown.push(`the plan on origin’s ${record.settings.featureBranch}`); return { saved, base }; }
+  } else if (prd.workNotInBase && prd.tip) {
     if (!sources.featurePlan) return { saved, base, featurePlanFailed: true };
     compared = sources.featurePlan.plan.phases; where = "branch";
   }

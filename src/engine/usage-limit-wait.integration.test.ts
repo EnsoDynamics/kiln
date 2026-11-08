@@ -583,6 +583,10 @@ describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02,
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
     expect(h.claudeCalls()).toHaveLength(1);
     expect(phaseEvents(h)).not.toContain("1 done");
+    // The wait's recorded completion results stay as history, with when they were checked (Phase 8 of missing worktree recovery: AC-GONE-02).
+    const wait = h.engine.record.phases["1"]!.wait!;
+    // The wait recorded the refused run's checks, all failed: the work was finished by hand only afterwards.
+    expect(buildSnapshot(h.engine).folderMissing!.waitingResult).toEqual({ phaseId: "1", checkedAt: wait.checkedAt, passed: 0, failed: 3 });
     // The setup panel names the waiting phase, whose commits are only on the feature branch (Phase 6 of missing worktree recovery: AC-SAFE-02).
     await h.engine.changeFolderPanel({ start: "base", fields: {} });
     const panel = h.engine.folderPanel!;

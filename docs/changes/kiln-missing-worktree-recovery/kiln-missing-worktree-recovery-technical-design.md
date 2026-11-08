@@ -94,10 +94,10 @@ Per repository:
 | Git still records a worktree there | the `worktree list` entry at the saved path, with `prunable` |
 | Feature branch, local and on origin | `localBranchCommit`, `originBranches`; commit dates by `log -1 --format=%cI`. When both exist and differ: `rev-list --left-right --count` gives ahead, behind or diverged |
 | Already in the base branch | `merge-base --is-ancestor <feature tip> <base commit>`, the base commit as AC-FACTS-02 selects it. On exit 1, also check whether the tip is covered by a confirmed merge fact, using the test in `completed-plan-accounting.ts` (checkpoint not superseded or unresolved, same repository and base branch, `--is-ancestor <tip> merge.sourceHead` and `--is-ancestor merge.resultSha <base commit>`). Yes is exit 0 or covered; no is exit 1 and not covered. Exit codes other than 0 and 1 are failed reads (AC-FACTS-03), so the facts use an ancestry read that keeps the three apart. The same applies to every other ancestry fact below. This test is what "in the base branch" means everywhere in this design |
-| Checked out in another folder | a `worktree list` entry with the feature branch at a path that exists on disk and is not the run's worktree; a missing saved folder's record does not count; an entry at another absent path is reported separately as the reason in §The Setup Panel |
+| Checked out in another folder | a `worktree list` entry with the feature branch at a path that exists on disk and is not the run's worktree; a missing saved folder's record does not count; an entry at another absent path is reported separately as the reason in §The Setup Panel. Absent means `lstat` fails with ENOENT or ENOTDIR; any other error is a failed read of that path, named, leaving availability unknown |
 | Last pushed commit | the `pushedSha` with the latest `doneAt` among this repository's phase facts; then whether it is an ancestor of origin's feature tip, and whether it is in the base branch by the test above |
 
-**The plans (AC-FACTS-02).** The base commit is origin's base tip when `ls-remote` succeeds, else the shared checkout's own `refs/heads/<base>`; the page names which. Kiln reads the base plan with `observeGitPlan` at that commit in the PRD's repository, and the feature plan at the feature tip (the shared checkout's branch, else origin's). "Where the run's latest work lives" is the feature plan when its tip is not in the base branch (not an ancestor of the base commit and not covered by a confirmed merge fact), else the base plan. The saved plan is `record.plan` with its read time (§Data Models). The label is the first row of the PRD's table that applies, comparing leaf ids and closed state; counts use AC-FIND-03's rules. In a multi-repository run the plan is read from the PRD's repository only.
+**The plans (AC-FACTS-02).** The base commit is origin's base tip when `ls-remote` succeeds, else the shared checkout's own `refs/heads/<base>`; the page names which. Kiln reads the base plan with `observeGitPlan` at that commit in the PRD's repository, and the feature plan at the feature tip (the shared checkout's branch, else origin's). "Where the run's latest work lives" is the feature plan when its tip is not in the base branch (not an ancestor of the base commit and not covered by a confirmed merge fact). When that tip is in the base branch but origin's copy of the branch differs and is not, the latest work is origin's copy, and the saved plan is compared with the plan read at origin's tip (a failed read of it is named and the label is **Not compared**). Otherwise it is the base plan. The saved plan is `record.plan` with its read time (§Data Models). The label is the first row of the PRD's table that applies, comparing leaf ids and closed state; counts use AC-FIND-03's rules. In a multi-repository run the plan is read from the PRD's repository only.
 
 **What can't be checked (AC-FACTS-03).** Every read records success or its error. A failed read names itself on the page, and every value derived from it is withheld: a label becomes **Not compared**. A starting point whose availability, plan or defaults depend on a failed read is not offered. Its card shows "Couldn't check: <read>" in place of its line (`{ unavailable }`). The suggestion is AC-SETUP-02's test (existing branch available **and** has work not in the base branch, meaning its tip is neither an ancestor of the base commit nor covered by a confirmed merge fact), read with three values: true, false, or unknown when a failed read decides it. The test is false, whatever the availability, when every repository's work is known to be in the base branch, so a failed read the existing branch's availability needs (the checkout and origin relation, the feature plan, the worktree list) then withholds only that start, its card giving the availability reason in place of "Couldn't check: <read>" while the facts name the read, and the base branch is suggested if it is offered. `suggested` is computed in order: when the test is unknown, the panel is `{ blocked }`, the mockup's "can't suggest where to start yet" body with **Check again**; otherwise the test's choice is taken; when that choice is withheld by a failed read, the panel is blocked the same way; when it is unavailable for a known reason, the other choice is suggested if it is available and not withheld, else the panel is blocked (§The Setup Panel, What will run). In practice the fallback happens only when the base branch has nothing to run. Otherwise the panel shows normally, with the other start withheld if it must be. Dependencies:
 
@@ -188,11 +188,13 @@ folderMissing: {
   checkedAt: string
   repositories: [{
     name, savedFolder, branch, setUpAt,
+    baseBranch, baseSource?: "origin" | "local",  // this repository's own base and where it was read; its facts are worded against it
     state: "missing" | "holds_something_else" | "in_place" | "unknown",
     holds?: string,                          // what is there instead
     gitRecord?: "listed" | "none",           // for the saved folder
     featureBranch: { local?: Commit, origin?: Commit, relation?: "same" | "ahead" | "behind" | "diverged",
-                     inBase?: boolean, notInBaseCount?: number, elsewhere?: string },
+                     inBase?: boolean, notInBaseCount?: number, elsewhere?: string,
+                     elsewhereUnknown?: true },     // a folder git records the branch at couldn't be stat'd
     lastPushed?: { sha, phaseId, onOrigin?: boolean, inBase?: boolean },
     unknown: string[]                        // reads that failed, worded for the page
   }]
@@ -204,7 +206,11 @@ folderMissing: {
   panel: SetupPanel | { blocked: string }    // blocked: a failed read decides the suggestion (AC-FACTS-03), or neither start is available (AC-SETUP-02)
   factsId: string
   startProgress?: { done: string[], remaining: string[], error: string }
+  stoppedResult?: Results                    // the stopped phase's last completion results, as history only (AC-GONE-02)
+  waitingResult?: Results                    // the waiting phase's recorded results (PhaseWait.checks, checkedAt), as history only
 }
+
+Results: { phaseId, checkedAt, passed, failed }
 
 SetupPanel: {
   suggested: "base" | "branch", selected: "base" | "branch",

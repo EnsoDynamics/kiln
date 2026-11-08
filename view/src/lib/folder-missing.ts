@@ -89,31 +89,37 @@ function commit(sha: string, date: string | undefined): string {
 }
 
 /** The facts list (AC-FACTS-01), one row per fact, each repository's named when the run has several. */
-export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactRow[] {
+export function factRows(view: FolderMissingSnapshot): FactRow[] {
   const multi = view.repositories.length > 1;
-  // Origin unreachable: the base branch was read in the shared checkout, so what concerns origin's is unknown.
-  const localBase = "source" in view.plans.base && view.plans.base.source === "local";
   const rows: FactRow[] = [];
   const ordered = [...failing(view), ...view.repositories.filter(repository => repository.state === "in_place")];
   for (const repository of ordered) {
     const prefix = multi ? `${repository.name} · ` : "";
     const label = (text: string): Part[] => [{ text: `${prefix}${multi ? text.charAt(0).toLowerCase() + text.slice(1) : text}` }];
     const branch = repository.featureBranch;
-    const originUnknown = repository.unknown.includes(`${repository.branch} on origin`);
-    const localUnknown = repository.unknown.includes(`your checkout’s ${repository.branch}`);
+    // Each repository's own base branch, and whether it was read in the shared checkout because origin couldn't be reached (AC-FACTS-02).
+    const baseBranch = repository.baseBranch;
+    const localBase = repository.baseSource === "local";
+    const originRead = `${repository.branch} on origin`;
+    const localRead = `your checkout’s ${repository.branch}`;
+    const originUnknown = repository.unknown.includes(originRead);
+    const localUnknown = repository.unknown.includes(localRead);
     const value: Part[] = [];
+    const couldnt = (where: string): Part[] => [{ text: " · " }, { text: `${where}: couldn’t check`, tone: "unknown" }];
     if (branch.local && branch.origin) {
       if (branch.local.sha === branch.origin.sha) value.push({ text: `In your checkout and on origin, both at ${commit(branch.local.sha, branch.local.date)}` });
-      else value.push({ text: `In your checkout at ${commit(branch.local.sha, branch.local.date)}; on origin at ${commit(branch.origin.sha, branch.origin.date)}${branch.relation && branch.relation !== "same" ? ` · your checkout’s is ${branch.relation === "diverged" ? "diverged from" : branch.relation} origin’s` : ""}` });
+      else value.push({ text: `In your checkout at ${commit(branch.local.sha, branch.local.date)}; on origin at ${commit(branch.origin.sha, branch.origin.date)}${branch.relation && branch.relation !== "same" ? ` · your checkout’s is ${branch.relation === "diverged" ? "diverged from" : branch.relation === "ahead" ? "ahead of" : "behind"} origin’s` : ""}` });
     } else if (branch.local) {
       value.push({ text: `${originUnknown ? "In your checkout" : "Only in your checkout"} · last commit ${commit(branch.local.sha, branch.local.date)}` });
-      if (originUnknown) value.push({ text: " · " }, { text: "on origin: couldn’t check", tone: "unknown" });
+      if (originUnknown) value.push(...couldnt("on origin"));
     } else if (branch.origin) {
       value.push({ text: `${localUnknown ? "On origin" : "Only on origin"} · last commit ${commit(branch.origin.sha, branch.origin.date)}` });
-      if (localUnknown) value.push({ text: " · " }, { text: "in your checkout: couldn’t check", tone: "unknown" });
-    }
-    else if (branch.gone) value.push({ text: "Deleted", tone: "fail" }, { text: " locally and on origin" });
-    else value.push({ text: "Couldn’t check", tone: "unknown" });
+      if (localUnknown) value.push(...couldnt("in your checkout"));
+    } else if (branch.gone) value.push({ text: "Deleted", tone: "fail" }, { text: " locally and on origin" });
+    // One side's read found no branch and the other's failed: say what was found, and name the failed side.
+    else if (!localUnknown && originUnknown) value.push({ text: "Not in your checkout" }, ...couldnt("on origin"));
+    else if (localUnknown && !originUnknown) value.push({ text: "Not on origin" }, ...couldnt("in your checkout"));
+    else value.push({ text: "In your checkout: couldn’t check · on origin: couldn’t check", tone: "unknown" });
     // The base branch that was read: origin's, or the shared checkout's own when origin couldn't be reached (AC-FACTS-02).
     const readBase = localBase ? `your checkout’s ${baseBranch}` : baseBranch;
     if (branch.inBase === true) value.push({ text: " · " }, { text: `fully merged into ${readBase}`, tone: "pass" });
@@ -130,9 +136,9 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
       else if (last.inBase === false) pushed.push({ text: `not in ${baseBranch}`, tone: "fail" });
       else if (last.onOrigin === false) pushed.push({ text: "not on origin", tone: "fail" });
       else pushed.push({ text: "Couldn’t check", tone: "unknown" });
-      // A read that failed is named in the row, never left out (AC-FACTS-03).
-      if (last.inBase !== true && last.onOrigin === undefined && last.inBase !== undefined) pushed.push({ text: " · " }, { text: "on origin: couldn’t check", tone: "unknown" });
-      if (last.inBase === undefined && last.onOrigin !== undefined) pushed.push({ text: " · " }, { text: `in ${baseBranch}: couldn’t check`, tone: "unknown" });
+      // A read that failed is named in the row, never left out (AC-FACTS-03), even when the commit is already in the base branch.
+      if (last.onOrigin === undefined && last.inBase !== undefined) pushed.push(...couldnt("on origin"));
+      if (last.inBase === undefined && last.onOrigin !== undefined) pushed.push(...couldnt(`in ${baseBranch}`));
       pushedRow = { label: label("Last commit this run pushed"), value: pushed };
     }
     let recordRow: FactRow | undefined;
@@ -141,16 +147,24 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
       recordRow = { label: label(missing ? "Git’s record of the missing folder" : "Git’s record of the saved folder"),
         value: [{ text: repository.gitRecord === "listed" ? (missing ? "Still listed · git keeps it when a folder is deleted by hand" : "Still listed") : missing ? "None" : "None · the worktree was removed with git" }] };
     }
+    // A folder git records the branch at that couldn't be checked leaves "another folder" unknown; that read is named as its own row.
     const elsewhereRow: FactRow | undefined = repository.gitRecord === undefined ? undefined : { label: label("Checked out in another folder?"),
-      value: branch.elsewhere ? [{ text: "Yes", tone: "unknown" }, { text: ` · ${branch.elsewhere}` }] : [{ text: repository.state === "in_place" && multi ? "No · only in its saved folder" : "No" }] };
+      value: branch.elsewhere ? [{ text: "Yes", tone: "unknown" }, { text: ` · ${branch.elsewhere}` }] : branch.elsewhereUnknown ? [{ text: "Couldn’t check", tone: "unknown" }] : [{ text: repository.state === "in_place" && multi ? "No · only in its saved folder" : "No" }] };
     // One repository: what it pushed comes right after its branch; several: last, after where each branch is.
     const order = multi ? [featureRow, recordRow, elsewhereRow, pushedRow] : [featureRow, pushedRow, recordRow, elsewhereRow];
     rows.push(...order.filter((row): row is FactRow => !!row));
     // Reads the branch and pushed-commit rows already name are not repeated as rows of their own.
-    const inRow = (read: string) => read === `${repository.branch} on origin` || read === `your checkout’s ${repository.branch}` && !!branch.origin || !!pushedRow && read.startsWith("whether this run’s last pushed commit");
+    const inRow = (read: string) => read === originRead || read === localRead || !!pushedRow && read.startsWith("whether this run’s last pushed commit");
     for (const read of repository.unknown.filter(read => !inRow(read))) rows.push({ label: label(`${read.charAt(0).toUpperCase()}${read.slice(1)}`), value: [{ text: "Couldn’t check", tone: "unknown" }] });
   }
   return rows;
+}
+
+/** A waiting phase's recorded completion results, for the run's history (AC-GONE-02). */
+export function waitedChecks(result: { passed: number; failed: number }): string {
+  const total = result.passed + result.failed;
+  if (!total) return "no completion checks recorded";
+  return result.failed ? `${result.failed} of ${total} completion check${total === 1 ? "" : "s"} failed` : `${total === 1 ? "the" : `all ${total}`} completion check${total === 1 ? "" : "s"} passed`;
 }
 
 /** AC-FACTS-03's standing statements. */

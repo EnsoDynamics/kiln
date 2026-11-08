@@ -9,7 +9,7 @@
   import Pill from "../components/Pill.svelte";
   import FolderSetupPanel from "../components/FolderSetupPanel.svelte";
   import { checkFolders } from "../lib/api.js";
-  import { baseCard, day, factRows, folderLine, folderState, heading, intro, lostNote, restoreText, savedNote, savedTag, SAVED_TAGS, type Part } from "../lib/folder-missing.js";
+  import { baseCard, day, factRows, waitedChecks, folderLine, folderState, heading, intro, lostNote, restoreText, savedNote, savedTag, SAVED_TAGS, type Part } from "../lib/folder-missing.js";
   import { phaseName } from "../lib/progress.js";
   import { clockTime } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
@@ -19,8 +19,7 @@
   const view = $derived(snapshot.folderMissing!);
   const multi = $derived(view.repositories.length > 1);
   const base = $derived(baseCard(view));
-  const baseBranch = $derived(view.plans.base.branch);
-  const facts = $derived(factRows(view, baseBranch));
+  const facts = $derived(factRows(view));
   const history = $derived(snapshot.phases.filter(phase => phase.doneAt));
   const lastRan = $derived(history.map(phase => phase.doneAt!).sort().at(-1));
   let checking = $state(false);
@@ -93,12 +92,14 @@
     <button type="button" class="button" disabled={!connected || checking} onclick={checkAgain}>{checking ? "Checking…" : "Check again"}</button>
   </div>
 
-  {#if history.length || view.stoppedResult}
+  {#if history.length || view.stoppedResult || view.waitingResult}
     {@const stopped = view.stoppedResult}
+    {@const waited = view.waitingResult}
     <details class="history">
-      <summary class="small muted">This run’s history · {history.length} phase{history.length === 1 ? "" : "s"} done{stopped ? ` · ${phaseName(stopped.phaseId, snapshot)} stopped` : ""}</summary>
+      <summary class="small muted">This run’s history · {history.length} phase{history.length === 1 ? "" : "s"} done{stopped ? ` · ${phaseName(stopped.phaseId, snapshot)} stopped` : ""}{waited ? ` · ${phaseName(waited.phaseId, snapshot)} was waiting for usage` : ""}</summary>
       <ul class="facts">
         {#each history as phase (phase.id)}<li><span>{phaseName(phase.id, snapshot)} · {phase.title}</span><span class="value muted">Done {clockTime(phase.doneAt!, new Date(now), { afterWord: true })}</span></li>{/each}
+        {#if waited}<li><span>{phaseName(waited.phaseId, snapshot)} · {snapshot.phases.find(phase => phase.id === waited.phaseId)?.title ?? ""}</span><span class="value muted">Was waiting for usage · {waitedChecks(waited)} · checked {clockTime(waited.checkedAt, new Date(now), { afterWord: true })}</span></li>{/if}
         {#if stopped}<li><span>{phaseName(stopped.phaseId, snapshot)} · {snapshot.phases.find(phase => phase.id === stopped.phaseId)?.title ?? ""}</span><span class="value muted">{stopped.failed} of {stopped.passed + stopped.failed} completion checks failed · checked {clockTime(stopped.checkedAt, new Date(now), { afterWord: true })}</span></li>{/if}
       </ul>
     </details>

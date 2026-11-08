@@ -1,4 +1,5 @@
 # Phase 8: Complete the folder facts, the reads they name, and the waiting phase's history
+**Closed:** 2026-11-07
 
 **Added by delivery audit:** 2026-11-07, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md

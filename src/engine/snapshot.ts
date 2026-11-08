@@ -47,6 +47,8 @@ export type FolderMissingSnapshot = Omit<import("./folder-facts.js").FolderMissi
   restoreUnknown?: true;
   /** The stopped phase's last completion results, shown only as history with when they were checked (AC-GONE-02). */
   stoppedResult?: { phaseId: string; checkedAt: string; passed: number; failed: number };
+  /** The completion results recorded when the phase waiting for usage was last judged, shown only as history (AC-GONE-02). */
+  waitingResult?: { phaseId: string; checkedAt: string; passed: number; failed: number };
 };
 
 /**
@@ -521,6 +523,9 @@ function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingVi
   const { checkedAt, repositories, plans, factsId } = view;
   const stoppedKey = engine.stoppedPhaseKey();
   const stop = stoppedKey === undefined ? undefined : engine.record.phases[stoppedKey]?.stop;
+  const waitingKey = engine.waitingPhaseKey();
+  const wait = waitingKey === undefined ? undefined : engine.record.phases[waitingKey]?.wait;
+  const results = (key: string, checks: { passed: boolean }[], checkedAt: string) => ({ phaseId: engine.judgedId(key), checkedAt, passed: checks.filter(check => check.passed).length, failed: checks.filter(check => !check.passed).length });
   // The put-it-back command only while the panel offers the existing branch as an available start (AC-SETUP-06);
   // a panel that is blocked or withholds that start for a failed read can't yet tell (AC-FACTS-03).
   const panel = engine.folderPanel;
@@ -530,7 +535,8 @@ function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingVi
   return { checkedAt, repositories, plans, restoreCommands, factsId, ...(restoreUnknown ? { restoreUnknown: true as const } : {}),
     // The busy line is read now, so it clears as soon as the session ends (AC-SAFE-01).
     ...(engine.folderPanel ? { panel: "blocked" in engine.folderPanel ? engine.folderPanel : livePanel(engine.folderPanel, engine) } : {}), ...(engine.folderStartProgress ? { startProgress: engine.folderStartProgress } : {}),
-    ...(stop ? { stoppedResult: { phaseId: engine.judgedId(stoppedKey!), checkedAt: stop.checkedAt, passed: stop.checks.filter(check => check.passed).length, failed: stop.checks.filter(check => !check.passed).length } } : {}) };
+    ...(stop ? { stoppedResult: results(stoppedKey!, stop.checks, stop.checkedAt) } : {}),
+    ...(wait ? { waitingResult: results(waitingKey!, wait.checks, wait.checkedAt) } : {}) };
 }
 
 /**
