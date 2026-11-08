@@ -12,7 +12,8 @@ import { createHarness, landingSession, waitFor, type Harness } from "../test-su
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { SetupPanel } from "./folder-setup.js";
-import { readPrdRecord, writePrdRecord, writeSessionRecord } from "../state/records.js";
+import { PR_PHASE_KEY, readPrdRecord, writePrdRecord, writeSessionRecord } from "../state/records.js";
+import { writePendingAuthority } from "./continuation-authority.js";
 import { BILLING_CONTRACT } from "../billing/contract.js";
 import { readExecution } from "./continuation-state.js";
 import { plannedSteps, readStartIntent, writeStartIntent } from "./folder-setup-start.js";
@@ -382,6 +383,42 @@ describe("a failed start's intent (AC-SAFE-01)", () => {
     const reopened = h.reopen();
     await reopened.folderGuard({ gather: true });
     expect(readStartIntent(h.stateDirectory, "earlier-start")!.state).toBe("failed");
+  });
+
+  it.skipIf(process.platform === "win32")("supersedes a failed start that a different Start replaces while its folder is untouched, leaving its branch and folder", async () => {
+    const h = await landedThenStopped();
+    const folder = await failedBaseStart(h);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    // The different Start fails too, so nothing but that Start can have superseded the earlier one.
+    failingGit(h, `*"worktree add"*`);
+    expect(await start(h, { start: "branch", commandId: "differing-start" })).toMatchObject({ ok: false, status: 500, code: "folder_setup_failed" });
+    expect(readStartIntent(h.stateDirectory, "earlier-start")!.state).toBe("superseded");
+    expect(readStartIntent(h.stateDirectory, "differing-start")!.state).toBe("failed");
+    expect(existsSync(join(folder, ".git"))).toBe(true);
+    git(h.sandbox, h.repository, "rev-parse", "--verify", "refs/heads/feature/customer-returns-2");
+  });
+
+  it.each([
+    { ended: "in_progress" as const, state: "failed", outcome: "not_applied", intentAfter: "failed" },
+    { ended: "resumed" as const, state: "completed", outcome: "folder_setup_started", intentAfter: "resumed" },
+  ])("settles a Start's real receipt from its intent at the next startup: $ended becomes $state", async ({ ended, state, outcome, intentAfter }) => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    // Kiln stops while the Start is partway: its receipt is still open and its intent says how far it got.
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    (h.engine as unknown as { runBranchStart: () => Promise<void> }).runBranchStart = () => held;
+    const running = start(h, { commandId: `receipt-${ended}` });
+    await waitFor(() => readStartIntent(h.stateDirectory, `receipt-${ended}`) !== undefined);
+    const intent = readStartIntent(h.stateDirectory, `receipt-${ended}`)!;
+    writeStartIntent(h.stateDirectory, { ...intent, state: ended });
+    const reopened = h.reopen();
+    expect(reopened.commands.lookup(`receipt-${ended}`).operation).toMatchObject({ state, stage: "settled", outcome });
+    expect(readStartIntent(h.stateDirectory, `receipt-${ended}`)!.state).toBe(intentAfter);
+    release();
+    await running;
   });
 });
 
@@ -1590,8 +1627,10 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
 
   it("never merges, resets, deletes or force-pushes on an existing-branch start", async () => {
     const h = await loggedThenStopped();
-    const before = git(h.sandbox, h.origin, "rev-parse", "develop").trim();
-    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    const tips = () => [git(h.sandbox, h.origin, "rev-parse", "develop").trim(), git(h.sandbox, h.origin, "rev-parse", "feature/customer-returns").trim(), git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns").trim()];
+    const before = tips();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
     await h.engine.folderGuard({ gather: true });
     const calls = h.kilnGitCalls().length;
     expect(await start(h)).toEqual({ ok: true, status: 200 });
@@ -1599,7 +1638,9 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     const made = h.kilnGitCalls().slice(calls);
     expect(made.some(call => call.startsWith("worktree add"))).toBe(true);
     expect(made.filter(call => FORBIDDEN_GIT.test(call))).toEqual([]);
-    expect(git(h.sandbox, h.origin, "rev-parse", "develop").trim()).toBe(before);
+    // The only removal is the one stale record (AC-SAFE-04), and neither branch moved.
+    expect(made.filter(call => call.startsWith("worktree remove"))).toEqual([`worktree remove ${saved}`]);
+    expect(tips()).toEqual(before);
   });
 
   it("gives a base start's new execution its own billing: an earlier approval doesn't carry, and no session launches until it clears", async () => {
@@ -1721,7 +1762,7 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     expect(h.engine.historicalExecution(oldId)!.record.liveControl?.takeover.target.executionId).toBe(oldId);
   });
 
-  it("ends a released takeover hold on an existing-branch start, as the explicit Resume", async () => {
+  it.skipIf(process.platform !== "darwin")("ends a released takeover hold on an existing-branch start, as the explicit Resume", async () => {
     const h = await landedThenStopped();
     // The provider's registry of terminal sessions, which the release check reads: no terminal holds this conversation.
     mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
@@ -1875,7 +1916,7 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
     expect(panelOf(h).busy).toBeUndefined();
   });
 
-  it.skipIf(process.platform === "win32")("stops a session an earlier Kiln left before any Git write, and says so in the list", async () => {
+  it.skipIf(process.platform === "win32").each(["a Codex session", "a pull-request session"])("stops %s an earlier Kiln left before any Git write, and says so in the list", async (leftOver) => {
     harness = await createHarness({ logGit: true, sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }, landingSession("src/b.txt"), landingSession("src/c.txt")] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
@@ -1887,8 +1928,13 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
       // The next Kiln over the same record: its session is one an earlier Kiln left, still running.
       h.reopen();
       await h.engine.agents.refresh();
-      const session = h.engine.latestSession("2b")!;
-      session.agentId = "codex";
+      let session = h.engine.latestSession("2b")!;
+      if (leftOver === "a Codex session") session.agentId = "codex";
+      else {
+        // Kiln stops a pull-request session whichever agent runs it.
+        session = { ...structuredClone(session), kind: "pull_request", createdAt: new Date().toISOString() };
+        h.engine.record.phases[PR_PHASE_KEY] = { sessionIds: [session.sessionId], repositories: {} } as unknown as typeof h.engine.record.phases[string];
+      }
       const run = session.runs.at(-1)!;
       Object.assign(run, { pid: child.pid, processStartTime: startTime });
       delete run.endedAt;
@@ -1901,11 +1947,15 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
       const internal = h.engine as unknown as { stopLiveProcess: (session: unknown) => Promise<void> };
       const stop = internal.stopLiveProcess.bind(h.engine);
       let writesBeforeStop = -1;
-      internal.stopLiveProcess = async (one) => { writesBeforeStop = h.kilnGitCalls().filter(call => call.startsWith("worktree add") || call.startsWith("branch ")).length; await stop(one); };
+      let intentAtStop: ReturnType<typeof readStartIntent>;
+      internal.stopLiveProcess = async (one) => { writesBeforeStop = h.kilnGitCalls().filter(call => call.startsWith("worktree add") || call.startsWith("branch ")).length; intentAtStop = readStartIntent(h.stateDirectory, "left-over-start"); await stop(one); };
       const writes = h.kilnGitCalls().filter(call => call.startsWith("worktree add") || call.startsWith("branch ")).length;
-      expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+      expect(await start(h, { start: "base", commandId: "left-over-start" })).toEqual({ ok: true, status: 200 });
       await h.engine.settled();
       expect(writesBeforeStop).toBe(writes);
+      // The durable intent is already there when the first thing Start changes happens.
+      expect(intentAtStop!).toMatchObject({ state: "in_progress", kind: "base" });
+      expect(intentAtStop!.steps.every(row => row.state === "pending")).toBe(true);
       expect(await isProcessLive(child.pid!, startTime)).toBe(false);
     } finally { child.kill("SIGKILL"); }
   });
@@ -1936,5 +1986,316 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
     expect(h.engine.folderMissing).toBeDefined();
     expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(record);
     expect(git(h.sandbox, h.repository, "for-each-ref", "refs/heads")).toBe(branches);
+  });
+});
+
+/** Phase 2b finished by hand on the run's feature branch before the folder went: closed, committed and pushed. */
+function landStoppedPhase(h: Harness): void {
+  const folder = h.engine.worktreePath;
+  const path = join(folder, "docs/prds/customer-returns/phase-2b-store-credit.md");
+  const [title, ...rest] = readFileSync(path, "utf8").split("\n");
+  writeFileSync(path, [title, "**Closed:** 2026-11-07", ...rest].join("\n"));
+  writeFileSync(join(folder, "src", "credit.txt"), "done\n");
+  git(h.sandbox, folder, "add", "-A");
+  git(h.sandbox, folder, "commit", "-qm", "feat: store credit");
+  git(h.sandbox, folder, "push", "-q", "origin", "feature/customer-returns");
+}
+const shown = (path: string) => path.replace(process.env.HOME ?? "\0", "~");
+const CLEAR_LINE = "Clear git’s record of the missing folder";
+const removedRecords = (h: Harness, from: number) => h.kilnGitCalls().slice(from).filter(call => call.startsWith("worktree remove"));
+
+describe("the limits Start keeps, on the cases still open (AC-SAFE-03)", () => {
+  it.skipIf(process.platform !== "darwin")("refuses an existing-branch start while a terminal still holds the session, keeping the hold and making no folder", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    const hold = heldBy(h);
+    h.engine.record.liveControl = hold;
+    const sessions = join(h.env.CLAUDE_CONFIG_DIR!, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "owner.json"), JSON.stringify({ pid: process.pid, sessionId: hold.takeover.target.providerSessionId, procStart: await processStartTime(process.pid) }));
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(await start(h)).toMatchObject({ ok: false, status: 409, reason: "Exit Claude in your terminal before handing this conversation back to Kiln." });
+    expect(existsSync(saved)).toBe(false);
+    expect(h.engine.record.liveControl?.takeover.target).toEqual(hold.takeover.target);
+    expect(h.engine.folderMissing).toBeDefined();
+  });
+
+  it("launches nothing on an existing-branch start without a billing approval, nor on the next while its hold stands", async () => {
+    const h = await landedThenStopped();
+    h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
+    await h.engine.refreshBilling();
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    expect(h.engine.record.billing!.approval).toBeUndefined();
+    landStoppedPhase(h);
+    const saved = h.engine.worktreePath;
+    const launches = h.claudeCalls().length;
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    // 2b's done check passed, so the next launch is the one the billing check holds.
+    expect(h.engine.record.phases["2b"]!.doneAt).toBeDefined();
+    const hold = structuredClone(h.engine.record.billing!.hold);
+    expect(hold).toBeDefined();
+    expect(h.claudeCalls()).toHaveLength(launches);
+
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.record.billing!.hold).toEqual(hold);
+    expect(h.claudeCalls()).toHaveLength(launches);
+  });
+
+  it("takes a base start's pause phase from the first unfinished leaf when nothing is stopped", async () => {
+    const h = await landedThenStopped();
+    const phase = h.engine.record.phases["2b"]!;
+    delete phase.stop;
+    phase.doneAt = new Date().toISOString();
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h))).toContain("Kiln will pause after Phase 3 is Done");
+    const calls = h.claudeCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.pause).toMatchObject({ requestedFor: "3" });
+    // It didn't fire at Phase 2b, which ran first.
+    expect(h.claudeCalls().slice(calls).some(call => call.prompt.includes("phase-3-returns-dashboard.md"))).toBe(true);
+  });
+
+  it.each([PR_PHASE_KEY, "audit-delivery-1"])("ends a pending pause on a base start when the run stopped on an activity that isn't a phase of the new plan (%s)", async (activity) => {
+    const h = await landedThenStopped();
+    const phase = h.engine.record.phases["2b"]!;
+    h.engine.record.phases[activity] = { sessionIds: [], repositories: {}, stop: phase.stop } as unknown as typeof phase;
+    delete phase.stop;
+    expect(h.engine.stoppedPhaseKey()).toBe(activity);
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h)).filter(line => line.startsWith("Kiln will pause"))).toEqual([]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.pause).toEqual({});
+  });
+
+  it("pauses before the next phase when an existing-branch start's done check passes", async () => {
+    const h = await landedThenStopped();
+    landStoppedPhase(h);
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const calls = h.claudeCalls().length;
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    expect(record.phases["2b"]!.doneAt).toBeDefined();
+    expect(record.pause.activeSince).toBeDefined();
+    expect(h.claudeCalls().slice(calls)).toEqual([]);
+  });
+
+  it("clears a carried request's phase when the pause is cancelled", async () => {
+    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }, { actions: [{ result: "Phase 1 needs a decision too." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const requestedAt = new Date().toISOString();
+    h.engine.record.pause.requestedAt = requestedAt;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    git(h.sandbox, h.repository, "worktree", "prune");
+    git(h.sandbox, h.repository, "branch", "-D", "feature/customer-returns");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "--delete", "feature/customer-returns");
+    await h.engine.folderGuard({ gather: true });
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(h.engine.record.pause).toEqual({ requestedAt, requestedFor: "2b" });
+    expect(h.engine.cancelPause()).toEqual({ ok: true });
+    expect(readPrdRecord(h.stateDirectory)!.pause).toEqual({});
+  });
+
+  it("carries a pending continuation authority into a base start's new execution", async () => {
+    const h = await landedThenStopped();
+    writePendingAuthority(h.stateDirectory, { formatVersion: 1, id: "authority-1", proposalId: "proposal-1", completedExecutionId: "completed-1", scopeDigest: "a".repeat(64), executionId: "reserved-1", authorization: { enabled: true, revision: 0, grants: [] }, approvals: [], state: "pending" });
+    h.engine.record.pendingContinuationAuthority = "authority-1";
+    const oldId = h.engine.record.executionId;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    expect(record.executionId).not.toBe(oldId);
+    expect(record.pendingContinuationAuthority).toBe("authority-1");
+  });
+});
+
+describe("what Start rechecks, and a Start that stops partway (AC-SAFE-01)", () => {
+  it("does nothing when the facts changed though the preview is current", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const before = readFileSync(join(h.stateDirectory, "prd.json"), "utf8");
+    const refs = git(h.sandbox, h.repository, "for-each-ref");
+    expect(await start(h, { factsId: "0".repeat(64) })).toMatchObject({ ok: false, status: 409, code: "folder_setup_changed" });
+    expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(before);
+    expect(git(h.sandbox, h.repository, "for-each-ref")).toBe(refs);
+    expect(h.engine.folderMissing).toBeDefined();
+  });
+
+  it.skipIf(process.platform === "win32")("shows the refreshed page instead of activating when the plan in the new folder isn't the one shown", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const before = readFileSync(join(h.stateDirectory, "prd.json"), "utf8");
+    // The new worktree's checkout closes a phase, so its plan differs from the one the page showed.
+    const hook = join(h.repository, ".git", "hooks", "post-checkout");
+    mkdirSync(dirname(hook), { recursive: true });
+    writeFileSync(hook, `#!/bin/sh\nf=docs/prds/customer-returns/phase-3-returns-dashboard.md\n{ head -1 "$f"; echo '**Closed:** 2026-11-08'; tail -n +2 "$f"; } > "$f.new" && mv "$f.new" "$f"\n`);
+    chmodSync(hook, 0o755);
+    const calls = h.claudeCalls().length;
+    expect(await start(h, { start: "base", commandId: "plan-moved" })).toMatchObject({ ok: false, status: 409, code: "folder_setup_changed", reason: "The plan in the new folder isn’t the one the page showed. Review the refreshed page, then press Start again." });
+    expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(before);
+    expect(readStartIntent(h.stateDirectory, "plan-moved")!.state).toBe("superseded");
+    expect(h.engine.folderMissing).toBeDefined();
+    expect(h.claudeCalls()).toHaveLength(calls);
+  });
+
+  it.skipIf(process.platform === "win32")("says which steps a failed existing-branch Start finished, saves nothing, and the next Start does only the rest", async () => {
+    const h = await twoRepositories();
+    const [shop, api] = h.engine.setUpRepositories;
+    for (const entry of [shop!, api!]) rmSync(entry.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: { keepAwake: false } });
+    const before = readFileSync(join(h.stateDirectory, "prd.json"), "utf8");
+    failingGit(h, `*"worktree add"*returns-api*`);
+    const failed = await start(h, { start: "branch" });
+    expect(failed).toMatchObject({
+      ok: false, status: 500, code: "folder_setup_failed",
+      done: ["Clear git’s record of the missing folder in acme-shop", "Clear git’s record of the missing folder in returns-api", "Create the folder on feature/customer-returns in acme-shop"],
+      remaining: ["Create the folder on feature/customer-returns in returns-api", "Save the run’s new folder"],
+    });
+    // The failed Start changed no saved setting.
+    expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(before);
+    expect(readPrdRecord(h.stateDirectory)!.settings.keepAwake).toBe(true);
+    expect(h.engine.folderMissing).toBeDefined();
+    // Work in the folder the first attempt made: a second `worktree add` there would be refused.
+    writeFileSync(join(shop!.worktreePath, "kept.txt"), "kept\n");
+    (h.engine as unknown as { git: { git: string } }).git.git = h.tools.git;
+    await h.engine.changeFolderPanel({ start: "branch", fields: { keepAwake: false } });
+    expect(await start(h, { start: "branch" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(existsSync(join(api!.worktreePath, ".git"))).toBe(true);
+    expect(readFileSync(join(shop!.worktreePath, "kept.txt"), "utf8")).toBe("kept\n");
+    expect(readPrdRecord(h.stateDirectory)!.settings.keepAwake).toBe(false);
+  });
+});
+
+describe("an existing-branch start's left-out work across repositories (AC-SAFE-02)", () => {
+  it("names the repository whose branch no longer holds a completed phase's work, and says it will run again", async () => {
+    const { h } = await phaseOneDoneInApi();
+    const api = h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!;
+    // Both copies of the branch went back to where Phase 1 started; the recorded commit is only in the object store.
+    const start_ = git(h.sandbox, api.mainCheckoutPath, "rev-parse", "develop").trim();
+    git(h.sandbox, api.mainCheckoutPath, "update-ref", "refs/heads/feature/customer-returns", start_);
+    git(h.sandbox, api.mainCheckoutPath, "push", "-qf", "origin", `${start_}:refs/heads/feature/customer-returns`);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(text(panel.preview.caution!)).toContain("in returns-api");
+    expect((panel.choices.branch as { line: string }).line).toMatch(/Missing Phase 1’s work\.$/);
+  });
+});
+
+describe("git's record of a missing folder (AC-SAFE-04)", () => {
+  it("clears the saved folder's record when the branch is recorded there and a different folder is chosen", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    const elsewhere = join(h.sandbox.root, "elsewhere", "acme-shop");
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: { worktreePath: elsewhere } });
+    expect(lines(panelOf(h))).toContain(`${CLEAR_LINE} ${shown(saved)}`);
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { start: "branch" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(removedRecords(h, calls)).toEqual([`worktree remove ${saved}`]);
+    expect(existsSync(join(elsewhere, ".git"))).toBe(true);
+    const list = git(h.sandbox, h.repository, "worktree", "list", "--porcelain");
+    expect(list).not.toContain("prunable");
+    expect(list.split("\n").filter(line => line === "branch refs/heads/feature/customer-returns")).toHaveLength(1);
+  });
+
+  it("never clears the record of a folder that exists, though git marks it prunable", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    mkdirSync(saved, { recursive: true });
+    writeFileSync(join(saved, "notes.txt"), "someone else's\n");
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain("prunable");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h)).filter(line => line.startsWith(CLEAR_LINE))).toEqual([]);
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(removedRecords(h, calls)).toEqual([]);
+    expect(readFileSync(join(saved, "notes.txt"), "utf8")).toBe("someone else's\n");
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain(`worktree ${saved}`);
+  });
+
+  it("refuses to clear the record when the folder appears after the page was checked, removing nothing", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    // The folder comes back between Start's recheck and its first Git write.
+    const internal = h.engine as unknown as { leftOverSession: () => Promise<undefined> };
+    internal.leftOverSession = async () => {
+      if (readStartIntent(h.stateDirectory, "stale-no-more") && !existsSync(saved)) { mkdirSync(saved, { recursive: true }); writeFileSync(join(saved, "back.txt"), "back\n"); }
+      return undefined;
+    };
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { commandId: "stale-no-more" })).toMatchObject({ ok: false, status: 500, code: "folder_setup_failed", reason: expect.stringContaining("is no longer stale. Nothing was removed; press Check again.") });
+    expect(removedRecords(h, calls)).toEqual([]);
+    expect(readFileSync(join(saved, "back.txt"), "utf8")).toBe("back\n");
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain(`worktree ${saved}`);
+  });
+
+  it("clears only the saved folder's record, leaving another stale record alone", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    const other = join(h.sandbox.root, "other-stale");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "other-work", other, "develop");
+    rmSync(other, { recursive: true, force: true });
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(removedRecords(h, calls)).toEqual([`worktree remove ${saved}`]);
+    const list = git(h.sandbox, h.repository, "worktree", "list", "--porcelain");
+    expect(list).toContain(`worktree ${other}`);
+    expect(list).toContain("prunable");
+    expect(list.split("\n").filter(line => line === "branch refs/heads/feature/customer-returns")).toHaveLength(1);
+  });
+
+  it("neither clears nor lists a record that wouldn't stop Start", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h)).filter(line => line.startsWith(CLEAR_LINE))).toEqual([]);
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(removedRecords(h, calls)).toEqual([]);
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain(`worktree ${saved}`);
   });
 });
