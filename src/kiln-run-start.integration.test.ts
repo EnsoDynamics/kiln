@@ -17,6 +17,7 @@ beforeEach(() => { vi.spyOn(auditWorkflow, "auditNext").mockResolvedValue("final
 afterEach(() => { vi.restoreAllMocks(); });
 import type { Snapshot } from "./engine/snapshot.js";
 import { runKilnCommand } from "./kiln-command.js";
+import { openBrowser, type BrowserOpening } from "./platform/open-browser.js";
 import { readPrdRecord } from "./state/records.js";
 import { prdStateDirectory, readJsonLines, stateRoot } from "./state/state-files.js";
 import { landingSession, pullRequestSession, waitFor, type ScenarioSession } from "./test-support/engine-harness.js";
@@ -104,7 +105,7 @@ interface RunningKiln {
   finished(): boolean;
 }
 
-function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) => Promise<string | undefined>): RunningKiln {
+function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) => Promise<BrowserOpening>): RunningKiln {
   let stdout = "";
   const signals = new EventEmitter();
   const opened: string[] = [];
@@ -119,7 +120,7 @@ function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) 
     signals,
     openBrowser: async (at) => {
       opened.push(at);
-      return openBrowser ? openBrowser(at) : undefined;
+      return openBrowser ? openBrowser(at) : { kind: "opened" };
     },
     onServing: resolveAddress,
   }).finally(() => (finished = true));
@@ -340,14 +341,42 @@ describe("kiln run on a feature not started", () => {
     expect(git(f.sandbox, f.repository, "branch", "--list", "feature/*")).toBe("");
   });
 
-  it("gives the address and says why when the browser can't be opened", async () => {
+  it("gives the address and says why when the browser opener fails", async () => {
     const f = createFeature([]);
-    const kiln = startKiln(f, FOLDER, async () => "xdg-open isn’t on the PATH");
+    const kiln = startKiln(f, FOLDER, async () => ({ kind: "failed", reason: "xdg-open exited with code 3" }));
     const address = await kiln.address;
     await waitFor(() => kiln.lines().length >= 4);
     expect(kiln.lines().slice(1, 4)).toEqual([
       `● Kiln’s view is at ${address}. Review it there and press Start.`,
-      `✗ Couldn’t open the browser: xdg-open isn’t on the PATH. Open ${address} yourself.`,
+      `✗ Couldn’t open the browser: xdg-open exited with code 3. Open ${address} yourself.`,
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+    kiln.signals.emit("SIGINT");
+    expect(await kiln.done).toBe(130);
+  });
+
+  it("says where the view is, with no error, when the machine has no browser opener", async () => {
+    const f = createFeature([]);
+    const kiln = startKiln(f, FOLDER, (at) => openBrowser(at, { PATH: f.sandbox.root }, "linux"));
+    const address = await kiln.address;
+    await waitFor(() => kiln.lines().length >= 3);
+    expect(kiln.lines().slice(1, 3)).toEqual([
+      `● Kiln’s view is at ${address}. Open it in your browser and press Start.`,
+      "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
+    ]);
+    kiln.signals.emit("SIGINT");
+    expect(await kiln.done).toBe(130);
+  });
+
+  it("over SSH, opens no browser and says to reach the view through a tunnel to the same port", async () => {
+    const f = createFeature([]);
+    const kiln = startKiln(f, FOLDER, (at) => openBrowser(at, { PATH: f.sandbox.root, SSH_CONNECTION: "203.0.113.5 52114 198.51.100.7 22" }, "linux"));
+    const address = await kiln.address;
+    const port = new URL(address).port;
+    await waitFor(() => kiln.lines().length >= 4);
+    expect(kiln.lines().slice(1, 4)).toEqual([
+      `● Kiln’s view is at ${address} on this remote machine. Open it from your own computer through an SSH tunnel to port ${port}, then press Start.`,
+      `  For example: ssh -N -L ${port}:127.0.0.1:${port} <this host>`,
       "  Kiln works in this terminal, so keep it open. Ctrl+C interrupts; kiln run picks it back up.",
     ]);
     kiln.signals.emit("SIGINT");

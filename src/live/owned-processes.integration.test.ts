@@ -106,3 +106,22 @@ it.skipIf(process.platform !== "darwin").each(["throw", "blank", "delayed"])("re
     identityReleased = true; releaseIdentity(); vi.restoreAllMocks(); await scanner?.close(); parent.stdin.end(); writeFileSync(endA, "cleanup"); writeFileSync(endB, "cleanup"); writeFileSync(release, "cleanup"); await parentExit; late?.stdin?.end(); await lateExit; await h.cleanup();
   }
 });
+
+it.skipIf(process.platform === "win32")("drops tracked processes that have exited, so a long session stays under the release bound", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs"); const { tmpdir } = await import("node:os");
+  const { createGate } = await import("./gate.js"); const { captureOwnedProcesses } = await import("./owned-processes.js");
+  const directory = mkdtempSync(join(tmpdir(), "kiln-tracked-prune-"));
+  const live = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" });
+  try {
+    createGate(directory, { executionId: "e", activityId: "a", activityKey: "1", sessionId: "s", providerSessionId: "s", attemptId: "t" });
+    const exited = spawn(process.execPath, ["-e", ""], { stdio: "ignore" }); const exitedStart = await identities.processStartTime(exited.pid!); await once(exited, "exit");
+    const liveStart = await identities.processStartTime(live.pid!); const rootStart = (await identities.processStartTime(process.pid))!;
+    // More exited entries than the bound allows: real PIDs no process holds any longer.
+    const stale = Array.from({ length: 4100 }, (_, i) => ({ pid: 4_000_000 + i, startTime: "gone" }));
+    await withGate(directory, state => { state.tracked.push({ pid: exited.pid!, startTime: exitedStart! }, { pid: live.pid!, startTime: liveStart! }, ...stale); });
+    await captureOwnedProcesses(directory, process.pid, rootStart);
+    const gate = readGate(directory);
+    expect(gate.tracked).toEqual([{ pid: live.pid!, startTime: liveStart! }]);
+    expect(gate.obstacle).toBeUndefined();
+  } finally { live.kill(); rmSync(directory, { recursive: true, force: true }); }
+});

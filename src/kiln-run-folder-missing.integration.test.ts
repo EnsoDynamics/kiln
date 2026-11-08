@@ -39,7 +39,7 @@ async function kilnRunUntil(h: Harness, until: (stdout: string) => boolean, whil
   const done = runKilnCommand(["run", "docs/prds/customer-returns", ...(resume ? ["--resume"] : [])], {
     cwd: h.repository, env: kilnEnv(h), signals,
     stdout: { write: (text: string) => (stdout += text) }, stderr: { write: (text: string) => (stderr += text) },
-    openBrowser: async () => undefined,
+    openBrowser: async () => ({ kind: "opened" as const }),
   });
   let ended = false;
   void done.then(() => (ended = true));

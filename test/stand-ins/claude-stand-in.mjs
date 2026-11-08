@@ -170,7 +170,8 @@ const keepRecord = (type, message) => {
 // or PostToolUseFailure after its result, then PostToolBatch (continue: false ends the turn).
 // Each hook call is logged to <scenario>.hooks.jsonl. KILN_STANDIN_HOOK_MUTATION changes what
 // Kiln reads: "no-tool-use-id" leaves tool_use_id out of every hook input, "no-post-tool-use-id"
-// out of PostToolUse only.
+// out of PostToolUse only; "post-tool-use-fails" makes PostToolUse exit 2 without running Kiln's
+// hook, as a hook that crashed or timed out does.
 const hookSettings = (() => { const value = flag("--settings"); return value ? JSON.parse(value).hooks ?? {} : {}; })();
 const runHooks = (eventName, fields) => (hookSettings[eventName] ?? []).flatMap(group => (group.hooks ?? []).map(hook => {
   const mutation = process.env.KILN_STANDIN_HOOK_MUTATION;
@@ -179,6 +180,10 @@ const runHooks = (eventName, fields) => (hookSettings[eventName] ?? []).flatMap(
   // Under the test runner Kiln names its hook beside its TypeScript source; the packaged hook is
   // the built one (npm run test:integration builds first), as the hook's own tests use.
   const hookArgs = (hook.args ?? []).map(arg => /[\\/]src[\\/]live[\\/]checkpoint-hook\.js$/.test(arg) && !existsSync(arg) ? arg.replace(/([\\/])src([\\/]live[\\/]checkpoint-hook\.js)$/, "$1dist$2") : arg);
+  if (mutation === "post-tool-use-fails" && eventName === "PostToolUse") {
+    appendFileSync(`${scenarioPath}.hooks.jsonl`, `${JSON.stringify({ event: eventName, input, status: 2, stdout: "", stderr: "hook failed" })}\n`);
+    return { status: 2, output: undefined };
+  }
   const run = spawnSync(hook.command, hookArgs, { input: JSON.stringify(input), encoding: "utf8", timeout: (hook.timeout ?? 60) * 1000 });
   appendFileSync(`${scenarioPath}.hooks.jsonl`, `${JSON.stringify({ event: eventName, input, status: run.status, stdout: run.stdout, stderr: run.stderr })}\n`);
   return { status: run.status, output: run.status === 0 && run.stdout.trim() ? JSON.parse(run.stdout) : undefined };
@@ -195,13 +200,15 @@ const toolCall = (name, input) => {
   if (runHooks("PreToolUse", { tool_name: name, tool_use_id: id, tool_input: input }).some(answer => answer.status === 2 || answer.output?.hookSpecificOutput?.permissionDecision === "deny")) deniedTools.add(id);
   return id;
 };
-const toolResult = (id, content, isError = false) => {
-  const denied = deniedTools.has(id);
-  const message = { content: [{ type: "tool_result", tool_use_id: id, content: denied ? "Denied by a PreToolUse hook." : content, is_error: isError || denied }] };
+// A call rejected after its PreToolUse hook (rejection metadata given, as the auto-mode
+// classifier's) gets no post hook; Claude Code sends the rejection in tool_result_meta.
+const toolResult = (id, content, isError = false, rejection) => {
+  const denied = deniedTools.has(id) || rejection !== undefined;
+  const message = { content: [{ type: "tool_result", tool_use_id: id, content: deniedTools.has(id) ? "Denied by a PreToolUse hook." : content, is_error: isError || denied }] };
   // As in Claude Code, the post hook runs before the tool's result is sent on.
   if (!denied) runHooks(isError ? "PostToolUseFailure" : "PostToolUse", { tool_name: toolNames.get(id), tool_use_id: id, ...(isError ? { error: content } : { tool_response: content }) });
   keepRecord("user", message);
-  emit({ type: "user", parent_tool_use_id: null, message });
+  emit({ type: "user", parent_tool_use_id: null, message, ...(rejection ? { tool_result_meta: [{ id, ...rejection }] } : {}) });
   if (runHooks("PostToolBatch", {}).some(answer => answer.output?.continue === false)) turnStopped = true;
 };
 
@@ -405,6 +412,8 @@ for (const action of session.actions) {
     const id = toolCall("Bash", { command: action.bash });
     const run = deniedTools.has(id) ? { stdout: "", stderr: "", status: 1 } : spawnSync("sh", ["-c", action.bash], { cwd: process.cwd(), encoding: "utf8" });
     toolResult(id, `${run.stdout ?? ""}${run.stderr ?? ""}`, run.status !== 0);
+  } else if (action.rejected) {
+    toolResult(toolCall("Bash", { command: action.rejected.command }), "Error: Permission for this action was denied.", true, action.rejected.meta);
   } else if (action.powershell) {
     toolResult(toolCall("PowerShell", { command: action.powershell }), "");
   } else if (action.stderr) {

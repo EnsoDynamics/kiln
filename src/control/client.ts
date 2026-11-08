@@ -68,9 +68,15 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
             counts.unknown++; errors.push(errorFact(owner.state === "incompatible" ? "instance_incompatible" : "controller_unreachable", owner.error!));
           } else if (work.record.startedAt && !work.record.completedAt) counts.stopped_unfinished++;
           if (owner.state !== "stopped" || work.record.startedAt && !work.record.completedAt) {
-            const answer = statusProjection(work);
+            // A stopped run is listed and counted from its readable record, so missing details stay on its row.
+            let answer: Result;
+            try { answer = statusProjection(work); }
+            catch (e) {
+              if (owner.state !== "stopped") throw e;
+              answer = result({ prd_path: work.canonical, execution_id: work.record.executionId!, state: "unknown", controls: [] }, [errorFact(e instanceof ControlFailure ? e.code : "state_unavailable", "Saved details for this stopped run could not be read.")]);
+            }
             runs.push({ ...answer, controller: owner.state, controller_reason: owner.error ?? null });
-            if (!answer.ok) errors.push(...answer.errors);
+            if (!answer.ok && owner.state !== "stopped") errors.push(...answer.errors);
           }
         }
       } catch (e) {

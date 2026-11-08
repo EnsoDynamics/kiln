@@ -52,8 +52,15 @@ export interface HeadlessChrome {
  */
 export async function launchChrome(): Promise<HeadlessChrome> {
   const profile = mkdtempSync(join(tmpdir(), "kiln-chrome-"));
-  const child: ChildProcess = spawn(chromePath(), ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb", "about:blank"], {
+  const child: ChildProcess = spawn(chromePath(), ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb",
+    // A page nobody looks at is otherwise treated as backgrounded: its timers and renderer are
+    // throttled, which stalled pages and Browser.close on busy macOS runners.
+    "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+    "about:blank"], {
     stdio: ["ignore", "ignore", "pipe"],
+    // Its own process group, so teardown can end the helpers (crash handler, GPU, network and
+    // storage services) that outlive the browser and keep writing into its profile.
+    detached: process.platform !== "win32",
   });
   // Retain the exit before any request: a signal exit leaves exitCode null, and
   // teardown may begin after the process's one exit event has already arrived.
@@ -178,7 +185,28 @@ export async function launchChrome(): Promise<HeadlessChrome> {
         child.kill("SIGKILL");
         await exited;
       }
+      if (process.platform !== "win32") {
+        try { process.kill(-child.pid!, "SIGKILL"); }
+        catch (error) { if (!["ESRCH", "EPERM"].includes((error as NodeJS.ErrnoException).code!)) throw error; }
+        await waitForGroupExit(child.pid!);
+      }
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
+}
+
+/** Resolves once no process is left in the group, so nothing still writes into the profile. */
+async function waitForGroupExit(group: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try { process.kill(-group, 0); }
+    catch (error) {
+      // macOS answers EPERM for a group left with only unreaped exits, which write nothing.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH" || code === "EPERM") return;
+      throw error;
+    }
+    if (Date.now() > deadline) throw new Error(`Chrome's process group ${group} was still running 10 seconds after it was killed.`);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
 }

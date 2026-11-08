@@ -116,6 +116,12 @@ describe("the Needs you screen's copy", () => {
     expect(endingFact({ ...signalled, signal: "SIGKILL" })).toBe("SIGKILL");
   });
 
+  it("says no session ran when a check stops a phase no Kiln session worked on", () => {
+    const noSession = without(without(without(base, "finalMessage"), "exitCode"), "sessionId");
+    expect(needsYouCopy({ ...noSession, kind: "done_check" }, settings, now)).toMatchObject({ headline: "Phase 2b hasn’t passed its checks.", line: "No Kiln session ran this phase. Kiln checked it and found what’s shown on the right.", showFacts: false, firstStep: "fresh", freshLink: false });
+    for (const phaseId of ["pr", "audit-a1"]) expect(needsYouCopy({ ...noSession, phaseId, kind: "done_check" }, settings, now).line).not.toContain("No Kiln session ran this phase");
+  });
+
   it("uses UI-007 item 1's lines for the pull request", () => {
     expect(copyOf({ phaseId: "pr", kind: "pull_request_check" })).toMatchObject({
       headline: "The pull-request session ended before it was done.",

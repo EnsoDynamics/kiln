@@ -577,7 +577,8 @@ describe("automatic completion activities", () => {
     const historicalAt = "2026-10-01T12:00:00Z";
     const old = structuredClone(h.engine.record);
     old.schemaVersion = 5; old.completedAt = historicalAt;
-    old.phases = { "1": old.phases["1"]! };
+    // The historical run delivered phase 1 in a Kiln session, so its development evidence is owed (AC-DEV-03).
+    old.phases = { "1": { sessionIds: ["historical-phase-session"], finishedByPerson: false, repositories: {} } };
     delete old.completionAudits; delete old.activities; delete old.nextActivityKey;
     old.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" }, confirmedAt: historicalAt, source: "start" }] };
     writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(old));
@@ -691,6 +692,61 @@ describe("automatic completion activities", () => {
     expect(snapshot.feature.state).toBe("paused"); expect(snapshot.activities!.at(-1)).toMatchObject({ id: "pr", state: "next", title: "Final pull request" });
     expect(h.engine.nextKeyFromRecordedPlan()).toBe("pr");
     await h.engine.start(); await h.engine.settled(); expect(h.engine.record.completedAt).toBeTruthy();
+  });
+
+  describe("one row per check on a stopped audit", () => {
+    const rows = (current: Harness, name: string) => current.engine.record.phases[current.engine.stoppedPhaseKey()!]!.stop!.checks.filter(check => check.name === name);
+    const names = (current: Harness) => current.engine.record.phases[current.engine.stoppedPhaseKey()!]!.stop!.checks.map(check => check.name);
+
+    it("lists Everything committed and Pushed once when the audit ends needing a person", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed", "Audit work resolved"]);
+    });
+
+    it("still lists both repository checks when no report was submitted", async () => {
+      const h = await fixture([auditSession({ noReport: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed"]);
+    });
+
+    it("still lists both repository checks when the report is refused before they are read", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      const activity = h.engine.record.completionAudits!.activities[0]!;
+      writeFileSync(join(h.engine.worktreePath, activity.reportPath), "not json");
+      await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed"]);
+      expect(rows(h, "Audit result recorded")[0]!.passed).toBe(false);
+      expect(rows(h, "Everything committed")[0]!.passed).toBe(false);
+    });
+
+    it("keeps a repository failure that only the later read saw", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      // Only the engine's read goes through the module export; submission's own read stays real and passes.
+      const real = auditAdmission.repositoryChecks;
+      const spy = vi.spyOn(auditAdmission, "repositoryChecks").mockImplementation(async context => (await real(context)).map(check => check.name === "Pushed" ? { name: check.name, passed: false, facts: ["acme-shop: current head is not pushed to its assigned branch."] } : check));
+      try { await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); } finally { spy.mockRestore(); }
+      expect(rows(h, "Pushed")).toMatchObject([{ passed: false, facts: ["acme-shop: current head is not pushed to its assigned branch."] }]);
+    });
+
+    it("lists the repository checks once on an already accepted audit", async () => {
+      const h = await fixture([{ actions: [{ auditReport: {} }, { write: { path: "stray.txt", content: "left behind\n" } }, { result: "Audit ended." }, { exit: 0 }] }]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(h.engine.record.completionAudits!.activities[0]!.acceptedResult).toBeDefined();
+      expect(names(h)).toEqual(["Audit result recorded", "Audit evidence is current", "Everything committed", "Pushed"]);
+      expect(rows(h, "Everything committed")[0]!.passed).toBe(false);
+    });
+
+    it("lists the delivery check once when development delivery is on", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      const target = { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" };
+      expect(h.engine.authorizeDevelopmentTarget({ executionId: h.engine.record.executionId, authorizationRevision: h.engine.record.developmentAuthorization!.revision, target, confirmedNonProduction: true })).toEqual({ ok: true });
+      await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+      expect(names(h).filter(name => name === "Required development delivery verified")).toHaveLength(1);
+      expect(new Set(names(h)).size).toBe(names(h).length);
+    });
   });
 
   it("rechecks an already accepted audit under its first development grant before consuming the gate", async () => {

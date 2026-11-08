@@ -46,6 +46,10 @@ async function dead(pid: number, start: string): Promise<boolean> {
   try { process.kill(pid, 0); return false; }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ESRCH") return true; throw e; }
 }
+function readIfPresent(path: string): string | undefined {
+  try { return readFileSync(path, "utf8"); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw e; }
+}
 export async function withGate<T>(directory: string, update: (state: GateState) => T): Promise<T> {
   const lock = join(directory, "admission.lock"); const ownerFile = join(lock, "owner.json");
   const deadline = Date.now() + 5000; const generation = randomUUID();
@@ -59,8 +63,9 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
     catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       // Missing/partial identity is unknown; never break a lock by age.
-      if (existsSync(ownerFile)) {
-        const before = readFileSync(ownerFile, "utf8");
+      // The holder may release between the mkdir and this read: that is the lock coming free.
+      const before = readIfPresent(ownerFile);
+      if (before !== undefined) {
         const owner = JSON.parse(before) as { pid: number; start: string; generation: string };
         if (!Number.isSafeInteger(owner.pid) || !owner.start || !owner.generation) throw new Error("Admission owner identity is unknown.", { cause: e });
         if (await dead(owner.pid, owner.start)) {
@@ -150,8 +155,10 @@ export async function observeGate(directory: string, event: Record<string, unkno
         // admitted; its tool result in the stream settles it, so it never keeps input open.
         if (operation.hookSettled || state.contract) settleByResult(state, block.tool_use_id, response);
       }
-      const denied = event.tool_result_meta as { id?: string; non_execution_kind?: string; permission_decision?: { source?: string } }[] | undefined;
-      if (operation && denied?.some(m => m.id === block.tool_use_id && m.non_execution_kind === "permission-rule" && m.permission_decision?.source === "hook")) operation.settled = true;
+      // A rejected tool never ran and never gets PostToolUse: a hook's denial, or any decision
+      // `reject`, such as the auto-mode classifier's (`automode-blocked`).
+      const denied = event.tool_result_meta as { id?: string; non_execution_kind?: string; permission_decision?: { source?: string; decision?: string } }[] | undefined;
+      if (operation && denied?.some(m => m.id === block.tool_use_id && (m.permission_decision?.decision === "reject" || m.non_execution_kind === "permission-rule" && m.permission_decision?.source === "hook"))) operation.settled = true;
     }
   });
 }

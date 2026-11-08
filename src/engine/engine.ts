@@ -37,11 +37,11 @@ import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
-import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
+import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerCheck, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -2212,10 +2212,13 @@ export class Engine {
       }
       if (failed.length && !await this.markChecks(recoveryStopKey(activation), failed)) { this.recordStop(recoveryStopKey(activation), recoveryStopKey(activation) === PR_PHASE_KEY ? "pull_request_check" : "done_check", failed); return recoveryStopKey(activation); }
     }
+    const closedAtBase = await leavesClosedAtRunBase(this.deliveryContext());
     for (const leaf of recordedLeaves(this.record.plan ?? [])) {
       if (!leaf.closed && !this.waiverClosed(leaf.id)) break;
       // A skipped phase was not built; its delivery obligations are not asked for (AC-WAIVE-04).
       if (this.record.phases[leaf.id]?.skippedByWaiver) continue;
+      // A phase Closed before this run began that nothing in the run touched owes no development evidence (AC-DEV-03).
+      if (!owesDevelopmentEvidence(this.record, leaf.id, closedAtBase.has(leaf.id))) continue;
       const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
       if ((this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) || this.record.folderSetupStart) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
@@ -3761,7 +3764,7 @@ export class Engine {
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       if (!plan.ok) checks.push(planCheck(plan));
       this.save();
-      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks, plan, judgedLeafId: key });
+      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks: oneRowPerCheck(checks), plan, judgedLeafId: key });
       outcome.passed = await this.markChecks(key, outcome.checks);
       this.lastDoneCheck = { key, outcome };
       return outcome;
@@ -4796,6 +4799,8 @@ export class Engine {
       await reconcileDelivery(this.deliveryContext(phaseKey));
       if (ledger(this.record).sourceUnavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable("Required development-delivery evidence is unavailable. Retry when the source can be read."); }
       const audit = this.auditActivity(phaseKey);
+      // A stop saved on a phase Closed before this run began, which owes no development evidence (AC-DEV-03), clears.
+      if (!audit && !owesDevelopmentEvidence(this.record, phaseKey, (await leavesClosedAtRunBase(this.deliveryContext(phaseKey))).has(phaseKey))) return this.clearStop(phaseKey);
       const checks = [audit ? ownerDeliveryCheck(this.deliveryContext(phaseKey), { kind: "audit", activityId: audit.activityId }) : phaseDeliveryCheck(this.deliveryContext(phaseKey), phaseKey)];
       if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks); return "still_stopped"; }
       return this.clearStop(phaseKey);

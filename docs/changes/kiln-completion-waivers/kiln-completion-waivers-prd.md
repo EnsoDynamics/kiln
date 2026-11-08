@@ -89,6 +89,7 @@ Anyone looking later, in the browser, the terminal or a bot, must be able to tel
   | A phase document's missing Closed line | The phase | That phase, as a leaf of the plan | The phase is split or leaves the plan |
   | A repository's uncommitted or unpushed work | The repository | That repository's feature head and uncommitted changes | Either changes |
   | A development-delivery requirement, or a checkpoint's unresolved prerequisite | The checkpoint and requirement | Its checkpoint and requirement, at the merge revision checked | The checkpoint is replaced or its merge revision changes |
+  | A phase's or audit's missing or out-of-date development-delivery assessment | The phase or audit, at its own check and at final delivery | The PRD's governing documents and that phase's document, or that audit's documents and requirements, as its assessment is bound to them | Those documents change, other than a Closed line or a ticked checkbox |
   | A Phase plan reads or Completion audit readiness problem | Its failure text, under either check | The phase plan, or the saved completion audit state | Its failure text changes |
   | Any other item, such as a pull request's at final delivery | Its check and the item | Every repository's feature head | Any feature head changes |
 

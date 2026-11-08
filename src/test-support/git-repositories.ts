@@ -48,19 +48,27 @@ export function createSandbox(): Sandbox {
   }
   // On Windows a folder can't be removed while a process that just ended still holds it, and
   // taskkill returns before the tree it ends is gone. rmSync's own retries don't cover an EBUSY
-  // on its first rmdir, so cleanup retries for up to 10 seconds itself, then names what may hold it.
+  // on its first rmdir. Elsewhere a helper the test started (an account or usage read, a stand-in)
+  // can still be writing a file as the folder is emptied, which leaves it not empty. Cleanup
+  // retries for up to 10 seconds itself, then names what is left and what may hold it.
   const cleanup = async () => {
-    const deadline = Date.now() + (process.platform === "win32" ? 10_000 : 0);
+    const deadline = Date.now() + 10_000;
     for (;;) {
       try {
         rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
         return;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (process.platform !== "win32" || (code !== "EBUSY" && code !== "EPERM")) throw error;
+        const retried = process.platform === "win32" ? code === "EBUSY" || code === "EPERM" : code === "ENOTEMPTY";
+        if (!retried) throw error;
         if (Date.now() < deadline) {
           await new Promise((resolve) => setTimeout(resolve, 250));
           continue;
+        }
+        if (process.platform !== "win32") {
+          const left = spawnSync("find", [root], { encoding: "utf8" }).stdout.split("\n").slice(0, 40).join("\n");
+          const processes = spawnSync("ps", ["-A", "-o", "pid=,ppid=,command="], { encoding: "utf8" }).stdout.split("\n").filter(line => line.includes(root)).join("\n");
+          throw new Error(`${(error as Error).message}\nStill in the sandbox:\n${left}\nProcesses naming it:\n${processes}`, { cause: error });
         }
         const list = "Get-CimInstance Win32_Process | Where-Object { @('node.exe','cmd.exe','git.exe','sh.exe','bash.exe','sleep.exe','powershell.exe') -contains $_.Name } | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)\" }";
         const processes = spawnSync("powershell", ["-NoProfile", "-Command", list], { encoding: "utf8" });

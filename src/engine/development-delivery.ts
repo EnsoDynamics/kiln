@@ -10,6 +10,7 @@ import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.j
 import { checkpointAgainst, emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
+import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import type { PhasePlan } from "../plan/phase-plan.js";
 import { applyWaivers, effectivePlan, matchKey, type CheckItem, type Waiver } from "./waivers.js";
@@ -627,6 +628,38 @@ export async function reconcileDelivery(context: DeliveryContext): Promise<void>
   }
   state.checkedAt = context.now();
 }
+/**
+ * Whether this run delivers the leaf and so owes development evidence for it (AC-DEV-03). A leaf the run did not deliver
+ * was already Closed before the run began (`closedBeforeRun`) and nothing in this run touched it: no Kiln session on it
+ * or a split ancestor, and no assessment of it or obligation assigned to it in the ledger. No session exists to assess
+ * such a leaf, so it is accepted on the checks a restricted execution applies.
+ *
+ *   owesDevelopmentEvidence(record, "3", true)   // false for a phase Closed before Start that no session touched
+ *   owesDevelopmentEvidence(record, "3", false)  // true: closed during the run, so its evidence is owed
+ */
+export function owesDevelopmentEvidence(record: PrdRecord, phaseId: string, closedBeforeRun: boolean): boolean {
+  if (!closedBeforeRun) return true;
+  if (Object.entries(record.phases).some(([key, facts]) => facts.sessionIds.length && (key === phaseId || isAncestorOf(key, phaseId)))) return true;
+  const state = ledger(record); const owner: DeliveryOwner = { kind: "phase", phaseId };
+  return state.assessments.some(one => sameOwner(one, ownerFields(owner))) || state.checkpoints.some(checkpoint => assignedObligations(state, checkpoint, owner).length > 0);
+}
+const closedAtBaseCache = new Map<string, ReadonlySet<string>>();
+/**
+ * The leaves already Closed in the PRD repository's setup base commit, where this run began. The commit is immutable,
+ * so the answer is cached. A record with no base commit yet names none, so every closed leaf owes its evidence.
+ */
+export async function leavesClosedAtRunBase(context: DeliveryContext): Promise<ReadonlySet<string>> {
+  const base = context.record.repositories.find(one => one.name === context.record.repository.name)?.baseCommit;
+  if (!base) return new Set();
+  const key = `${context.prdWorktree}\0${context.prdDirectory}\0${base}`;
+  let closed = closedAtBaseCache.get(key);
+  if (!closed) {
+    const source = await observeGitPlan(context.git, context.prdWorktree, context.prdDirectory, base, HISTORICAL_PLAN_READ);
+    closed = new Set(source.plan.phases.filter(phase => phase.splitInto === undefined && phase.closed).map(phase => phase.id));
+    closedAtBaseCache.set(key, closed);
+  }
+  return closed;
+}
 export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult { return ownerDeliveryCheck(context, { kind: "phase", phaseId }); }
 /**
  * The owner check, listing every failing item (AC-WAIVE-11): the assessment or split problem, one item per unresolved
@@ -640,8 +673,12 @@ export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwne
   try {
     const current = state.assessments.find(one => sameOwner(one, { owner }));
     const binding = ownerDocuments(context, owner);
-    need(current && current.documentsDigest === binding.documentsDigest && current.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
-    assessment = current;
+    if (current && current.documentsDigest === binding.documentsDigest && current.requirementManifestDigest === binding.requirementManifestDigest) assessment = current;
+    else {
+      // Checked against the owner's documents, as an assessment is, so a commit elsewhere never ends its waiver (AC-WAIVE-09).
+      const text = `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`;
+      items.push({ kind: "other", subject: text, text, against: `documents:${binding.documentsDigest}${binding.requirementManifestDigest ? `:${binding.requirementManifestDigest}` : ""}` });
+    }
   } catch (error) { problem(error); }
   try { items.push(...ownerDeliveryItems(state, owner, context.record.waivers ?? [])); } catch (error) { problem(error); }
   const failing = uniqueItems(items);
@@ -805,12 +842,15 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
   const checkedHeads = new Map<string, { head: string; status: string; remote?: string }>(); const work = new Map<string, Set<string>>();
   const waivers = context.record.waivers ?? []; const featureBranch = context.record.settings.featureBranch;
   await reconcileDelivery(context);
-  const global: CheckItem[] = [];
+  const global: CheckItem[] = []; const closedAtBase = await leavesClosedAtRunBase(context);
   for (const leaf of currentLeaves(context)) {
     if (!leaf.closed) { const text = `Phase ${leaf.id} is still open.`; global.push({ kind: "other", subject: text, text, against: "" }); continue; }
     // A skipped phase was not built; its delivery obligations are not asked for (AC-WAIVE-04).
     if (context.record.phases[leaf.id]?.skippedByWaiver) continue;
-    const check = phaseDeliveryCheck(context, leaf.id); if (!check.passed) global.push(...(check.items ?? []));
+    if (!owesDevelopmentEvidence(context.record, leaf.id, closedAtBase.has(leaf.id))) continue;
+    // An `other` item matches under its own check, so the phase's waived assessment is judged there before its items are carried (AC-WAIVE-09).
+    const [check] = applyWaivers(waivers, [phaseDeliveryCheck(context, leaf.id)]);
+    if (!check!.passed) global.push(...(check!.items ?? []).filter(item => !(item.kind === "other" && item.waiver)));
   }
   for (const checkpoint of state.checkpoints) if (!checkpointSatisfied(state, checkpoint)) global.push(...scanItems(state, waivers, checkpoint));
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
