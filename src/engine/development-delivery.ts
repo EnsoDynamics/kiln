@@ -673,8 +673,12 @@ export function ownerDeliveryCheck(context: DeliveryContext, owner: DeliveryOwne
   try {
     const current = state.assessments.find(one => sameOwner(one, { owner }));
     const binding = ownerDocuments(context, owner);
-    need(current && current.documentsDigest === binding.documentsDigest && current.requirementManifestDigest === binding.requirementManifestDigest, `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`);
-    assessment = current;
+    if (current && current.documentsDigest === binding.documentsDigest && current.requirementManifestDigest === binding.requirementManifestDigest) assessment = current;
+    else {
+      // Checked against the owner's documents, as an assessment is, so a commit elsewhere never ends its waiver (AC-WAIVE-09).
+      const text = `${owner.kind === "phase" ? `Phase ${owner.phaseId}` : `Audit ${owner.activityId}`} needs a current development-delivery assessment.`;
+      items.push({ kind: "other", subject: text, text, against: `documents:${binding.documentsDigest}${binding.requirementManifestDigest ? `:${binding.requirementManifestDigest}` : ""}` });
+    }
   } catch (error) { problem(error); }
   try { items.push(...ownerDeliveryItems(state, owner, context.record.waivers ?? [])); } catch (error) { problem(error); }
   const failing = uniqueItems(items);
@@ -844,7 +848,9 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
     // A skipped phase was not built; its delivery obligations are not asked for (AC-WAIVE-04).
     if (context.record.phases[leaf.id]?.skippedByWaiver) continue;
     if (!owesDevelopmentEvidence(context.record, leaf.id, closedAtBase.has(leaf.id))) continue;
-    const check = phaseDeliveryCheck(context, leaf.id); if (!check.passed) global.push(...(check.items ?? []));
+    // An `other` item matches under its own check, so the phase's waived assessment is judged there before its items are carried (AC-WAIVE-09).
+    const [check] = applyWaivers(waivers, [phaseDeliveryCheck(context, leaf.id)]);
+    if (!check!.passed) global.push(...(check!.items ?? []).filter(item => !(item.kind === "other" && item.waiver)));
   }
   for (const checkpoint of state.checkpoints) if (!checkpointSatisfied(state, checkpoint)) global.push(...scanItems(state, waivers, checkpoint));
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {

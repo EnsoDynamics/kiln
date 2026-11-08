@@ -9,6 +9,7 @@ import { readPrdRecord, migrateRecord } from "../state/records.js";
 import { assertDevelopmentState, type DeliveryCheckpoint } from "../state/development-delivery.js";
 import { documentsDigest, evaluateRepositories, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import { codexSessionPrompt, phaseSessionPrompt, freshSessionPrompt, resumePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
@@ -284,5 +285,53 @@ describe("phases closed before the run started (AC-DEV-03)", () => {
     expect(facts).toContain("Phase 2b needs a current development-delivery assessment.");
     expect(facts).not.toContain("Phase 1 needs");
     expect(facts).not.toContain("Phase 2a needs");
+  });
+});
+
+describe("a waived development-delivery assessment on a phase this run delivered (AC-WAIVE-09)", () => {
+  let commandCount = 0;
+  async function markComplete(h: Harness) {
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true });
+    await h.engine.settled();
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(`Mark complete not offered: ${offer.reason}`);
+    const id = `assessment-waiver-${++commandCount}`;
+    h.engine.commands.submit({ command_id: id, execution_id: h.engine.record.executionId, status_token: h.engine.controlView().token, action: "waive-and-advance", inputs: { check_run_id: offer.checkRunId, via: "browser" } }, "caller", true);
+    await h.engine.commands.settled(); await h.engine.settled();
+  }
+  /** Phase 1 delivered and stopped on its missing assessment, waived; phase 2b then lands a pushed commit and stops on its own. Waiving 2b rechecks 1 before phase 3 launches. */
+  async function waivedThenLaterPush() {
+    h = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt"), landingSession("src/dashboard.txt")] });
+    await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: { repository: target.repository, baseBranch: target.baseBranch } }] } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
+    expect(h.engine.record.phases["1"]?.stop?.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", facts: ["Phase 1 needs a current development-delivery assessment."] }));
+    const repo = h.engine.record.repositories[0]!; const headAtWaiver = git(h.sandbox, repo.worktreePath, "rev-parse", "HEAD").trim();
+    await markComplete(h);
+    expect(h.engine.record.waivers?.[0]?.items).toEqual([expect.objectContaining({ subject: "Phase 1 needs a current development-delivery assessment.", against: expect.stringMatching(/^documents:/) })]);
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(git(h.sandbox, repo.worktreePath, "rev-parse", "HEAD").trim()).not.toBe(headAtWaiver);
+    expect(h.engine.record.phases["2b"]?.stop?.checks).toContainEqual(expect.objectContaining({ facts: expect.arrayContaining(["Phase 2b needs a current development-delivery assessment."]) }));
+    return h;
+  }
+  it("keeps the waived phase met after a later phase pushes a commit, and launches the next phase", async () => {
+    const h = await waivedThenLaterPush();
+    await markComplete(h);
+    expect(h.engine.record.phases["1"]?.stop).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(3);
+    expect(h.engine.record.phases["3"]?.sessionIds).toHaveLength(1);
+    const facts = (await evaluateRepositories(context(h))).checks.flatMap(check => check.facts).join("\n");
+    expect(facts).toContain("Phase 3 needs a current development-delivery assessment.");
+    expect(facts).not.toContain("Phase 1 needs");
+    expect(facts).not.toContain("Phase 2b needs");
+  });
+  it("stops on the waived phase again once its own documents change", async () => {
+    const h = await waivedThenLaterPush();
+    const relative = join(h.engine.paths.prdDirectoryFromRoot, "phase-1-return-intake.md"); const phase1 = join(h.engine.worktreePath, relative);
+    writeFileSync(phase1, `${readFileSync(phase1, "utf8")}\nA later scope note.\n`);
+    git(h.sandbox, h.engine.worktreePath, "add", relative); git(h.sandbox, h.engine.worktreePath, "commit", "-m", "Change phase 1 scope"); git(h.sandbox, h.engine.worktreePath, "push");
+    await markComplete(h);
+    expect(h.engine.record.phases["1"]?.stop?.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", passed: false, facts: ["Phase 1 needs a current development-delivery assessment."] }));
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(buildSnapshot(h.engine).needsYou?.phaseId).toBe("1");
   });
 });
