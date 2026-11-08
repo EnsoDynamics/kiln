@@ -424,6 +424,8 @@ describe("restarts (AC-AUTO-03)", () => {
     const engine = s.h.reopenFromDisk();
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: false });
     expect(engine.record.phases["1"]!.stop!.limit).toMatchObject({ label: "5-hour window" });
+    // A stop raised while deciding is said once, by the ● line (AC-START-09).
+    expect(phaseEvents(s.h)).not.toContain("1 stopped");
   });
 });
 

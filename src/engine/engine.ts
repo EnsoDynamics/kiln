@@ -1057,11 +1057,16 @@ export class Engine {
     } catch (error) { hold.state = "pending"; hold.reason = this.checkpointUnavailable(hold) ?? (error as Error).message; }
     finally {
       hold.observedAt = this.now().toISOString();
+      let newStop = false;
       if (!this.current?.processRunning) {
         const facts = this.record.phases[hold.target.activityKey]!;
+        newStop = facts.stop === undefined;
         facts.stop ??= { kind: "done_check", at: hold.requestedAt, checkedAt: hold.observedAt, checks: [] };
       }
-      this.save(); this.changed();
+      this.save();
+      // This runs every second while the hold lasts, so only the stop's creation prints (AC-START-09).
+      if (newStop) this.emitSessionEvent(hold.target.activityKey, "stopped");
+      this.changed();
     }
   }
 
@@ -3559,7 +3564,6 @@ export class Engine {
         if (!added.ok) {
           this.current = undefined;
           this.recordStop(leaf.id, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }]);
-          this.emit({ kind: "phase", at: this.now(), phaseId: leaf.id, title: leaf.title, event: "stopped" });
           return;
         }
       }
@@ -4415,9 +4419,12 @@ export class Engine {
     const facts = this.record.phases[phaseKey];
     // The retained stop's or wait's rows, plus Billing approval inside the run only for an activity that has not run (waivers "Check Runs").
     const rows = structuredClone(facts?.stop?.checks ?? facts?.wait?.checks ?? []);
+    // A hold reaches Needs you without recordStop, so it prints its own line, unless the person was already there.
+    const alreadyNeedsYou = facts?.stop !== undefined || this.record.billing!.hold !== undefined;
     this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows };
     this.checking = false; this.current = undefined; this.unwatchWait();
     this.save(); this.updateKeepAwake(); this.changed();
+    if (!alreadyNeedsYou) this.emitSessionEvent(phaseKey, "stopped");
     this.emit({ kind: "message", text: `Billing hold: ${reason} Open Kiln's browser address above to review billing and continue.` });
   }
 
@@ -4589,7 +4596,6 @@ export class Engine {
         // A rejected first launch has no materialized provider history to audit.
         // This also handles a restart after an older Kiln left it implementing.
         this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
-        this.emitSessionEvent(phaseKey, "stopped");
         return { kind: "stopped" };
       }
       if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !session?.runs[this.record.preparation.implementationRun!])) {
@@ -4610,7 +4616,6 @@ export class Engine {
         if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
         if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks);
         this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", check.checks);
-        this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
         return { kind: "stopped" };
       }
       const outcome = await this.doneCheck(phaseKey);
@@ -4622,7 +4627,6 @@ export class Engine {
       }
       if (!outcome.unavailable && !notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     } finally {
       if (!this.stopping) {
@@ -4664,12 +4668,6 @@ export class Engine {
     const recorded = run?.interruptedAt;
     const at = recorded ?? (session && run ? (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt) : this.now().toISOString());
     this.recordStop(phaseKey, kind, checks, { at, atIsLastOutput: recorded === undefined });
-    if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
-    else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, "stopped");
-    else {
-      const judged = this.judgedId(phaseKey);
-      this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event: "stopped" });
-    }
     return { kind: "stopped" };
   }
 
@@ -5201,9 +5199,12 @@ export class Engine {
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
+    const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
     facts.stop = { kind, at, checks: itemize(checks, phaseKey), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
+    // The one place a stop prints its line (AC-START-09). Replacing a retained stop or a hold is the same Needs you, already said.
+    if (!alreadyStopped) this.emitSessionEvent(phaseKey, "stopped");
     // The account card shows a reading taken after the refusal (usage-limit recovery AC-LIMIT-03).
     if (limit !== undefined) this.askReading();
   }
@@ -5315,8 +5316,6 @@ export class Engine {
     const key = this.nextKeyFromRecordedPlan();
     this.current = undefined;
     this.recordStop(key, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: [problem] }]);
-    if (key === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
-    else this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "stopped" });
     return { kind: "plan_stop", phaseKey: key };
   }
 
@@ -5363,12 +5362,10 @@ export class Engine {
         return { kind: "waiting" };
       }
       this.recordStop(phaseKey, kind, checks, undefined, limit);
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     }
     if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex)) {
       this.recordStop(phaseKey, kind, checks, undefined, { ...limit, refusedAgainAt: run.startedAt });
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     }
     if (this.record.settings.resumeAfterUsageLimit && !this.transcriptMissing(session)) {
@@ -5376,7 +5373,6 @@ export class Engine {
       return { kind: "waiting" };
     }
     this.recordStop(phaseKey, kind, checks, undefined, limit);
-    this.emitSessionEvent(phaseKey, "stopped");
     return { kind: "stopped" };
   }
 
@@ -5415,7 +5411,6 @@ export class Engine {
     delete facts.wait;
     this.unwatchWait();
     this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", checks, undefined, refusal ? stopLimit(refusal) : undefined, checkedAt);
-    this.emitSessionEvent(phaseKey, "stopped");
     this.updateKeepAwake();
   }
 

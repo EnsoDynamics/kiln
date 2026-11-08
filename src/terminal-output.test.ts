@@ -211,8 +211,8 @@ describe("a stop that needs a person (AC-START-09)", () => {
 
   it("says Kiln is waiting and where, for a phase, an audit and final delivery", () => {
     expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  2b  Store credit  ${says}`);
-    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", label: "Test audit", round: 1, event: "stopped" }, record, plain, undefined, address)).toContain(says);
-    expect(formatTerminalEvent({ kind: "pull_request", at, event: "stopped" }, record, plain, undefined, address)).toContain(says);
+    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", label: "Test audit", round: 1, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Round 1  ${says}`);
+    expect(formatTerminalEvent({ kind: "pull_request", at, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  PR  Final pull request  ${says}`);
   });
 
   it("colors the stop amber and the address as the view address, and leaves other events alone", () => {

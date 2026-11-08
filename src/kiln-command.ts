@@ -225,6 +225,8 @@ function makeEngine(
 ): Engine {
   const { location, tools, context } = run;
   const colors = terminalColors(context.stdout, context.env);
+  // Known from the instance lock, so a stop raised before the view is served still says where (AC-START-09).
+  const address = viewAddress(run.port, location.folderName);
   const keepAwake = new KeepAwake({ featureName: location.featureName, env: context.env, onError: (message) => write(`${colors.amber("✗")} ${message}`) });
   const engine: Engine = new Engine({
     paths: {
@@ -248,7 +250,7 @@ function makeEngine(
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
       if (event.kind === "folder_missing") event = { ...event, ...(run.stop.server ? { address: run.stop.server.address } : {}) };
-      write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id), run.stop.server?.address) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
+      write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id), address) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
   });
