@@ -61,7 +61,7 @@ function* classifySteps(entry: RepositoryEntry): Generator<GitCall, FolderClassi
   if (!isDirectory) return { ...base, state: "holds_something_else", holds: "a file, not a folder" };
   const inside = yield { cwd: savedFolder, args: ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"] };
   if (inside.exitCode !== 0) {
-    if (/not a git repository/i.test(inside.stderr)) return { ...base, state: "holds_something_else", holds: "a plain folder, not a git worktree" };
+    if (/not a git repository|does not point to a valid repository/i.test(inside.stderr)) return { ...base, state: "holds_something_else", holds: "a plain folder, not a git worktree" };
     return { ...base, state: "unknown", unknown: `Git in the saved folder (${firstLine(inside)})` };
   }
   const [top, common] = inside.stdout.split(/\r?\n/).map(line => line.trim());
