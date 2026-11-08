@@ -213,8 +213,11 @@ describe("a run with several repositories (AC-SETUP-07)", () => {
     expect(await h.engine.folderGuard({ gather: true })).toBe(false);
     const panel = panelOf(h);
     expect(panel.multi).toBe(true);
-    expect((panel.choices.branch as { line: string }).line).toMatch(/^Re-creates returns-api’s worktree in the saved workspace and keeps acme-shop’s · 4 phases, 1 done\.$/);
-    expect((panel.choices.base as { line: string }).line).toMatch(/^A new workspace and branch in both repositories, from origin\/develop · 4 phases, 1 done\./);
+    // Each line names that start's latest commit and whether it holds all of this run's work (AC-SETUP-03).
+    const tip = git(h.sandbox, h.repository, "rev-parse", "--short=7", "feature/customer-returns").trim();
+    const developTip = git(h.sandbox, h.repository, "rev-parse", "--short=7", "origin/develop").trim();
+    expect((panel.choices.branch as { line: string }).line).toBe(`Re-creates returns-api’s worktree in the saved workspace and keeps acme-shop’s · last commit ${tip} · 4 phases, 1 done. Has all of this run’s work.`);
+    expect((panel.choices.base as { line: string }).line).toBe(`A new workspace and branch in both repositories, from origin/develop at ${developTip} · 4 phases, 1 done. Has all of this run’s work.`);
     // Nothing on the branch is missing from develop, so the base branch is suggested; the existing branch can be chosen.
     expect(panel.suggested).toBe("base");
     expect(await h.engine.changeFolderPanel({ start: "branch", fields: {} })).toMatchObject({ ok: true });
@@ -389,6 +392,10 @@ describe("more of Start's rules (AC-SETUP-02, 04, 05, AC-SAFE-01, 03)", () => {
     const panel = panelOf(h);
     expect(panel.selected).toBe("branch");
     expect(panel.helpLines.featureBranch).toBe("The run’s existing branch, now only on origin. Kiln creates no new branch; your checkout gets a branch of the same name that tracks it.");
+    // Phase 2b's commits that weren't pushed were only on the deleted branch, so Kiln can't say this start holds all the run's work (AC-SAFE-02).
+    expect((panel.choices.branch as { line: string }).line).toMatch(/\. Couldn’t check whether it has all of this run’s work\.$/);
+    expect(panel.choices.branch).not.toHaveProperty("holdsAllWork");
+    expect(text(panel.preview.caution!)).toBe("Phase 2b runs from origin’s copy of the branch. Commits it made that weren’t pushed were only on the deleted branch, and Kiln can’t tell whether there were any.");
     expect(await start(h)).toEqual({ ok: true, status: 200 });
     await h.engine.settled();
     expect(git(h.sandbox, h.repository, "rev-parse", "refs/heads/feature/customer-returns").trim()).toBe(tip);
@@ -1012,7 +1019,7 @@ describe("the page's facts and the panel's fields (Phase 5 of missing worktree r
     await h.engine.folderGuard({ gather: true });
     const panel = panelOf(h);
     expect([panel.suggested, panel.selected]).toEqual(["base", "base"]);
-    expect((panel.choices.branch as { line: string }).line).toMatch(/· 4 phases, 2 done\. Already merged into develop\. Behind develop’s plan\.$/);
+    expect((panel.choices.branch as { line: string }).line).toMatch(/· 4 phases, 2 done\. Already merged into develop\. Has all of this run’s work\. Behind develop’s plan\.$/);
     expect((panel.choices.base as { line: string }).line).not.toContain("Behind");
     expect(panel.preview.caution).toBeUndefined();
   });
@@ -1186,3 +1193,91 @@ describe("work a base-branch start leaves behind (Phase 6 of missing worktree re
   });
 });
 
+describe("starting-point lines and the existing-branch start's left-behind work (Phase 7 of missing worktree recovery: AC-SETUP-02, AC-SETUP-03, AC-SAFE-02)", () => {
+  it.skipIf(process.platform === "win32")("suggests and offers the base branch when the existing branch can't be checked but the run's work is in the base branch", async () => {
+    const h = await landedThenStopped();
+    // The checkout's branch is ahead of origin's, and all of it is merged into develop, where Phase 2b is closed.
+    storeCreditWork(h);
+    git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "-m", "Merge", "feature/customer-returns");
+    const path = join(h.repository, "docs/prds/customer-returns/phase-2b-store-credit.md");
+    const [title, ...rest] = readFileSync(path, "utf8").split("\n");
+    writeFileSync(path, [title, "**Closed:** 2026-11-06", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-qam", "Close Phase 2b elsewhere");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    // How the checkout's branch compares with origin's can't be read, so the existing branch's availability is unknown.
+    failingGit(h, `"rev-list --left-right --count "*`);
+    await h.engine.folderGuard({ gather: true });
+    expect(h.engine.folderMissing!.existingBranch.available).toBe("unknown");
+    const panel = panelOf(h);
+    expect([panel.suggested, panel.selected]).toEqual(["base", "base"]);
+    expect(panel.choices.branch).toEqual({ unavailable: "Kiln couldn’t read everything it needs about the branch." });
+    expect(panel.preview.startLabel).toBe("Set up & start Phase 3");
+    // The withheld start can't be chosen.
+    expect(await h.engine.changeFolderPanel({ start: "branch", fields: {} })).toMatchObject({ ok: true });
+    expect(panelOf(h).selected).toBe("base");
+  });
+
+  it("names a completed phase whose work isn't on origin's copy of the branch when only origin has it, and says it will run again", async () => {
+    const h = await landedThenStopped();
+    const phase = h.engine.record.phases["1"]!.repositories["acme-shop"]!;
+    const sha = phase.pushedSha!;
+    // Phase 1's work was waived rather than pushed (AC-WAIVE-09), and origin's branch is still at Phase 1's start.
+    phase.waivedHead = sha; delete phase.pushedSha;
+    git(h.sandbox, h.repository, "push", "-q", "--force", "origin", `${phase.startCommit}:refs/heads/feature/customer-returns`);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    git(h.sandbox, h.repository, "worktree", "prune");
+    git(h.sandbox, h.repository, "branch", "-D", "feature/customer-returns");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.selected).toBe("branch");
+    expect(panel.preview.run[0]).toMatchObject({ id: "1", note: "runs first" });
+    expect(panel.preview.again).toEqual(["1"]);
+    expect(text(panel.preview.caution!)).toBe(`Phase 1 will run again. Its work (${sha.slice(0, 7)}) isn’t on origin’s copy of the branch, which Kiln starts from. Phase 2b runs from origin’s copy of the branch. Commits it made that weren’t pushed were only on the deleted branch, and Kiln can’t tell whether there were any.`);
+    expect(panel.choices.branch).toMatchObject({ holdsAllWork: false, line: `Last commit ${phase.startCommit.slice(0, 7)} · 4 phases, 1 done. Already merged into develop. Missing Phase 1’s work.` });
+  });
+
+  it("names a completed phase whose recorded commit the shared checkout no longer has, and says it won't run again when the branch's plan closes it", async () => {
+    const h = await landedThenStopped();
+    // Phase 1's recorded commit is gone from the shared checkout (as after gc), while its Closed line is on the branch.
+    const lost = "1234567".padEnd(40, "0");
+    h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha = lost;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.preview.run.map(row => row.id)).not.toContain("1");
+    expect(panel.preview.again).toEqual([]);
+    expect(text(panel.preview.caution!)).toBe("Phase 1 won’t run again. Its work (1234567) isn’t on the feature branch, and the plan there doesn’t leave it to run.");
+    expect(panel.choices.branch).toMatchObject({ holdsAllWork: false, line: expect.stringMatching(/ · 4 phases, 2 done\. Missing Phase 1’s work\.$/) });
+  });
+
+  it.skipIf(process.platform === "win32")("says it can't check whether the existing branch has all of this run's work when a completed phase's ancestry read fails", async () => {
+    const h = await landedThenStopped();
+    const sha = h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha!;
+    // Phase 2b committed after Phase 1, so only the read of Phase 1's commit fails, not the branch tip's.
+    storeCreditWork(h);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    failingGit(h, `"merge-base --is-ancestor ${sha} "*`);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.choices.branch).not.toHaveProperty("holdsAllWork");
+    expect((panel.choices.branch as { line: string }).line).toMatch(/ · 4 phases, 2 done\. Couldn’t check whether it has all of this run’s work\.$/);
+    expect(panel.preview.again).toEqual([]);
+    expect(panel.preview.caution).toBeUndefined();
+  });
+
+  it("says the existing branch has all of this run's work when the shared checkout's branch holds every completed phase's commit", async () => {
+    const h = await landedThenStopped();
+    const tip = git(h.sandbox, h.repository, "rev-parse", "--short=7", "feature/customer-returns").trim();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.choices.branch).toMatchObject({ holdsAllWork: true, line: `Last commit ${tip} · 4 phases, 2 done. Has all of this run’s work.` });
+    expect(panel.preview.again).toEqual([]);
+    expect(panel.preview.caution).toBeUndefined();
+  });
+});

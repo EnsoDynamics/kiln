@@ -1,4 +1,5 @@
 # Phase 7: Complete the starting-point lines, the suggestion when a read fails, and the existing-branch start's left-behind work
+**Closed:** 2026-11-07
 
 **Added by delivery audit:** 2026-11-07, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md

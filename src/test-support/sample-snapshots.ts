@@ -826,11 +826,11 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
   const multi = which === "multi";
   const merged = which === "merged" || which === "elsewhere";
   const pick: "base" | "branch" = which === "unmerged" || which === "occupied" || multi ? "branch" : "base";
-  const baseLine = merged ? "origin/develop at 0a3d75d · 13 phases, 9 done. Has all of this run’s work." : multi ? "A new workspace and branch in both repositories, from origin/develop · 5 phases, 3 done. Missing Phase 4’s work." : "origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.";
+  const baseLine = merged ? "origin/develop at 0a3d75d · 13 phases, 9 done. Has all of this run’s work." : multi ? "A new workspace and branch in both repositories, from origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work." : "origin/develop at 7e21b90 · 5 phases, 3 done. Missing Phase 4’s work.";
   const branchChoice = which === "gone" ? { unavailable: "Unavailable: the branch was deleted." }
     : which === "elsewhere" ? { unavailable: "Unavailable: it’s checked out in ~/devel/ledger-scratch, and git allows a branch in one folder at a time." }
-    : merged ? { ...choice("Last commit 4c80c80 · 5 phases, all closed. Already merged into develop. Behind develop’s plan."), behindBase: true }
-    : choice(multi ? "Re-creates harbor-portal’s worktree in the saved workspace and keeps harbor-ledger’s · 5 phases, 4 done." : "Last commit bec1115 · 5 phases, 4 done. Has all of this run’s work.");
+    : merged ? { ...choice("Last commit 4c80c80 · 5 phases, all closed. Already merged into develop. Has all of this run’s work. Behind develop’s plan."), behindBase: true }
+    : choice(multi ? "Re-creates harbor-portal’s worktree in the saved workspace and keeps harbor-ledger’s · last commit bec1115 · 5 phases, 4 done. Has all of this run’s work." : "Last commit bec1115 · 5 phases, 4 done. Has all of this run’s work.");
   const fromBase = pick === "base";
   const branch = fromBase ? NEWBR : BR;
   const preview: Omit<Panel["preview"], "lets"> = fromBase

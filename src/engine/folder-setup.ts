@@ -11,7 +11,7 @@ import type { PlannedPhase } from "../plan/phase-plan.js";
 import type { Effort, PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { ensureObjects, listWorktrees, originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
-import { inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
+import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
@@ -150,17 +150,19 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   const prdRead = reads.repositories.find(read => read.entry.kind === "prd") ?? reads.repositories[0]!;
 
   // The suggestion's test, three-valued: available and has work not in the base branch (AC-SETUP-02, AC-SETUP-07).
+  // It is false, whatever the availability, when every repository's work is known to be in the base branch.
   const anyWork = reads.repositories.some(read => read.workNotInBase === true);
-  const unknownWork = !anyWork && reads.repositories.some(read => read.workNotInBase === "unknown");
+  const work: boolean | "unknown" = anyWork ? true : reads.repositories.some(read => read.workNotInBase === "unknown") ? "unknown" : false;
   const existing = view.existingBranch;
-  const testUnknown = existing.available === "unknown" || existing.available === true && unknownWork;
-  if (testUnknown) return { blocked: blockedReason(reads.repositories) };
+  const test: boolean | "unknown" = existing.available === false || work === false ? false : existing.available === true && work === true ? true : "unknown";
+  if (test === "unknown") return { blocked: blockedReason(reads.repositories) };
 
-  // Each start's own computation.
-  const branchBuild = existing.available === true ? await branchStart(context, draft, prdRead) : { unavailable: (existing as { reason: string }).reason, known: true as const };
+  // Each start's own computation; an existing branch whose availability a failed read decides is withheld (AC-FACTS-03).
+  const branchBuild: StartBuild | Unavailable = existing.available === true ? await branchStart(context, draft, prdRead)
+    : existing.available === false ? { unavailable: existing.reason, known: true } : { unavailable: existing.reason, known: false, sentence: true };
   const baseBuild = await baseStart(context, draft, prdRead);
   const offered = (build: StartBuild | Unavailable): build is StartBuild => !("unavailable" in build);
-  const testChoice: StartKind = existing.available === true && anyWork ? "branch" : "base";
+  const testChoice: StartKind = test ? "branch" : "base";
   const other: StartKind = testChoice === "base" ? "branch" : "base";
   const builds: Record<StartKind, StartBuild | Unavailable> = { base: baseBuild, branch: branchBuild };
   let suggested: StartKind;
@@ -210,7 +212,8 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   return { ...panel, previewId };
 }
 
-interface Unavailable { unavailable: string; known: boolean }
+/** `sentence`: an unchecked start's reason is already a whole sentence naming what Kiln couldn't read. */
+interface Unavailable { unavailable: string; known: boolean; sentence?: true }
 /** One start, computed in full; `plan` is the plan that start follows. */
 export interface StartBuild {
   kind: StartKind;
@@ -237,6 +240,7 @@ export interface StartBuild {
 }
 
 function unavailableLine(build: Unavailable): string {
+  if (build.sentence) return build.unavailable;
   return build.known ? `Unavailable: ${build.unavailable.charAt(0).toLowerCase()}${build.unavailable.slice(1)}` : `Couldn’t check: ${build.unavailable}`;
 }
 
@@ -444,7 +448,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const source = prdRead.base.source === "origin" ? `origin/${prdBase}` : prdBase;
   const counts = `${leaves.length} phases, ${done.length} done`;
   const line = multi
-    ? `A new workspace and branch in ${set.length === 2 ? "both repositories" : `all ${set.length} repositories`}, from ${source} · ${counts}. ${workLine}`
+    ? `A new workspace and branch in ${set.length === 2 ? "both repositories" : `all ${set.length} repositories`}, from ${source} at ${short(prdTip)} · ${counts}. ${workLine}`
     : `${source} at ${short(prdTip)} · ${counts}. ${workLine}`;
   return {
     kind: "base",
@@ -544,19 +548,23 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
       caution.push({ text: ` Phase ${stopped} is already closed on it (${short(tip)}` }, ...(date ? [{ text: ", " }, { date }] : []), { text: `), so Kiln would only check Phase ${stopped} again and end on the old plan.` });
     }
   }
+  // Work this run committed, pushed or not, that the branch this start uses lacks (AC-SAFE-02).
+  const left = await branchLeftBehind(context, leaves.map(leaf => leaf.id), run.map(leaf => leaf.id), createLocal);
+  if (left.caution.length) caution = [...left.caution, ...(caution ? [{ text: " " }, ...caution] : [])];
   const counts = `${leaves.length} phases, ${done.length === leaves.length ? "all closed" : `${done.length} done`}`;
   const failingNames = failing.map(read => read.name);
   const kept = reads.repositories.filter(read => read.check.state === "in_place").map(read => read.name);
   // Whether this start is behind the base branch's plan, on its own line whichever start is selected (AC-SETUP-03).
   const behind = behindBase ? ` Behind ${baseName}’s plan.` : "";
+  const workLine = left.holdsAllWork === true ? "Has all of this run’s work." : left.holdsAllWork === undefined ? "Couldn’t check whether it has all of this run’s work." : `Missing ${phaseList(left.missing)}’s work.`;
   const line = multi
-    ? `Re-creates ${joinNames(failingNames)}’s worktree in the saved workspace${kept.length ? ` and keeps ${joinNames(kept)}’s` : ""} · ${leaves.length} phases, ${done.length} done.${behind}`
-    : `Last commit ${short(tip)} · ${counts}. ${inBase ? `Already merged into ${baseName}.` : "Has all of this run’s work."}${behind}`;
+    ? `Re-creates ${joinNames(failingNames)}’s worktree in the saved workspace${kept.length ? ` and keeps ${joinNames(kept)}’s` : ""} · last commit ${short(tip)} · ${leaves.length} phases, ${done.length} done. ${workLine}${behind}`
+    : `Last commit ${short(tip)} · ${counts}. ${inBase ? `Already merged into ${baseName}. ` : ""}${workLine}${behind}`;
   const onlyOrigin = Object.keys(createLocal).length > 0;
   const savedHelp = movedFolder ? "New: the saved path holds something else, so Kiln uses a new folder." : !multi && comparable(folders[prdRead.name]!) !== comparable(prdRead.check.savedFolder) ? "New: the folder you chose, on the run’s existing branch." : "The run’s saved path.";
   return {
     kind: "branch",
-    choice: { sha: tip, total: leaves.length, done: done.length, holdsAllWork: true, behindBase, line },
+    choice: { sha: tip, total: leaves.length, done: done.length, ...(left.holdsAllWork === undefined ? {} : { holdsAllWork: left.holdsAllWork }), behindBase, line },
     fields,
     fixed: ["agentId", "featureBranch", "baseBranch", "bases", ...(multi ? ["workspaceFolder"] : [])],
     fieldErrors,
@@ -566,9 +574,70 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
     },
     repositories: reads.repositories.map(read => ({ name: read.name, kind: read.entry.kind, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath), github: read.entry.github, baseBranch: read.entry.baseBranch, entry: read.entry })),
     leftOut: [], folders, baseCommits: {}, clearRecords, createLocal, plan: reads.featurePlan,
-    preview: { done: done.length ? `${phaseList(done)} ${again ? "closed" : "done"} on the branch` : "No phase is done yet", run: run.map((leaf, index) => ({ ...leaf, note: again ? "checked again" : index === 0 ? "runs first" : "then" })), again: [], ...(caution ? { caution } : {}), startLabel: again ? `Set up & check Phase ${run[0]!.id} again` : run.length ? `Set up & start Phase ${run[0]!.id}` : "Set up & continue" },
+    preview: { done: done.length ? `${phaseList(done)} ${again ? "closed" : "done"} on the branch` : "No phase is done yet", run: run.map((leaf, index) => ({ ...leaf, note: again ? "checked again" : index === 0 ? "runs first" : "then" })), again: left.again, ...(caution ? { caution } : {}), startLabel: again ? `Set up & check Phase ${run[0]!.id} again` : run.length ? `Set up & start Phase ${run[0]!.id}` : "Set up & continue" },
     runIds: run.map(leaf => leaf.id),
   };
+}
+
+/**
+ * What an existing-branch start leaves out (AC-SAFE-02): each phase this run completed whose recorded
+ * commit (pushed, or the waived head) the branch the start uses lacks in some repository, and, where
+ * only origin has the branch, the phase the run was on, whose unpushed commits Kiln can't see.
+ */
+async function branchLeftBehind(context: PanelContext, leafIds: string[], runIds: string[], createLocal: Record<string, string>): Promise<{ missing: string[]; again: string[]; holdsAllWork?: boolean; caution: Part[] }> {
+  const { git, view } = context;
+  const reads = view.reads.repositories;
+  const multi = reads.length > 1;
+  let unknown = false;
+  const missingIn = new Map<string, { names: string[]; shas: string[] }>();
+  for (const read of reads) {
+    const tip = read.localSha ?? read.originSha;
+    if (!tip) continue;
+    const cwd = expandHome(read.entry.mainCheckoutPath);
+    if (createLocal[read.name]) await ensureObjects(git, cwd, tip);
+    for (const [id, completed] of context.completedByRun) {
+      const sha = completed.commits[read.name];
+      if (!sha) continue;
+      let held = await ancestry(git, cwd, sha, tip);
+      // A commit the shared checkout no longer has can't be in a tip it has.
+      if (held === "unknown" && !await hasCommit(git, cwd, sha) && await hasCommit(git, cwd, tip)) held = false;
+      if (held === "unknown") unknown = true;
+      if (held !== false) continue;
+      const row = missingIn.get(id) ?? { names: [], shas: [] };
+      row.names.push(read.name); row.shas.push(sha);
+      missingIn.set(id, row);
+    }
+  }
+  // Plan order: the run's saved plan, then the branch's plan for a phase the saved plan lacks.
+  const order = [...(context.record.plan ?? []).map(phase => phase.id), ...leafIds];
+  const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? order.length : index; };
+  const missing = [...missingIn.keys()].sort((a, b) => rank(a) - rank(b));
+  const again = missing.filter(id => runIds.includes(id));
+  const notRun = missing.filter(id => !runIds.includes(id));
+  const where = (names: string[]) => {
+    const origin = names.every(name => createLocal[name]);
+    const copy = origin ? "origin’s copy of the branch, which Kiln starts from" : "the feature branch";
+    return multi ? `${copy.replace(", which Kiln starts from", "")} in ${joinNames(names)}` : copy;
+  };
+  const caution: Part[] = [];
+  const add = (parts: Part[]) => caution.push(...(caution.length ? [{ text: " " }] : []), ...parts);
+  const describe = (ids: string[], lead: string, tail: string) => {
+    const names = [...new Set(ids.flatMap(id => missingIn.get(id)!.names))];
+    const only = ids.length === 1 ? missingIn.get(ids[0]!)! : undefined;
+    const sha = only?.shas.length === 1 ? only.shas[0] : undefined;
+    add([{ text: lead, tone: "strong" }, { text: ` ${ids.length === 1 ? "Its" : "Their"} work${sha ? ` (${short(sha)})` : ""} isn’t on ${where(names)}${tail}` }]);
+  };
+  if (again.length) describe(again, `${phaseList(again)} will run again.`, ".");
+  if (notRun.length) describe(notRun, `${phaseList(notRun)} won’t run again.`, `, and the plan there doesn’t leave ${notRun.length === 1 ? "it" : "them"} to run.`);
+  // The phase the run was on: where only origin has the branch, commits it didn't push were on the deleted branch.
+  const stopped = context.stoppedPhaseId;
+  const unseen = stopped !== undefined && !context.completedByRun.has(stopped) && !missingIn.has(stopped)
+    ? reads.filter(read => createLocal[read.name] && context.stoppedStarts?.[read.name] !== undefined).map(read => read.name) : [];
+  if (unseen.length) {
+    unknown = true;
+    add([{ text: `Phase ${stopped} runs from origin’s copy of the branch${multi ? ` in ${joinNames(unseen)}` : ""}.`, tone: "strong" }, { text: " Commits it made that weren’t pushed were only on the deleted branch, and Kiln can’t tell whether there were any." }]);
+  }
+  return { missing, again, ...(missing.length ? { holdsAllWork: false } : unknown ? {} : { holdsAllWork: true }), caution };
 }
 
 /**
@@ -582,6 +651,10 @@ function pauseCarried(context: PanelContext, kind: StartKind, build: StartBuild)
   if (kind === "branch") return pause.requestedFor ?? context.pausePhaseId;
   const phase = context.pausePhaseId;
   return phase && build.runIds.includes(phase) ? phase : undefined;
+}
+
+async function hasCommit(git: GitContext, cwd: string, sha: string): Promise<boolean> {
+  return (await runGit(git, cwd, ["cat-file", "-e", `${sha}^{commit}`])).exitCode === 0;
 }
 
 async function newBranchError(git: GitContext, set: SetRepository[], name: string, own: string | undefined, taken: Set<string>): Promise<string | undefined> {

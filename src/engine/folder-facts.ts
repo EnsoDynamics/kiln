@@ -289,7 +289,7 @@ async function commitFact(git: GitContext, cwd: string, sha: string, facts: Fold
 }
 
 /** `merge-base --is-ancestor`, keeping a failed read apart from "no". */
-async function ancestry(git: GitContext, cwd: string, ancestor: string, descendant: string): Promise<Three> {
+export async function ancestry(git: GitContext, cwd: string, ancestor: string, descendant: string): Promise<Three> {
   const result = await runGit(git, cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
   return result.exitCode === 0 ? true : result.exitCode === 1 ? false : "unknown";
 }
