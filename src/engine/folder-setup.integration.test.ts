@@ -3,6 +3,8 @@
 // execution on a new suffixed branch and folder) or from the run's existing feature branch (the
 // missing worktree re-created, git's stale record cleared, the same execution resumed).
 
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,12 +12,14 @@ import { createHarness, landingSession, waitFor, type Harness } from "../test-su
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { SetupPanel } from "./folder-setup.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, writePrdRecord, writeSessionRecord } from "../state/records.js";
+import { BILLING_CONTRACT } from "../billing/contract.js";
 import { readExecution } from "./continuation-state.js";
 import { plannedSteps, readStartIntent, writeStartIntent } from "./folder-setup-start.js";
 import { buildSnapshot } from "./snapshot.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import type { ModelEntry } from "../account/model-list.js";
+import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -1545,5 +1549,392 @@ describe("panel edits at Start, base-closed work and a stopped Start's progress 
     await reopened.settled();
     expect(readPrdRecord(h.stateDirectory)!.settings.featureBranch).toBe("feature/customer-returns-2");
     expect(buildSnapshot(reopened).folderMissing).toBeUndefined();
+  });
+});
+
+/** The git commands the existing limits forbid during Start; merge-base and similar reads don't match (AC-SAFE-03). */
+const FORBIDDEN_GIT = /^(merge|reset|rebase|worktree prune)( |$)|^branch .*(-D|-d|--delete)( |$)|^push .*(--force\S*|-f|--delete|--mirror)( |$)|^push .* \+\S|^update-ref -d /;
+/** A session stopped at Needs you with the logging harness, so Start's own git calls can be read. */
+async function loggedThenStopped(sessions = [landingSession(), { actions: [{ result: "I need a decision." }] }, landingSession("src/b.txt"), landingSession("src/c.txt")]): Promise<Harness> {
+  harness = await createHarness({ logGit: true, sessions });
+  const h = harness;
+  await h.engine.start({ refinementConfirmed: true });
+  await h.engine.settled();
+  expect(h.engine.stoppedPhaseKey()).toBe("2b");
+  return h;
+}
+const heldBy = (h: Harness, key = "2b") => {
+  const session = h.engine.latestSession(key)!;
+  const target = { executionId: h.engine.record.executionId!, activityId: key, activityKey: key, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: session.runs.at(-1)!.control?.attemptId ?? createHash("sha256").update(`${h.engine.record.executionId}:${session.sessionId}:${session.runs.length - 1}`).digest("hex") };
+  const at = new Date().toISOString();
+  return { version: 1 as const, revision: 1, takeover: { target, operationId: "take-over", instructionId: "take-over", requestedAt: at, state: "released" as const, observedAt: at, reason: "Paused for terminal takeover." } };
+};
+const lines = (panel: SetupPanel) => panel.preview.lets.map(row => text(row.parts));
+
+describe("the limits Start keeps (AC-SAFE-03)", () => {
+  it("never merges, resets, deletes or force-pushes, and moves neither the old branch nor the base branch, on a base start", async () => {
+    const h = await loggedThenStopped();
+    const tips = () => [git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns").trim(), git(h.sandbox, h.origin, "rev-parse", "feature/customer-returns").trim(), git(h.sandbox, h.repository, "rev-parse", "develop").trim(), git(h.sandbox, h.origin, "rev-parse", "develop").trim()];
+    const before = tips();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const made = h.kilnGitCalls().slice(calls);
+    expect(made.some(call => call.startsWith("worktree add"))).toBe(true);
+    expect(made.filter(call => FORBIDDEN_GIT.test(call))).toEqual([]);
+    expect(tips()).toEqual(before);
+  });
+
+  it("never merges, resets, deletes or force-pushes on an existing-branch start", async () => {
+    const h = await loggedThenStopped();
+    const before = git(h.sandbox, h.origin, "rev-parse", "develop").trim();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const made = h.kilnGitCalls().slice(calls);
+    expect(made.some(call => call.startsWith("worktree add"))).toBe(true);
+    expect(made.filter(call => FORBIDDEN_GIT.test(call))).toEqual([]);
+    expect(git(h.sandbox, h.origin, "rev-parse", "develop").trim()).toBe(before);
+  });
+
+  it("gives a base start's new execution its own billing: an earlier approval doesn't carry, and no session launches until it clears", async () => {
+    const h = await landedThenStopped();
+    h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
+    await h.engine.refreshBilling();
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    const oldId = h.engine.record.executionId!;
+    h.engine.record.billing!.approval = { executionId: oldId, contextFingerprint: h.engine.record.billing!.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
+    writePrdRecord(h.stateDirectory, h.engine.record);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const launches = h.claudeCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(h.engine.record.executionId).not.toBe(oldId);
+    expect(h.engine.record.billing!.executionId).toBe(h.engine.record.executionId);
+    expect(h.engine.record.billing!.approval).toBeUndefined();
+    expect(h.engine.record.billing!.hold).toBeDefined();
+    expect(h.claudeCalls()).toHaveLength(launches);
+    expect(h.engine.historicalExecution(oldId)!.record.billing!.approval!.executionId).toBe(oldId);
+  });
+
+  it("leaves billing, early-merge permission and the repository entries as they were on an existing-branch start", async () => {
+    const h = await landedThenStopped();
+    const authorization = { revision: 2, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop" }, confirmedAt: "2026-10-01T10:00:00.000Z", source: "start" as const }] };
+    h.engine.record.developmentAuthorization = authorization;
+    h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
+    await h.engine.refreshBilling();
+    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    const billing = h.engine.record.billing!;
+    billing.approval = { executionId: h.engine.record.executionId!, contextFingerprint: billing.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
+    const approval = structuredClone(billing.approval);
+    const entries = h.engine.record.repositories.map(({ name, kind, github, mainCheckoutPath, baseBranch, baseCommit }) => ({ name, kind, github, mainCheckoutPath, baseBranch, baseCommit }));
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    expect(record.developmentAuthorization).toEqual(authorization);
+    expect(record.billing!.executionId).toBe(record.executionId);
+    expect(record.billing!.approval).toEqual(approval);
+    expect(record.repositories).toMatchObject(entries);
+  });
+
+  it("keeps the repository entries' identity on a base start, naming only the new folder and base commit", async () => {
+    const h = await landedThenStopped();
+    const { name, kind, github, mainCheckoutPath, baseBranch } = h.engine.record.repositories[0]!;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.repositories).toMatchObject([{ name, kind, github, mainCheckoutPath, baseBranch }]);
+  });
+
+  it("carries a pending pause through a base start: it doesn't fire until its phase is done, then Kiln pauses before the next", async () => {
+    const h = await landedThenStopped();
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    git(h.sandbox, h.repository, "worktree", "prune");
+    git(h.sandbox, h.repository, "branch", "-D", "feature/customer-returns");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "--delete", "feature/customer-returns");
+    await h.engine.folderGuard({ gather: true });
+    const calls = h.claudeCalls().length;
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    const launched = h.claudeCalls().slice(calls).map(call => call.prompt);
+    // Phase 1 ran again first, and its Done did not fire the pause: Phase 2b, the pause's phase, launched after it.
+    expect(launched[0]).toContain("phase-1-return-intake.md");
+    expect(launched.some(prompt => prompt.includes("phase-2b-store-credit.md"))).toBe(true);
+    expect(record.phases["2b"]!.doneAt).toBeDefined();
+    expect(record.pause.activeSince).toBeDefined();
+    expect(launched.some(prompt => prompt.includes("phase-3-returns-dashboard.md"))).toBe(false);
+  });
+
+  it("ends a pending pause on a base start when its phase is not still to run, and doesn't list it", async () => {
+    const h = await landedThenStopped();
+    h.engine.record.pause.requestedAt = new Date().toISOString();
+    mergedWithClosed(h, ["phase-2b-store-credit.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    git(h.sandbox, h.repository, "worktree", "prune");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h)).filter(line => line.startsWith("Kiln will pause"))).toEqual([]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.pause).toEqual({});
+  });
+
+  it("leaves a pending pause on an existing-branch start and names its phase in the list", async () => {
+    const h = await landedThenStopped();
+    const requestedAt = new Date().toISOString();
+    h.engine.record.pause.requestedAt = requestedAt;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(panelOf(h).selected).toBe("branch");
+    expect(lines(panelOf(h))).toContain("Kiln will pause after Phase 2b is Done");
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    // The stopped phase's done check still fails, so the request is still waiting on it.
+    expect(h.engine.stoppedPhaseKey()).toBe("2b");
+    expect(readPrdRecord(h.stateDirectory)!.pause).toEqual({ requestedAt });
+  });
+
+  it("leaves a takeover hold with the execution a base start archives, and says so in the list", async () => {
+    const h = await landedThenStopped();
+    const oldId = h.engine.record.executionId!;
+    h.engine.record.liveControl = heldBy(h);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(lines(panelOf(h))).toContain("End your terminal takeover and take control back");
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.liveControl).toBeUndefined();
+    expect(h.engine.historicalExecution(oldId)!.record.liveControl?.takeover.target.executionId).toBe(oldId);
+  });
+
+  it("ends a released takeover hold on an existing-branch start, as the explicit Resume", async () => {
+    const h = await landedThenStopped();
+    // The provider's registry of terminal sessions, which the release check reads: no terminal holds this conversation.
+    mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+    h.engine.record.liveControl = heldBy(h);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(lines(panelOf(h))).toContain("End your terminal takeover and take control back");
+    expect(await start(h)).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.liveControl).toBeUndefined();
+    expect(h.engine.folderMissing).toBeUndefined();
+  });
+});
+
+describe("the panel's fields start from the run's saved choices, and edits reach Start (AC-SETUP-01)", () => {
+  const non_default = async () => {
+    const h = await landedThenStopped();
+    Object.assign(h.engine.record.settings, { keepAwake: false, resumeAfterUsageLimit: false });
+    h.engine.record.settings.agentChoices[h.engine.record.settings.agentId] = { model: "sonnet", effort: "low" };
+    return h;
+  };
+
+  it("fills model, effort, keep-awake and resume from the saved settings on either start", async () => {
+    const h = await non_default();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    for (const start of ["base", "branch"] as const) {
+      await h.engine.changeFolderPanel({ start, fields: {} });
+      expect(panelOf(h).fields, start).toMatchObject({ model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false });
+    }
+  });
+
+  it("gives a base start's folder the new-folder help line, one repository and several", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).helpLines.folder).toBe("New: a folder named for the new branch.");
+  });
+
+  it("gives a several-repository base start's workspace folder its new-folder help line", async () => {
+    const h = await twoRepositories();
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).helpLines.folder).toBe("New: a folder named for the new branch, with a new worktree of each repository.");
+  });
+
+  it("saves an edited Resume after a usage limit only when Start succeeds, on either start", async () => {
+    for (const kind of ["base", "branch"] as const) {
+      const h = await landedThenStopped();
+      expect(h.engine.record.settings.resumeAfterUsageLimit).toBe(true);
+      rmSync(h.engine.worktreePath, { recursive: true, force: true });
+      await h.engine.folderGuard({ gather: true });
+      await h.engine.changeFolderPanel({ start: kind, fields: { resumeAfterUsageLimit: false } });
+      expect(panelOf(h).fields.resumeAfterUsageLimit).toBe(false);
+      expect(readPrdRecord(h.stateDirectory)!.settings.resumeAfterUsageLimit, kind).toBe(true);
+      expect(await start(h, { start: kind })).toEqual({ ok: true, status: 200 });
+      await h.engine.settled();
+      expect(readPrdRecord(h.stateDirectory)!.settings.resumeAfterUsageLimit, kind).toBe(false);
+      await harness!.cleanup(); harness = undefined;
+    }
+  });
+
+  it("starts each repository from the base the panel's Repositories list chose", async () => {
+    const h = await twoRepositories();
+    const api = h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!;
+    const apiCheckout = api.mainCheckoutPath;
+    git(h.sandbox, apiCheckout, "checkout", "-q", "-b", "main");
+    writeFileSync(join(apiCheckout, "main-only.txt"), "main\n");
+    git(h.sandbox, apiCheckout, "add", "main-only.txt");
+    git(h.sandbox, apiCheckout, "commit", "-qm", "On main only");
+    git(h.sandbox, apiCheckout, "push", "-q", "origin", "main");
+    const mainTip = git(h.sandbox, apiCheckout, "rev-parse", "main").trim();
+    git(h.sandbox, apiCheckout, "checkout", "-q", "develop");
+    rmSync(api.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: { bases: { "returns-api": "main" } } });
+    const panel = panelOf(h);
+    expect(panel.repositories.find(row => row.name === "returns-api")).toMatchObject({ baseBranch: "main" });
+    expect(panel.fields.bases).toEqual({ "returns-api": "main" });
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    expect(record.repositories.find(entry => entry.name === "returns-api")).toMatchObject({ baseBranch: "main", baseCommit: mainTip });
+    expect(record.settings.bases).toEqual({ "returns-api": "main" });
+    expect(git(h.sandbox, apiCheckout, "rev-parse", "feature/customer-returns-2").trim()).toBe(mainTip);
+  });
+});
+
+describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", () => {
+  /** What a read-only page must leave alone: the saved record, every ref, the worktree list, origin and the shared checkout. */
+  const everything = (h: Harness) => ({
+    record: readFileSync(join(h.stateDirectory, "prd.json"), "utf8"),
+    refs: git(h.sandbox, h.repository, "for-each-ref"),
+    worktrees: git(h.sandbox, h.repository, "worktree", "list", "--porcelain"),
+    origin: git(h.sandbox, h.origin, "for-each-ref"),
+    checkout: git(h.sandbox, h.repository, "status", "--porcelain"),
+  });
+  const released = (h: Harness) => join(h.sandbox.root, "release-session");
+  /** Phase 1 landed; Phase 2b's session is still working when the test goes on. */
+  const stillWorking = async (): Promise<Harness> => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { waitForFile: released(h) }, { result: "Stopping here." }] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => git(h.sandbox, h.repository, "log", "-1", "--format=%s", "feature/customer-returns").trim() === "wip: store credit");
+    return h;
+  };
+
+  it("writes nothing and starts no session while showing the state", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    const before = everything(h);
+    const calls = h.claudeCalls().length;
+    expect(await h.engine.folderGuard({ gather: true })).toBe(false);
+    buildSnapshot(h.engine);
+    expect(everything(h)).toEqual(before);
+    expect(h.claudeCalls()).toHaveLength(calls);
+  });
+
+  it("writes no branch, checkout, remote or saved setting while the panel is edited", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const before = everything(h);
+    const calls = h.claudeCalls().length;
+    expect((await h.engine.changeFolderPanel({ start: "base", fields: { featureBranch: "feature/renamed", worktreePath: join(h.sandbox.root, "elsewhere"), baseBranch: "develop", keepAwake: false, resumeAfterUsageLimit: false } })).ok).toBe(true);
+    expect(everything(h)).toEqual(before);
+    expect(existsSync(join(h.sandbox.root, "elsewhere"))).toBe(false);
+    expect(h.claudeCalls()).toHaveLength(calls);
+  });
+
+  it("refuses Start while this Kiln's session runs, says to stop Kiln, and still records the session's end", async () => {
+    const h = await stillWorking();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true, mayLeave: false });
+    const panel = panelOf(h);
+    const busy = "A session is still running. Start becomes available when it ends, or when you stop Kiln in the terminal.";
+    expect(panel.busy).toBe(busy);
+    const branches = git(h.sandbox, h.repository, "for-each-ref", "refs/heads");
+    expect(await start(h)).toMatchObject({ ok: false, status: 409, code: "busy", reason: busy });
+    expect(git(h.sandbox, h.repository, "for-each-ref", "refs/heads")).toBe(branches);
+    const session = h.engine.latestSession("2b")!;
+    expect(session.runs.at(-1)!.endedAt).toBeUndefined();
+    writeFileSync(released(h), "");
+    await h.engine.settled();
+    expect(h.engine.latestSession("2b")!.runs.at(-1)!.endedAt).toBeDefined();
+    // Nothing is running any more, so the page stops refusing.
+    await h.engine.folderGuard({ gather: true, mayLeave: false });
+    expect(panelOf(h).busy).toBeUndefined();
+  });
+
+  it.skipIf(process.platform === "win32")("stops a session an earlier Kiln left before any Git write, and says so in the list", async () => {
+    harness = await createHarness({ logGit: true, sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }, landingSession("src/b.txt"), landingSession("src/c.txt")] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    // A process-group leader, as a real session is: Kiln stops the whole group.
+    const child = spawn("sleep", ["120"], { stdio: "ignore", detached: true });
+    try {
+      const startTime = await processStartTime(child.pid!);
+      // The next Kiln over the same record: its session is one an earlier Kiln left, still running.
+      h.reopen();
+      await h.engine.agents.refresh();
+      const session = h.engine.latestSession("2b")!;
+      session.agentId = "codex";
+      const run = session.runs.at(-1)!;
+      Object.assign(run, { pid: child.pid, processStartTime: startTime });
+      delete run.endedAt;
+      writeSessionRecord(h.stateDirectory, session);
+      rmSync(h.engine.worktreePath, { recursive: true, force: true });
+      await h.engine.folderGuard({ gather: true });
+      await h.engine.changeFolderPanel({ start: "base", fields: {} });
+      expect(panelOf(h).preview.lets.map(row => text(row.parts))).toContain(`Stop the session left by an earlier Kiln (process ${child.pid})`);
+      // The stop runs before Start's first git write; the process itself is really gone afterwards.
+      const internal = h.engine as unknown as { stopLiveProcess: (session: unknown) => Promise<void> };
+      const stop = internal.stopLiveProcess.bind(h.engine);
+      let writesBeforeStop = -1;
+      internal.stopLiveProcess = async (one) => { writesBeforeStop = h.kilnGitCalls().filter(call => call.startsWith("worktree add") || call.startsWith("branch ")).length; await stop(one); };
+      const writes = h.kilnGitCalls().filter(call => call.startsWith("worktree add") || call.startsWith("branch ")).length;
+      expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+      await h.engine.settled();
+      expect(writesBeforeStop).toBe(writes);
+      expect(await isProcessLive(child.pid!, startTime)).toBe(false);
+    } finally { child.kill("SIGKILL"); }
+  });
+
+  it("leaves the state instead of acting when every folder is back at Start", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const panel = panelOf(h);
+    git(h.sandbox, h.repository, "worktree", "add", "-f", saved, "feature/customer-returns");
+    const branches = git(h.sandbox, h.repository, "for-each-ref", "refs/heads");
+    expect(await h.engine.folderSetupStartCommand({ commandId: `start-${++commands}`, factsId: h.engine.folderMissing!.factsId, previewId: panel.previewId, start: panel.selected, fields: {} })).toMatchObject({ ok: false, status: 409, code: "folder_missing_resolved", reason: "The run’s folders are back, and Kiln checked the run again. Nothing was set up." });
+    expect(h.engine.folderMissing).toBeUndefined();
+    expect(git(h.sandbox, h.repository, "for-each-ref", "refs/heads")).toBe(branches);
+  });
+
+  it("answers 503 and republishes the page when a read fails in Start's recheck", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const panel = panelOf(h);
+    const record = readFileSync(join(h.stateDirectory, "prd.json"), "utf8");
+    const branches = git(h.sandbox, h.repository, "for-each-ref", "refs/heads");
+    git(h.sandbox, h.repository, "remote", "set-url", "origin", join(h.sandbox.root, "no-such-origin.git"));
+    expect(await start(h, { previewId: panel.previewId })).toMatchObject({ ok: false, status: 503, code: "folder_missing_check_failed" });
+    expect(h.engine.folderPanel).toEqual({ blocked: expect.stringContaining("Kiln couldn’t reach origin") });
+    expect(h.engine.folderMissing).toBeDefined();
+    expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(record);
+    expect(git(h.sandbox, h.repository, "for-each-ref", "refs/heads")).toBe(branches);
   });
 });

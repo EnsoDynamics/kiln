@@ -45,7 +45,15 @@ describe("the Folder missing page, against its mockup (AC-LOOK-01)", () => {
       else {
         expect(await page.evaluate<string>(LABELS.view), `${which}: settings labels`).toBe(await drawn.evaluate<string>(LABELS.mockup));
         const help = (await page.evaluate<string>(HELP.view)).split("|");
-        for (const line of (await drawn.evaluate<string>(HELP.mockup)).split("|").filter(line => !line.includes("@") && !line.includes("Agent fixed"))) expect(help, `${which}: help line`).toContain(line);
+        for (const line of (await drawn.evaluate<string>(HELP.mockup)).split("|").filter(line => !line.includes("@"))) expect(help, `${which}: help line`).toContain(line);
+      }
+      if (!blocked) {
+        // The panel's title and its four parts in the mockup's order (AC-SETUP-01), the fixed rows and the switches.
+        expect(flat(await page.evaluate<string>(read("#setup-h")))).toBe("set the run up again");
+        expect(await page.evaluate<string[]>(`[...document.querySelector(".setup").children].filter(e => e.matches(".label, .what, .deliver, .before")).map(e => (e.querySelector("h3, .eyebrow") ?? e).innerText.trim())`), `${which}: panel parts`).toEqual(await drawn.evaluate<string[]>(`[...document.querySelector("#setup").children].filter(e => e.matches(".kp-field-label, .kp-run")).map(e => (e.querySelector("h3, .kp-eyebrow") ?? e).innerText.trim())`));
+        expect(flat(await page.evaluate<string>(read(".setup dl.fixed"))), `${which}: fixed rows`).toBe(flat(await drawn.evaluate<string>(read("#setup .kp-fixed"))));
+        const switches = { mockup: `[...document.querySelectorAll("#setup .kp-check")].map(e => e.innerText).join("|")`, view: `[...document.querySelectorAll(".setup label.check")].map(e => e.innerText).join("|")` };
+        expect(flat(await page.evaluate<string>(switches.view)), `${which}: switches`).toBe(flat(await drawn.evaluate<string>(switches.mockup)));
       }
       // The footer's second half, and the Check again button.
       expect(flat(await page.evaluate<string>(read(".footer")))).toBe(flat(await drawn.evaluate<string>(read(".kp-footer"))));
