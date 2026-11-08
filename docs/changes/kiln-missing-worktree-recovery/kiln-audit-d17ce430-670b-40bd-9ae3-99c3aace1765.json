@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
+  "activityId": "d17ce430-670b-40bd-9ae3-99c3aace1765",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Whole-PRD delivery audit of Kiln Missing Worktree Recovery at 916c73e, after Phase 7: 8 of 18 criteria are still partly implemented (AC-FACTS-01, AC-FACTS-02, AC-FACTS-03, AC-GONE-02, AC-SETUP-01, AC-SETUP-03, AC-SAFE-01, AC-SAFE-02); the other 10 are implemented, and every gap Phase 7 targeted is closed. The gaps are narrow: branch facts and failed reads the Folder missing page doesn't show or name, each repository's own base, origin's copy of the branch when deciding where the latest work lives, a waiting phase's results missing from history, Start acting before the panel has the latest choice or typed edit, base-closed phases whose work a base-branch start leaves out unnamed, and a stopped Start's progress lost on restart. Phases 8 and 9 were added to build them. Four rounds ran, confirming 3, 3, 3 and 2 new gaps; the fourth round still found new gaps.",
+  "completionPhases": ["8", "9"],
+  "needsYou": []
+}
