@@ -2800,6 +2800,8 @@ export class Engine {
   folderPanel: PanelView | undefined;
   /** What a failed Start did and what remains (AC-SAFE-01). */
   folderStartProgress: { done: string[]; remaining: string[]; error: string } | undefined;
+  /** The start intent `folderStartProgress` describes. */
+  private folderStartProgressOf: string | undefined;
   /** A Start in this engine holds an intent `in_progress`; a passing check does not end the mode meanwhile. */
   private folderStarting = false;
   /** Whether a failed or interrupted start intent may still be open: checked once at startup, then after each failed Start. */
@@ -2831,7 +2833,7 @@ export class Engine {
     for (const intent of startIntents(this.stateDirectory, this.record.executionId)) {
       if (intent.state === "failed" || intent.state === "in_progress") { intent.state = "superseded"; writeStartIntent(this.stateDirectory, intent); }
     }
-    this.folderStartProgress = undefined;
+    this.folderStartProgress = undefined; this.folderStartProgressOf = undefined;
   }
 
   /** A Codex or pull-request process an earlier Kiln left running, which Start stops before any Git write. */
@@ -2910,13 +2912,25 @@ export class Engine {
       this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), ...(choice ? { model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
     }
     this.folderDraftSeeded = true;
-    try { this.folderPanel = await buildPanel(context, this.folderDraft); }
+    // A Start that failed, or stopped with Kiln, says what it did and what remains, from its durable intent, including after a restart (AC-SAFE-01).
+    if (!this.folderStarting && context.intent?.id !== this.folderStartProgressOf) {
+      this.folderStartProgress = context.intent ? progressOf(context.intent) : undefined;
+      this.folderStartProgressOf = context.intent?.id;
+    }
+    try {
+      const built = await buildPanel(context, this.folderDraft);
+      // A build that started before a later change, and finished after it was shown, would show an older panel as the latest (AC-SETUP-03).
+      const shown = this.folderPanel && !("blocked" in this.folderPanel) ? this.folderPanel.draftRevision : undefined;
+      if ("blocked" in built || shown === undefined || built.draftRevision >= shown) this.folderPanel = built;
+    }
     catch (error) { this.folderPanel = { blocked: `Kiln couldn’t prepare the setup: ${(error as Error).message}. Check again.` }; }
     this.changed();
   }
 
   private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>, notice?: string): void {
     this.folderDraft.selected = start;
+    // Rising across restarts too, so the page can tell a panel built from its latest edit (AC-SETUP-01, AC-SETUP-03).
+    this.folderDraft.revision = Math.max((this.folderDraft.revision ?? 0) + 1, this.now().getTime());
     // The notice stays until the next model or effort change in the panel.
     if (notice) this.folderDraft.choiceNotice = notice;
     else if (fields.model !== undefined || fields.effort !== undefined) delete this.folderDraft.choiceNotice;
@@ -2999,7 +3013,8 @@ export class Engine {
     }
     const change = this.folderChange({ start: inputs.start, fields: inputs.fields });
     if ("reason" in change) return { ok: false, code: "invalid_input", reason: change.reason, status: 400 };
-    this.applyFolderDraft(change.start, change.fields, change.notice);
+    // Start acts on the panel the engine last showed: a starting point it names that differs from the draft's is a changed page, not an edit (AC-SETUP-03).
+    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields, change.notice);
     const kind = change.start;
 
     // Start rechecks the facts and the plan it showed before acting (AC-SAFE-01).
@@ -3050,7 +3065,8 @@ export class Engine {
     }
     const save = () => writeStartIntent(this.stateDirectory, intent);
     this.folderStarting = true;
-    this.folderStartProgress = undefined;
+    delete intent.error;
+    this.folderStartProgress = undefined; this.folderStartProgressOf = undefined;
     try {
       save();
       // A Codex or pull-request process an earlier Kiln left running is stopped before any Git write.
@@ -3063,9 +3079,10 @@ export class Engine {
       if (this.record.executionId === intent.newExecutionId) { this.commands.fault ??= "Activation metadata is unresolved. Restart Kiln to rebuild inspection before dispatch."; throw error; }
       intent.state = error instanceof FolderSetupChanged ? "superseded" : "failed"; save();
       this.startIntentsMayBeOpen = true;
-      this.folderStartProgress = progressOf(intent);
+      this.folderStartProgress = progressOf(intent); this.folderStartProgressOf = intent.id;
       if (error instanceof FolderSetupChanged) { this.folderStartProgress = undefined; await this.folderGuard({ gather: true, mayLeave: false }); await this.refreshFolderPanel(); return { ok: false, code: "folder_setup_changed", reason: error.message, status: 409 }; }
-      if (!(error instanceof StartStepFailure)) this.folderStartProgress = { ...this.folderStartProgress, error: (error as Error).message };
+      // An error outside a step is saved with the intent, so the page still says it after a restart (AC-SAFE-01).
+      if (!(error instanceof StartStepFailure)) { intent.error = (error as Error).message; save(); this.folderStartProgress = { ...this.folderStartProgress, error: intent.error }; }
       // The page is republished with the facts and preview recomputed (Start).
       await this.folderGuard({ gather: true });
       if (this.folderMissing) await this.refreshFolderPanel();

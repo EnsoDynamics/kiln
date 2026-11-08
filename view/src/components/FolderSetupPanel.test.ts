@@ -97,3 +97,11 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
     expect(text(html(snapshot))).toMatch(/harbor-portal added in phase 3/);
   });
 });
+
+describe("a Start that stopped partway (Phase 9 of missing worktree recovery: AC-SAFE-01)", () => {
+  it("says why it stopped, what it did and what remains", () => {
+    const snapshot = withPanel({});
+    snapshot.folderMissing!.startProgress = { error: "Start stopped before it finished.", done: ["Create feature/x-2 and its folder"], remaining: ["Read the plan in the new folder", "Start the fresh execution"] };
+    expect(text(html(snapshot))).toContain("Start stopped: Start stopped before it finished. Done: Create feature/x-2 and its folder. Still to do: Read the plan in the new folder; Start the fresh execution. Press Start again to do only what remains.");
+  });
+});

@@ -49,6 +49,8 @@ export interface FolderSetupStart {
   state: "in_progress" | "failed" | "superseded" | "activated" | "resumed";
   /** Base starts. */
   newExecutionId?: string;
+  /** Why a Start failed outside any step. */
+  error?: string;
 }
 
 const directoryOf = (stateDirectory: string) => join(stateDirectory, "folder-setup-starts");
@@ -114,7 +116,7 @@ export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupR
 }
 
 export function progressOf(intent: FolderSetupStart): { done: string[]; remaining: string[]; error: string } {
-  return { done: intent.steps.filter(row => row.state === "done").map(row => row.label), remaining: intent.steps.filter(row => row.state !== "done").map(row => row.label), error: intent.steps.find(row => row.state === "failed")?.error ?? "Start stopped before it finished." };
+  return { done: intent.steps.filter(row => row.state === "done").map(row => row.label), remaining: intent.steps.filter(row => row.state !== "done").map(row => row.label), error: intent.steps.find(row => row.state === "failed")?.error ?? intent.error ?? "Start stopped before it finished." };
 }
 
 /** The folder check's predicate holds at the folder and git has it on the branch (existing-branch step 3's completion test). */

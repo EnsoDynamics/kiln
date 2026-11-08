@@ -1375,3 +1375,175 @@ describe("the folder facts (Phase 8 of missing worktree recovery: AC-FACTS-01, A
     expect(view.repositories.flatMap(repository => repository.unknown)).toEqual([]);
   });
 });
+
+describe("panel edits at Start, base-closed work and a stopped Start's progress (Phase 9 of missing worktree recovery: AC-SETUP-03, AC-SAFE-02, AC-SAFE-01)", () => {
+  /** Closes the given phases on develop without merging their work. */
+  function closeOnBaseOnly(h: Harness, files: string[]): void {
+    for (const file of files) {
+      const path = join(h.repository, "docs/prds/customer-returns", file);
+      const [title, ...rest] = readFileSync(path, "utf8").split("\n");
+      writeFileSync(path, [title, "**Closed:** 2026-11-06", ...rest].join("\n"));
+    }
+    git(h.sandbox, h.repository, "commit", "-qam", "Close phases elsewhere");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  }
+
+  it("refuses a Start naming a starting point the panel has since moved away from, and changes nothing", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const base = panelOf(h);
+    expect(base.selected).toBe("base");
+    // The change's answer carries the revision the page waits for.
+    const answer = await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    const branch = panelOf(h);
+    expect((answer as { panel: SetupPanel }).panel.draftRevision).toBe(branch.draftRevision);
+    expect(branch.selected).toBe("branch");
+    expect(branch.draftRevision).toBeGreaterThan(base.draftRevision);
+    const before = readFileSync(join(h.stateDirectory, "prd.json"), "utf8");
+    const branches = git(h.sandbox, h.repository, "branch", "--list");
+    // The page still showed the base start when Start was pressed.
+    expect(await start(h, { start: "base", previewId: base.previewId })).toMatchObject({ ok: false, status: 409, code: "folder_setup_changed" });
+    expect(panelOf(h).selected).toBe("branch");
+    expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(before);
+    expect(git(h.sandbox, h.repository, "branch", "--list")).toBe(branches);
+  });
+
+  it("names a completed phase the base plan already closes when its work isn't in the base branch, and never says the base has all the work", async () => {
+    const h = await landedThenStopped();
+    const sha = h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha!;
+    closeOnBaseOnly(h, ["phase-1-return-intake.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.preview.run.map(row => row.id)).not.toContain("1");
+    expect(text(panel.preview.caution!)).toBe(`Phase 1 would not run again. The plan on develop already closes it, but its work (${sha.slice(0, 7)}) isn’t in develop; it stays on the earlier feature branch.`);
+    expect((panel.choices.base as { line: string; holdsAllWork?: boolean }).line).toMatch(/Missing Phase 1’s work\.$/);
+    expect((panel.choices.base as { holdsAllWork?: boolean }).holdsAllWork).toBe(false);
+  });
+
+  it("names the phase the run stopped on when the base plan closes it but its commits are only on the feature branch", async () => {
+    const h = await landedThenStopped();
+    storeCreditWork(h);
+    mergedWithClosed(h, ["phase-1-return-intake.md", "phase-2b-store-credit.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(text(panel.preview.caution!)).toBe("Phase 2b would not run again. The plan on develop already closes it, but its work isn’t in develop; it stays on the earlier feature branch.");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phase 2b’s work\.$/);
+  });
+
+  it("names no base-closed phase whose work is in the base branch", async () => {
+    const h = await landedThenStopped();
+    mergedWithClosed(h, ["phase-1-return-intake.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.preview.caution).toBeUndefined();
+    expect((panel.choices.base as { line: string }).line).toMatch(/Has all of this run’s work\.$/);
+  });
+
+  it("names the repository whose work a base-closed phase leaves behind in a run with several repositories, with no commit of another", async () => {
+    const { h } = await phaseOneDoneInApi();
+    closeOnBaseOnly(h, ["phase-1-return-intake.md"]);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(text(panel.preview.caution!)).toBe("Phase 1 would not run again. The plan on develop already closes it, but its work in returns-api isn’t in its base branch; it stays on the earlier feature branch.");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phase 1’s work\.$/);
+  });
+
+  it("says a base-closed phase's work was only on the deleted branch when the branch is gone", async () => {
+    const h = await landedThenStopped();
+    const sha = h.engine.record.phases["1"]!.repositories["acme-shop"]!.pushedSha!;
+    closeOnBaseOnly(h, ["phase-1-return-intake.md"]);
+    git(h.sandbox, h.repository, "worktree", "remove", "--force", h.engine.worktreePath);
+    git(h.sandbox, h.repository, "branch", "-D", "feature/customer-returns");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "--delete", "feature/customer-returns");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(text(panelOf(h).preview.caution!)).toBe(`Phase 1 will not run again. The plan on develop already closes it, but its work (${sha.slice(0, 7)}) isn’t in develop; it was only on the deleted branch.`);
+  });
+
+  it("names a base-closed phase whose only left-behind work is in a repository the start leaves out once, with that repository", async () => {
+    const { h } = await phaseOneDoneInApi();
+    const path = join(h.repository, "docs/prds/customer-returns/phase-1-return-intake.md");
+    const [title, ...rest] = readFileSync(path, "utf8").replace("\n**Repositories:** returns-api\n", "\n").split("\n");
+    writeFileSync(path, [title, "**Closed:** 2026-11-06", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-qam", "Phase 1 closed in acme-shop alone");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const caution = text(panelOf(h).preview.caution!);
+    expect(caution).toBe("Work this run committed in returns-api (Phase 1) isn’t in its base branch; it stays on that repository’s feature branch.");
+  });
+
+  it("shows the newest edit's panel when two edits are previewed at once, and a reopened Kiln's panel is newer than any shown before", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await Promise.all([h.engine.changeFolderPanel({ start: "base", fields: {} }), h.engine.changeFolderPanel({ start: "branch", fields: {} })]);
+    const shown = panelOf(h);
+    expect(shown.selected).toBe("branch");
+    h.engine.close();
+    const reopened = h.reopen();
+    await reopened.folderGuard({ gather: true });
+    expect((reopened.folderPanel as SetupPanel).draftRevision).toBeGreaterThan(shown.draftRevision);
+  });
+
+  /** A base start that made its branch and folder, then failed or was stopped with Kiln at the plan step. */
+  async function startThatStopped(h: Harness, state: "failed" | "in_progress") {
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const base = git(h.sandbox, h.repository, "rev-parse", "origin/develop").trim();
+    const folder = join(h.sandbox.root, ".worktrees", "customer-returns-2", "acme-shop");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "--no-track", "-b", "feature/customer-returns-2", folder, base);
+    const settings = { ...structuredClone(h.engine.record.settings), featureBranch: "feature/customer-returns-2", worktreePath: folder, workspaceFolder: join(h.sandbox.root, ".worktrees", "customer-returns-2") };
+    const repositories = [{ name: "acme-shop", kind: "prd" as const, github: "acme/acme-shop", mainCheckoutPath: h.repository, baseBranch: "develop", baseCommit: base, branch: "feature/customer-returns-2", worktreePath: folder }];
+    const steps = plannedSteps("base", repositories, false);
+    steps[0]!.state = "done";
+    if (state === "failed") Object.assign(steps[1]!, { state: "failed", error: "The plan couldn’t be read." });
+    writeStartIntent(h.stateDirectory, { formatVersion: 1, id: `intent-${state}`, commandId: `start-${state}`, executionId: h.engine.record.executionId!, kind: "base", factsId: "a".repeat(64), previewId: "b".repeat(64), createdAt: new Date().toISOString(), settings, repositories, steps, state, newExecutionId: "new-execution-1" });
+  }
+
+  it("says what a failed Start did and what remains after Kiln restarts", async () => {
+    const h = await landedThenStopped();
+    await startThatStopped(h, "failed");
+    h.engine.close();
+    const reopened = h.reopen();
+    await reopened.folderGuard({ gather: true });
+    expect(buildSnapshot(reopened).folderMissing!.startProgress).toEqual({ done: ["Create feature/customer-returns-2 and its folder"], remaining: ["Read the plan in the new folder", "Start the fresh execution"], error: "The plan couldn’t be read." });
+  });
+
+  it("says why a Start failed outside any step after Kiln restarts", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    // The start fails after its intent is written, outside any step: a simulated failure.
+    (h.engine as unknown as { runBaseStart: () => Promise<never> }).runBaseStart = async () => { throw new Error("The earlier Kiln's session couldn’t be stopped."); };
+    expect(await start(h)).toMatchObject({ ok: false, status: 500, code: "folder_setup_failed" });
+    h.engine.close();
+    const reopened = h.reopen();
+    await reopened.folderGuard({ gather: true });
+    expect(buildSnapshot(reopened).folderMissing!.startProgress!.error).toBe("The earlier Kiln's session couldn’t be stopped.");
+  });
+
+  it("says what a Start interrupted by stopping Kiln did and what remains, at the next startup", async () => {
+    const h = await landedThenStopped();
+    await startThatStopped(h, "in_progress");
+    h.engine.close();
+    const reopened = h.reopen();
+    await reopened.folderGuard({ gather: true });
+    expect(buildSnapshot(reopened).folderMissing!.startProgress).toEqual({ done: ["Create feature/customer-returns-2 and its folder"], remaining: ["Read the plan in the new folder", "Start the fresh execution"], error: "Start stopped before it finished." });
+    // The next Start does only what remains, and the progress goes once it succeeds.
+    expect(await start({ ...h, engine: reopened } as Harness)).toEqual({ ok: true, status: 200 });
+    await reopened.settled();
+    expect(readPrdRecord(h.stateDirectory)!.settings.featureBranch).toBe("feature/customer-returns-2");
+    expect(buildSnapshot(reopened).folderMissing).toBeUndefined();
+  });
+});

@@ -32,11 +32,23 @@
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
   let commandId: string | undefined;
+  // Start waits for the panel to show the person's latest edit (AC-SETUP-01, AC-SETUP-03): no change in flight, no typed
+  // value still to send, and the shown panel built from the last change the engine took.
+  let inFlight = $state(0);
+  let awaited = $state(0);
+  const settling = $derived(inFlight > 0 || Object.keys(drafts).length > 0 || (panel?.draftRevision ?? 0) < awaited);
 
   async function change(start: StartKind, fields: Partial<PanelFields>) {
     reason = undefined;
-    const answer = await changeFolderPanel(config, { start, fields });
-    if (!answer.ok) reason = answer.reason;
+    inFlight += 1;
+    try {
+      const answer = await changeFolderPanel(config, { start, fields });
+      if (!answer.ok) reason = answer.reason;
+      else {
+        const shown = (answer as { panel?: { draftRevision?: number } }).panel?.draftRevision;
+        if (shown !== undefined) awaited = Math.max(awaited, shown);
+      }
+    } finally { inFlight -= 1; }
   }
   function typed(field: "worktreePath" | "workspaceFolder" | "featureBranch", value: string) {
     drafts[field] = value;
@@ -51,6 +63,7 @@
   }
   async function pressStart() {
     if (!panel || pressing) return;
+    if (settling) return;
     pressing = true; reason = undefined;
     commandId ??= crypto.randomUUID();
     const answer = await startFolderSetup(config, { commandId, factsId: view.factsId, previewId: panel.previewId, start: panel.selected, fields: {} });
@@ -201,7 +214,7 @@
           <ul class="allowed">{#each panel.preview.lets as row, index (index)}<li class:muted={!row.allowed}>{row.allowed ? "✓" : "✕"} {@render parts(row.parts)}</li>{/each}</ul>
         </div>
         <div class="go">
-          <button type="button" class="primary" disabled={!connected || pressing || !!panel.busy || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
+          <button type="button" class="primary" disabled={!connected || pressing || settling || !!panel.busy || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
           {#if panel.busy}<p class="help">{panel.busy}</p>{:else}<p class="help">Earlier phases, sessions and delivery links stay in this run’s history.</p>{/if}
         </div>
       </div>

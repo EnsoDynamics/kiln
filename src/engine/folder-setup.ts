@@ -34,8 +34,9 @@ export interface PanelFields {
 /** One posted change, as `POST /api/folder-setup/panel` carries it. */
 export interface PanelChange { start: StartKind; fields: Partial<PanelFields> }
 /** The engine's one draft per PRD: the selected start and each start's own edits. */
-export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>>; /** Documents found's `choiceNotice`: a model change reset the effort (AC-SETUP-01). */ choiceNotice?: string }
-export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} } });
+export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>>; /** Documents found's `choiceNotice`: a model change reset the effort (AC-SETUP-01). */ choiceNotice?: string; /** Rises with each applied change. */ revision?: number }
+/** A new draft's revision starts from the clock, so a page open across a restart or a reset never waits for a lower one. */
+export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} }, revision: Date.now() });
 
 /** Words with inline code, a date, or emphasis, as the page lays them out. */
 export interface Part { text?: string; tone?: "code" | "strong"; date?: string }
@@ -64,6 +65,8 @@ export interface SetupPanel {
   /** Start is refused while a session runs (AC-SAFE-01): the line shown under the button. */
   busy?: string;
   previewId: string;
+  /** The draft change this panel was built from, so the page holds Start until its latest change is shown (AC-SETUP-03). */
+  draftRevision: number;
 }
 export type PanelView = SetupPanel | { blocked: string };
 
@@ -146,6 +149,8 @@ export function suffixedFolder(record: PrdRecord, prdFolder: string, n: number):
  */
 export async function buildPanel(context: PanelContext, draft: PanelDraft): Promise<PanelView> {
   const { record, view } = context;
+  // The draft change this build starts from; a later change gets a later build (AC-SETUP-03).
+  const revision = draft.revision ?? 0;
   const reads = view.reads;
   const prdRead = reads.repositories.find(read => read.entry.kind === "prd") ?? reads.repositories[0]!;
 
@@ -198,7 +203,7 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   // Model and Effort as on Documents found: Model's field message, and the efforts the chosen model takes (AC-SETUP-01).
   const modelCheck = context.model?.({ model: chosen.fields.model, ...(chosen.fields.effort ? { effort: chosen.fields.effort } : {}) });
   const fieldErrors = { ...chosen.fieldErrors, ...(modelCheck?.error ? { model: modelCheck.error } : {}) };
-  const panel: Omit<SetupPanel, "previewId"> = {
+  const panel: Omit<SetupPanel, "previewId" | "draftRevision"> = {
     suggested, selected, choices, multi,
     fields: chosen.fields, fixed: chosen.fixed, fieldErrors, helpLines: chosen.helpLines,
     effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}), ...(draft.choiceNotice ? { choiceNotice: draft.choiceNotice } : {}),
@@ -209,7 +214,7 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   };
   // The identity Start compares: everything the page showed for the selected start (AC-SAFE-01).
   const previewId = digest({ selected, choice: choices[selected], fields: panel.fields, repositories: chosen.repositories.map(r => [r.name, r.baseBranch, r.mainCheckoutPath]), baseCommits: chosen.baseCommits, preview, planDigest: chosen.plan?.digest, folders: chosen.folders });
-  return { ...panel, previewId };
+  return { ...panel, previewId, draftRevision: revision };
 }
 
 /** `sentence`: an unchecked start's reason is already a whole sentence naming what Kiln couldn't read. */
@@ -410,6 +415,22 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   }
   if (stoppedWork && !anyPlanIds.has(stopped!)) notInPlan.push(stopped!);
   notInPlan.sort((a, b) => rank(a) - rank(b));
+  // Phases this run completed, or was on, that the base plan already closes but whose work isn't in its base: closed there, they never run again.
+  const doneIds = new Set(done);
+  // Only the start's repositories: work in a repository being left out is named with that repository below.
+  const closedWithout: string[] = [];
+  const closedWithoutIn = new Set<string>();
+  for (const [id, completed] of context.completedByRun) {
+    if (!doneIds.has(id)) continue;
+    let left = false;
+    for (const read of reads.repositories) if (inSet(read.name) && await workLeftIn(read, completed.commits[read.name])) { left = true; closedWithoutIn.add(read.name); }
+    if (left) closedWithout.push(id);
+  }
+  if (stoppedWork && doneIds.has(stopped!)) {
+    const inRepositories = reads.repositories.filter(read => inSet(read.name) && stoppedWorkIn(read));
+    if (inRepositories.length) { closedWithout.push(stopped!); for (const read of inRepositories) closedWithoutIn.add(read.name); }
+  }
+  closedWithout.sort((a, b) => rank(a) - rank(b));
   const leftWork = leftOut.filter(name => branchWork.get(name) === true);
   // A left-out repository's phases whose work there isn't in its base branch, and the phase the run was on when it committed there.
   const leftPhaseIds = new Map<string, string[]>();
@@ -437,12 +458,18 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     add([{ text: lead, tone: "strong" }, { text: tail }]);
   }
   if (notInPlan.length) add([{ text: `${phaseList(notInPlan)} ${verb} not run.`, tone: "strong" }, { text: ` The plan on ${prdBase} has no such phase${notInPlan.length === 1 ? "" : "s"}, so ${notInPlan.length === 1 ? "its" : "their"} work stays on the earlier feature branch.` }]);
+  if (closedWithout.length) {
+    const one = closedWithout.length === 1;
+    const sha = one && !multi ? context.completedByRun.get(closedWithout[0]!)?.commits[prdRead.name] : undefined;
+    const where = multi ? ` in ${joinNames([...closedWithoutIn])} isn’t in ${closedWithoutIn.size === 1 ? "its" : "their"} base branch` : `${sha ? ` (${short(sha)})` : ""} isn’t in ${prdBase}`;
+    add([{ text: `${phaseList(closedWithout)} ${verb} not run again.`, tone: "strong" }, { text: ` The plan on ${prdBase} already closes ${one ? "it" : "them"}, but ${one ? "its" : "their"} work${where}; it ${gone ? "was only on the deleted branch" : "stays on the earlier feature branch"}.` }]);
+  }
   for (const name of leftWork) {
     const phases = leftPhaseIds.get(name)!;
     add([{ text: `Work this run committed in ${name}${phases.length ? ` (${phaseList(phases)})` : ""} isn’t in its base branch; it stays on that repository’s feature branch.` }]);
   }
   // "Holds all work" is withheld while a read of work not in the base branch failed (AC-FACTS-03).
-  const missing = [...new Set([...again, ...notInPlan, ...[...leftPhaseIds.values()].flat()])].sort((a, b) => rank(a) - rank(b));
+  const missing = [...new Set([...again, ...notInPlan, ...closedWithout, ...[...leftPhaseIds.values()].flat()])].sort((a, b) => rank(a) - rank(b));
   const holdsAllWork = missing.length || leftWork.length ? false : workUnknown ? undefined : true;
   const workLine = holdsAllWork === true ? "Has all of this run’s work." : holdsAllWork === undefined ? "Couldn’t check whether it has all of this run’s work." : `Missing ${missing.length ? phaseList(missing) : "some of this run"}’s work.`;
   const source = prdRead.base.source === "origin" ? `origin/${prdBase}` : prdBase;

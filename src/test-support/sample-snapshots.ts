@@ -857,6 +857,6 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     baseChoices: ["develop", "main"],
     effortLevels: ["low", "medium", "high", "xhigh", "max"],
     preview: { ...preview, lets },
-    previewId: "e".repeat(64),
+    previewId: "e".repeat(64), draftRevision: 0,
   };
 }

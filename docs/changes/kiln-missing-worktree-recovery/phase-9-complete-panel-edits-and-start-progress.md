@@ -1,4 +1,5 @@
 # Phase 9: Complete the panel's pending edits at Start, base-closed work left out, and a stopped Start's progress
+**Closed:** 2026-11-08
 
 **Added by delivery audit:** 2026-11-07, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md
@@ -18,7 +19,7 @@ AC-SETUP-03 (completes it; owned by phase 2), AC-SETUP-01 (completes it; owned b
 - **AC-SAFE-01:** a Start interrupted by stopping Kiln, or one that failed before a restart, no longer says what it did and what remains: `folderStartProgress` is set only in `applyFolderStart`'s catch, and nothing rebuilds it with `progressOf(intent)` from the durable failed intent that `failedStartIntent` finds at startup or in `refreshFolderPanel`.
 
 ## Known failures
-- Verified 2026-11-07 on the Phase 8 baseline (`b5a4317`): `src/server/folder-missing-in-browser.integration.test.ts` fails its merged and multi cases. Since Phase 7 the page's starting-point lines (AC-SETUP-02, AC-SETUP-03) say more than the mockup's: the merged case's existing-branch line adds "Has all of this run’s work.", and the multi case's base line adds "at 7e21b90" and its existing-branch line "last commit bec1115". The page follows the criteria; the mockup (`mockups/kiln-missing-worktree-recovery.html`) is the design reference to bring up to date, so this phase's starting-point work leaves that test green.
+- Verified 2026-11-07 on the Phase 8 baseline (`b5a4317`): `src/server/folder-missing-in-browser.integration.test.ts` fails its merged and multi cases. Since Phase 7 the page's starting-point lines (AC-SETUP-02, AC-SETUP-03) say more than the mockup's: the merged case's existing-branch line adds "Has all of this run’s work.", and the multi case's base line adds "at 7e21b90" and its existing-branch line "last commit bec1115". The page follows the criteria; the mockup (`mockups/kiln-missing-worktree-recovery.html`) is the design reference to bring up to date, so this phase's starting-point work leaves that test green. Resolved in this phase: the mockup's starting-point lines now carry those words.
 
 ## Phase dependencies
 2 (the setup panel, `baseStart`, Start and its intent); 4, 6 and 7 (their completion of AC-SETUP-03, AC-SAFE-01 and AC-SAFE-02).
