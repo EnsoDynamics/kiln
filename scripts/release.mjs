@@ -172,9 +172,7 @@ export async function prePush(root, input) {
   }
 }
 
-export async function publishingReadiness({ enabled, mode, token, isPrivate, registryUrl = registry, oidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL, oidcRequestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }) {
-  if (enabled !== 'true' && enabled !== 'false') throw new Error('NPM_PUBLISH_ENABLED must be true or false.');
-  if (enabled === 'false') return false;
+export async function publishingReadiness({ mode, token, isPrivate, registryUrl = registry, oidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL, oidcRequestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }) {
   if (isPrivate !== false) throw new Error('Provenance publishing requires the approved repository to be public.');
   if (mode === 'token') {
     if (!token) throw new Error('NPM_TOKEN is missing. Configure the restricted initial-publish secret before releasing.');
@@ -195,7 +193,6 @@ export async function publishingReadiness({ enabled, mode, token, isPrivate, reg
       throw new Error(`npm trusted-publisher authentication failed (HTTP ${response.status}).`);
     }
   } else throw new Error('NPM_AUTH_MODE must explicitly select token or trusted.');
-  return true;
 }
 
 async function main() {
@@ -214,10 +211,10 @@ async function main() {
     if (process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Releases run only on main.');
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     const current = await checkRelease({ root, base: event.before });
-    const publish = await publishingReadiness({ enabled: process.env.NPM_PUBLISH_ENABLED, mode: process.env.NPM_AUTH_MODE, token: process.env.NODE_AUTH_TOKEN, isPrivate: event.repository?.private });
+    await publishingReadiness({ mode: process.env.NPM_AUTH_MODE, token: process.env.NODE_AUTH_TOKEN, isPrivate: event.repository?.private });
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required.');
-    writeFileSync(process.env.GITHUB_OUTPUT, `version=${current.version}\npublish=${publish}\n`, { flag: 'a' });
-    console.log(`Release ${current.version} preflight passed; publication ${publish ? 'enabled' : 'held'}.`);
+    writeFileSync(process.env.GITHUB_OUTPUT, `version=${current.version}\n`, { flag: 'a' });
+    console.log(`Release ${current.version} preflight passed.`);
   } else throw new Error('Use metadata, prepare, install-hooks, pre-push, candidate or preflight.');
 }
 

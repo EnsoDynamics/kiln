@@ -1,4 +1,5 @@
 # Phase 1: Folder missing state, with what Kiln still knows
+**Closed:** 2026-11-06
 
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md
 **Technical design:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md — relevant sections: "Design Decisions" (where Folder missing lives, the run's-worktree predicate, one gate), "The Folder Check", "Folder Missing", "The Facts", "The Setup Panel" ("Put it back yourself" only), "Interfaces" (`/api/folder-setup/check`, the snapshot's `folderMissing` block without `panel`, Terminal), "Data Models" (`planReadAt`)

@@ -203,6 +203,30 @@ describe("development delivery terminal outcomes", () => {
 });
 
 
+describe("a stop that needs a person (AC-START-09)", () => {
+  const at = new Date(2026, 9, 24, 11, 31);
+  const record = { plan: [{ id: "2b", title: "Store credit", file: "phase-2b-store-credit.md", closed: false, repositories: [] }] } as unknown as PrdRecord;
+  const address = "http://127.0.0.1:4700/customer-returns";
+  const says = `stopped · waiting for you at ${address}`;
+
+  it("says Kiln is waiting and where, for a phase, an audit and final delivery", () => {
+    expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  2b  Store credit  ${says}`);
+    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", label: "Test audit", round: 1, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Round 1  ${says}`);
+    expect(formatTerminalEvent({ kind: "pull_request", at, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  PR  Final pull request  ${says}`);
+  });
+
+  it("colors the stop amber and the address as the view address, and leaves other events alone", () => {
+    const colored = terminalColors({ isTTY: true }, {});
+    const line = formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, colored, undefined, address);
+    expect(line).toContain(colored.amber("stopped")); expect(line).toContain(colored.red(address));
+    expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "interrupted" }, record, plain, undefined, address)).toBe("11:31  2b  Store credit  interrupted");
+  });
+
+  it("still says Kiln is waiting when the view has no address yet", () => {
+    expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, plain)).toBe("11:31  2b  Store credit  stopped · waiting for you");
+  });
+});
+
 describe("audit activity terminal names", () => {
   it("prints audit rounds and stop/wait facts without exposing an audit as a numbered phase", () => {
     const at = new Date(2026,9,24,11,31);const record={plan:[]} as unknown as PrdRecord;

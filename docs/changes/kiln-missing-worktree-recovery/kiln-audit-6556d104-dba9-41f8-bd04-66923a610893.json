@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
+  "activityId": "6556d104-dba9-41f8-bd04-66923a610893",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Whole-PRD delivery audit of Kiln Missing Worktree Recovery at 330649d: 9 of 19 criteria are partly implemented (AC-GONE-01, AC-FACTS-02, AC-FACTS-03, AC-SETUP-01, AC-SETUP-05, AC-SETUP-06, AC-SAFE-01, AC-SAFE-02, AC-SAFE-04); the rest are implemented. The gaps are narrow: unnamed failed reads, panel fields that differ from Documents found, unnamed left-behind phases, a usage-wait resume that runs its completion check before the folder check, and Start's folder edge cases. Two completion phases were added: Phase 3 for what the page and panel show, Phase 4 for Start and the engine paths. All four assessment rounds confirmed new gaps, so the fresh delivery audit after these phases should read closely.",
+  "completionPhases": ["3", "4"],
+  "needsYou": []
+}

@@ -82,7 +82,9 @@ it.each(["not_dispatched", "dispatched", "cleanup_unknown"])("reconciles an olde
   receipt.effects.session = "unknown";
   const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
   writeFileSync(join(h.stateDirectory, "controls", hash(receipt.execution_id), `${hash(receipt.command_id)}.json`), JSON.stringify({ checksum: hash(receipt), receipt }));
-  const calls = f.calls().length;
+  // Conversation calls only: the reopened engine's own agent-metadata reads may land meanwhile.
+  const conversation = () => f.calls().filter(call => ["turn/start", "thread/read", "thread/turns/list"].includes(call.method ?? ""));
+  const calls = conversation().length;
   h.reopenFromDisk();
   expect(h.engine.commands.blocked).toBe(mode !== "not_dispatched");
   if (mode === "not_dispatched") {
@@ -90,7 +92,7 @@ it.each(["not_dispatched", "dispatched", "cleanup_unknown"])("reconciles an olde
     expect((await h.engine.decide()).kind).toBe("needs_you");
     expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   }
-  expect(f.calls()).toHaveLength(calls);
+  expect(conversation()).toHaveLength(calls);
 });
 
 

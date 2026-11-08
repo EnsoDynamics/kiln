@@ -162,8 +162,9 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const failed=await command(['status',f.path,'--json']);
     expect(failed.code).toBe(4);expect(failed.json().last_activity).toMatchObject({state:'unavailable'});
     const inventory=await command(['status','--json']);
-    expect(inventory.code).toBe(4);expect(inventory.json()).toMatchObject({ok:false,inventory_complete:false});
-    expect(inventory.json().errors).toEqual(expect.arrayContaining([expect.objectContaining({code:'state_unavailable'})]));
+    // The run is listed and counted from its readable record, so its unreadable output stays on its row.
+    expect(inventory.code).toBe(0);expect(inventory.json()).toMatchObject({ok:true,inventory_complete:true,errors:[]});
+    expect((inventory.json().runs as Result[])[0]).toMatchObject({ok:false,errors:expect.arrayContaining([expect.objectContaining({code:'state_unavailable'})])});
     expect(inventory.json().runs).toEqual(expect.arrayContaining([expect.objectContaining({last_activity:{observed_at:'2026-01-02T04:00:00.000Z',description:'deliverable-review skill started.',state:'unavailable',reason:expect.any(String)}})]));
     chmodSync(s.output,0o600);
   });
@@ -448,7 +449,7 @@ describe('completion of truthful and resource-bounded inspection', () => {
   it('distinguishes a genuinely absent root from inaccessible ancestors and non-directory roots through CLI inventory', async () => {
     sandbox = createSandbox();
     const missing = { ...sandbox.env, XDG_STATE_HOME: join(sandbox.root, 'missing') };
-    expect(enumerateWork(missing)).toEqual({ work: [], errors: [] });
+    expect(enumerateWork(missing)).toEqual({ work: [], errors: [], unreadableKeys: [], scanPartial: false });
     const empty = await command(['status', '--json'], missing); expect(empty.code).toBe(0); expect(empty.json().inventory_complete).toBe(true);
     const blocked = join(sandbox.root, 'blocked'); mkdirSync(blocked); mkdirSync(join(blocked, 'kiln')); chmodSync(blocked, 0);
     try {
@@ -897,9 +898,13 @@ describe('bounded saved-output and required receipt selectors through the built 
       else { writeFileSync(s.output, regular, { mode: 0o600 }); chmodSync(s.output, 0); }
       for (const args of calls) {
         const answer = await boundedCli([...args, ...format]);
-        expect(answer.code, `${kind}: ${answer.stdout}`).toBe(4);
-        const code = args[0] === 'logs' ? 'saved_output_unavailable' : args.length === 1 ? 'inventory_incomplete' : 'state_unavailable';
-        if (json) {
+        // A stopped run is listed and counted from its record, so bad output stays on its row; a live run's counts come from that row.
+        const stoppedInventory = args.length === 1 && !live;
+        expect(answer.code, `${kind}: ${answer.stdout}`).toBe(stoppedInventory ? 0 : 4);
+        const code = args[0] === 'logs' ? 'saved_output_unavailable' : args.length === 1 && live ? 'inventory_incomplete' : 'state_unavailable';
+        if (json && stoppedInventory) {
+          expect(answer.value()).toMatchObject({ schema_version: '1', ok: true, inventory_complete: true, errors: [], runs: [{ ok: false, errors: expect.arrayContaining([expect.objectContaining({ code })]) }] });
+        } else if (json) {
           expect(answer.value()).toMatchObject({ schema_version: '1', ok: false, errors: expect.arrayContaining([expect.objectContaining({ code })]) });
           if (args.length === 1) expect(answer.value().inventory_complete).toBe(false);
           else if (args[0] === 'status') {
@@ -918,6 +923,129 @@ describe('bounded saved-output and required receipt selectors through the built 
       else expect(valid.stdout).toContain('exact 2 "🐦"\nnext');
       await owner?.health();
     } finally { await owner?.stop(); }
+  });
+
+  describe('old saved records do not fail status for work they cannot affect', () => {
+    const corrupt = (f: ReturnType<typeof fixture>) => writeFileSync(join(f.directory, 'prd.json'), '{', { mode: 0o600 });
+    const codes = (answer: Awaited<ReturnType<typeof command>>) => answer.json().errors.map(e => e.code);
+
+    it.each(['docs/changes/not-saved', 'docs/prds/other-prd', 'docs/prds/other-prd/other-prd-prd.md', 'notes/todo.md'])('answers target_not_found for %s when the only unreadable record cannot be it', async path => {
+      sandbox = createSandbox(); corrupt(fixture());
+      const answer = await command(['status', path, '--json']);
+      expect(answer.code, answer.stdout).toBe(2); expect(codes(answer)).toEqual(['target_not_found']);
+    });
+
+    it('stays state_unavailable when the unreadable record could be the requested path', async () => {
+      sandbox = createSandbox(); corrupt(fixture());
+      for (const path of [`docs/prds/${FOLDER}`, `docs/prds/${FOLDER}/${FOLDER}-prd.md`]) {
+        const answer = await command(['status', path, '--json']);
+        expect(answer.code, answer.stdout).toBe(4); expect(codes(answer)).toEqual(['state_unavailable']);
+      }
+    });
+
+    it('stays state_unavailable when an unreadable docs/changes record could be the requested path', async () => {
+      sandbox = createSandbox(); const folder = join(dirname(fixture().directory), 'docs--changes--gone');
+      mkdirSync(folder, { mode: 0o700 }); writeFileSync(join(folder, 'leftover'), 'x', { mode: 0o600 });
+      const answer = await command(['status', 'docs/changes/gone', '--json']);
+      expect(answer.code, answer.stdout).toBe(4); expect(codes(answer)).toEqual(['state_unavailable']);
+    });
+
+    it.each([['corrupt', '{'], ['from another execution', JSON.stringify({ execution_id: 'someone-else', snapshot: {} })]])('keeps a stopped run with a %s saved view on its own row, counted once', async (_name, view) => {
+      sandbox = createSandbox(); const f = fixture(); writeFileSync(join(f.directory, 'inspection-view.json'), view, { mode: 0o600 });
+      const inventory = await command(['status', '--json']);
+      expect(inventory.code, inventory.stdout).toBe(0);
+      expect(inventory.json()).toMatchObject({ ok: true, inventory_complete: true, errors: [], counts: { stopped_unfinished: 1, unknown: 0 } });
+      const message = 'Saved details for this stopped run could not be read.';
+      expect(inventory.json().runs).toEqual([expect.objectContaining({ ok: false, controller: 'stopped', state: 'unknown', execution_id: f.record.executionId, errors: [expect.objectContaining({ code: 'state_unavailable', message })] })]);
+      const text = await command(['status']);
+      expect(text.code, text.stdout).toBe(0); expect(text.stdout).toContain(message);
+    });
+
+    it('stays state_unavailable when the state root itself cannot be listed', async () => {
+      sandbox = createSandbox(); fixture(); const root = stateRoot(sandbox.env); chmodSync(root, 0);
+      try {
+        const answer = await command(['status', 'docs/changes/not-saved', '--json']);
+        expect(answer.code, answer.stdout).toBe(4); expect(codes(answer)).toEqual(['state_unavailable']);
+      } finally { chmodSync(root, 0o700); }
+    });
+
+    it('applies the same rule to paths that exist in a real checkout', async () => {
+      sandbox = createSandbox(); const f = fixture(); const unrelated = fixture('another repository');
+      commitFiles(sandbox, unrelated.repository, 'docs/prds/never-run', prdDirectoryFiles());
+      corrupt(f);
+      const own = await command(['status', f.path, '--json']);
+      expect(own.code, own.stdout).toBe(4); expect(codes(own)).toEqual(['state_unavailable']);
+      const neverRun = await command(['status', join(unrelated.repository, 'docs/prds/never-run'), '--json']);
+      expect(neverRun.code, neverRun.stdout).toBe(2); expect(codes(neverRun)).toEqual(['target_not_found']);
+    });
+
+    it('still reports a state folder that cannot be listed rather than treating it as empty', async () => {
+      sandbox = createSandbox(); const f = fixture(); const folder = join(dirname(f.directory), 'docs--prds--demo');
+      mkdirSync(folder, { mode: 0o700 }); chmodSync(folder, 0);
+      try {
+        const inventory = await command(['status', '--json']);
+        expect(inventory.code, inventory.stdout).toBe(4);
+        expect(inventory.json()).toMatchObject({ ok: false, inventory_complete: false, counts: { unknown: 1 } });
+      } finally { chmodSync(folder, 0o700); }
+    });
+
+    it('documents row-level details in status help', async () => {
+      sandbox = createSandbox();
+      for (const format of [['--json'], []]) {
+        const help = await command(['status', '--help', ...format]);
+        expect(help.code, help.stdout).toBe(0);
+        for (const phrase of ["check each row's own ok", 'a row can still report missing details', 'has ok false and its own errors']) expect(help.stdout).toContain(phrase);
+      }
+    });
+
+    it('stays state_unavailable when a whole saved repository cannot be listed', async () => {
+      sandbox = createSandbox(); const repository = dirname(fixture().directory); chmodSync(repository, 0);
+      try {
+        const answer = await command(['status', 'docs/changes/not-saved', '--json']);
+        expect(answer.code, answer.stdout).toBe(4); expect(codes(answer)).toEqual(['state_unavailable']);
+      } finally { chmodSync(repository, 0o700); }
+    });
+
+    it('does not let damaged path aliases on one saved run decide the answer for another path', async () => {
+      sandbox = createSandbox(); const f = fixture(); const damaged = fixture('another repository');
+      writeJsonAtomically(join(damaged.directory, 'inspection-aliases.json'), { version: 2 });
+      const missing = await command(['status', 'docs/changes/not-saved', '--json']);
+      expect(missing.code, missing.stdout).toBe(2); expect(codes(missing)).toEqual(['target_not_found']);
+      const found = await command(['status', f.path, '--json']);
+      expect(found.code, found.stdout).toBe(0); expect(found.json().execution_id).toBe(f.record.executionId);
+      const possible = await command(['status', `docs/prds/${FOLDER}`, '--json']);
+      expect(possible.code, possible.stdout).toBe(4); expect(codes(possible)).toEqual(['state_unavailable']);
+    });
+
+    it('treats a completely empty state folder as no saved work', async () => {
+      sandbox = createSandbox(); const f = fixture(); mkdirSync(join(dirname(f.directory), 'docs--prds--demo'), { mode: 0o700 });
+      const inventory = await command(['status', '--json']);
+      expect(inventory.code, inventory.stdout).toBe(0);
+      expect(inventory.json()).toMatchObject({ ok: true, inventory_complete: true, errors: [], counts: { stopped_unfinished: 1, unknown: 0 } });
+      const target = await command(['status', 'docs/prds/demo', '--json']);
+      expect(target.code, target.stdout).toBe(2); expect(codes(target)).toEqual(['target_not_found']);
+    });
+
+    it('still reports a state folder that has files but no readable record', async () => {
+      sandbox = createSandbox(); const f = fixture(); const folder = join(dirname(f.directory), 'docs--prds--demo');
+      mkdirSync(folder, { mode: 0o700 }); writeFileSync(join(folder, 'leftover'), 'x', { mode: 0o600 });
+      const inventory = await command(['status', '--json']);
+      expect(inventory.code, inventory.stdout).toBe(4);
+      expect(inventory.json()).toMatchObject({ ok: false, inventory_complete: false, counts: { unknown: 1 } });
+      expect(inventory.json().errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('docs--prds--demo') })]));
+    });
+
+    it('keeps a stopped run with missing session records on its own row without failing the inventory', async () => {
+      sandbox = createSandbox(); const f = fixture(); const s = session(f); rmSync(join(f.directory, '1a', s.record.sessionId), { recursive: true });
+      const inventory = await command(['status', '--json']);
+      expect(inventory.code, inventory.stdout).toBe(0);
+      expect(inventory.json()).toMatchObject({ ok: true, inventory_complete: true, errors: [], counts: { stopped_unfinished: 1, unknown: 0 } });
+      expect(inventory.json().runs).toEqual([expect.objectContaining({ ok: false, execution_id: f.record.executionId, errors: expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable', message: expect.stringContaining('Saved session 1a/local-codex is unavailable') })]) })]);
+      const text = await command(['status']);
+      expect(text.code, text.stdout).toBe(0); expect(text.stdout).toContain('Saved session 1a/local-codex is unavailable');
+      const target = await command(['status', f.path, '--json']);
+      expect(target.code, target.stdout).toBe(4); expect(codes(target)).toContain('state_unavailable');
+    });
   });
 
   it.each([false, true])('requires the original command ID before any lookup and preserves literal undefined in json=%s', async json => {

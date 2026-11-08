@@ -68,9 +68,15 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
             counts.unknown++; errors.push(errorFact(owner.state === "incompatible" ? "instance_incompatible" : "controller_unreachable", owner.error!));
           } else if (work.record.startedAt && !work.record.completedAt) counts.stopped_unfinished++;
           if (owner.state !== "stopped" || work.record.startedAt && !work.record.completedAt) {
-            const answer = statusProjection(work);
+            // A stopped run is listed and counted from its readable record, so missing details stay on its row.
+            let answer: Result;
+            try { answer = statusProjection(work); }
+            catch (e) {
+              if (owner.state !== "stopped") throw e;
+              answer = result({ prd_path: work.canonical, execution_id: work.record.executionId!, state: "unknown", controls: [] }, [errorFact(e instanceof ControlFailure ? e.code : "state_unavailable", "Saved details for this stopped run could not be read.")]);
+            }
             runs.push({ ...answer, controller: owner.state, controller_reason: owner.error ?? null });
-            if (!answer.ok) errors.push(...answer.errors);
+            if (!answer.ok && owner.state !== "stopped") errors.push(...answer.errors);
           }
         }
       } catch (e) {
@@ -93,7 +99,10 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (lead && !json) context.stdout.write(`${lead}\n`);
     await output.writeTo(context.stdout); return exitFor(answer);
   };
-  const statusLead = (answer: Result) => { const rows = answer.progress as ProgressRow[] | undefined; return rows?.length ? progressText(progressHeading(answer), rows) : undefined; };
+  const statusLead = (answer: Result) => {
+    if (answer.state === "folder_missing") return folderMissingText(progressHeading(answer), answer.folder_missing as FolderMissingFacts);
+    const rows = answer.progress as ProgressRow[] | undefined; return rows?.length ? progressText(progressHeading(answer), rows) : undefined;
+  };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
   try {
     if (!args.length) { context.stdout.write("Kiln runs an Enso Method plan and inspects existing work. Use kiln --help to see commands; kiln <command> --help for complete details.\n"); return 2; }
@@ -206,4 +215,11 @@ export function waiveInputs(flags: Record<string, string | true | string[]>): Re
 /** The saved record as it is now, for naming a waiver's activity and source; the target's snapshot when it cannot be reread. */
 function freshRecord(work: SavedWork): SavedWork["record"] {
   try { return readWork(work.root, work.directory).record; } catch { return work.record; }
+}
+
+interface FolderMissingFacts { repositories: { saved_folder: string; state: string; holds: string | null }[]; set_up_again: { argv: string[] } }
+/** `kiln status`'s lead while a folder is missing: no phase progress from the saved plan (AC-GONE-02). */
+function folderMissingText(heading: string, facts: FolderMissingFacts): string {
+  const failing = facts.repositories.filter(r => r.state !== "in_place");
+  return [heading, "Folder missing · nothing has run", ...failing.map(r => `  ${r.saved_folder}  ${r.state === "missing" ? "missing" : r.state === "holds_something_else" ? `holds something else${r.holds ? ` (${r.holds})` : ""}` : "couldn’t check"}`), `Set the run up again: ${facts.set_up_again.argv.join(" ")}`].join("\n");
 }

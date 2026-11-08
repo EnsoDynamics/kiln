@@ -7,10 +7,11 @@ import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { launchChrome } from "./test-support/headless-chrome.js";
 import { recoveryRequest } from "./test-support/phase-recovery-request.js";
 import { buildSnapshot } from "./engine/snapshot.js";
+import { Engine, type UnderwayDecision } from "./engine/engine.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { endProcessTree } from "./platform/helper-process.js";
 import type { BrowserOpening } from "./platform/open-browser.js";
@@ -167,7 +168,7 @@ describe("kiln run on a feature underway", () => {
     expect(lines[2]).toMatch(new RegExp(`^${time}  2b  Store credit       started$`));
     expect(lines[3]).toMatch(new RegExp(`^${time}  2b  Store credit       done · pushed [0-9a-f]{7}$`));
     expect(lines[4]).toMatch(new RegExp(`^${time}  3   Returns dashboard  started$`));
-    expect(lines[5]).toMatch(new RegExp(`^${time}  3   Returns dashboard  stopped$`));
+    expect(lines[5]).toMatch(new RegExp(`^${time}  3   Returns dashboard  stopped · waiting for you at http://127\\.0\\.0\\.1:\\d+/\\S+$`));
     // Kiln waited at Needs you in the foreground until Ctrl+C (AC-KEEP-01).
     expect(lines[6]).toBe("Kiln stopped. Phase 3 still needs you; kiln run checks it again.");
     expect(lines).toHaveLength(7);
@@ -599,4 +600,62 @@ it("rechecks terminal completion while reviewing instead of resuming the old con
     expect(h.claudeCalls()[1]!.prompt).toContain("phase-2b-store-credit.md");
     expect(again.record.phases["1"]?.doneAt).toBeDefined();
   } finally { again.close(); }
+});
+
+describe("the line a stop prints (AC-START-09)", () => {
+  const stoppedLines = (stdout: string) => stdout.split("\n").filter(line => /\s{2}stopped\b/.test(line));
+  const says = (line: string | undefined) => expect(line).toMatch(new RegExp(`^${time}  2b  Store credit\\s+stopped · waiting for you at http://127\\.0\\.0\\.1:\\d+/customer-returns$`));
+  /** Phase 1 done and a pause in effect before 2b, so the next `kiln run` is the first to reach 2b. */
+  async function pausedBefore2b(sessionAfter: Record<string, unknown>[]) {
+    harness = await createHarness({ sessions: [{ actions: [{ result: "unused" }] }] });
+    const h = harness;
+    const release = join(h.sandbox.root, "release");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, { actions: sessionAfter }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.claudeCalls().length === 1);
+    h.engine.pause();
+    writeFileSync(release, "");
+    await h.engine.settled();
+    const saved = readPrdRecord(h.stateDirectory)!;
+    saved.pause = {};
+    return { h, saved };
+  }
+
+  it("prints for a stop that used to be silent: a saved model no longer offered", async () => {
+    const { h, saved } = await pausedBefore2b([{ result: "unused" }]);
+    saved.settings.agentChoices.claude_code = { model: "retired-sol" };
+    writePrdRecord(h.stateDirectory, saved);
+    const run = await kilnRunUntil(h, stdout => /Store credit\s+stopped/.test(stdout));
+    expect(readPrdRecord(h.stateDirectory)!.phases["2b"]!.stop!.kind).toBe("selection");
+    expect(stoppedLines(run.stdout)).toHaveLength(1);
+    says(stoppedLines(run.stdout)[0]);
+    expect(run.stdout).not.toContain("retired-sol");
+  });
+
+  it("prints exactly one line for a stop whose path always printed", async () => {
+    const { h, saved } = await pausedBefore2b([{ result: "I need a decision." }]);
+    writePrdRecord(h.stateDirectory, saved);
+    const run = await kilnRunUntil(h, stdout => /Store credit\s+stopped/.test(stdout));
+    expect(readPrdRecord(h.stateDirectory)!.phases["2b"]!.stop!.kind).toBe("done_check");
+    expect(stoppedLines(run.stdout)).toHaveLength(1);
+    says(stoppedLines(run.stdout)[0]);
+  });
+
+  it("gives the address for a stop raised before the view is served", async () => {
+    const { h, saved } = await pausedBefore2b([{ result: "unused" }]);
+    writePrdRecord(h.stateDirectory, saved);
+    const decide = Engine.prototype.decide;
+    // The window a recovered session's timer can land in: after the quiet decision, before the server.
+    const spy = vi.spyOn(Engine.prototype, "decide").mockImplementation(async function (this: Engine, options) {
+      await decide.call(this, options);
+      (this as unknown as { recordStop(key: string, kind: string, checks: unknown[]): void }).recordStop("2b", "selection", [{ name: "Agent selection and readiness", passed: false, facts: ["Raised before the view."] }]);
+      return { kind: "needs_you", phaseKey: "2b", again: false } satisfies UnderwayDecision;
+    });
+    try {
+      const run = await kilnRunUntil(h, stdout => /Store credit\s+stopped/.test(stdout));
+      expect(stoppedLines(run.stdout)).toHaveLength(1);
+      says(stoppedLines(run.stdout)[0]);
+      expect(stoppedLines(run.stdout)[0]).toContain(run.opened[0]!.address);
+    } finally { spy.mockRestore(); }
+  });
 });

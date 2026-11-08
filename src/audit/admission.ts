@@ -84,6 +84,26 @@ export async function repositoryChecks(context: AdmissionContext): Promise<Check
   return [row("Everything committed", committed, "Every assigned worktree is clean."), row("Pushed", pushed, "Every assigned head matches origin.")];
 }
 
+/**
+ * One row per check name, in first-seen order. Admission and the engine each read the same checks,
+ * and several delivery owners share one name. A check passes only if every read of it passed, and
+ * its row lists each distinct failing fact and item, so merging never changes a verdict.
+ *
+ *   oneRowPerCheck([{ name: "Pushed", passed: true, facts: ["Every assigned head matches origin."] }, { name: "Pushed", passed: false, facts: ["api: not pushed."] }])
+ *   // [{ name: "Pushed", passed: false, facts: ["api: not pushed."] }]
+ */
+export function oneRowPerCheck(checks: CheckResult[]): CheckResult[] {
+  const reads = new Map<string, CheckResult[]>();
+  for (const check of checks) reads.set(check.name, [...(reads.get(check.name) ?? []), check]);
+  return [...reads.entries()].map(([name, same]) => {
+    const failing = same.filter(check => !check.passed);
+    if (!failing.length) return same[0]!;
+    // A read with no items of its own leaves the row to be itemized from every fact, so none goes uncovered.
+    const items = failing.every(check => check.items?.length) ? [...new Map(failing.flatMap(check => check.items!).map(item => [JSON.stringify(item), item])).values()] : undefined;
+    return { name, passed: false, facts: [...new Set(failing.flatMap(check => check.facts))], ...(items ? { items } : {}) };
+  });
+}
+
 /** Idempotency precedes revision checking, so a disconnected successful caller can recover. */
 export async function submitAudit(context: AdmissionContext, body: Record<string, unknown>): Promise<AuditResult> {
   const activity = request(context, body); const state = context.record.completionAudits!; const store = new AuditStore(context.stateDirectory);

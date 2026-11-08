@@ -3,11 +3,11 @@
 // AC-START-07, AC-GIT-01, AC-GIT-02; technical design, "Worktree and Branch Setup"; multi-repo
 // AC-SPACE-01, technical design "The Workspace").
 
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type AgentSettings, type Settings } from "../state/records.js";
-import { gitError, listWorktrees, localBranchCommit, originBranches, runGit, type GitContext, type OriginBranches } from "./git-reads.js";
+import { gitError, listWorktrees, localBranchCommit, originBranches, runGit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 
 /** Thirty minutes: the base check's fetch and `git worktree add`, which can download a lot (technical design, "Dependencies"). */
 export const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
@@ -268,31 +268,42 @@ async function checkSetUpPrdTree(input: FieldCheckInput, repository: PlannedRepo
  * The workspace folder check: absolute (after `~`), missing or an empty directory, and not
  * inside any checkout of any of the PRD's repositories.
  */
-export async function checkWorkspaceFolder(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string): Promise<string | undefined> {
+export async function checkWorkspaceFolder(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
   if (folder.trim() === "") return "Enter a workspace folder.";
   const expanded = expandHome(folder);
   if (!isAbsolute(expanded)) return "Enter a full path, starting with / or ~.";
   if (existsSync(expanded) && (!statSync(expanded).isDirectory() || readdirSync(expanded).length > 0)) {
     return "That folder already exists and isn’t empty. Choose a new one.";
   }
-  return checkWorkspaceFolderPlacement(git, repositories, expanded);
+  return checkWorkspaceFolderPlacement(git, repositories, expanded, staleAbsent);
 }
 
 /** Not inside any checkout of the given repositories: "That folder is inside a checkout of returns-api. Choose one outside it." */
-export async function checkWorkspaceFolderPlacement(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string): Promise<string | undefined> {
+export async function checkWorkspaceFolderPlacement(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
   for (const repository of repositories) {
-    const inside = await insideCheckout(git, repository.mainCheckoutPath, expandHome(folder));
+    const inside = await insideCheckout(git, repository.mainCheckoutPath, expandHome(folder), staleAbsent);
     if (inside === "error") return `Couldn't list ${repository.name}'s worktrees.`;
     if (inside) return `That folder is inside a checkout of ${repository.name}. Choose one outside it.`;
   }
   return undefined;
 }
 
-async function insideCheckout(git: GitContext, mainCheckoutPath: string, path: string): Promise<boolean | "error"> {
+/**
+ * Whether the path is inside a checkout. `staleAbsent` names paths whose `prunable` record counts
+ * as absent while nothing is at the path, since Start clears that record first (missing worktree
+ * recovery, "Path checks with a stale record"); a record whose path holds anything still counts.
+ */
+async function insideCheckout(git: GitContext, mainCheckoutPath: string, path: string, staleAbsent: string[] = []): Promise<boolean | "error"> {
   const worktrees = await listWorktrees(git, mainCheckoutPath);
   if (!worktrees.ok) return "error";
   const candidate = comparable(realPathOfNearestAncestor(resolve(path)));
-  return worktrees.worktrees.some((worktree) => isWithin(candidate, comparable(worktree.path)));
+  const cleared = new Set(staleAbsent.map((stale) => comparable(realPathOfNearestAncestor(resolve(expandHome(stale))))));
+  const absent = (worktree: WorktreeEntry) => worktree.prunable !== undefined && (cleared.has(comparable(worktree.path)) || cleared.has(comparable(realPathOfNearestAncestor(resolve(worktree.path))))) && !pathPresent(worktree.path);
+  return worktrees.worktrees.some((worktree) => !absent(worktree) && isWithin(candidate, comparable(worktree.path)));
+}
+
+function pathPresent(path: string): boolean {
+  try { lstatSync(path); return true; } catch { return false; }
 }
 
 /** True when a path is the folder or inside it; both already made comparable. */
@@ -304,14 +315,14 @@ export function isWithin(path: string, folder: string): boolean {
  * The worktree path check: absolute (after `~`), missing or an empty directory, and not inside
  * the main checkout or any other worktree of the repository.
  */
-export async function checkWorktreePath(git: GitContext, mainCheckoutPath: string, worktreePath: string): Promise<string | undefined> {
+export async function checkWorktreePath(git: GitContext, mainCheckoutPath: string, worktreePath: string, staleAbsent: string[] = []): Promise<string | undefined> {
   if (worktreePath.trim() === "") return "Enter a worktree path.";
   const expanded = expandHome(worktreePath);
   if (!isAbsolute(expanded)) return "Enter a full path, starting with / or ~.";
   if (existsSync(expanded) && (!statSync(expanded).isDirectory() || readdirSync(expanded).length > 0)) {
     return "That folder already exists and isn’t empty. Choose a new one.";
   }
-  const inside = await insideCheckout(git, mainCheckoutPath, expanded);
+  const inside = await insideCheckout(git, mainCheckoutPath, expanded, staleAbsent);
   if (inside === "error") {
     const worktrees = await listWorktrees(git, mainCheckoutPath);
     return `Couldn't list the repository's worktrees: ${worktrees.ok ? "" : worktrees.error}`;

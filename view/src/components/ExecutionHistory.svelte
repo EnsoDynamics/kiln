@@ -44,7 +44,11 @@
     {#if error}<p role="alert">{error}</p>{/if}
     {#each executions as execution}
       <article>
-        <p>Completed <time datetime={execution.completedAt}>{new Date(execution.completedAt).toLocaleString()}</time> · {execution.branch}</p>
+        {#if execution.ending === "folder_missing_setup"}
+          <p>Ended <time datetime={execution.endedAt}>{new Date(execution.endedAt!).toLocaleString()}</time> · set up again · {execution.branch}</p>
+        {:else}
+          <p>Completed <time datetime={execution.completedAt}>{new Date(execution.completedAt!).toLocaleString()}</time> · {execution.branch}</p>
+        {/if}
         {#each execution.deliveries as delivery}<p><a href={delivery.url} target="_blank" rel="noopener noreferrer">{delivery.repository} · Earlier delivery</a></p>{/each}
         <button class="button" disabled={!connected} onclick={() => show(execution.executionId)}>View earlier phases and sessions</button>
         {#if details[execution.executionId]}

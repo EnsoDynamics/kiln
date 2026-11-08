@@ -107,7 +107,8 @@ describe("Claude billing browser controls", () => {
       expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
     }
     await page.evaluate(clickChoice); await page.waitFor(`!${panel}.querySelector('input').checked`);
-    expect(h.engine.billing.view.canLaunch).toBe(false);
+    // The box unticks in the browser at once; the engine hears of it when the request lands.
+    await waitFor(() => !h!.engine.billing.view.canLaunch);
     const accept = mode === "verify" ? verify : button("Advance without sending reply");
     expect(await page.evaluate(`${accept}.disabled`)).toBe(false); await page.evaluate(`${accept}.click()`);
     await waitFor(() => !!h!.engine.record.phases["1"]!.doneAt).catch(async error => { throw new Error(`${error.message}: ${await page.evaluate("document.body.innerText")}`); }); await h.engine.settled();

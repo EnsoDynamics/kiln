@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check and §Folder Missing (an unfinished run checks its folders before reading the plan and reports Folder missing, not progress).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Source Reconciliation → Completed feature discovery (completed-run current-plan checks only; fresh execution acceptance is separate).
@@ -433,6 +435,8 @@ A check Kiln can't run at all (the worktree is gone, `git` or `gh` fails) fails 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Delivery-history evidence (the no-further-GitHub-queries rule only for auxiliary delivery history; original completion facts remain historical).
 
 ## Worktree and Branch Setup
+
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (a later `kiln run` may create a second branch and worktree, or a new worktree on the run's existing branch and its local branch from origin).
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
 

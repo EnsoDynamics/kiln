@@ -6,7 +6,7 @@ import { verifyPreparation, preparationCheckpoint, reconcilePreparationAttempt }
 import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
 import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
 import { authorityForApproval, changesContinuationScope, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority, type ContinuationInputObservation } from "./continuation-authority.js";
-import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, type ContinuationAcceptance } from "./continuation-state.js";
+import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, retainExecution, type ContinuationAcceptance, type ContinuationState, type ExecutionSummary } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
@@ -16,6 +16,12 @@ import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
+import { checkFolders, checkedEntries, type FolderCheck } from "./folder-check.js";
+import { gatherFolderFacts, type FolderMissingView } from "./folder-facts.js";
+import { buildPanel, buildStart, emptyDraft, type PanelContext, type PanelDraft, type PanelFields, type PanelView, type StartBuild, type StartKind } from "./folder-setup.js";
+import { addWorktreeOnBranch, clearStaleRecord, createBranchAndFolder, createLocalBranch, plannedSteps, progressOf, startIntents, step, StartStepFailure, FolderSetupChanged, stillOwnArtifacts, writeStartIntent, readStartIntent, type FolderSetupRepository, type FolderSetupStart } from "./folder-setup-start.js";
+import { bindPreparation } from "./continuation-readiness.js";
+import { parseGithubOrigin } from "../github-origin.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
 import { CommandJournal, ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
@@ -31,7 +37,7 @@ import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
-import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
+import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerCheck, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
@@ -51,7 +57,7 @@ import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { latestSol } from "../agents/codex-metadata.js";
-import { AGENT_NAMES, assertAgent } from "../state/records.js";
+import { AGENT_NAMES, assertAgent, type AgentSettings, type Effort } from "../state/records.js";
 import { selectedChoice } from "../state/records.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
@@ -64,7 +70,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "nod
 import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
-import { autoModeError, type ModelEntry } from "../account/model-list.js";
+import { autoModeError, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -133,7 +139,7 @@ type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][numbe
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -170,6 +176,7 @@ export interface EngineTools {
 
 /** What the terminal prints while Kiln works (AC-START-09): one line per event. */
 export type TerminalEvent =
+  | { kind: "folder_missing"; view: FolderMissingView; folders: FolderCheck; address?: string }
   | { kind: "completed_plan_checked"; check: CompletedPlanCheck }
   | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
   | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
@@ -302,7 +309,12 @@ export type UnderwayDecision =
   | { kind: "complete"; doneFirst?: DoneFirst }
   | { kind: "resume"; phaseKey: string; sessionId: string }
   | { kind: "waiting"; phaseKey: string; limit: { label: string; resetsAt?: string }; doneFirst?: DoneFirst }
-  | { kind: "setup_failed"; error: string };
+  | { kind: "setup_failed"; error: string }
+  | { kind: "folder_missing" };
+
+/** The journal actions that rerun the folder check before acting (AC-GONE-01). */
+const FOLDER_CHECKED_ACTIONS = new Set<string>(["reply", "resume", "verify-and-advance", "waive-and-advance", "check-again", "continue"]);
+const FOLDER_MISSING_REASON = "This run's folder is missing. Nothing can run until it is put back or the run is set up again.";
 
 type Verdict = { kind: "done"; judgedId: string } | { kind: "complete" } | { kind: "stopped" } | { kind: "waiting" } | { kind: "stopping" };
 
@@ -400,6 +412,16 @@ export class Engine {
   private takeoverReading: Promise<void> | undefined;
   private returningTakeover = false;
   private recoveredLive = false;
+  /**
+   * Folder missing (missing worktree recovery, "The Folder Check"): computed from disk and Git
+   * each time it is checked and never saved. Set while any set-up repository's saved folder is
+   * not the run's worktree; the facts are gathered on entry and on Check again.
+   */
+  folderMissing: (FolderMissingView & { folders: FolderCheck }) | undefined;
+  private folderChecking: Promise<boolean> | undefined;
+  private leavingFolderMissing = false;
+  /** Startup prints Folder missing itself; later entries print through a terminal event. */
+  private announceFolderMissing = false;
   private recoveredTimer: NodeJS.Timeout | undefined;
   /** Counts field checks, so only the latest one's result is shown. */
   private fieldCheckRun = 0;
@@ -447,7 +469,7 @@ export class Engine {
       },
     });
     this.commands = new CommandJournal(this.stateDirectory, resolve(this.record.repository.mainCheckoutPath, this.record.prdDirectory), {
-      journalScope: () => this.record.continuation ? { execution: this.record.executionId!, commandIds: this.record.continuation.acceptances.filter(row => row.id === this.record.continuation!.currentAcceptanceId).map(row => row.commandId) } : undefined,
+      journalScope: () => this.record.continuation ? { execution: this.record.executionId!, commandIds: [...this.record.continuation.acceptances.filter(row => row.id === this.record.continuation!.currentAcceptanceId).map(row => row.commandId), ...(this.record.folderSetupStart ? [this.record.folderSetupStart.commandId] : [])] } : undefined,
       internalControl: instruction => this.continuationControl(instruction),
       execution: () => this.record.executionId!, view: () => this.controlView(), runState: () => this.controlRunState(),
       staleReason: instruction => {
@@ -550,6 +572,17 @@ export class Engine {
   }
 
   private reconcileControl(receipt: Receipt): Receipt | undefined {
+    if (receipt.instruction.action === "folder-setup-start") {
+      // Settled from its intent: completed once it activated or resumed, failed otherwise; an intent left in progress has failed (Start).
+      const intent = readStartIntent(this.stateDirectory, receipt.command_id);
+      // The record is saved before the intent is marked activated: a record that names the intent settles it too.
+      const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
+      const activated = !!intent && persisted?.folderSetupStart?.id === intent.id;
+      if (intent && activated && intent.state !== "activated") { intent.state = "activated"; writeStartIntent(this.stateDirectory, intent); }
+      else if (intent?.state === "in_progress") { intent.state = "failed"; writeStartIntent(this.stateDirectory, intent); }
+      const done = intent?.state === "activated" || intent?.state === "resumed";
+      return { ...receipt, state: done ? "completed" : "failed", stage: "settled", outcome: done ? "folder_setup_started" : "not_applied", reason: done ? null : "Start stopped before it finished. Review the page, then press Start again." };
+    }
     if (receipt.instruction.action === "continuation-grant") {
       const pending = authorityForApproval(this.stateDirectory, receipt.id);
       const proposed = readContinuationProposal(this.stateDirectory, receipt.instruction.inputs.proposal_id as string);
@@ -632,9 +665,19 @@ export class Engine {
   }
 
   private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
+    // Commands that judge or start work rerun the folder check first; the live and settings controls
+    // only refuse while the mode is set (The Folder Check). Kiln's own resume at the end of a usage
+    // wait is checked in its wait check, before the completion check (recheckWait).
+    if (FOLDER_CHECKED_ACTIONS.has(action) && receipt.source === "automatic") {
+      if (this.folderMissing) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
+    } else if (FOLDER_CHECKED_ACTIONS.has(action)) {
+      const refused = await this.folderRefusal();
+      if (refused) return refused;
+    } else if (this.folderMissing && action !== "folder-setup-start" && !action.startsWith("continuation-")) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
     if (action === "continuation-grant") return this.grantContinuationTarget(inputs, receipt);
     if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
     if (action === "continuation-retry") return this.retryContinuation(inputs);
+    if (action === "folder-setup-start") return this.applyFolderStart(inputs, receipt);
     let answer: CommandResult;
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
@@ -658,7 +701,7 @@ export class Engine {
       case "waive-and-advance": return this.markComplete(inputs, receipt);
       case "reply": case "resume":
         this.controlDispatch = receipt;
-        answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume"), { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
+        answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
         if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
         if (answer.ok && answer.noteSkipped) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced_reply_not_sent" }; }
         if (answer.ok && answer.outcome !== "already_complete") {
@@ -1014,11 +1057,16 @@ export class Engine {
     } catch (error) { hold.state = "pending"; hold.reason = this.checkpointUnavailable(hold) ?? (error as Error).message; }
     finally {
       hold.observedAt = this.now().toISOString();
+      let newStop = false;
       if (!this.current?.processRunning) {
         const facts = this.record.phases[hold.target.activityKey]!;
+        newStop = facts.stop === undefined;
         facts.stop ??= { kind: "done_check", at: hold.requestedAt, checkedAt: hold.observedAt, checks: [] };
       }
-      this.save(); this.changed();
+      this.save();
+      // This runs every second while the hold lasts, so only the stop's creation prints (AC-START-09).
+      if (newStop) this.emitSessionEvent(hold.target.activityKey, "stopped");
+      this.changed();
     }
   }
 
@@ -1121,11 +1169,14 @@ export class Engine {
   get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
   get selectionError(): string | undefined { return this.selectionIssue(); }
   private selectionIssue(ignorePending = false): string | undefined {
+    return this.selectionIssueFor(selectedChoice(this.record.settings), ignorePending);
+  }
+  /** Model's field message for a model and effort: Documents found's for the saved choice, the setup panel's for its own (AC-SETUP-01). */
+  selectionIssueFor(choice: { model: string; effort?: string }, ignorePending = false): string | undefined {
     const metadata = this.agents.state;
     if (metadata.pending && !ignorePending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
     if (metadata.blockers.length) return metadata.blockers.join(" ");
     if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
-    const choice = selectedChoice(this.record.settings);
     const entry = this.modelEntry(choice.model);
     if (!entry) return `Choose an available ${AGENT_NAMES[metadata.agentId]} model. Saved choice: ${choice.model || "none"}.`;
     if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
@@ -1164,6 +1215,7 @@ export class Engine {
 
   /** Provider metadata reads use the controller's original environment. */
   get environment(): NodeJS.ProcessEnv { return this.options.env; }
+  get gitExecutable(): string { return this.options.tools.git; }
 
   get stateDirectory(): string {
     return this.options.stateDirectory;
@@ -1276,6 +1328,7 @@ export class Engine {
    */
   async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
     const { record } = this;
+    if (this.isUnderway) { const refused = await this.folderRefusal(); if (refused) return refused; }
     if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (!this.restartReview || this.restartReview.action === "start") {
@@ -1358,7 +1411,7 @@ export class Engine {
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       // The plan as Documents found showed it, until the worktree's own copy is read.
-      if (this.options.startPlan) record.plan = recordedPlan(this.options.startPlan);
+      if (this.options.startPlan) { record.plan = recordedPlan(this.options.startPlan); record.planReadAt = at; }
       try { this.save(); } catch (error) {
         for (const key of Object.keys(record)) Reflect.deleteProperty(record, key);
         Object.assign(record, beforeStart);
@@ -1374,6 +1427,19 @@ export class Engine {
     this.emit({ kind: "prd_started", at: this.now(), branch: record.settings.featureBranch, baseBranch: record.settings.baseBranch, repositoryCount });
     this.kick();
     return { ok: true };
+  }
+
+  /**
+   * A pending pause request is due unless it names a phase still to run: a leaf of the plan just
+   * read that is not closed, not waiver-closed and has no `doneAt` (missing worktree recovery,
+   * "Pause state at Start"). A request without `requestedFor` is due at once, as before.
+   */
+  get pauseDue(): boolean {
+    const { requestedAt, requestedFor } = this.record.pause;
+    if (requestedAt === undefined) return false;
+    if (requestedFor === undefined) return true;
+    const leaf = recordedLeaves(this.record.plan ?? []).find(candidate => candidate.id === requestedFor);
+    return !(leaf && !leaf.closed && !this.waiverClosed(leaf.id) && !this.record.phases[leaf.id]?.doneAt);
   }
 
   /** Pause after this phase (AC-VIEW-03); not offered during the pull-request session (AC-PR-05). */
@@ -1396,6 +1462,7 @@ export class Engine {
     if (this.record.pause.requestedAt === undefined) return refuse("No pause is requested.");
     if (this.waitingPhaseKey() !== undefined) return refuse("Kiln is waiting for usage; the pause stays pending through the wait.");
     delete this.record.pause.requestedAt;
+    delete this.record.pause.requestedFor;
     this.save();
     return { ok: true };
   }
@@ -2158,7 +2225,7 @@ export class Engine {
       // A phase Closed before this run began that nothing in the run touched owes no development evidence (AC-DEV-03).
       if (!owesDevelopmentEvidence(this.record, leaf.id, closedAtBase.has(leaf.id))) continue;
       const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
-      if (this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
+      if ((this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) || this.record.folderSetupStart) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
       if (!await this.markChecks(leaf.id, [check])) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
     }
@@ -2375,6 +2442,8 @@ export class Engine {
   }
 
   private continuationControl(instruction: import("../control/commands.js").Instruction) {
+    // Start on the Folder missing page is offered while the mode is set; its own checks say why it can't act.
+    if (instruction.action === "folder-setup-start") return { available: !!this.folderMissing, reason: this.folderMissing ? null : "The run’s folders are in place; there is nothing to set up again." };
     const known = instruction.action === "continuation-grant" ? undefined : this.continuationReference(instruction.action, instruction.inputs, instruction.execution_id);
     if (known && (instruction.action === "continuation-accept" || known.state === "active" || known.state === "superseded" || known.state === "preparing" && !!this.driving)) return { available: true, reason: null, alreadyApplied: true };
     const available = this.currentlyComplete && !this.checking && !this.driving && !this.settingUp && !this.deliveryBusy && !this.stopping && !this.billing.busy && !this.billing.pending;
@@ -2543,19 +2612,9 @@ export class Engine {
       this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
       const continuation = structuredClone(old.continuation!);
       continuation.acceptances = continuation.acceptances.map(row => row.id === acceptance.id ? acceptanceSummary(acceptance) : row);
-      if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
-      const active = { schemaVersion: SCHEMA_VERSION, executionId: acceptance.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, settings: acceptance.settings, repositories: acceptance.repositories, continuation, phases: {}, plan: recordedPlan(source.plan), planReconciliation: { baselineId: baseline.id }, pause: {}, billing: newBillingState(acceptance.newExecutionId), developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt };
-      this.billing.invalidate(false);
-      for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
-      Object.assign(old, active);
-      this.controlEpoch = randomUUID(); this.record.controlEpoch = this.controlEpoch;
-      this.plan = source.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
-      this.save();
-      if (authority && acceptance.pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = acceptance.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
-      this.commands.rotateExecution(acceptance.newExecutionId, acceptance.operationId);
-      bindExecutionAliases(this);
-      bindLegacySessions(this);
-      cacheSnapshot(this, inspectionSnapshot(this));
+      this.activateExecution({ archiveRow, continuation, newExecutionId: acceptance.newExecutionId, operationId: acceptance.operationId, plan: source.plan, baselineId: baseline.id, at: acceptance.activatedAt,
+        fields: { settings: acceptance.settings, repositories: acceptance.repositories, pause: {}, developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), ...(old.branchStem ? { branchStem: old.branchStem } : {}), startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt },
+        afterSave: () => { if (authority && acceptance.pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = acceptance.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); } } });
     } catch (error) {
       if (this.commands.fault || this.stopping || this.record.executionId === acceptance.newExecutionId) {
         this.commands.fault ??= "Activation metadata is unresolved. Restart Kiln to rebuild inspection before dispatch.";
@@ -2563,6 +2622,30 @@ export class Engine {
       }
       acceptance.state = "blocked"; acceptance.reason = (error as Error).message; this.saveContinuation(acceptance);
     } finally { this.settingUp = false; this.changed(); }
+  }
+
+  /**
+   * The activation core continuations and a base-branch start from the Folder missing page share
+   * (missing worktree recovery, "Existing Code"): the archived execution's summary appended, the
+   * new record assembled and saved, the control epoch and the command journal's execution rotated,
+   * aliases and legacy sessions rebound, and the inspection snapshot cached.
+   */
+  private activateExecution(input: { archiveRow: ExecutionSummary; continuation: ContinuationState; newExecutionId: string; operationId: string; plan: PhasePlan; baselineId: string; at: string; fields: Pick<PrdRecord, "settings" | "repositories" | "pause" | "developmentAuthorization" | "startedAt" | "refinementConfirmedAt" | "setupCompletedAt"> & Partial<Pick<PrdRecord, "pendingContinuationAuthority" | "preparation" | "branchStem" | "folderSetupStart">>; afterSave?: () => void }): void {
+    const old = this.record;
+    const { continuation, archiveRow } = input;
+    if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
+    const active: PrdRecord = { schemaVersion: SCHEMA_VERSION, executionId: input.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, continuation, phases: {}, plan: recordedPlan(input.plan), planReadAt: input.at, planReconciliation: { baselineId: input.baselineId }, billing: newBillingState(input.newExecutionId), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, ...input.fields };
+    this.billing.invalidate(false);
+    for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
+    Object.assign(old, active);
+    this.controlEpoch = randomUUID(); this.record.controlEpoch = this.controlEpoch;
+    this.plan = input.plan; this.current = undefined; this.pendingResume = undefined; this.requestedResume = undefined; this.restartReview = undefined; this.reviewingRestart = false; this.stoppedCommits = undefined; this.lastPullRequestRepositories = undefined; this.pullRequestPrecheckDone = false;
+    this.save();
+    input.afterSave?.();
+    this.commands.rotateExecution(input.newExecutionId, input.operationId);
+    bindExecutionAliases(this);
+    bindLegacySessions(this);
+    cacheSnapshot(this, inspectionSnapshot(this));
   }
 
   historicalExecution(id: string) {
@@ -2643,6 +2726,510 @@ export class Engine {
     return reading;
   }
 
+  /**
+   * The folder guard (missing worktree recovery, "The Folder Check"): true when every set-up
+   * repository's saved folder is the run's worktree. A failing check sets Folder missing, gathering
+   * the facts on entry or when asked (Check again); a passing one, with `mayLeave`, leaves the mode
+   * and replays `kiln run`'s startup checks with the restart review. It writes nothing.
+   */
+  folderGuard(options: { gather?: boolean; mayLeave?: boolean } = {}): Promise<boolean> {
+    const mayLeave = options.mayLeave !== false;
+    // Only a check that may leave the mode is shared: a caller that must not replay startup
+    // (a session being settled, the dispatch path) never joins one that does.
+    if (this.folderChecking && mayLeave && !options.gather && !this.leavingFolderMissing) return this.folderChecking;
+    const checking = this.runFolderGuard(options.gather === true, mayLeave).finally(() => { if (this.folderChecking === checking) this.folderChecking = undefined; });
+    if (mayLeave) this.folderChecking = checking;
+    return checking;
+  }
+
+  private async runFolderGuard(gather: boolean, mayLeave: boolean): Promise<boolean> {
+    if (!checkedEntries(this.record).length || this.closed) return true;
+    const folders = await checkFolders(this.git, this.record, this.now());
+    if (this.stopping || this.closed) return !this.folderMissing;
+    if (folders.passed) {
+      // The replay's own checks pass while the mode is being left.
+      if (this.leavingFolderMissing) return true;
+      // While a Start in this engine holds its intent, that Start ends the mode (The Folder Check).
+      if (this.folderStarting) return !this.folderMissing;
+      if (this.folderMissing && mayLeave) await this.leaveFolderMissing();
+      if (!this.folderMissing) this.supersedeStartIntents();
+      return !this.folderMissing;
+    }
+    const entering = !this.folderMissing;
+    const changedStates = this.folderMissing && JSON.stringify(this.folderMissing.folders.repositories.map(r => [r.name, r.state, r.holds])) !== JSON.stringify(folders.repositories.map(r => [r.name, r.state, r.holds]));
+    if (entering || gather || changedStates) {
+      const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+      const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now(), ...this.startFolders() });
+      this.folderMissing = { ...view, folders };
+      await this.refreshFolderPanel();
+    } else this.folderMissing = { ...this.folderMissing!, folders: { ...folders, checkedAt: this.folderMissing!.folders.checkedAt } };
+    if (entering) {
+      // No restart review, wait watcher or dispatch while a folder is missing.
+      this.restartReview = undefined; this.reviewingRestart = false; this.pendingResume = undefined; this.requestedResume = undefined;
+      this.unwatchWait(); this.updateKeepAwake();
+      if (this.announceFolderMissing) this.emit({ kind: "folder_missing", view: this.folderMissing, folders });
+    }
+    this.changed();
+    return false;
+  }
+
+  /**
+   * Every folder passes again: replay the startup sequence `kiln run` uses, then clear the mode, so
+   * nothing acts in between. A session this Kiln started that is still working, or still being
+   * settled, needs no replay: its own loop judges it once it ends, as if the folder never went.
+   */
+  private async leaveFolderMissing(): Promise<void> {
+    if (this.driving || this.current?.processRunning) { this.folderMissing = undefined; this.folderPanel = undefined; this.folderDraft = emptyDraft(); this.folderDraftSeeded = false; this.changed(); return; }
+    this.leavingFolderMissing = true;
+    try {
+      const prepared = await this.prepare();
+      if (prepared.ok) await this.decide({ review: true });
+    } finally { this.folderMissing = undefined; this.folderPanel = undefined; this.folderDraft = emptyDraft(); this.folderDraftSeeded = false; this.leavingFolderMissing = false; this.changed(); }
+  }
+
+  /** A command refused while a folder is missing, after the guard ran; undefined when the folders pass. */
+  private async folderRefusal(): Promise<{ ok: false; code: "folder_missing" | "folder_missing_resolved"; reason: string; status: 409 } | undefined> {
+    const wasMissing = !!this.folderMissing;
+    if (await this.folderGuard()) return wasMissing ? { ok: false, code: "folder_missing_resolved", reason: "The run's folders are back, and Kiln checked the run again. Review the page before acting.", status: 409 } : undefined;
+    return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
+  }
+
+  /** Check again on the Folder missing page: the folder check, the facts and, once every folder passes, leaving the mode. */
+  async checkFoldersAgain(): Promise<{ ok: true; folderMissing: boolean }> {
+    await this.folderGuard({ gather: true });
+    return { ok: true, folderMissing: !!this.folderMissing };
+  }
+
+  // ---- Setting the run up again (missing worktree recovery, "The Setup Panel", "Start") ----------
+
+  /** The one panel draft per PRD, held in memory until Start succeeds (AC-SAFE-01). */
+  private folderDraft: PanelDraft = emptyDraft();
+  /** The setup panel last built for the Folder missing page. */
+  folderPanel: PanelView | undefined;
+  /** What a failed Start did and what remains (AC-SAFE-01). */
+  folderStartProgress: { done: string[]; remaining: string[]; error: string } | undefined;
+  /** The start intent `folderStartProgress` describes. */
+  private folderStartProgressOf: string | undefined;
+  /** A Start in this engine holds an intent `in_progress`; a passing check does not end the mode meanwhile. */
+  private folderStarting = false;
+  /** Whether a failed or interrupted start intent may still be open: checked once at startup, then after each failed Start. */
+  private startIntentsMayBeOpen = true;
+  /** The draft has taken a failed intent's kind, names and settings (The Setup Panel, The draft). */
+  private folderDraftSeeded = false;
+
+  /** The start intent the draft starts from: this execution's latest failed one; one left `in_progress` by an earlier Kiln is failed. */
+  private failedStartIntent(): FolderSetupStart | undefined {
+    if (!this.record.executionId) return undefined;
+    const intents = startIntents(this.stateDirectory, this.record.executionId);
+    for (const intent of intents) if (intent.state === "in_progress" && !this.folderStarting) { intent.state = "failed"; writeStartIntent(this.stateDirectory, intent); }
+    const failed = intents.filter(intent => intent.state === "failed").at(-1);
+    if (failed) this.startIntentsMayBeOpen = true;
+    return failed;
+  }
+
+  /** The folders a failed existing-branch start made, which the facts and the next Start recognize as its own (AC-SAFE-01). */
+  private startFolders(): { startFolders?: Record<string, string> } {
+    const intent = this.failedStartIntent();
+    if (intent?.kind !== "branch") return {};
+    return { startFolders: Object.fromEntries(intent.repositories.map(repository => [repository.name, expandHome(repository.worktreePath)])) };
+  }
+
+  /** Every folder passes: a failed or interrupted start intent is superseded, its artifacts left in place (The Folder Check). */
+  private supersedeStartIntents(): void {
+    if (this.folderStarting || !this.record.executionId || !this.startIntentsMayBeOpen) return;
+    this.startIntentsMayBeOpen = false;
+    for (const intent of startIntents(this.stateDirectory, this.record.executionId)) {
+      if (intent.state === "failed" || intent.state === "in_progress") { intent.state = "superseded"; writeStartIntent(this.stateDirectory, intent); }
+    }
+    this.folderStartProgress = undefined; this.folderStartProgressOf = undefined;
+  }
+
+  /** A Codex or pull-request process an earlier Kiln left running, which Start stops before any Git write. */
+  private async leftOverSession(): Promise<SessionRecord | undefined> {
+    if (this.current) return undefined;
+    const latest = this.latestSessionOverall();
+    const run = latest?.session.runs.at(-1);
+    if (!latest || !run || run.endedAt || run.pid === undefined) return undefined;
+    if (latest.session.agentId === "claude_code" && latest.session.kind !== "pull_request") return undefined;
+    return await isProcessLive(run.pid, run.processStartTime) ? latest.session : undefined;
+  }
+
+  /** The setup panel's model and effort, checked as Documents found checks the saved ones; read at each snapshot too, so a catalogue change shows at once (AC-SETUP-01). */
+  folderModelCheck(choice: { model: string; effort?: string }): { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] } {
+    const entry = this.modelEntry(choice.model);
+    const error = this.selectionIssueFor(choice);
+    return { ...(error ? { error } : {}), effortLevels: effortLevelsFor(entry), ...(entry?.efforts ? { efforts: entry.efforts } : {}) };
+  }
+
+  /** Why Start is refused as busy right now, for the line under the button; read at each snapshot, so it clears when the session ends (AC-SAFE-01). */
+  folderBusy(): string | undefined {
+    if (!(this.current?.processRunning || this.driving)) return undefined;
+    const pid = this.current?.session?.runs.at(-1)?.pid;
+    return this.recoveredLive ? `A session started by an earlier Kiln is still running${pid ? ` (process ${pid})` : ""}. Start becomes available when it ends.` : "A session is still running. Start becomes available when it ends, or when you stop Kiln in the terminal.";
+  }
+
+  /**
+   * The phase the run was on when its folder went missing (AC-SAFE-02): stopped at Needs you, waiting for usage, working
+   * (a live session, or one whose folder went missing while it worked), never the pull request or an audit.
+   */
+  private folderRunPhaseKey(): string | undefined {
+    const leaf = (key: string | undefined) => key !== undefined && key !== PR_PHASE_KEY && !this.auditActivity(key);
+    const stopped = this.stoppedPhaseKey();
+    if (stopped !== undefined) return leaf(stopped) ? stopped : undefined;
+    const key = this.waitingPhaseKey() ?? this.current?.phaseKey ?? this.latestSessionOverall()?.phaseKey;
+    return leaf(key) && !this.record.phases[key!]?.doneAt ? key : undefined;
+  }
+
+  private async folderPanelContext(view: FolderMissingView): Promise<PanelContext> {
+    // Leaves this run completed, with the commit each repository's Done recorded there: pushed, or the waived head (AC-SAFE-02).
+    const completedByRun = new Map<string, { doneAt: string; commits: Record<string, string>; waived?: string[] }>();
+    for (const [key, facts] of Object.entries(this.record.phases).filter(([, facts]) => facts.doneAt).sort(([, a], [, b]) => a.doneAt!.localeCompare(b.doneAt!))) {
+      if (key === PR_PHASE_KEY || this.auditActivity(key)) continue;
+      const commits: Record<string, string> = {}; const waived: string[] = [];
+      for (const [name, repository] of Object.entries(facts.repositories)) { const sha = repository.pushedSha ?? repository.waivedHead; if (sha) commits[name] = sha; if (!repository.pushedSha && repository.waivedHead) waived.push(name); }
+      completedByRun.set(this.judgedId(key), { doneAt: facts.doneAt!, commits, ...(waived.length ? { waived } : {}) });
+    }
+    const stoppedKey = this.stoppedPhaseKey();
+    const onKey = this.folderRunPhaseKey();
+    const stoppedPhaseId = onKey !== undefined ? this.judgedId(onKey) : undefined;
+    const stoppedStarts = onKey !== undefined ? Object.fromEntries(Object.entries(this.record.phases[onKey]?.repositories ?? {}).map(([name, repository]) => [name, repository.startCommit])) : undefined;
+    const pausePhaseId = (stoppedKey !== undefined ? (stoppedPhaseId ?? stoppedKey) : undefined) ?? recordedLeaves(this.record.plan ?? []).find(leaf => !leaf.closed && !this.waiverClosed(leaf.id) && !this.record.phases[leaf.id]?.doneAt)?.id;
+    const leftOver = await this.leftOverSession();
+    const intent = this.failedStartIntent();
+    const busy = this.folderBusy();
+    return {
+      git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
+      completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
+      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id),
+      ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
+      ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
+      originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
+    };
+  }
+
+  /** Rebuilds the panel from the current facts and draft, and publishes it. */
+  private async refreshFolderPanel(): Promise<void> {
+    const view = this.folderMissing;
+    if (!view) { this.folderPanel = undefined; return; }
+    const context = await this.folderPanelContext(view);
+    if (!this.folderDraftSeeded && context.intent) {
+      // The draft starts from a failed start's kind, names and settings, including after a restart.
+      const intent = context.intent; const choice = intent.settings.agentChoices[intent.settings.agentId];
+      const prd = intent.repositories.find(row => row.kind === "prd") ?? intent.repositories[0];
+      this.folderDraft.selected = intent.kind;
+      this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), ...(choice ? { model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
+    }
+    this.folderDraftSeeded = true;
+    // A Start that failed, or stopped with Kiln, says what it did and what remains, from its durable intent, including after a restart (AC-SAFE-01).
+    if (!this.folderStarting && context.intent?.id !== this.folderStartProgressOf) {
+      this.folderStartProgress = context.intent ? progressOf(context.intent) : undefined;
+      this.folderStartProgressOf = context.intent?.id;
+    }
+    try {
+      const built = await buildPanel(context, this.folderDraft);
+      // A build that started before a later change, and finished after it was shown, would show an older panel as the latest (AC-SETUP-03).
+      const shown = this.folderPanel && !("blocked" in this.folderPanel) ? this.folderPanel.draftRevision : undefined;
+      if ("blocked" in built || shown === undefined || built.draftRevision >= shown) this.folderPanel = built;
+    }
+    catch (error) { this.folderPanel = { blocked: `Kiln couldn’t prepare the setup: ${(error as Error).message}. Check again.` }; }
+    this.changed();
+  }
+
+  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>, notice?: string): void {
+    this.folderDraft.selected = start;
+    // Rising across restarts too, so the page can tell a panel built from its latest edit (AC-SETUP-01, AC-SETUP-03).
+    this.folderDraft.revision = Math.max((this.folderDraft.revision ?? 0) + 1, this.now().getTime());
+    // The notice stays until the next model or effort change in the panel.
+    if (notice) this.folderDraft.choiceNotice = notice;
+    else if (fields.model !== undefined || fields.effort !== undefined) delete this.folderDraft.choiceNotice;
+    for (const [key, value] of Object.entries(fields) as [keyof PanelFields, PanelFields[keyof PanelFields]][]) {
+      if (["model", "effort", "keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
+      else if (key === "bases") this.folderDraft.edits[start].bases = { ...this.folderDraft.edits[start].bases, ...(value as Record<string, string>) };
+      else (this.folderDraft.edits[start] as Record<string, unknown>)[key] = value;
+    }
+  }
+
+  /** Reads a posted draft change; undefined with the reason when it is malformed or changes a fixed field. */
+  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields>; notice?: string } | { reason: string } {
+    const start = body.start;
+    if (start !== "base" && start !== "branch") return { reason: "Choose a starting point." };
+    const raw = body.fields;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reason: "Send the panel's fields." };
+    const fields: Partial<PanelFields> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (["worktreePath", "workspaceFolder", "featureBranch", "baseBranch", "model", "effort"].includes(key) && typeof value === "string") (fields as Record<string, unknown>)[key] = value;
+      else if (["keepAwake", "resumeAfterUsageLimit"].includes(key) && typeof value === "boolean") (fields as Record<string, unknown>)[key] = value;
+      else if (key === "bases" && value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(base => typeof base === "string")) fields.bases = value as Record<string, string>;
+      else return { reason: `Unknown or malformed field ${key}.` };
+    }
+    if (fields.model !== undefined && !this.modelEntry(fields.model)) return { reason: "Choose a listed model." };
+    // Effort follows the model chosen in the panel, as on Documents found (AC-SETUP-01).
+    const saved = selectedChoice(this.record.settings);
+    const model = fields.model ?? this.folderDraft.edits[start].model ?? saved.model;
+    const entry = this.modelEntry(model);
+    if (fields.effort !== undefined && fields.effort !== "" && entry && !entry.supportedEffortLevels.includes(fields.effort)) return { reason: `${entry.displayName} doesn’t take that effort. Choose a supported effort.` };
+    // A reset effort is said in Documents found's words (AC-SETUP-01).
+    let notice: string | undefined;
+    if (fields.model !== undefined && fields.effort === undefined && entry) {
+      const effort = this.folderDraft.edits[start].effort ?? saved.effort ?? "";
+      if (!entry.supportsEffort) fields.effort = "";
+      else if (!entry.supportedEffortLevels.includes(effort)) {
+        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) { fields.effort = entry.defaultEffort; notice = `Effort changed to ${entry.defaultEffort} for ${entry.displayName}.`; }
+        else { fields.effort = ""; notice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
+      }
+    }
+    // Starting from the existing branch fixes the branch, each repository's base and, for several repositories, the workspace folder.
+    if (start === "branch") {
+      const saved = this.record.settings;
+      const changed = (fields.featureBranch !== undefined && fields.featureBranch !== saved.featureBranch) || (fields.baseBranch !== undefined && fields.baseBranch !== this.setUpRepositories[0]?.baseBranch) || (fields.bases !== undefined && Object.entries(fields.bases).some(([name, base]) => this.setUpRepositories.find(entry => entry.name === name)?.baseBranch !== base)) || (this.multiRepository && fields.workspaceFolder !== undefined && expandHome(fields.workspaceFolder) !== expandHome(saved.workspaceFolder));
+      if (changed) return { reason: "That field is fixed when starting from the run’s existing branch." };
+    }
+    return { start, fields, ...(notice ? { notice } : {}) };
+  }
+
+  /** `POST /api/folder-setup/panel`: one draft change, checked and previewed, published by SSE. */
+  async changeFolderPanel(body: Record<string, unknown>): Promise<{ ok: true; panel: PanelView | undefined } | { ok: false; status: 400 | 409; code: string; reason: string }> {
+    if (!this.folderMissing) return { ok: false, status: 409, code: "wrong_activity", reason: "The run’s folders are in place; there is nothing to set up again." };
+    const change = this.folderChange(body);
+    if ("reason" in change) return { ok: false, status: 400, code: "invalid_input", reason: change.reason };
+    this.applyFolderDraft(change.start, change.fields, change.notice);
+    await this.refreshFolderPanel();
+    return { ok: true, panel: this.folderPanel };
+  }
+
+  /** `POST /api/folder-setup/start`, under the command journal like continuation acceptance (missing worktree recovery, "Start"). */
+  async folderSetupStartCommand(body: Record<string, unknown>): Promise<{ ok: true; status: 200 } | { ok: false; status: 400 | 409 | 500 | 503; code: string; reason: string; done?: string[]; remaining?: string[] }> {
+    if (Object.keys(body).sort().join() !== "commandId,factsId,fields,previewId,start" || typeof body.commandId !== "string" || typeof body.factsId !== "string" || typeof body.previewId !== "string") return { ok: false, status: 400, code: "malformed_request", reason: "Use the displayed facts, preview and a command ID." };
+    let answer;
+    try { answer = this.commands.submitInternal({ command_id: body.commandId, execution_id: this.record.executionId, status_token: this.controlView().token, action: "folder-setup-start", inputs: { facts_id: body.factsId, preview_id: body.previewId, start: body.start, fields: body.fields } }); }
+    catch (error) { return { ok: false, status: 400, code: "invalid_input", reason: (error as Error).message }; }
+    if (!answer.ok) return { ok: false, status: 409, code: answer.errors[0]?.code ?? "busy", reason: answer.errors[0]?.message ?? "Start was refused." };
+    await this.commands.settled();
+    const settled = this.commands.lookup(body.commandId).operation as Receipt;
+    if (settled.state === "completed") return { ok: true, status: 200 };
+    const code = settled.outcome ?? "not_applied";
+    const status = code === "folder_missing_check_failed" ? 503 : code === "folder_setup_failed" ? 500 : 409;
+    return { ok: false, status, code, reason: settled.reason ?? "Start didn’t finish.", ...(code === "folder_setup_failed" && this.folderStartProgress ? { done: this.folderStartProgress.done, remaining: this.folderStartProgress.remaining } : {}) };
+  }
+
+  /** Start's work, run by the command journal: recheck, intent, steps, then the fresh execution or the explicit Resume. */
+  private async applyFolderStart(inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; code?: string; reason?: string; status?: number }> {
+    if (!this.folderMissing) return { ok: false, code: "wrong_activity", reason: "The run’s folders are in place; there is nothing to set up again.", status: 409 };
+    if (this.current?.processRunning || this.driving || this.settingUp) {
+      const context = await this.folderPanelContext(this.folderMissing);
+      return { ok: false, code: "busy", reason: context.busy ?? "Kiln is busy. Try again when it settles.", status: 409 };
+    }
+    const change = this.folderChange({ start: inputs.start, fields: inputs.fields });
+    if ("reason" in change) return { ok: false, code: "invalid_input", reason: change.reason, status: 400 };
+    // Start acts on the panel the engine last showed: a starting point it names that differs from the draft's is a changed page, not an edit (AC-SETUP-03).
+    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields, change.notice);
+    const kind = change.start;
+
+    // Start rechecks the facts and the plan it showed before acting (AC-SAFE-01).
+    const folders = await checkFolders(this.git, this.record, this.now());
+    if (folders.passed) { await this.leaveFolderMissing(); return { ok: false, code: "folder_missing_resolved", reason: "The run’s folders are back, and Kiln checked the run again. Nothing was set up.", status: 409 }; }
+    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+    const view = await gatherFolderFacts({ git: { ...this.git, signal }, record: this.record, check: folders, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, now: this.now(), ...this.startFolders() });
+    this.folderMissing = { ...view, folders };
+    const context = await this.folderPanelContext(view);
+    const panel = await buildPanel(context, this.folderDraft);
+    this.folderPanel = panel; this.changed();
+    if ("blocked" in panel) return { ok: false, code: "folder_missing_check_failed", reason: panel.blocked, status: 503 };
+    const choice = panel.choices[kind];
+    if ("unavailable" in choice) return choice.unavailable.startsWith("Couldn’t check") ? { ok: false, code: "folder_missing_check_failed", reason: choice.unavailable, status: 503 } : { ok: false, code: "folder_setup_changed", reason: choice.unavailable, status: 409 };
+    if (view.factsId !== inputs.facts_id || panel.previewId !== inputs.preview_id || panel.selected !== kind) return { ok: false, code: "folder_setup_changed", reason: "What Kiln found changed since the page was shown. Review the refreshed page, then press Start again.", status: 409 };
+    if (Object.keys(panel.fieldErrors).length) return { ok: false, code: "folder_setup_fields", reason: Object.values(panel.fieldErrors).join(" "), status: 409 };
+    const build = await buildStart(context, this.folderDraft, kind);
+    if ("unavailable" in build) return { ok: false, code: "folder_setup_changed", reason: build.unavailable, status: 409 };
+    if (kind === "branch" && this.record.liveControl) {
+      // Start is the explicit hand-back that ends a takeover hold, with that Resume's checks (AC-SAFE-03).
+      try { await this.requireTakeoverReturn(); }
+      catch (error) { return { ok: false, code: error instanceof OwnershipError ? error.code : "takeover_pending", reason: (error as Error).message, status: 409 }; }
+    }
+
+    // The start intent, written before any Git write: a failed one with the same kind and names is resumed.
+    const repositories: FolderSetupRepository[] = build.repositories.filter(repository => build.folders[repository.name] !== undefined).map(repository => ({
+      name: repository.name, kind: repository.kind, github: repository.github, mainCheckoutPath: repository.mainCheckoutPath, baseBranch: repository.baseBranch, branch: build.fields.featureBranch, worktreePath: build.folders[repository.name]!,
+      ...(build.baseCommits[repository.name] ? { baseCommit: build.baseCommits[repository.name]! } : {}),
+      ...(build.createLocal[repository.name] ? { createLocalFromOrigin: build.createLocal[repository.name]! } : {}),
+      ...(build.clearRecords.find(path => this.record.repositories.find(entry => entry.name === repository.name && comparable(expandHome(entry.worktreePath)) === comparable(path))) ? { clearStaleRecord: build.clearRecords.find(path => this.record.repositories.find(entry => entry.name === repository.name && comparable(expandHome(entry.worktreePath)) === comparable(path)))! } : {}),
+    }));
+    const names = (intent: FolderSetupStart) => JSON.stringify(intent.repositories.map(r => [r.name, r.branch, comparable(expandHome(r.worktreePath))]));
+    const settings = this.folderSettings(build.fields);
+    const earlier = this.failedStartIntent();
+    let intent: FolderSetupStart;
+    if (earlier && earlier.kind === kind && names(earlier) === JSON.stringify(repositories.map(r => [r.name, r.branch, comparable(expandHome(r.worktreePath))]))) {
+      // The steps follow the new build (a clear it now needs is added), keeping what the earlier attempt did.
+      const steps = plannedSteps(kind, repositories, build.repositories.length > 1).map(planned => earlier.steps.find(row => row.name === planned.name) ?? planned);
+      intent = { ...earlier, settings, steps, factsId: view.factsId, previewId: panel.previewId, state: "in_progress", repositories: earlier.repositories.map((row, index) => ({ ...repositories[index]!, ...(row.baseCommit && earlier.steps.some(s => s.name === `worktree:${row.name}` && s.state === "done") ? { baseCommit: row.baseCommit } : {}) })) };
+    } else {
+      if (earlier) {
+        // A different start first checks that each artifact the earlier one created is still its own and untouched.
+        const occupied = await stillOwnArtifacts(this.git, earlier);
+        if (occupied) return { ok: false, code: "folder_setup_work_present", reason: `${displayPath(occupied)} holds work Start did not make. Nothing was removed; move or commit it, then press Start again.`, status: 409 };
+        earlier.state = "superseded"; writeStartIntent(this.stateDirectory, earlier);
+      }
+      intent = { formatVersion: 1, id: randomUUID(), commandId: receipt.command_id, executionId: this.record.executionId!, kind, factsId: view.factsId, previewId: panel.previewId, createdAt: this.now().toISOString(), settings, repositories, steps: plannedSteps(kind, repositories, build.repositories.length > 1), state: "in_progress", ...(kind === "base" ? { newExecutionId: randomUUID() } : {}) };
+    }
+    const save = () => writeStartIntent(this.stateDirectory, intent);
+    this.folderStarting = true;
+    delete intent.error;
+    this.folderStartProgress = undefined; this.folderStartProgressOf = undefined;
+    try {
+      save();
+      // A Codex or pull-request process an earlier Kiln left running is stopped before any Git write.
+      const leftOver = await this.leftOverSession();
+      if (leftOver) await this.stopLiveProcess(leftOver);
+      if (kind === "base") await this.runBaseStart(intent, build, save, receipt);
+      else await this.runBranchStart(intent, build, save);
+    } catch (error) {
+      this.folderStarting = false;
+      if (this.record.executionId === intent.newExecutionId) { this.commands.fault ??= "Activation metadata is unresolved. Restart Kiln to rebuild inspection before dispatch."; throw error; }
+      intent.state = error instanceof FolderSetupChanged ? "superseded" : "failed"; save();
+      this.startIntentsMayBeOpen = true;
+      this.folderStartProgress = progressOf(intent); this.folderStartProgressOf = intent.id;
+      if (error instanceof FolderSetupChanged) { this.folderStartProgress = undefined; await this.folderGuard({ gather: true, mayLeave: false }); await this.refreshFolderPanel(); return { ok: false, code: "folder_setup_changed", reason: error.message, status: 409 }; }
+      // An error outside a step is saved with the intent, so the page still says it after a restart (AC-SAFE-01).
+      if (!(error instanceof StartStepFailure)) { intent.error = (error as Error).message; save(); this.folderStartProgress = { ...this.folderStartProgress, error: intent.error }; }
+      // The page is republished with the facts and preview recomputed (Start).
+      await this.folderGuard({ gather: true });
+      if (this.folderMissing) await this.refreshFolderPanel();
+      return { ok: false, code: "folder_setup_failed", reason: (error as Error).message, status: 500 };
+    }
+    this.folderStarting = false;
+    return { ok: true };
+  }
+
+  /** The panel's fields as the run's settings: the editable ones and, for the start's folder and branch, its names. */
+  private folderSettings(fields: PanelFields): AgentSettings {
+    const settings = structuredClone(this.record.settings);
+    Object.assign(settings, { workspaceFolder: fields.workspaceFolder, worktreePath: expandHome(fields.worktreePath), featureBranch: fields.featureBranch, baseBranch: fields.baseBranch, bases: fields.bases, keepAwake: fields.keepAwake, resumeAfterUsageLimit: fields.resumeAfterUsageLimit });
+    settings.agentChoices = { ...settings.agentChoices, [settings.agentId]: { model: fields.model, ...(fields.effort ? { effort: fields.effort } : {}) } };
+    return settings;
+  }
+
+  /** From the base branch (AC-SETUP-04): branch and folder per repository, the plan, preparation, then the fresh execution. */
+  private async runBaseStart(intent: FolderSetupStart, build: StartBuild, save: () => void, receipt: Receipt): Promise<void> {
+    for (const repository of intent.repositories.filter(row => row.clearStaleRecord)) await step(intent, `clear:${repository.name}`, save, () => clearStaleRecord(this.git, repository));
+    for (const repository of intent.repositories) await step(intent, `worktree:${repository.name}`, save, () => createBranchAndFolder(this.git, repository));
+    const prd = intent.repositories.find(repository => repository.kind === "prd")!;
+    let source: PlanSource | undefined;
+    await step(intent, "plan", save, async () => {
+      source = observePlan(expandHome(prd.worktreePath), this.paths.prdDirectoryFromRoot);
+      if (source.digest !== build.plan!.digest) throw new FolderSetupChanged("The plan in the new folder isn’t the one the page showed. Review the refreshed page, then press Start again.");
+    });
+    source ??= observePlan(expandHome(prd.worktreePath), this.paths.prdDirectoryFromRoot);
+    if (source.digest !== build.plan!.digest) throw new FolderSetupChanged("The plan in the new folder isn’t the one the page showed. Review the refreshed page, then press Start again.");
+    const preparation = await this.folderStartPreparation(source, intent, intent.previewId);
+    await step(intent, "activate", save, async () => this.activateFolderStart(intent, source!, preparation, receipt));
+    this.folderMissing = undefined; this.folderPanel = undefined; this.folderDraft = emptyDraft(); this.folderDraftSeeded = false;
+    this.emit({ kind: "message", text: `Set the run up again from ${prd.baseBranch}: ${prd.branch} in ${displayPath(this.multiRepository ? expandHome(intent.settings.workspaceFolder) : expandHome(prd.worktreePath))}.` });
+    this.changed();
+    this.kick();
+  }
+
+  /** Step 3 of a base-branch start: the first leaf's preparation, bound exactly as continuation readiness binds it. */
+  private async folderStartPreparation(source: PlanSource, intent: FolderSetupStart, previewId: string): Promise<PrdRecord["preparation"]> {
+    const first = leavesOf(source.plan).find(leaf => !leaf.closed);
+    const problems: string[] = [];
+    const repositories = intent.repositories.map(repository => ({ name: repository.name, identity: repository.github, path: expandHome(repository.mainCheckoutPath), baseBranch: repository.baseBranch, baseRevision: repository.baseCommit! }));
+    const bound = await bindPreparation({ git: this.git, record: this.record, candidate: source, first, repositories, problems });
+    if (problems.length) throw new Error(problems.join(" "));
+    if (!bound.preparation.length) return undefined;
+    return newPreparationState({ firstEligiblePhase: first!.id, preparation: bound.preparation, id: previewId } as unknown as Parameters<typeof newPreparationState>[0]);
+  }
+
+  /** Step 4: the unfinished execution archived, the fresh one activated through the shared core (Start, From the base branch). */
+  private activateFolderStart(intent: FolderSetupStart, source: PlanSource, preparation: PrdRecord["preparation"], receipt: Receipt): void {
+    const old = this.record;
+    const at = this.now().toISOString();
+    const archiveId = retainExecution(this.stateDirectory, old);
+    const archiveRow: ExecutionSummary = { executionId: old.executionId!, archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), branch: old.settings.featureBranch, deliveries: executionDeliveries(old), endedAt: at, ending: "folder_missing_setup" };
+    // Each done leaf's receipt, built as plan reconciliation builds it; no completion revision is re-read (AC-SETUP-04).
+    const earlier = old.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, old.planReconciliation.baselineId) : undefined;
+    const prd = intent.repositories.find(repository => repository.kind === "prd")!;
+    const completions: PlanBaseline["completions"] = {};
+    for (const leaf of leavesOf(source.plan).filter(candidate => candidate.closed)) {
+      const scopeRepositories = phaseRepositories(source, leaf.id);
+      const carried = earlier?.completions[leaf.id];
+      if (carried) { completions[leaf.id] = { ...carried, scopeRepositories: carried.scopeRepositories ?? scopeRepositories }; continue; }
+      const owner = Object.entries(old.phases).find(([key, facts]) => facts.doneAt && key !== PR_PHASE_KEY && !this.auditActivity(key) && this.judgedId(key) === leaf.id)?.[1];
+      if (owner) {
+        const revision = owner.repositories[prd.name]?.pushedSha ?? owner.repositories[prd.name]?.waivedHead;
+        completions[leaf.id] = { kind: "kiln", scopeRepositories, doneAt: owner.doneAt!, ...(owner.waiverId ? { waiverId: owner.waiverId } : {}), ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner.repositories).flatMap(([name, facts]) => { const identity = old.repositories.find(entry => entry.name === name)?.github ?? ""; return facts.pushedSha ? [[name, { identity, revision: facts.pushedSha }]] : facts.waivedHead ? [[name, { identity, revision: facts.waivedHead, waived: true as const }]] : []; })) };
+        continue;
+      }
+      completions[leaf.id] = { kind: "external", scopeRepositories, revision: prd.baseCommit!, repositories: Object.fromEntries(intent.repositories.map(repository => [repository.name, { identity: repository.github, revision: repository.baseCommit! }])) };
+    }
+    const baseline = this.writeContinuationMetadata(() => retainBaseline(this.stateDirectory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: this.paths.prdDirectoryFromRoot, active: source, sources: [], completions }));
+    // A pending pause request carries only when its phase is still to run (Pause state at Start).
+    const remaining = leavesOf(source.plan).filter(leaf => !leaf.closed).map(leaf => leaf.id);
+    const pausePhase = this.stoppedPhaseKey() !== undefined ? this.judgedId(this.stoppedPhaseKey()!) : recordedLeaves(old.plan ?? []).find(leaf => !leaf.closed && !this.waiverClosed(leaf.id) && !old.phases[leaf.id]?.doneAt)?.id;
+    const pause = old.pause.requestedAt && !old.pause.activeSince && pausePhase && remaining.includes(pausePhase) ? { requestedAt: old.pause.requestedAt, requestedFor: pausePhase } : {};
+    const repositories: RepositoryEntry[] = intent.repositories.map(repository => ({ name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: repository.baseBranch, worktreePath: expandHome(repository.worktreePath), baseCommit: repository.baseCommit!, setupCompletedAt: at }));
+    const continuation: ContinuationState = old.continuation ? structuredClone(old.continuation) : { formatVersion: 1, journalIndexed: true, acceptances: [], executions: [] };
+    delete continuation.currentAcceptanceId;
+    this.commands.enableExecutionIndex();
+    this.activateExecution({ archiveRow, continuation, newExecutionId: intent.newExecutionId!, operationId: receipt.id, plan: source.plan, baselineId: baseline.id, at,
+      fields: { settings: intent.settings, repositories, pause, developmentAuthorization: old.developmentAuthorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(preparation ? { preparation } : {}), startedAt: at, refinementConfirmedAt: old.refinementConfirmedAt ?? at, setupCompletedAt: at, branchStem: old.branchStem ?? old.settings.featureBranch, folderSetupStart: { id: intent.id, commandId: intent.commandId, fromExecutionId: old.executionId! } },
+      afterSave: () => { intent.state = "activated"; writeStartIntent(this.stateDirectory, intent); } });
+  }
+
+  /** From the existing feature branch (AC-SETUP-05): the failing repositories' worktrees, then the explicit Resume. */
+  private async runBranchStart(intent: FolderSetupStart, build: StartBuild, save: () => void): Promise<void> {
+    for (const repository of intent.repositories.filter(row => row.createLocalFromOrigin)) await step(intent, `branch:${repository.name}`, save, () => createLocalBranch(this.git, repository));
+    for (const repository of intent.repositories.filter(row => row.clearStaleRecord)) await step(intent, `clear:${repository.name}`, save, () => clearStaleRecord(this.git, repository));
+    for (const repository of intent.repositories) await step(intent, `worktree:${repository.name}`, save, () => addWorktreeOnBranch(this.git, repository));
+    await step(intent, "save", save, async () => {
+      const at = this.now().toISOString();
+      const single = this.record.repositories.filter(entry => entry.setupCompletedAt !== undefined).length === 1;
+      for (const repository of intent.repositories) {
+        const entry = this.record.repositories.find(candidate => candidate.name === repository.name)!;
+        const before = expandHome(entry.worktreePath);
+        const after = expandHome(repository.worktreePath);
+        // A single-repository session moves with its folder; Claude Code resumes from another folder (WTR-004).
+        if (single && comparable(resolve(before)) !== comparable(resolve(after))) this.moveSessionFolders(before, after);
+        entry.worktreePath = after; entry.setupCompletedAt = at;
+      }
+      const settings = intent.settings;
+      Object.assign(this.record.settings, { model: undefined }, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit, agentChoices: settings.agentChoices });
+      delete (this.record.settings as unknown as Record<string, unknown>).model;
+      // Start is the person's explicit go: it ends an active pause and a released takeover hold (AC-SAFE-03).
+      delete this.record.pause.activeSince;
+      if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; }
+      this.save();
+      intent.state = "resumed";
+    });
+    // Run the restart decision with the review released, as an explicit Resume (AC-SETUP-05).
+    this.folderStarting = false;
+    this.folderMissing = undefined; this.folderPanel = undefined; this.folderDraft = emptyDraft(); this.folderDraftSeeded = false;
+    this.changed();
+    const prepared = await this.prepare();
+    if (!prepared.ok) return;
+    if (this.folderMissing) return;
+    this.pendingResume = undefined;
+    await this.decide({ review: true });
+    this.restartReview = undefined; this.reviewingRestart = false;
+    this.changed();
+    this.kick();
+  }
+
+  /** Rewrites this execution's Claude Code sessions recorded in the old folder to the new one, before the run's record is saved. */
+  private moveSessionFolders(before: string, after: string): void {
+    for (const [key, facts] of Object.entries(this.record.phases)) {
+      for (const id of facts.sessionIds) {
+        const session = this.sessionRecord(key, id);
+        if (!session || session.agentId === "codex" || !session.workingDirectory) continue;
+        if (comparable(resolve(expandHome(session.workingDirectory))) !== comparable(resolve(before))) continue;
+        session.workingDirectory = after;
+        writeSessionRecord(this.stateDirectory, session);
+      }
+    }
+  }
+
+  /** Called once `kiln run` has printed its startup lines; later entries print through a terminal event. */
+  startupFinished(): void { this.announceFolderMissing = true; }
+
   async prepare(): Promise<{ ok: true } | { ok: false; error: string }> {
     const authority = readPendingAuthority(this.stateDirectory, this.record);
     const active = this.record.continuation?.acceptances.find(row => row.id === this.record.continuation?.currentAcceptanceId && row.state === "active" && row.newExecutionId === this.record.executionId);
@@ -2654,6 +3241,8 @@ export class Engine {
       const setup = await this.finishSetup();
       if (!setup.ok) return setup;
     }
+    // A missing folder is the answer: no plan read, progress or judgement (AC-GONE-01).
+    if (!this.leavingFolderMissing && !await this.folderGuard()) return { ok: true };
     await this.readPlan();
     return { ok: true };
   }
@@ -2669,6 +3258,7 @@ export class Engine {
     this.quiet = true;
     try {
       const decision = await this.decideQuietly();
+      if (decision.kind === "folder_missing") { this.restartReview = undefined; this.reviewingRestart = false; this.changed(); return decision; }
       if (options.review) {
         this.restartReview = decision.kind === "start_phase" ? { activityKey: decision.phaseId, action: "start" }
           : decision.kind === "start_audit" ? { activityKey: decision.phaseKey, action: "start" }
@@ -2734,40 +3324,50 @@ export class Engine {
     return missing;
   }
 
+  /**
+   * Adopts a live Claude phase, audit or takeover session an earlier Kiln left as `current` (recovered live), watched
+   * until it ends and never interrupted; its end is recorded when it comes. Runs at every startup, including one that
+   * finds a folder missing, so Start stays busy while that process runs (AC-SAFE-01). Returns the adopted session's activity.
+   */
+  async adoptLeftOverLive(): Promise<string | undefined> {
+    const adopt = async (phaseKey: string, session: SessionRecord) => {
+      this.current = { phaseKey, session, processRunning: true, commits: [] };
+      this.recoveredLive = true;
+      this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
+      this.recoveredTimer.unref();
+      // The panel names the phase that session is on (AC-SAFE-02).
+      if (this.folderMissing) { await this.refreshFolderPanel(); this.changed(); }
+    };
+    if (this.record.liveControl) {
+      const target = this.record.liveControl.takeover.target;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.at(-1);
+      if (!session || !run || run.endedAt || (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) !== target.attemptId) return undefined;
+      try { await requireExited(run); return undefined; }
+      catch { await adopt(target.activityKey, session); return target.activityKey; }
+    }
+    const previous = this.latestSessionOverall();
+    const previousRun = previous?.session.runs.at(-1);
+    if (!previous || !previousRun || previousRun.endedAt || previous.session.agentId !== "claude_code" || previous.session.kind === "pull_request") return undefined;
+    try { await requireExited(previousRun); return undefined; } catch { /* Live or ambiguous input ownership must wait safely. */ }
+    await adopt(previous.phaseKey, previous.session);
+    await this.observeRecoveredLive();
+    return previous.phaseKey;
+  }
+
   private async decideQuietly(): Promise<UnderwayDecision> {
     if (!this.current) this.observeSavedHookContract(this.latestSessionOverall()?.session);
     // A preparation whose phase was marked complete holds nothing (waivers "Mark Complete").
     if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && !this.record.phases[this.record.preparation.phaseId]?.doneAt && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
-      const target = this.record.liveControl.takeover.target;
-      const session = this.sessionRecord(target.activityKey, target.sessionId);
-      const run = session?.runs.at(-1);
-      if (session && run && !run.endedAt && (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) === target.attemptId) {
-        try { await requireExited(run); }
-        catch {
-          this.current = { phaseKey: target.activityKey, session, processRunning: true, commits: [] };
-          this.recoveredLive = true;
-          this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
-          this.recoveredTimer.unref();
-        }
-      }
+      await this.adoptLeftOverLive();
+      if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
       await this.reconcileTakeover();
-      return { kind: "needs_you", phaseKey: target.activityKey, again: true };
+      return { kind: "needs_you", phaseKey: this.record.liveControl.takeover.target.activityKey, again: true };
     }
-    const previous = this.latestSessionOverall();
-    const previousRun = previous?.session.runs.at(-1);
-    if (previous && previousRun && !previousRun.endedAt && previous.session.agentId === "claude_code" && previous.session.kind !== "pull_request") {
-      let released = false;
-      try { await requireExited(previousRun); released = true; } catch { /* Live or ambiguous input ownership must wait safely. */ }
-      if (!released) {
-      this.current = { phaseKey: previous.phaseKey, session: previous.session, processRunning: true, commits: [] };
-      this.recoveredLive = true;
-      this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
-      this.recoveredTimer.unref();
-      await this.observeRecoveredLive();
-      return { kind: "needs_you", phaseKey: previous.phaseKey, again: true };
-      }
-    }
+    const adopted = await this.adoptLeftOverLive();
+    if (adopted !== undefined) return { kind: "needs_you", phaseKey: adopted, again: true };
+    if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
     if (deliveryEnabled(record) && record.completedAt && !await this.obsoleteCompletedDeliveryArtifacts()) {
@@ -2853,7 +3453,7 @@ export class Engine {
     const next = await this.nextActivity(read.plan);
     if (next.kind === "stopped") return withDone({ kind: "needs_you" as const, phaseKey: next.key, again: true });
     if (next.kind === "audit") {
-      if (record.pause.requestedAt) { this.activatePause(); return withDone({ kind: "paused" as const, beforePhaseKey: next.key }); }
+      if (this.pauseDue) { this.activatePause(); return withDone({ kind: "paused" as const, beforePhaseKey: next.key }); }
       return withDone({ kind: "start_audit" as const, phaseKey: next.key, label: auditLabel(next.activity.kind), round: next.activity.round });
     }
     const leaf = next.leaf;
@@ -2865,7 +3465,7 @@ export class Engine {
         return withDone({ kind: "complete" as const });
       }
     }
-    if (record.pause.requestedAt !== undefined) {
+    if (this.pauseDue) {
       // Start after the pause goes round again, so a pull request opened meanwhile completes the feature.
       this.activatePause();
       return withDone({ kind: "paused" as const, beforePhaseKey: leaf?.id ?? PR_PHASE_KEY });
@@ -2899,7 +3499,10 @@ export class Engine {
       if (continuation && !this.commands.blocked && !this.stopping) { await this.prepareContinuation(continuation); if (this.record.executionId === continuation.completedExecutionId) return; }
       if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
+      if (this.folderMissing) return;
       if (this.requestedResume !== undefined) {
+        // The one dispatch path: every launch and resume checks the folders first (AC-GONE-01).
+        if (!await this.folderGuard({ mayLeave: false })) return;
         const request = this.requestedResume;
         this.requestedResume = undefined;
         const runCount = this.latestSession(request.phaseKey)?.runs.length;
@@ -2914,6 +3517,8 @@ export class Engine {
         this.watchWait();
         return;
       }
+      // Checked after a wait's watch starts, so the watch begins before this loop first waits on Git.
+      if (!await this.folderGuard({ mayLeave: false })) return;
       if (this.pendingResume !== undefined) {
         const key = this.pendingResume;
         this.pendingResume = undefined;
@@ -2959,7 +3564,6 @@ export class Engine {
         if (!added.ok) {
           this.current = undefined;
           this.recordStop(leaf.id, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }]);
-          this.emit({ kind: "phase", at: this.now(), phaseId: leaf.id, title: leaf.title, event: "stopped" });
           return;
         }
       }
@@ -2974,7 +3578,7 @@ export class Engine {
         }
       }
       this.pullRequestPrecheckDone = false;
-      if (record.pause.requestedAt !== undefined) {
+      if (this.pauseDue) {
         this.activatePause();
         return;
       }
@@ -3164,7 +3768,7 @@ export class Engine {
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       if (!plan.ok) checks.push(planCheck(plan));
       this.save();
-      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks, plan, judgedLeafId: key });
+      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks: oneRowPerCheck(checks), plan, judgedLeafId: key });
       outcome.passed = await this.markChecks(key, outcome.checks);
       this.lastDoneCheck = { key, outcome };
       return outcome;
@@ -3367,7 +3971,7 @@ export class Engine {
     if (!read.ok) throw new Error(read.problem);
     await this.requirePreparationRelease(key, session);
     if (!state.verifiedCheckpoint || (await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint.id) throw new Error("Prepared source/configuration moved after verification; dependent implementation remains held.");
-    if (this.record.pause.requestedAt || this.record.pause.activeSince) throw new Error("The pause control holds dependent implementation.");
+    if (this.pauseDue || this.record.pause.activeSince) throw new Error("The pause control holds dependent implementation.");
   }
 
   private async advancePreparation(): Promise<Verdict> {
@@ -3390,7 +3994,7 @@ export class Engine {
       }
       await verifyPreparation(this.preparationContext());
       if (this.stopping || this.commands.blocked) return { kind: "stopped" };
-      if (this.record.pause.requestedAt || this.record.pause.activeSince) { if (!this.record.pause.activeSince) this.activatePause(); return { kind: "stopped" }; }
+      if (this.pauseDue || this.record.pause.activeSince) { if (!this.record.pause.activeSince) this.activatePause(); return { kind: "stopped" }; }
       if ((await preparationCheckpoint(this.preparationContext())).id !== state.verifiedCheckpoint!.id) throw new Error("The prepared checkpoint changed before implementation admission.");
       // Mark prerequisite receipts only after independent integration and project checks.
       const baseline = readBaseline(this.stateDirectory, this.record.planReconciliation!.baselineId!);
@@ -3417,7 +4021,7 @@ export class Engine {
       this.checking = false;
       await this.runProcess(key, session, args, prompt, "resume", cwd, undefined, () => {
         // runProcess's billing/provider read precedes this final dispatch hook.
-        if (this.record.pause.requestedAt || this.record.pause.activeSince || this.stopping) return false;
+        if (this.pauseDue || this.record.pause.activeSince || this.stopping) return false;
         delete this.record.phases[key]!.stop; return true;
       });
       if (session.runs.length <= state.implementationRun) return { kind: "stopped" };
@@ -3815,9 +4419,12 @@ export class Engine {
     const facts = this.record.phases[phaseKey];
     // The retained stop's or wait's rows, plus Billing approval inside the run only for an activity that has not run (waivers "Check Runs").
     const rows = structuredClone(facts?.stop?.checks ?? facts?.wait?.checks ?? []);
+    // A hold reaches Needs you without recordStop, so it prints its own line, unless the person was already there.
+    const alreadyNeedsYou = facts?.stop !== undefined || this.record.billing!.hold !== undefined;
     this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows };
     this.checking = false; this.current = undefined; this.unwatchWait();
     this.save(); this.updateKeepAwake(); this.changed();
+    if (!alreadyNeedsYou) this.emitSessionEvent(phaseKey, "stopped");
     this.emit({ kind: "message", text: `Billing hold: ${reason} Open Kiln's browser address above to review billing and continue.` });
   }
 
@@ -3918,6 +4525,8 @@ export class Engine {
       }
       if (this.commands.blocked) return { kind: "stopped" };
       if (this.stopping) return { kind: "stopping" };
+      // A session whose folder went missing while it worked is judged only after recovery.
+      if (!await this.folderGuard({ mayLeave: false })) { this.current = undefined; this.changed(); return { kind: "stopped" }; }
       if (this.record.billing?.hold?.phaseKey === phaseKey) return { kind: "stopped" };
       const run = this.latestSession(phaseKey)?.runs.at(-1);
       if (run?.interruptedBy !== "sleep") return this.judgeEndedSession(phaseKey, false);
@@ -3987,7 +4596,6 @@ export class Engine {
         // A rejected first launch has no materialized provider history to audit.
         // This also handles a restart after an older Kiln left it implementing.
         this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
-        this.emitSessionEvent(phaseKey, "stopped");
         return { kind: "stopped" };
       }
       if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !session?.runs[this.record.preparation.implementationRun!])) {
@@ -4008,7 +4616,6 @@ export class Engine {
         if (this.finalNeedsAudits(check)) return { kind: "done", judgedId: PR_PHASE_KEY };
         if (!notResumable && run?.limitRefusal !== undefined) return this.settleRefused(PR_PHASE_KEY, session!, runIndex, check.checks);
         this.recordStop(PR_PHASE_KEY, notResumable ? "not_resumable" : "pull_request_check", check.checks);
-        this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
         return { kind: "stopped" };
       }
       const outcome = await this.doneCheck(phaseKey);
@@ -4020,7 +4627,6 @@ export class Engine {
       }
       if (!outcome.unavailable && !notResumable && run?.limitRefusal !== undefined) return this.settleRefused(phaseKey, session!, runIndex, outcome.checks);
       this.recordStop(phaseKey, notResumable ? "not_resumable" : "done_check", outcome.checks);
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     } finally {
       if (!this.stopping) {
@@ -4062,12 +4668,6 @@ export class Engine {
     const recorded = run?.interruptedAt;
     const at = recorded ?? (session && run ? (runLastOutputAt(this.options.stateDirectory, session, runIndex) ?? run.startedAt) : this.now().toISOString());
     this.recordStop(phaseKey, kind, checks, { at, atIsLastOutput: recorded === undefined });
-    if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
-    else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, "stopped");
-    else {
-      const judged = this.judgedId(phaseKey);
-      this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event: "stopped" });
-    }
     return { kind: "stopped" };
   }
 
@@ -4456,7 +5056,7 @@ export class Engine {
       const before = structuredClone(this.record);
       try {
         const accepted = effectiveAudit(this.stateDirectory, audit)!;
-        if (outcome.plan.ok) this.record.plan = recordedPlan(outcome.plan.plan);
+        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); }
         for (const phaseId of accepted.completionPhases()) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
@@ -4599,9 +5199,12 @@ export class Engine {
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
+    const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
     facts.stop = { kind, at, checks: itemize(checks, phaseKey), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
+    // The one place a stop prints its line (AC-START-09). Replacing a retained stop or a hold is the same Needs you, already said.
+    if (!alreadyStopped) this.emitSessionEvent(phaseKey, "stopped");
     // The account card shows a reading taken after the refusal (usage-limit recovery AC-LIMIT-03).
     if (limit !== undefined) this.askReading();
   }
@@ -4713,8 +5316,6 @@ export class Engine {
     const key = this.nextKeyFromRecordedPlan();
     this.current = undefined;
     this.recordStop(key, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: [problem] }]);
-    if (key === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event: "stopped" });
-    else this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "stopped" });
     return { kind: "plan_stop", phaseKey: key };
   }
 
@@ -4761,12 +5362,10 @@ export class Engine {
         return { kind: "waiting" };
       }
       this.recordStop(phaseKey, kind, checks, undefined, limit);
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     }
     if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex)) {
       this.recordStop(phaseKey, kind, checks, undefined, { ...limit, refusedAgainAt: run.startedAt });
-      this.emitSessionEvent(phaseKey, "stopped");
       return { kind: "stopped" };
     }
     if (this.record.settings.resumeAfterUsageLimit && !this.transcriptMissing(session)) {
@@ -4774,7 +5373,6 @@ export class Engine {
       return { kind: "waiting" };
     }
     this.recordStop(phaseKey, kind, checks, undefined, limit);
-    this.emitSessionEvent(phaseKey, "stopped");
     return { kind: "stopped" };
   }
 
@@ -4813,7 +5411,6 @@ export class Engine {
     delete facts.wait;
     this.unwatchWait();
     this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", checks, undefined, refusal ? stopLimit(refusal) : undefined, checkedAt);
-    this.emitSessionEvent(phaseKey, "stopped");
     this.updateKeepAwake();
   }
 
@@ -4823,7 +5420,10 @@ export class Engine {
    * wait, with these results, unless its transcript
    * is gone, or (except at Resume now) the setting is off: then it is Needs you.
    */
-  private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping"> {
+  private async recheckWait(phaseKey: string, mode: "restart" | ResumeRequest["cause"]): Promise<"done" | "complete" | "stopped" | "failed" | "stopping" | "folder_missing"> {
+    // The end of a wait checks the run's folders before its completion check (AC-GONE-01); the
+    // wait stays as it is, judged again after recovery.
+    if (mode === "limit_resume" && !await this.folderGuard({ mayLeave: false })) return "folder_missing";
     const facts = this.record.phases[phaseKey]!;
     let checks: CheckResult[];
     if (phaseKey === PR_PHASE_KEY) {
@@ -4870,7 +5470,7 @@ export class Engine {
    * Resume now, or the end of a wait: `checking` is held from here until the resumed run starts
    * or a stop or Done is recorded (AC-RESUME-02); the wait's check first, then the resume.
    */
-  private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<void> {
+  private async resumeWait(phaseKey: string, cause: ResumeRequest["cause"]): Promise<Awaited<ReturnType<Engine["recheckWait"]>> | undefined> {
     if (this.reviewingRestart) return;
     if (cause === "limit_resume" && !this.commands.active) {
       if (this.commands.busy || this.checking || this.driving) return;
@@ -4892,10 +5492,13 @@ export class Engine {
     }
     if (verdict === "failed" && !this.stopping) this.requestedResume = { phaseKey, cause };
     this.kick();
+    return verdict;
   }
 
   /** Starts watching the recorded wait in this run of Kiln: sleep, keep-awake, the reset reading and a reading now. */
   private watchWait(): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     const key = this.waitingPhaseKey();
     if (this.reviewingRestart || key === undefined || this.record.billing?.hold || this.closed || this.stopping || this.waitWatch?.phaseKey === key) return;
     this.unwatchWait();
@@ -4951,6 +5554,8 @@ export class Engine {
   }
 
   private codexReadingArrived(reading: AgentAccount): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
@@ -4974,6 +5579,8 @@ export class Engine {
    * no reset time and it is the wait's first reading.
    */
   private readingArrived(reading: AccountView): void {
+    // A wait neither resumes nor stops while a folder is missing; it is checked again after recovery.
+    if (this.folderMissing) return;
     if (this.record.billing?.hold) return;
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
@@ -5427,6 +6034,12 @@ export class Engine {
   transcriptMissing(session: SessionRecord): boolean {
     if (session.agentId === "codex") {
       if (!session.conversation?.threadId) return true;
+      // A Codex conversation resumes only in its recorded folder: one that is neither the session folder nor a set-up worktree, as after a Folder missing recovery moved it, can't be resumed (WTR-004).
+      if (session.workingDirectory !== undefined && this.isUnderway && !this.record.completedAt) {
+        const recorded = comparable(realPathOfNearestAncestor(resolve(expandHome(session.workingDirectory))));
+        const current = [this.sessionFolder, ...this.setUpRepositories.map(entry => expandHome(entry.worktreePath))].map(path => comparable(realPathOfNearestAncestor(resolve(path))));
+        if (!current.includes(recorded)) return true;
+      }
       return session.codex?.conversationUnavailable === true;
     }
     return !claudeHistoryAvailability(this.options.env, session.sessionId).available;
@@ -5597,6 +6210,7 @@ export class Engine {
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
     this.plan = baseline.active.plan;
     this.record.plan = recordedPlan(baseline.active.plan);
+    this.record.planReadAt = attemptedAt;
     try { this.save(); }
     catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }
     if (added.length) this.emit({ kind: "plan_updated", at: this.now(), addedPhaseIds: added, remainingCount: this.record.planReconciliation.handback!.remainingCount, source: baseline.active.path });
@@ -5641,7 +6255,7 @@ export class Engine {
 
   private emit(event: TerminalEvent): void {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
-    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated") this.options.onTerminal?.(event);
+    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated" || event.kind === "folder_missing") this.options.onTerminal?.(event);
   }
 }
 

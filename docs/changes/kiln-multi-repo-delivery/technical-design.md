@@ -123,6 +123,8 @@ A **multi-repository PRD** is one whose repositories number more than one, befor
 
 ## The Workspace
 
+Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (a recovery re-creates missing worktrees in the saved workspace, or sets up a new workspace and branch).
+
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted current-base continuation workspaces. Existing per-repository safety and delivery checks remain.
 
 ### Settings before Start (AC-SPACE-01, AC-REPO-03)

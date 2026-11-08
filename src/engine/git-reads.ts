@@ -80,15 +80,22 @@ export interface WorktreeEntry {
   branch: string | undefined;
   /** `locked` with any reason, such as `initializing` while `git worktree add` is checking out. */
   locked: string | undefined;
+  /** Git's own stale marker (`prunable`), with its reason; Git also sets it when the path holds a plain folder. */
+  prunable?: string;
 }
 
 /** `git worktree list --porcelain`, one entry per worktree, the main working tree first. */
 export async function listWorktrees(context: GitContext, cwd: string): Promise<{ ok: true; worktrees: WorktreeEntry[] } | { ok: false; error: string }> {
   const result = await runGit(context, cwd, ["worktree", "list", "--porcelain"]);
   if (result.exitCode !== 0) return { ok: false, error: gitError(result) };
+  return { ok: true, worktrees: parseWorktreeList(result.stdout) };
+}
+
+/** The entries of `git worktree list --porcelain` output. */
+export function parseWorktreeList(stdout: string): WorktreeEntry[] {
   const worktrees: WorktreeEntry[] = [];
   let entry: WorktreeEntry | undefined;
-  for (const line of result.stdout.split(/\r?\n/)) {
+  for (const line of stdout.split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
       entry = { path: line.slice("worktree ".length), branch: undefined, locked: undefined };
       worktrees.push(entry);
@@ -96,7 +103,20 @@ export async function listWorktrees(context: GitContext, cwd: string): Promise<{
       entry.branch = line.slice("branch refs/heads/".length);
     } else if (entry && (line === "locked" || line.startsWith("locked "))) {
       entry.locked = line.slice("locked".length).trim() || "locked";
+    } else if (entry && (line === "prunable" || line.startsWith("prunable "))) {
+      entry.prunable = line.slice("prunable".length).trim() || "prunable";
     }
   }
-  return { ok: true, worktrees };
+  return worktrees;
+}
+
+/**
+ * Brings one commit's objects into a checkout from origin when they aren't there, writing no ref
+ * (the objects-only fetch); returns the failed fetch, or undefined when the objects are present.
+ */
+export async function ensureObjects(context: GitContext, cwd: string, sha: string, timeoutMs?: number): Promise<HelperResult | undefined> {
+  const present = await runGit(context, cwd, ["cat-file", "-e", `${sha}^{commit}`]);
+  if (present.exitCode === 0) return undefined;
+  const fetched = await runGit(context, cwd, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", sha], timeoutMs);
+  return fetched.exitCode === 0 ? undefined : fetched;
 }

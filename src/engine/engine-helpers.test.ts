@@ -33,7 +33,7 @@ describe("the terminal's phase lines", () => {
     expect(formatPhaseLine(at(9, 17), "1", "Return intake", { kind: "started" }, columns, plain)).toBe(" 9:17  1   Return intake      started");
     expect(formatPhaseLine(at(10, 57), "2a", "Card refunds", { kind: "done", pushedSha: "5d81b37aaaa" }, columns, plain)).toBe("10:57  2a  Card refunds       done · pushed 5d81b37");
     expect(formatPhaseLine(at(13, 4), "PR", "Final pull request", { kind: "opened", number: 218 }, columns, plain)).toBe(" 1:04  PR  Final pull request  opened #218");
-    expect(formatPhaseLine(at(0, 5), "2b", "Store credit", { kind: "stopped" }, columns, plain)).toBe("12:05  2b  Store credit       stopped");
+    expect(formatPhaseLine(at(0, 5), "2b", "Store credit", { kind: "stopped" }, columns, plain)).toBe("12:05  2b  Store credit       stopped · waiting for you");
     expect(formatPhaseLine(at(11, 4), "2b", "Store credit", { kind: "resumed" }, columns, plain)).toBe("11:04  2b  Store credit       resumed");
     expect(formatPhaseLine(at(11, 2), "2b", "Store credit", { kind: "interrupted" }, columns, plain)).toBe("11:02  2b  Store credit       interrupted");
   });

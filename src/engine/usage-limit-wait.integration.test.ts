@@ -5,7 +5,7 @@ import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // stopping, resumes the same session at the first reading with usage left, and goes to Needs
 // you when the wait can't free the account or the person switches it off.
 
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NOT_SIGNED_IN } from "../account/claude-account.js";
@@ -424,6 +424,8 @@ describe("restarts (AC-AUTO-03)", () => {
     const engine = s.h.reopenFromDisk();
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: false });
     expect(engine.record.phases["1"]!.stop!.limit).toMatchObject({ label: "5-hour window" });
+    // A stop raised while deciding is said once, by the ● line (AC-START-09).
+    expect(phaseEvents(s.h)).not.toContain("1 stopped");
   });
 });
 
@@ -562,6 +564,37 @@ describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02,
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
     expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
     expect(phaseEvents(h).slice(0, 5)).toEqual(["prd_started", "1 started", "1 waiting", "1 done", "2b started"]);
+  });
+
+  it("checks the run's folder before the end-of-wait check, and stops on Folder missing without judging the phase (missing worktree recovery AC-GONE-01)", async () => {
+    const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/credit.txt")]);
+    const { h, claude } = s;
+    await startToWait(s);
+    // Finished by hand and pushed, so a completion check would pass and record Done; then the folder is deleted.
+    finishByHand(h);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+
+    claude.deliver(signedIn([usageRow("session", 2)]));
+    claude.queue(signedIn([usageRow("session", 2)]));
+    await waitFor(() => h.engine.folderMissing !== undefined);
+    await h.engine.settled();
+    expect(buildSnapshot(h.engine).feature.state).toBe("folder_missing");
+    expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
+    expect(h.engine.record.phases["1"]!.wait).toBeDefined();
+    expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(phaseEvents(h)).not.toContain("1 done");
+    // The wait's recorded completion results stay as history, with when they were checked (Phase 8 of missing worktree recovery: AC-GONE-02).
+    const wait = h.engine.record.phases["1"]!.wait!;
+    // The wait recorded the refused run's checks, all failed: the work was finished by hand only afterwards.
+    expect(buildSnapshot(h.engine).folderMissing!.waitingResult).toEqual({ phaseId: "1", checkedAt: wait.checkedAt, passed: 0, failed: 3 });
+    // The setup panel names the waiting phase, whose commits are only on the feature branch (Phase 6 of missing worktree recovery: AC-SAFE-02).
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = h.engine.folderPanel!;
+    if ("blocked" in panel) throw new Error(panel.blocked);
+    expect(panel.preview.again).toContain("1");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phase 1’s work\.$/);
   });
 
   it("holds Resume now and Check again from the start of Kiln's own resume until its run starts", async () => {

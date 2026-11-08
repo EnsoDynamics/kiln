@@ -4,6 +4,7 @@ import { developmentDeliverySummary } from "./state/development-delivery.js";
 // it does next. Every part comes from Kiln's own record and checks, never a guessed cause.
 
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
+import type { FolderMissingView } from "./engine/folder-facts.js";
 import { recordedLeaves } from "./engine/plan-reading.js";
 import { effectiveRecordedClosed } from "./engine/waivers.js";
 import { PR_PHASE_KEY } from "./state/records.js";
@@ -98,6 +99,9 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
     case "setup_failed":
       text = decision.error;
       break;
+    case "folder_missing":
+      text = "This run’s folder is missing; nothing has run.";
+      break;
     case "waiting": {
       const subject = decision.phaseKey === PR_PHASE_KEY ? "The pull-request session" : capitalized(phaseName(engine.judgedId(decision.phaseKey), engine));
       const reset = decision.limit.resetsAt === undefined ? "" : `, resets ${resetClock(new Date(decision.limit.resetsAt), engine.clock())}`;
@@ -138,4 +142,47 @@ export function formatCompletedPlanCheck(check: import("./engine/completed-plan-
   if (check.lastSuccessfulAt) text += ` Last successful check: ${new Date(check.lastSuccessfulAt).toLocaleString()}.`;
   if (check.sources.length) text += ` Sources: ${check.sources.map(source => `${source.path}${source.revision ? ` at ${source.revision}` : ""}${source.error ? ` (${source.error})` : ""}`).join("; ")}.`;
   return text;
+}
+
+/** The saved plan's label as a predicate (AC-FACTS-02): "is out of date", "matches develop". */
+export function savedPlanWords(saved: FolderMissingView["plans"]["saved"], baseBranch: string): string {
+  const other = saved.comparedWith === "branch" ? "the branch" : baseBranch;
+  switch (saved.label) {
+    case "out_of_date": return "is out of date";
+    case "matches_branch": return "matches the branch";
+    case "matches_base": return `matches ${baseBranch}`;
+    case "ahead": return `is ahead of ${other}`;
+    case "not_compared": return "is not compared";
+  }
+}
+
+/**
+ * What `kiln run` prints for Folder missing (AC-GONE-03), in place of the summary and ● lines:
+ *
+ *   Folder missing · nothing has run
+ *   This run’s folder no longer exists:
+ *     ~/devel/.worktrees/invoice-evidence-collection/harbor-ledger  missing
+ *
+ *   The plan on origin/develop (0a3d75d) has 13 phases, 9 done. Kiln’s saved plan is out of date.
+ *   Set the run up again: http://localhost:4317/invoice-evidence-collection
+ */
+export function formatFolderMissing(view: FolderMissingView, address: string | undefined, colors: TerminalColors): string {
+  const failing = view.repositories.filter(repository => repository.state !== "in_place");
+  const allMissing = failing.every(repository => repository.state === "missing");
+  const heading = view.repositories.length > 1
+    ? allMissing ? (failing.length === 1 ? "One of this run’s folders no longer exists:" : "This run’s folders no longer exist:") : "Some of this run’s folders aren’t the run’s worktrees:"
+    : allMissing ? "This run’s folder no longer exists:" : failing[0]?.state === "holds_something_else" ? "This run’s folder now holds something else:" : "Kiln couldn’t check this run’s folder:";
+  const state = (repository: FolderMissingView["repositories"][number]) => repository.state === "missing" ? "missing" : repository.state === "holds_something_else" ? "holds something else" : "couldn’t check";
+  const base = view.plans.base;
+  const plan = "error" in base
+    ? `Kiln couldn’t read the plan on ${base.branch}. Kiln’s saved plan is not compared.`
+    : `The plan on ${base.source === "origin" ? `origin/${base.branch}` : base.branch} (${base.sha.slice(0, 7)}) has ${base.total} phases, ${base.closed} done. Kiln’s saved plan ${savedPlanWords(view.plans.saved, base.branch)}.`;
+  return [
+    `${colors.amber("Folder missing")} · nothing has run`,
+    heading,
+    ...failing.map(repository => `  ${repository.savedFolder}  ${colors.red(state(repository))}`),
+    "",
+    plan,
+    `Set the run up again: ${address === undefined ? "the Kiln page (the browser couldn’t be opened)" : colors.amber(address)}`,
+  ].join("\n");
 }

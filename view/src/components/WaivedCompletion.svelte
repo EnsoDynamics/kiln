@@ -26,7 +26,7 @@
   {#each otherWarnings as warning (warning.kind)}<p class="feedback"><WarningMarker text={warning.text} full /></p>{/each}
   <p class="counts">{countsLine(completion.counts)}. {completion.counts.waived === 1 ? "The waived check was" : "The waived checks were"} not verified by Kiln.</p>
   <ul class="checks">
-    {#each completion.checks as check (check.name)}
+    {#each completion.checks as check, index (index)}
       {@const state = verdict(check)}
       <li><span class="check"><strong>{check.name}</strong>{#if state !== "passed"}<CheckFacts {snapshot} {check} />{/if}</span><span class="verdict {state}">{VERDICT[state]}</span></li>
     {/each}

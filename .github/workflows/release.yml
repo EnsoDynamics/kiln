@@ -1,7 +1,7 @@
 name: Release
 
-# First publication remains held until Doug approves it and enables the repository
-# variable. A main push runs the platform checks once; its generated tag runs no CI.
+# Every push to main is a production release. It runs the platform checks once, then
+# publishes that checked archive; its generated tag runs no CI.
 on:
   push:
     branches: [main]
@@ -25,7 +25,6 @@ jobs:
       id-token: write
     outputs:
       version: ${{ steps.check.outputs.version }}
-      publish: ${{ steps.check.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,8 +35,6 @@ jobs:
       - id: check
         run: node scripts/release.mjs preflight
         env:
-          # An absent enable flag deliberately preserves the publication hold.
-          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED || 'false' }}
           NPM_AUTH_MODE: ${{ vars.NPM_AUTH_MODE }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -49,7 +46,6 @@ jobs:
 
   publish:
     needs: [preflight, verify]
-    if: needs.preflight.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

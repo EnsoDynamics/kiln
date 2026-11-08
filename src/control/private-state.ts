@@ -66,11 +66,13 @@ export function readWork(root: string, directory: string): SavedWork {
   if (!record.phases || !record.pause || !Array.isArray(record.repositories) || !Object.values(record.phases).every(f => Array.isArray(f.sessionIds))) throw new ControlFailure("state_unavailable", "Invalid saved phase inventory.");
   return { root, directory, record, canonical: resolve(record.repository.mainCheckoutPath, record.prdDirectory), observedAt: statSync(join(directory, "prd.json")).mtime.toISOString() };
 }
-export function enumerateWork(env: NodeJS.ProcessEnv, deadline = Date.now() + 5000): { work: SavedWork[]; errors: ControlError[] } {
-  const root = stateRoot(env); const work: SavedWork[] = []; const errors: ControlError[] = [];
+/** `unreadableKeys` names saved folders that could not be read; `scanPartial` means some folders were never listed at all. */
+export interface WorkScan { work: SavedWork[]; errors: ControlError[]; unreadableKeys: string[]; scanPartial: boolean }
+export function enumerateWork(env: NodeJS.ProcessEnv, deadline = Date.now() + 5000): WorkScan {
+  const root = stateRoot(env); const work: SavedWork[] = []; const errors: ControlError[] = []; const unreadableKeys: string[] = []; let scanPartial = false;
   try {
     try { lstatSync(root); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { work, errors };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { work, errors, unreadableKeys, scanPartial };
       throw error;
     }
     for (const repository of privateNames(root, root)) {
@@ -82,13 +84,32 @@ export function enumerateWork(env: NodeJS.ProcessEnv, deadline = Date.now() + 50
           deadlineCheck(deadline);
           const directory = join(repo, name);
           if (!lstatSync(directory).isDirectory() && !lstatSync(directory).isSymbolicLink()) continue;
-          try { work.push(readWork(root, directory)); }
-          catch (e) { errors.push(errorFact(e instanceof ControlFailure ? e.code : "state_unavailable", `Cannot inspect saved work ${repository}/${name}.`)); }
+          try {
+            // A folder holding nothing never saved any work; the ownership checks still apply to it.
+            if (!privateNames(root, directory).length) continue;
+            work.push(readWork(root, directory));
+          } catch (e) {
+            unreadableKeys.push(name);
+            errors.push(errorFact(e instanceof ControlFailure ? e.code : "state_unavailable", `Cannot inspect saved work ${repository}/${name}.`));
+          }
         }
-      } catch { errors.push(errorFact("state_unavailable", `Cannot enumerate saved repository ${repository}.`)); }
+      } catch { scanPartial = true; errors.push(errorFact("state_unavailable", `Cannot enumerate saved repository ${repository}.`)); }
     }
-  } catch { errors.push(errorFact("state_unavailable", "Cannot enumerate the Kiln state root within its read deadline.")); }
-  return { work, errors };
+  } catch { scanPartial = true; errors.push(errorFact("state_unavailable", "Cannot enumerate the Kiln state root within its read deadline.")); }
+  return { work, errors, unreadableKeys, scanPartial };
+}
+/**
+ * The saved-folder key a PRD path would have, whichever checkout it is in, or undefined for a
+ * path that cannot be a PRD. Every stored path and alias ends in its repository-relative PRD directory.
+ *
+ *   savedKeyFor("/any/docs/prds/returns/returns-prd.md")  // "docs--prds--returns"
+ *   savedKeyFor("/any/notes/todo.md")                     // undefined
+ */
+function savedKeyFor(target: string): string | undefined {
+  const directory = basename(target) === `${basename(dirname(target))}-prd.md` ? dirname(target) : target;
+  const kind = basename(dirname(directory));
+  if (basename(dirname(dirname(directory))) !== "docs" || (kind !== "prds" && kind !== "changes")) return undefined;
+  return `docs--${kind}--${basename(directory)}`;
 }
 function normalizedRetained(path: string): string {
   let ancestor = resolve(path); const suffix: string[] = [];
@@ -107,10 +128,17 @@ export async function targetWork(input: string, cwd: string, env: NodeJS.Process
     if ("location" in resolution) target = resolve(resolution.location.mainCheckoutPath, resolution.location.prdDirectoryFromRoot);
   }
   const found = enumerateWork(env, deadline);
-  const matching = found.work.filter(w => target === w.canonical || target === join(w.canonical, `${basename(w.canonical)}-prd.md`) || retainedAliases(w).includes(target));
+  const unresolvedKeys = [...found.unreadableKeys];
+  const matching = found.work.filter(w => {
+    if (target === w.canonical || target === join(w.canonical, `${basename(w.canonical)}-prd.md`)) return true;
+    try { return retainedAliases(w).includes(target); }
+    catch { unresolvedKeys.push(basename(w.directory)); return false; }
+  });
   if (matching.length > 1) throw new ControlFailure("ambiguous_target", "More than one saved execution matches the exact PRD path.", 2);
   if (!matching.length) {
-    if (found.errors.length) throw new ControlFailure("state_unavailable", "Some saved records could not be read; the target cannot be resolved completely.");
+    // An unreadable record only stands in the way of a path it could be.
+    const key = savedKeyFor(target);
+    if (found.scanPartial || key !== undefined && unresolvedKeys.includes(key)) throw new ControlFailure("state_unavailable", "Some saved records could not be read; the target cannot be resolved completely.");
     throw new ControlFailure("target_not_found", "No saved work matches this PRD file or directory. Use kiln status --json.", 2);
   }
   return matching[0]!;
@@ -124,7 +152,9 @@ export function retainedAliases(work: SavedWork): string[] {
   const saved = privateJson<AliasRecord>(work.root, path);
   // A crash may leave the preceding controller's path aliases after durable activation.
   // They resolve this same PRD only; they confer no session or command authority.
-  const rotated = work.record.continuation?.acceptances.some(row => row.id === work.record.continuation!.currentAcceptanceId && row.state === "active" && row.completedExecutionId === saved.execution_id && row.newExecutionId === work.record.executionId);
+  const rotated = work.record.continuation?.acceptances.some(row => row.id === work.record.continuation!.currentAcceptanceId && row.state === "active" && row.completedExecutionId === saved.execution_id && row.newExecutionId === work.record.executionId)
+    // ...or by a base-branch start from the Folder missing page (missing worktree recovery, "Data Models").
+    || work.record.folderSetupStart?.fromExecutionId === saved.execution_id;
   if (saved.version !== 1 || saved.execution_id !== work.record.executionId && !rotated || saved.canonical !== work.canonical || !Array.isArray(saved.aliases) || !saved.aliases.every(a => a.provenance === "git_resolved_at_controller_start" && typeof a.path === "string" && resolve(a.path) === a.path)) throw new ControlFailure("state_unavailable", "Saved PRD alias provenance is unavailable.");
   return saved.aliases.flatMap(a => [a.path, join(a.path, `${basename(a.path)}-prd.md`)]);
 }

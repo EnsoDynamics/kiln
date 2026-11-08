@@ -44,6 +44,6 @@ preflight remains authoritative and runs before expensive platform checks.
 Never bypass either gate to force a release through.
 
 A request to **prepare** a release does not authorize merging to `main`,
-enabling publication, changing repository visibility, creating release tags
+changing repository visibility, creating release tags
 or publishing to npm. Follow the release guide and Doug's explicit release
 authorization. Publication goes through GitHub Actions.

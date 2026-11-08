@@ -12,6 +12,7 @@
   import { setViewContext } from "./lib/view-context.js";
   import Complete from "./screens/Complete.svelte";
   import DocumentsFound from "./screens/DocumentsFound.svelte";
+  import FolderMissing from "./screens/FolderMissing.svelte";
   import PhaseHandoff from "./screens/PhaseHandoff.svelte";
   import type { PhaseRecoveryPage } from "./lib/phase-recovery-page.js";
   import NeedsYou from "./screens/NeedsYou.svelte";
@@ -103,6 +104,8 @@
     {/if}
     {#if phaseScreen !== undefined}
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
+    {:else if snapshot.feature.state === "folder_missing" && snapshot.folderMissing}
+      <FolderMissing {snapshot} {connected} {now} {lastSeenAt} />
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
     {:else if snapshot.feature.state === "needs_you" && connected}
