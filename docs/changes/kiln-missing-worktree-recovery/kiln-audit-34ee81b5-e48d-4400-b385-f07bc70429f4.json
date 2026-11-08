@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
+  "activityId": "34ee81b5-e48d-4400-b385-f07bc70429f4",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Whole-PRD test audit of Kiln Missing Worktree Recovery at c9231e4. All 18 acceptance criteria are built and tested in part, and all 18 grade Weak: each has at least one stated part that could break with no test failing. Eight are high risk, led by AC-SETUP-01, AC-SAFE-03 and AC-SAFE-01. No delivery gap was found, no mapped test is skipped, and no red check was due because no criterion reached Adequate. The audit changed no tests or code; test-audit.md lists the rows to fix, in order, for the fixing sessions.",
+  "completionPhases": [],
+  "needsYou": [],
+  "changedImplementation": false
+}
