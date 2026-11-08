@@ -2858,30 +2858,38 @@ export class Engine {
     return this.recoveredLive ? `A session started by an earlier Kiln is still running${pid ? ` (process ${pid})` : ""}. Start becomes available when it ends.` : "A session is still running. Start becomes available when it ends, or when you stop Kiln in the terminal.";
   }
 
+  /**
+   * The phase the run was on when its folder went missing (AC-SAFE-02): stopped at Needs you, waiting for usage, working
+   * (a live session, or one whose folder went missing while it worked), never the pull request or an audit.
+   */
+  private folderRunPhaseKey(): string | undefined {
+    const leaf = (key: string | undefined) => key !== undefined && key !== PR_PHASE_KEY && !this.auditActivity(key);
+    const stopped = this.stoppedPhaseKey();
+    if (stopped !== undefined) return leaf(stopped) ? stopped : undefined;
+    const key = this.waitingPhaseKey() ?? this.current?.phaseKey ?? this.latestSessionOverall()?.phaseKey;
+    return leaf(key) && !this.record.phases[key!]?.doneAt ? key : undefined;
+  }
+
   private async folderPanelContext(view: FolderMissingView): Promise<PanelContext> {
-    const prdName = this.paths.repositoryName;
-    const completedByRun = new Map<string, { doneAt: string; pushedSha?: string }>();
-    for (const [key, facts] of Object.entries(this.record.phases)) {
-      if (!facts.doneAt || key === PR_PHASE_KEY || this.auditActivity(key)) continue;
-      const sha = facts.repositories[prdName]?.pushedSha;
-      completedByRun.set(this.judgedId(key), { doneAt: facts.doneAt, ...(sha ? { pushedSha: sha } : {}) });
-    }
-    // Phases this run completed with commits in each repository, for the work a base-branch start leaves out (AC-SAFE-02).
-    const phasesByRepository = new Map<string, { id: string; pushedSha?: string }[]>();
+    // Leaves this run completed, with the commit each repository's Done recorded there: pushed, or the waived head (AC-SAFE-02).
+    const completedByRun = new Map<string, { doneAt: string; commits: Record<string, string>; waived?: string[] }>();
     for (const [key, facts] of Object.entries(this.record.phases).filter(([, facts]) => facts.doneAt).sort(([, a], [, b]) => a.doneAt!.localeCompare(b.doneAt!))) {
       if (key === PR_PHASE_KEY || this.auditActivity(key)) continue;
-      for (const [name, repository] of Object.entries(facts.repositories)) if (repository.pushedSha || repository.commitCount) phasesByRepository.set(name, [...phasesByRepository.get(name) ?? [], { id: this.judgedId(key), ...(repository.pushedSha ? { pushedSha: repository.pushedSha } : {}) }]);
+      const commits: Record<string, string> = {}; const waived: string[] = [];
+      for (const [name, repository] of Object.entries(facts.repositories)) { const sha = repository.pushedSha ?? repository.waivedHead; if (sha) commits[name] = sha; if (!repository.pushedSha && repository.waivedHead) waived.push(name); }
+      completedByRun.set(this.judgedId(key), { doneAt: facts.doneAt!, commits, ...(waived.length ? { waived } : {}) });
     }
     const stoppedKey = this.stoppedPhaseKey();
-    const stoppedPhaseId = stoppedKey !== undefined && stoppedKey !== PR_PHASE_KEY && !this.auditActivity(stoppedKey) ? this.judgedId(stoppedKey) : undefined;
-    const stoppedStarts = stoppedPhaseId !== undefined ? Object.fromEntries(Object.entries(this.record.phases[stoppedKey!]?.repositories ?? {}).map(([name, repository]) => [name, repository.startCommit])) : undefined;
+    const onKey = this.folderRunPhaseKey();
+    const stoppedPhaseId = onKey !== undefined ? this.judgedId(onKey) : undefined;
+    const stoppedStarts = onKey !== undefined ? Object.fromEntries(Object.entries(this.record.phases[onKey]?.repositories ?? {}).map(([name, repository]) => [name, repository.startCommit])) : undefined;
     const pausePhaseId = (stoppedKey !== undefined ? (stoppedPhaseId ?? stoppedKey) : undefined) ?? recordedLeaves(this.record.plan ?? []).find(leaf => !leaf.closed && !this.waiverClosed(leaf.id) && !this.record.phases[leaf.id]?.doneAt)?.id;
     const leftOver = await this.leftOverSession();
     const intent = this.failedStartIntent();
     const busy = this.folderBusy();
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
-      completedByRun, phasesByRepository, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
+      completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
       model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
@@ -3291,41 +3299,49 @@ export class Engine {
     return missing;
   }
 
+  /**
+   * Adopts a live Claude phase, audit or takeover session an earlier Kiln left as `current` (recovered live), watched
+   * until it ends and never interrupted; its end is recorded when it comes. Runs at every startup, including one that
+   * finds a folder missing, so Start stays busy while that process runs (AC-SAFE-01). Returns the adopted session's activity.
+   */
+  async adoptLeftOverLive(): Promise<string | undefined> {
+    const adopt = async (phaseKey: string, session: SessionRecord) => {
+      this.current = { phaseKey, session, processRunning: true, commits: [] };
+      this.recoveredLive = true;
+      this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
+      this.recoveredTimer.unref();
+      // The panel names the phase that session is on (AC-SAFE-02).
+      if (this.folderMissing) { await this.refreshFolderPanel(); this.changed(); }
+    };
+    if (this.record.liveControl) {
+      const target = this.record.liveControl.takeover.target;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.at(-1);
+      if (!session || !run || run.endedAt || (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) !== target.attemptId) return undefined;
+      try { await requireExited(run); return undefined; }
+      catch { await adopt(target.activityKey, session); return target.activityKey; }
+    }
+    const previous = this.latestSessionOverall();
+    const previousRun = previous?.session.runs.at(-1);
+    if (!previous || !previousRun || previousRun.endedAt || previous.session.agentId !== "claude_code" || previous.session.kind === "pull_request") return undefined;
+    try { await requireExited(previousRun); return undefined; } catch { /* Live or ambiguous input ownership must wait safely. */ }
+    await adopt(previous.phaseKey, previous.session);
+    await this.observeRecoveredLive();
+    return previous.phaseKey;
+  }
+
   private async decideQuietly(): Promise<UnderwayDecision> {
     if (!this.current) this.observeSavedHookContract(this.latestSessionOverall()?.session);
     // A preparation whose phase was marked complete holds nothing (waivers "Mark Complete").
     if (this.record.pause.activeSince && this.record.preparation?.verifiedCheckpoint && this.record.preparation.stage !== "implementation" && !this.record.phases[this.record.preparation.phaseId]?.doneAt && this.latestSession(this.record.preparation.phaseId)?.runs.at(-1)?.endedAt) return { kind: "paused", beforePhaseKey: this.record.preparation.phaseId };
     if (this.record.liveControl) {
-      const target = this.record.liveControl.takeover.target;
-      const session = this.sessionRecord(target.activityKey, target.sessionId);
-      const run = session?.runs.at(-1);
-      if (session && run && !run.endedAt && (run.control?.attemptId ?? this.legacyAttempt(session, session.runs.length - 1)) === target.attemptId) {
-        try { await requireExited(run); }
-        catch {
-          this.current = { phaseKey: target.activityKey, session, processRunning: true, commits: [] };
-          this.recoveredLive = true;
-          this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
-          this.recoveredTimer.unref();
-        }
-      }
+      await this.adoptLeftOverLive();
       if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
       await this.reconcileTakeover();
-      return { kind: "needs_you", phaseKey: target.activityKey, again: true };
+      return { kind: "needs_you", phaseKey: this.record.liveControl.takeover.target.activityKey, again: true };
     }
-    const previous = this.latestSessionOverall();
-    const previousRun = previous?.session.runs.at(-1);
-    if (previous && previousRun && !previousRun.endedAt && previous.session.agentId === "claude_code" && previous.session.kind !== "pull_request") {
-      let released = false;
-      try { await requireExited(previousRun); released = true; } catch { /* Live or ambiguous input ownership must wait safely. */ }
-      if (!released) {
-      this.current = { phaseKey: previous.phaseKey, session: previous.session, processRunning: true, commits: [] };
-      this.recoveredLive = true;
-      this.recoveredTimer ??= setInterval(() => { void this.observeRecoveredLive(); }, 1000);
-      this.recoveredTimer.unref();
-      await this.observeRecoveredLive();
-      return { kind: "needs_you", phaseKey: previous.phaseKey, again: true };
-      }
-    }
+    const adopted = await this.adoptLeftOverLive();
+    if (adopted !== undefined) return { kind: "needs_you", phaseKey: adopted, again: true };
     if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;

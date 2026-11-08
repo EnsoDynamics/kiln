@@ -75,14 +75,12 @@ export interface PanelContext {
   prdDirectoryFromRoot: string;
   /** The PRD folder's name, which the suffix goes on. */
   prdFolder: string;
-  /** Leaves this run completed, by judged id, with the PRD repository's pushed commit. */
-  completedByRun: Map<string, { doneAt: string; pushedSha?: string }>;
-  /** The judged id of the phase the run stopped on, when it did. */
+  /** Leaves this run completed, by judged id, with the commit each repository's Done recorded: pushed, or the waived head (AC-WAIVE-09), and the repositories whose commit is a waived head. */
+  completedByRun: Map<string, { doneAt: string; commits: Record<string, string>; waived?: string[] }>;
+  /** The judged id of the phase the run was on: stopped at Needs you, waiting for usage, or working when the folder went missing. */
   stoppedPhaseId?: string;
-  /** The stopped phase's start commit in each repository it began in: commits after it on the branch are its work. */
+  /** That phase's start commit in each repository it began in: commits after it on the branch are its work. */
   stoppedStarts?: Record<string, string>;
-  /** By repository, the phases this run completed with commits there, in completion order, with the commit pushed there. */
-  phasesByRepository?: Map<string, { id: string; pushedSha?: string }[]>;
   /** The phase a pending pause request belongs to: the stopped phase, else the first unfinished leaf of the saved plan. */
   pausePhaseId?: string;
   /** A failed start intent of this execution, whose names the draft starts from. */
@@ -375,32 +373,48 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   if (preparationProblems.length) return { unavailable: `${[...new Set(preparationProblems)].join(" ")} Then check again.`, known: true };
   // Work this run committed, pushed or not, that the new start leaves out (AC-SAFE-02).
   const runIds = new Set(run.map(leaf => leaf.id));
-  // The phase the run stopped on, when its commits are on the feature branch and not in the base branch: it runs again too.
-  const stopped = context.stoppedPhaseId;
-  const stoppedWorkIn = (read: RepositoryRead) => { const startCommit = context.stoppedStarts?.[read.name]; return !!startCommit && !!read.tip && read.tip !== startCommit && read.workNotInBase === true; };
-  const stoppedWork = stopped !== undefined && runIds.has(stopped) && !context.completedByRun.has(stopped) && reads.repositories.some(stoppedWorkIn);
-  const again = leaves.filter(leaf => runIds.has(leaf.id) && (context.completedByRun.has(leaf.id) || stoppedWork && leaf.id === stopped)).map(leaf => leaf.id);
-  // A phase's pushed work in a repository: in that repository's base branch, not, or unknown (AC-FACTS-01's test).
-  let workUnknown = reads.repositories.some(read => read.workNotInBase === "unknown");
-  const workLeftIn = async (read: RepositoryRead | undefined, sha: string | undefined): Promise<boolean> => {
-    if (!read?.base || !sha) return false;
-    const inBase = await inBaseBranch(git, expandHome(read.entry.mainCheckoutPath), record, read.entry, sha, read.base.sha);
+  // A commit's work in a repository: in the base branch this start uses, not, or unknown (AC-FACTS-01's test). A repository
+  // of the start's set is tested against the base the panel chose; a repository being left out, against its saved base.
+  const inSet = (name: string) => set.find(repository => repository.name === name);
+  let workUnknown = reads.repositories.some(read => read.workNotInBase === "unknown" && !(inSet(read.name) && read.tip));
+  const workLeftIn = async (read: RepositoryRead, sha: string | undefined): Promise<boolean> => {
+    const chosen = inSet(read.name);
+    const baseSha = chosen ? baseCommits[read.name] : read.base?.sha;
+    if (!baseSha || !sha) return false;
+    const entry = chosen ? { ...read.entry, baseBranch: chosen.baseBranch } : read.entry;
+    const inBase = await inBaseBranch(git, expandHome(read.entry.mainCheckoutPath), record, entry, sha, baseSha);
     if (inBase === "unknown") workUnknown = true;
     return inBase === false;
   };
-  // Phases this run completed that the base plan doesn't have, whose work isn't in the base branch: the new start never runs them.
+  // Each repository's feature branch with work not in that base.
+  const branchWork = new Map<string, boolean>();
+  for (const read of reads.repositories) branchWork.set(read.name, await workLeftIn(read, read.tip));
+  // The phase the run was on, when its commits are on the feature branch and not in the base: it runs again too.
+  const stopped = context.stoppedPhaseId;
+  const stoppedWorkIn = (read: RepositoryRead) => { const startCommit = context.stoppedStarts?.[read.name]; return !!startCommit && !!read.tip && read.tip !== startCommit && branchWork.get(read.name) === true; };
+  const stoppedWork = stopped !== undefined && !context.completedByRun.has(stopped) && reads.repositories.some(stoppedWorkIn);
+  const again = leaves.filter(leaf => runIds.has(leaf.id) && (context.completedByRun.has(leaf.id) || stoppedWork && leaf.id === stopped)).map(leaf => leaf.id);
+  // Phases are named in plan order: the run's saved plan places the phases it worked on, including one the base plan lacks; a phase only the base plan has follows.
+  const order = [...(record.plan ?? []).map(phase => phase.id), ...leaves.map(leaf => leaf.id)];
+  const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? order.length : index; };
+  // Phases this run worked on that the base plan doesn't have, whose work in any repository isn't in its base: the new start never runs them.
   const anyPlanIds = new Set(plan.plan.phases.map(phase => phase.id));
   const notInPlan: string[] = [];
-  for (const [id, completed] of context.completedByRun) if (!anyPlanIds.has(id) && await workLeftIn(prdRead, completed.pushedSha)) notInPlan.push(id);
-  const leftWork = leftOut.filter(name => reads.repositories.find(read => read.name === name)?.workNotInBase === true);
-  // A left-out repository's phases whose work there isn't in its base branch, and the stopped phase when it committed there.
+  for (const [id, completed] of context.completedByRun) {
+    if (anyPlanIds.has(id)) continue;
+    for (const read of reads.repositories) if (await workLeftIn(read, completed.commits[read.name])) { notInPlan.push(id); break; }
+  }
+  if (stoppedWork && !anyPlanIds.has(stopped!)) notInPlan.push(stopped!);
+  notInPlan.sort((a, b) => rank(a) - rank(b));
+  const leftWork = leftOut.filter(name => branchWork.get(name) === true);
+  // A left-out repository's phases whose work there isn't in its base branch, and the phase the run was on when it committed there.
   const leftPhaseIds = new Map<string, string[]>();
   for (const name of leftWork) {
     const read = reads.repositories.find(one => one.name === name)!;
     const ids: string[] = [];
-    for (const phase of context.phasesByRepository?.get(name) ?? []) if (await workLeftIn(read, phase.pushedSha)) ids.push(phase.id);
+    for (const [id, completed] of context.completedByRun) if (await workLeftIn(read, completed.commits[name])) ids.push(id);
     if (stopped !== undefined && stoppedWorkIn(read)) ids.push(stopped);
-    leftPhaseIds.set(name, [...new Set(ids)]);
+    leftPhaseIds.set(name, [...new Set(ids)].sort((a, b) => rank(a) - rank(b)));
   }
   const gone = reads.repositories.every(read => !read.tip);
   const verb = view.existingBranch.available === true ? "would" : "will";
@@ -408,11 +422,13 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const add = (parts: Part[]) => caution.push(...(caution.length ? [{ text: " " }] : []), ...parts);
   if (again.length) {
     const lead = `${phaseList(again)} ${verb} run again.`;
-    const sha = again.length === 1 ? context.completedByRun.get(again[0]!)?.pushedSha : undefined;
+    const completed = again.length === 1 ? context.completedByRun.get(again[0]!) : undefined;
+    const sha = completed?.commits[prdRead.name];
+    const pushed = !completed?.waived?.includes(prdRead.name);
     const their = again.length === 1 ? "Its" : "Their";
-    const withWork = reads.repositories.filter(read => read.workNotInBase === true).map(read => read.name);
+    const withWork = reads.repositories.filter(read => branchWork.get(read.name) === true).map(read => read.name);
     const tail = multi ? ` ${their} work is on the feature branch in ${withWork.length === reads.repositories.length ? (withWork.length === 2 ? "both repositories" : "every repository") : joinNames(withWork)}, not in ${prdBase}.`
-      : gone ? ` ${their} pushed work${sha ? ` (${short(sha)})` : ""} was on the deleted branch and isn’t in ${prdBase}.`
+      : gone ? ` ${their} ${pushed ? "pushed " : ""}work${sha ? ` (${short(sha)})` : ""} was on the deleted branch and isn’t in ${prdBase}.`
       : ` ${their} work${sha ? ` (${short(sha)})` : ""} is on the feature branch, not in ${prdBase}.`;
     add([{ text: lead, tone: "strong" }, { text: tail }]);
   }
@@ -421,10 +437,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     const phases = leftPhaseIds.get(name)!;
     add([{ text: `Work this run committed in ${name}${phases.length ? ` (${phaseList(phases)})` : ""} isn’t in its base branch; it stays on that repository’s feature branch.` }]);
   }
-  // "Holds all work" is withheld while a read of work not in the base branch failed (AC-FACTS-03). Phases are named in plan order.
-  // The run's saved plan places the phases it worked on, including one the base plan lacks; a phase only the base plan has follows.
-  const order = [...(record.plan ?? []).map(phase => phase.id), ...leaves.map(leaf => leaf.id)];
-  const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? order.length : index; };
+  // "Holds all work" is withheld while a read of work not in the base branch failed (AC-FACTS-03).
   const missing = [...new Set([...again, ...notInPlan, ...[...leftPhaseIds.values()].flat()])].sort((a, b) => rank(a) - rank(b));
   const holdsAllWork = missing.length || leftWork.length ? false : workUnknown ? undefined : true;
   const workLine = holdsAllWork === true ? "Has all of this run’s work." : holdsAllWork === undefined ? "Couldn’t check whether it has all of this run’s work." : `Missing ${missing.length ? phaseList(missing) : "some of this run"}’s work.`;

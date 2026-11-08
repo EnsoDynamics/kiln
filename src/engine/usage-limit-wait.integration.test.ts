@@ -583,6 +583,12 @@ describe("the check first, at Resume now and at the end of a wait (AC-RESUME-02,
     expect(h.engine.latestSession("1")!.runs).toHaveLength(1);
     expect(h.claudeCalls()).toHaveLength(1);
     expect(phaseEvents(h)).not.toContain("1 done");
+    // The setup panel names the waiting phase, whose commits are only on the feature branch (Phase 6 of missing worktree recovery: AC-SAFE-02).
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = h.engine.folderPanel!;
+    if ("blocked" in panel) throw new Error(panel.blocked);
+    expect(panel.preview.again).toContain("1");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phase 1’s work\.$/);
   });
 
   it("holds Resume now and Check again from the start of Kiln's own resume until its run starts", async () => {

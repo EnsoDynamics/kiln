@@ -3,6 +3,7 @@
 // page say Folder missing instead of a phase state, the page shows what Kiln still knows, and
 // Check again leaves the mode once the folder is put back.
 
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
@@ -17,6 +18,8 @@ import { createHarness, landingSession, waitFor, type Harness } from "./test-sup
 import { git } from "./test-support/git-repositories.js";
 import { reservePortRange } from "./test-support/os-ports.js";
 import { displayPath } from "./engine/worktree-setup.js";
+import { readSessionRecord, writePrdRecord, writeSessionRecord } from "./state/records.js";
+import { processStartTime } from "./platform/process-start-time.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -424,5 +427,66 @@ describe("an unfinished run whose folder is missing", () => {
     expect(existsSync(join(saved, ".git"))).toBe(true);
     // The panel's edit was saved with Start.
     expect(readWork(stateRoot(h.env), h.stateDirectory).record.settings.keepAwake).toBe(!keepAwakeBefore);
+  });
+  it("treats a Claude session an earlier Kiln left running as busy when it starts with a folder already missing, and records its end (AC-SAFE-01)", async () => {
+    const h = await stoppedRun();
+    const saved = h.engine.worktreePath;
+    // An earlier Kiln's Claude session for Phase 1 is still running: its run has a live process and no end.
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    try {
+      const startTime = await processStartTime(child.pid!);
+      expect(startTime).toBeTruthy();
+      const session = h.engine.latestSession("1")!;
+      const run = session.runs.at(-1)!;
+      delete run.endedAt; run.pid = child.pid!; run.processStartTime = startTime!;
+      writeSessionRecord(h.stateDirectory, session);
+      rmSync(saved, { recursive: true, force: true });
+      let answers: { busy?: string; start: number; code: unknown; after?: string } | undefined;
+      await kilnRunUntil(h, stdout => stdout.includes("Set the run up again:"), async (p) => {
+        const view = (await p.snapshot()).folderMissing!;
+        const panel = view.panel as { selected: "base" | "branch"; previewId: string; busy?: string };
+        const start = await p.post("/api/folder-setup/start", { commandId: "left-over-start-1", factsId: view.factsId, previewId: panel.previewId, start: panel.selected, fields: {} });
+        // Once that process ends, Kiln records the session's end and Start is no longer refused as busy.
+        child.kill();
+        await waitFor(async () => !((await p.snapshot()).folderMissing!.panel as { busy?: string }).busy);
+        answers = { ...(panel.busy ? { busy: panel.busy } : {}), start: start.status, code: start.body.code };
+      });
+      expect(answers).toEqual({ busy: `A session started by an earlier Kiln is still running (process ${child.pid}). Start becomes available when it ends.`, start: 409, code: "busy" });
+      // Start wrote nothing while that session ran: no folder re-created and no new branch.
+      expect(existsSync(saved)).toBe(false);
+      expect(git(h.sandbox, h.repository, "branch", "--list", "feature/customer-returns*").trim().split("\n").map(line => line.replace(/^[*+ ]+/, ""))).toEqual(["feature/customer-returns"]);
+      expect(readSessionRecord(h.stateDirectory, "1", session.sessionId)!.runs.at(-1)!.endedAt).toBeDefined();
+    } finally {
+      child.kill();
+    }
+  });
+  it("treats the live session of a terminal takeover an earlier Kiln left as busy when it starts with a folder already missing (AC-SAFE-01)", async () => {
+    const h = await stoppedRun();
+    const saved = h.engine.worktreePath;
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    try {
+      const startTime = await processStartTime(child.pid!);
+      const session = h.engine.latestSession("1")!;
+      const run = session.runs.at(-1)!;
+      delete run.endedAt; run.pid = child.pid!; run.processStartTime = startTime!;
+      run.control = { operationId: "launch", attemptId: "attempt-1", promptDigest: "0".repeat(64) };
+      writeSessionRecord(h.stateDirectory, session);
+      // Pause & take over was pending on that session when the earlier Kiln ended.
+      const at = new Date().toISOString();
+      const record = h.engine.record;
+      record.liveControl = { version: 1, revision: 1, takeover: { target: { executionId: record.executionId!, activityId: "1", activityKey: "1", sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: "attempt-1" }, operationId: "hold", instructionId: "hold", requestedAt: at, state: "pending", observedAt: at, reason: "Pausing for terminal takeover." } };
+      writePrdRecord(h.stateDirectory, record);
+      rmSync(saved, { recursive: true, force: true });
+      let busy: string | undefined;
+      await kilnRunUntil(h, stdout => stdout.includes("Set the run up again:"), async (p) => {
+        busy = ((await p.snapshot()).folderMissing!.panel as { busy?: string }).busy;
+        child.kill();
+        await waitFor(async () => !((await p.snapshot()).folderMissing!.panel as { busy?: string }).busy);
+      });
+      expect(busy).toBe(`A session started by an earlier Kiln is still running (process ${child.pid}). Start becomes available when it ends.`);
+      expect(readSessionRecord(h.stateDirectory, "1", session.sessionId)!.runs.at(-1)!.endedAt).toBeDefined();
+    } finally {
+      child.kill();
+    }
   });
 });

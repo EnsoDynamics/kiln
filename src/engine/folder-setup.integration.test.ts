@@ -6,7 +6,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { SetupPanel } from "./folder-setup.js";
@@ -1053,3 +1053,136 @@ describe("the page's facts and the panel's fields (Phase 5 of missing worktree r
     expect(panelOf(h).repositories.map(row => [row.name, row.addedInPhase])).toEqual([["acme-shop", undefined], ["returns-api", "1"]]);
   });
 });
+
+/** A commit on Phase 2b's branch that was never pushed: the work of the phase the run was on. */
+function storeCreditWork(h: Harness): void {
+  writeFileSync(join(h.engine.worktreePath, "src", "credit.txt"), "half done\n");
+  git(h.sandbox, h.engine.worktreePath, "add", "src/credit.txt");
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "wip: store credit");
+}
+
+describe("work a base-branch start leaves behind (Phase 6 of missing worktree recovery: AC-SAFE-02)", () => {
+  it("names a phase completed with waived, unpushed work that the base plan lacks", async () => {
+    const h = await landedThenStopped();
+    const phase = h.engine.record.phases["1"]!.repositories["acme-shop"]!;
+    // Phase 1's work was waived rather than pushed (AC-WAIVE-09): its Done recorded the feature head instead.
+    phase.waivedHead = phase.pushedSha!; delete phase.pushedSha;
+    dropPhaseOne(h);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(text(panel.preview.caution!)).toBe("Phase 1 would not run. The plan on develop has no such phase, so its work stays on the earlier feature branch.");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phase 1’s work\.$/);
+  });
+
+  it("doesn't call a waived phase's work pushed when the branch was deleted", async () => {
+    const h = await landedThenStopped();
+    const phase = h.engine.record.phases["1"]!.repositories["acme-shop"]!;
+    const sha = phase.pushedSha!;
+    phase.waivedHead = sha; delete phase.pushedSha;
+    git(h.sandbox, h.repository, "worktree", "remove", "--force", h.engine.worktreePath);
+    git(h.sandbox, h.repository, "branch", "-D", "feature/customer-returns");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "--delete", "feature/customer-returns");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(text(panelOf(h).preview.caution!)).toBe(`Phase 1 will run again. Its work (${sha.slice(0, 7)}) was on the deleted branch and isn’t in develop.`);
+  });
+
+  it("names a completed phase with waived work in a repository the start leaves out", async () => {
+    const { h } = await phaseOneDoneInApi();
+    const api = h.engine.record.phases["1"]!.repositories["returns-api"]!;
+    api.waivedHead = api.pushedSha!; delete api.pushedSha;
+    const path = join(h.repository, "docs/prds/customer-returns/phase-1-return-intake.md");
+    writeFileSync(path, readFileSync(path, "utf8").replace("\n**Repositories:** returns-api\n", "\n"));
+    git(h.sandbox, h.repository, "commit", "-qam", "Phase 1 stays in acme-shop");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(text(panelOf(h).preview.caution!)).toContain("Work this run committed in returns-api (Phase 1) isn’t in its base branch; it stays on that repository’s feature branch.");
+  });
+
+  it("names a completed phase the base plan lacks whose work is only in another repository of the start's set", async () => {
+    const { h } = await phaseOneDoneInApi();
+    // develop's plan drops Phase 1, and Phase 3 now names returns-api, so the start still sets it up.
+    git(h.sandbox, h.repository, "rm", "-q", "docs/prds/customer-returns/phase-1-return-intake.md");
+    for (const file of ["phase-2-refunds.md", "phase-2a-card-refunds.md", "phase-2b-store-credit.md", "phase-3-returns-dashboard.md"]) {
+      const path = join(h.repository, "docs/prds/customer-returns", file);
+      let content = readFileSync(path, "utf8").replace(/## Phase dependencies\n[^\n]*\n/, "## Phase dependencies\nNone.\n");
+      if (file.startsWith("phase-3")) { const [title, ...rest] = content.split("\n"); content = [title, "", "**Repositories:** returns-api", ...rest].join("\n"); }
+      writeFileSync(path, content);
+    }
+    git(h.sandbox, h.repository, "commit", "-qam", "Phase 1 folded into another PRD; the dashboard needs returns-api");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.repositories.map(r => r.name)).toContain("returns-api");
+    expect(text(panel.preview.caution!)).toContain("Phase 1 would not run. The plan on develop has no such phase, so its work stays on the earlier feature branch.");
+  });
+
+  it("names the phase a session was working on when the folder went missing, while it works and after it ends", async () => {
+    const release = "release-2b";
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const releasePath = join(h.sandbox.root, release);
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { waitForFile: releasePath }, { result: "Stopping here." }] }] }));
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => git(h.sandbox, h.repository, "log", "-1", "--format=%s", "feature/customer-returns").trim() === "wip: store credit");
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    // While Phase 2b's session still works.
+    await h.engine.folderGuard({ gather: true, mayLeave: false });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).preview.again).toEqual(["1", "2b"]);
+    expect((panelOf(h).choices.base as { line: string }).line).toMatch(/Missing Phases 1 and 2b’s work\.$/);
+    // After it ends, judged nothing, with no stop recorded.
+    writeFileSync(releasePath, "");
+    await h.engine.settled();
+    expect(h.engine.record.phases["2b"]!.stop).toBeUndefined();
+    await h.engine.checkFoldersAgain();
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.preview.again).toEqual(["1", "2b"]);
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phases 1 and 2b’s work\.$/);
+  });
+
+  it("names the phase the run stopped on when the base plan lacks it and its commits aren't in the base branch", async () => {
+    const h = await landedThenStopped();
+    storeCreditWork(h);
+    // develop's plan no longer has Phase 2b.
+    git(h.sandbox, h.repository, "rm", "-q", "docs/prds/customer-returns/phase-2b-store-credit.md");
+    const parent = join(h.repository, "docs/prds/customer-returns/phase-2-refunds.md");
+    writeFileSync(parent, readFileSync(parent, "utf8").replace("| [2b](phase-2b-store-credit.md) | Store credit | AC-RET-03 |\n", ""));
+    const dashboard = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    writeFileSync(dashboard, readFileSync(dashboard, "utf8").replace("- [Phase 2b](phase-2b-store-credit.md)", "- [Phase 2a](phase-2a-card-refunds.md)"));
+    git(h.sandbox, h.repository, "commit", "-qam", "Store credit moved to another PRD");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.preview.run.map(row => row.id)).not.toContain("2b");
+    expect(text(panel.preview.caution!)).toContain("Phase 2b would not run. The plan on develop has no such phase, so its work stays on the earlier feature branch.");
+    expect((panel.choices.base as { line: string }).line).toMatch(/Missing Phases 1 and 2b’s work\.$/);
+  });
+
+  it("tests the work against the base branch chosen in the panel, not the saved one", async () => {
+    const h = await landedThenStopped();
+    storeCreditWork(h);
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", "feature/customer-returns");
+    // release is develop before the feature merged; develop then takes all of the run's work.
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop:refs/heads/release");
+    git(h.sandbox, h.repository, "fetch", "-q", "origin");
+    git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "-m", "Merge the feature", "origin/feature/customer-returns");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).preview.again).not.toContain("2b");
+    await h.engine.changeFolderPanel({ start: "base", fields: { baseBranch: "release" } });
+    const panel = panelOf(h);
+    expect(panel.preview.again).toEqual(["1", "2b"]);
+    expect(text(panel.preview.caution!)).toBe("Phases 1 and 2b would run again. Their work is on the feature branch, not in release.");
+  });
+});
+

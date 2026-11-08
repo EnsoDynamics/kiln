@@ -360,8 +360,10 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
       return notStarted(run, engine.record, engine.startError);
     }
   }
-  // A missing folder is the answer (AC-GONE-03): no summary or ● line, nothing judged or started.
+  // A missing folder is the answer (AC-GONE-03): no summary or ● line, nothing judged or started. A live session an
+  // earlier Kiln left is still adopted and watched, so Start waits for it and its end is recorded (AC-SAFE-01).
   if (engine.folderMissing) {
+    await engine.adoptLeftOverLive();
     const { address, openError } = await serveAndOpen(run, engine);
     if (engine.folderMissing) write(formatFolderMissing(engine.folderMissing, openError === undefined ? address : undefined, colors));
     if (openError !== undefined) write(formatOpenedLine(address, openError, colors, true));
