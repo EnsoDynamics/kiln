@@ -199,7 +199,8 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
   } else facts.unknown.push(`${branch} on origin`);
   reads.gone = reads.localRead && reads.originRead ? !localSha && !originSha : localSha ? false : "unknown";
   if (reads.gone === true) facts.featureBranch.gone = true;
-  const tip = localSha ?? originSha;
+  // The feature tip is the shared checkout's, else origin's; a failed read of the checkout's withholds it (AC-FACTS-03).
+  const tip = reads.localRead ? localSha ?? originSha : undefined;
   if (tip) reads.tip = tip;
 
   // The base commit: origin's when it can be reached, else the shared checkout's own (AC-FACTS-02).
@@ -240,7 +241,7 @@ async function readRepository(git: GitContext, record: PrdRecord, check: FolderC
     // Origin unreachable: only the local tip having work not in the base branch settles it; origin's branch may hold more.
     reads.workNotInBase = inBase === "unknown" ? "unknown" : !inBase ? true : reads.originRead ? false : "unknown";
   } else if (reads.gone === true) reads.workNotInBase = false;
-  else if (reads.tip && !reads.base) facts.unknown.push(`whether ${branch} is in ${entry.baseBranch}`);
+  else if (!reads.localRead || reads.tip && !reads.base) facts.unknown.push(`whether ${branch} is in ${entry.baseBranch}`);
 
   // The last commit this run recorded as pushed.
   const pushed = Object.entries(record.phases).flatMap(([key, phase]) => phase.doneAt && phase.repositories?.[entry.name]?.pushedSha ? [{ key, doneAt: phase.doneAt, sha: phase.repositories[entry.name]!.pushedSha! }] : []).sort((a, b) => a.doneAt.localeCompare(b.doneAt)).at(-1);
@@ -344,13 +345,17 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   const next = baseLeaves.find(leaf => !leaf.closed);
   const base = { source: prd.base.source, branch: baseBranch, sha: prd.base.sha, total: baseLeaves.length, closed: baseLeaves.filter(leaf => leaf.closed).length, ...(next ? { next: { id: next.id, title: next.title } } : {}) };
   // The feature plan, for the existing-branch start, whenever there is a tip (The Setup Panel, What will run).
-  if (prd.tip) { try { sources.featurePlan = await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ); } catch { /* Read again below where it decides the label. */ } }
+  // A failed read is named whatever it decides (AC-FACTS-03): it withholds the existing-branch start.
+  if (prd.tip) {
+    try { sources.featurePlan = await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ); }
+    catch { prd.facts.unknown.push(`the plan on ${record.settings.featureBranch}`); }
+  }
   // Where the run's latest work lives: the feature branch when it has work not in the base branch.
   if (prd.workNotInBase === "unknown") return { saved, base };
   let compared: PlannedPhase[] = basePlan; let where: "branch" | "base" = "base";
   if (prd.workNotInBase && prd.tip) {
-    try { compared = (sources.featurePlan ?? await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ)).plan.phases; where = "branch"; }
-    catch { prd.facts.unknown.push(`the plan on ${record.settings.featureBranch}`); return { saved, base, featurePlanFailed: true }; }
+    if (!sources.featurePlan) return { saved, base, featurePlanFailed: true };
+    compared = sources.featurePlan.plan.phases; where = "branch";
   }
   const baseClosed = new Set(baseLeaves.filter(leaf => leaf.closed).map(leaf => leaf.id));
   const branchOnly = where === "branch" ? leavesOf(compared).filter(leaf => leaf.closed && !baseClosed.has(leaf.id)).map(leaf => leaf.id) : [];

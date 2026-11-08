@@ -34,14 +34,14 @@ export interface PanelFields {
 /** One posted change, as `POST /api/folder-setup/panel` carries it. */
 export interface PanelChange { start: StartKind; fields: Partial<PanelFields> }
 /** The engine's one draft per PRD: the selected start and each start's own edits. */
-export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>> }
+export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>>; /** Documents found's `choiceNotice`: a model change reset the effort (AC-SETUP-01). */ choiceNotice?: string }
 export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} } });
 
 /** Words with inline code, a date, or emphasis, as the page lays them out. */
 export interface Part { text?: string; tone?: "code" | "strong"; date?: string }
 /** `holdsAllWork` is absent when a failed read decides it (AC-FACTS-03). */
 export interface StartChoice { sha: string; total: number; done: number; holdsAllWork?: boolean; behindBase: boolean; line: string }
-export interface PanelRepository { name: string; kind: RepositoryKind; baseBranch: string; baseChoices: string[]; problem?: string; leftOut?: true }
+export interface PanelRepository { name: string; kind: RepositoryKind; baseBranch: string; baseChoices: string[]; problem?: string; leftOut?: true; /** A session-added repository's phase, judged, for Documents found's "added in phase" tag. */ addedInPhase?: string }
 export interface SetupPanel {
   suggested: StartKind;
   selected: StartKind;
@@ -58,6 +58,8 @@ export interface SetupPanel {
   /** The efforts the panel's model takes: `[]` for none, `null` when Kiln has no entry for it (Documents found's `effortLevels`). */
   effortLevels: Effort[] | null;
   efforts?: { value: string; label: string; description?: string }[];
+  /** Said when a model change in the panel reset the effort, as Documents found says it. */
+  choiceNotice?: string;
   preview: { done: string; run: { id: string; title: string; note: string }[]; again: string[]; caution?: Part[]; startLabel: string; lets: { parts: Part[]; allowed: boolean }[] };
   /** Start is refused while a session runs (AC-SAFE-01): the line shown under the button. */
   busy?: string;
@@ -92,6 +94,8 @@ export interface PanelContext {
   model?: (choice: { model: string; effort?: string }) => { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] };
   /** Repository identity checks for a newly named repository's origin. */
   originIdentity?: (path: string) => Promise<string | undefined>;
+  /** The id a launched phase is shown as, after any split. */
+  judgedId?: (id: string) => string;
 }
 
 interface SetRepository { name: string; kind: RepositoryKind; mainCheckoutPath: string; github: string; baseBranch: string; origin?: OriginBranches; problem?: string; entry?: RepositoryEntry }
@@ -197,8 +201,8 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   const panel: Omit<SetupPanel, "previewId"> = {
     suggested, selected, choices, multi,
     fields: chosen.fields, fixed: chosen.fixed, fieldErrors, helpLines: chosen.helpLines,
-    effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}),
-    repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}) })).concat(chosen.leftOut.map(name => ({ name, kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
+    effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}), ...(draft.choiceNotice ? { choiceNotice: draft.choiceNotice } : {}),
+    repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}), ...(repository.entry?.kind === "added" && repository.entry.addedInPhase !== undefined ? { addedInPhase: context.judgedId?.(repository.entry.addedInPhase) ?? repository.entry.addedInPhase } : {}) })).concat(chosen.leftOut.map(name => ({ name, kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
     baseChoices: chosen.repositories[0]?.origin ? baseBranchChoices(chosen.repositories[0].origin) : [chosen.fields.baseBranch],
     preview,
     ...(context.busy ? { busy: context.busy } : {}),
@@ -530,9 +534,11 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
   const counts = `${leaves.length} phases, ${done.length === leaves.length ? "all closed" : `${done.length} done`}`;
   const failingNames = failing.map(read => read.name);
   const kept = reads.repositories.filter(read => read.check.state === "in_place").map(read => read.name);
+  // Whether this start is behind the base branch's plan, on its own line whichever start is selected (AC-SETUP-03).
+  const behind = behindBase ? ` Behind ${baseName}’s plan.` : "";
   const line = multi
-    ? `Re-creates ${joinNames(failingNames)}’s worktree in the saved workspace${kept.length ? ` and keeps ${joinNames(kept)}’s` : ""} · ${leaves.length} phases, ${done.length} done.`
-    : `Last commit ${short(tip)} · ${counts}. ${inBase ? `Already merged into ${baseName}.` : "Has all of this run’s work."}`;
+    ? `Re-creates ${joinNames(failingNames)}’s worktree in the saved workspace${kept.length ? ` and keeps ${joinNames(kept)}’s` : ""} · ${leaves.length} phases, ${done.length} done.${behind}`
+    : `Last commit ${short(tip)} · ${counts}. ${inBase ? `Already merged into ${baseName}.` : "Has all of this run’s work."}${behind}`;
   const onlyOrigin = Object.keys(createLocal).length > 0;
   const savedHelp = movedFolder ? "New: the saved path holds something else, so Kiln uses a new folder." : !multi && comparable(folders[prdRead.name]!) !== comparable(prdRead.check.savedFolder) ? "New: the folder you chose, on the run’s existing branch." : "The run’s saved path.";
   return {

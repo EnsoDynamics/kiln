@@ -100,6 +100,7 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
     const label = (text: string): Part[] => [{ text: `${prefix}${multi ? text.charAt(0).toLowerCase() + text.slice(1) : text}` }];
     const branch = repository.featureBranch;
     const originUnknown = repository.unknown.includes(`${repository.branch} on origin`);
+    const localUnknown = repository.unknown.includes(`your checkout’s ${repository.branch}`);
     const value: Part[] = [];
     if (branch.local && branch.origin) {
       if (branch.local.sha === branch.origin.sha) value.push({ text: `In your checkout and on origin, both at ${commit(branch.local.sha, branch.local.date)}` });
@@ -107,11 +108,16 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
     } else if (branch.local) {
       value.push({ text: `${originUnknown ? "In your checkout" : "Only in your checkout"} · last commit ${commit(branch.local.sha, branch.local.date)}` });
       if (originUnknown) value.push({ text: " · " }, { text: "on origin: couldn’t check", tone: "unknown" });
-    } else if (branch.origin) value.push({ text: `Only on origin · last commit ${commit(branch.origin.sha, branch.origin.date)}` });
+    } else if (branch.origin) {
+      value.push({ text: `${localUnknown ? "On origin" : "Only on origin"} · last commit ${commit(branch.origin.sha, branch.origin.date)}` });
+      if (localUnknown) value.push({ text: " · " }, { text: "in your checkout: couldn’t check", tone: "unknown" });
+    }
     else if (branch.gone) value.push({ text: "Deleted", tone: "fail" }, { text: " locally and on origin" });
     else value.push({ text: "Couldn’t check", tone: "unknown" });
-    if (!localBase && branch.inBase === true) value.push({ text: " · " }, { text: `fully merged into ${baseBranch}`, tone: "pass" });
-    else if (!localBase && branch.inBase === false) value.push({ text: " · " }, { text: `${branch.notInBaseCount ?? "Some"} commit${branch.notInBaseCount === 1 ? "" : "s"} not in ${baseBranch}`, tone: "unknown" });
+    // The base branch that was read: origin's, or the shared checkout's own when origin couldn't be reached (AC-FACTS-02).
+    const readBase = localBase ? `your checkout’s ${baseBranch}` : baseBranch;
+    if (branch.inBase === true) value.push({ text: " · " }, { text: `fully merged into ${readBase}`, tone: "pass" });
+    else if (branch.inBase === false) value.push({ text: " · " }, { text: `${branch.notInBaseCount ?? "Some"} commit${branch.notInBaseCount === 1 ? "" : "s"} not in ${readBase}`, tone: "unknown" });
     const featureRow: FactRow = { label: [...label("Feature branch "), { text: repository.branch, tone: "code" }], value };
 
     let pushedRow: FactRow | undefined;
@@ -141,7 +147,7 @@ export function factRows(view: FolderMissingSnapshot, baseBranch: string): FactR
     const order = multi ? [featureRow, recordRow, elsewhereRow, pushedRow] : [featureRow, pushedRow, recordRow, elsewhereRow];
     rows.push(...order.filter((row): row is FactRow => !!row));
     // Reads the branch and pushed-commit rows already name are not repeated as rows of their own.
-    const inRow = (read: string) => read === `${repository.branch} on origin` || !!pushedRow && read.startsWith("whether this run’s last pushed commit");
+    const inRow = (read: string) => read === `${repository.branch} on origin` || read === `your checkout’s ${repository.branch}` && !!branch.origin || !!pushedRow && read.startsWith("whether this run’s last pushed commit");
     for (const read of repository.unknown.filter(read => !inRow(read))) rows.push({ label: label(`${read.charAt(0).toUpperCase()}${read.slice(1)}`), value: [{ text: "Couldn’t check", tone: "unknown" }] });
   }
   return rows;

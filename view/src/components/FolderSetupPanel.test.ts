@@ -57,3 +57,43 @@ describe("the setup panel's Agent, Model and Effort (AC-SETUP-01)", () => {
     expect(text(html(usage))).toContain("Usage couldn’t be read.");
   });
 });
+
+describe("the rest of Documents found's fields (Phase 5 of missing worktree recovery: AC-SETUP-01)", () => {
+  it("shows keep-awake's error under its switch, and the readiness errors and a reset effort's notice after the account-access line", () => {
+    const snapshot = withPanel({ choiceNotice: "Effort changed to high for Fable 5.1." });
+    snapshot.settings.keepAwakeError = "Kiln couldn’t keep this computer awake.";
+    snapshot.settings.readinessErrors = ["Codex needs a newer CLI."];
+    const words = text(html(snapshot));
+    expect(words).toMatch(/Kiln picks up where it left off afterwards\. Kiln couldn’t keep this computer awake\. Resume after a usage limit/);
+    expect(words).toMatch(/Listed models do not guarantee account access\. Effort changed to high for Fable 5\.1\. Codex needs a newer CLI\. Refresh agent information/);
+    expect(text(html(withPanel({})))).not.toMatch(/Effort changed|Kiln couldn’t keep/);
+  });
+
+  it("holds Refresh agent information while agent information or billing is still loading", () => {
+    const refresh = (snapshot: Snapshot) => /<button type="button" class="button"( disabled="")?[^>]*>Refresh agent information/.exec(html(snapshot))?.[1] !== undefined;
+    expect(refresh(withPanel({}))).toBe(false);
+    const metadata = withPanel({});
+    metadata.settings.metadataPending = true;
+    expect(refresh(metadata)).toBe(true);
+    const billing = withPanel({});
+    billing.billing = { ...(billing.billing ?? {}), pending: true } as Snapshot["billing"];
+    expect(refresh(billing)).toBe(true);
+  });
+
+  it("shows the Codex account panel under Effort for a Codex run, and none for Claude Code", () => {
+    const codex = withPanel({});
+    codex.settings.agentId = "codex";
+    codex.settings.agent = "Codex";
+    codex.account = { ...codex.account!, agentId: "codex" } as Snapshot["account"];
+    const words = text(html(codex));
+    expect(words).toMatch(/uses more of your plan\. (This model takes no effort setting\. )?Codex account[\s\S]*Keep this computer awake/);
+    expect(text(html(withPanel({})))).not.toContain("Claude account");
+  });
+
+  it("tags a repository a session added with the phase that added it, as Documents found does", () => {
+    const snapshot = folderMissingSnapshot("multi");
+    const panel = snapshot.folderMissing!.panel as SetupPanel;
+    panel.repositories = [panel.repositories[0]!, { ...panel.repositories[1]!, kind: "added", addedInPhase: "3" }];
+    expect(text(html(snapshot))).toMatch(/harbor-portal added in phase 3/);
+  });
+});

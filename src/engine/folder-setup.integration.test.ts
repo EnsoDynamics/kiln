@@ -255,6 +255,10 @@ describe("what can't be checked, and what a base start leaves out (AC-FACTS-03, 
     git(h.sandbox, h.repository, "remote", "set-url", "origin", join(h.sandbox.root, "no-such-origin.git"));
     await h.engine.folderGuard({ gather: true });
     expect(h.engine.folderPanel).toEqual({ blocked: expect.stringContaining("Kiln couldn’t reach origin") });
+    // The branch's in-base result is still read, against the checkout's own develop (Phase 5: AC-FACTS-01; view/src/lib/folder-missing.test.ts words its row).
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.plans.base).toMatchObject({ source: "local" });
+    expect(view.repositories[0]!.featureBranch).toMatchObject({ inBase: false, notInBaseCount: 1 });
   });
 
   it("names the phase a deleted branch's work leaves behind, and carries a pending pause to the phase it belongs to", async () => {
@@ -940,5 +944,112 @@ describe("Start's folder handling with several repositories (Phase 4 of missing 
       expect(git(h.sandbox, entry.worktreePath, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feature/customer-returns-2");
       expect(git(h.sandbox, entry.mainCheckoutPath, "worktree", "list", "--porcelain")).not.toContain("prunable");
     }
+  });
+});
+
+/** Phase 1 merged into develop on origin, with the given phases closed there too: the 2026-11-06 case. */
+function mergedWithClosed(h: Harness, files: string[]): void {
+  git(h.sandbox, h.repository, "fetch", "-q", "origin");
+  git(h.sandbox, h.repository, "merge", "-q", "--no-ff", "-m", "Merge", "origin/feature/customer-returns");
+  for (const file of files) {
+    const path = join(h.repository, "docs/prds/customer-returns", file);
+    const [title, ...rest] = readFileSync(path, "utf8").split("\n");
+    writeFileSync(path, [title, "**Closed:** 2026-11-06", ...rest].join("\n"));
+  }
+  git(h.sandbox, h.repository, "commit", "-qam", "Close phases elsewhere");
+  git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+}
+
+describe("the page's facts and the panel's fields (Phase 5 of missing worktree recovery: AC-FACTS-01, AC-FACTS-03, AC-SETUP-01, AC-SETUP-03)", () => {
+  it.skipIf(process.platform === "win32")("withholds everything the feature tip decides when the checkout's branch can't be read, even though origin has the branch", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    failingGit(h, `"rev-parse --verify --quiet refs/heads/feature/customer-returns^{commit}"`);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    const repository = view.repositories[0]!;
+    expect(repository.featureBranch.origin).toBeDefined();
+    expect(repository.featureBranch.local).toBeUndefined();
+    expect(repository.featureBranch).not.toHaveProperty("inBase");
+    expect(repository.featureBranch).not.toHaveProperty("notInBaseCount");
+    expect(repository.unknown).toEqual(expect.arrayContaining(["your checkout’s feature/customer-returns", "whether feature/customer-returns is in develop"]));
+    expect(view.plans.saved.label).toBe("not_compared");
+    expect(view.plans).not.toHaveProperty("branchOnly");
+    expect(view.panel).toEqual({ blocked: "Kiln couldn’t read everything it needs about the branch, so it can’t suggest where to start yet. Check again once it can." });
+  });
+
+  it.skipIf(process.platform === "win32")("names a failed read of the plan on the feature branch when the run's work is already in the base branch", async () => {
+    const h = await landedThenStopped();
+    mergedWithClosed(h, ["phase-2b-store-credit.md", "phase-3-returns-dashboard.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    const tip = git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns").trim();
+    failingGit(h, `"ls-tree -r -z -l ${tip}"*`);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    // The base branch has nothing to run and the existing branch's plan couldn't be read: the panel can't suggest a start.
+    expect(view.panel).toEqual({ blocked: "Kiln couldn’t read everything it needs about the branch, so it can’t suggest where to start yet. Check again once it can." });
+    expect(view.repositories[0]!.unknown.filter(read => read === "the plan on feature/customer-returns")).toHaveLength(1);
+    // The work is in the base branch, so the saved plan is still compared with the base branch's, which has closed phases it lacks.
+    expect(view.plans.saved).toMatchObject({ comparedWith: "base", label: "out_of_date" });
+  });
+
+  it.skipIf(process.platform === "win32")("names a failed read of the plan on the feature branch once, and compares nothing, when the run's work is on the branch", async () => {
+    const h = await landedThenStopped();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    const tip = git(h.sandbox, h.repository, "rev-parse", "feature/customer-returns").trim();
+    failingGit(h, `"ls-tree -r -z -l ${tip}"*`);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories[0]!.unknown.filter(read => read === "the plan on feature/customer-returns")).toHaveLength(1);
+    expect(view.plans.saved.label).toBe("not_compared");
+    expect(view.panel).toEqual({ blocked: expect.stringContaining("can’t suggest where to start yet") });
+  });
+
+  it("says on the existing branch's line that it is behind the base branch's plan while the base branch is selected", async () => {
+    const h = await landedThenStopped();
+    mergedWithClosed(h, ["phase-2b-store-credit.md"]);
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const panel = panelOf(h);
+    expect([panel.suggested, panel.selected]).toEqual(["base", "base"]);
+    expect((panel.choices.branch as { line: string }).line).toMatch(/· 4 phases, 2 done\. Already merged into develop\. Behind develop’s plan\.$/);
+    expect((panel.choices.base as { line: string }).line).not.toContain("Behind");
+    expect(panel.preview.caution).toBeUndefined();
+  });
+
+  it("says when a model change in the panel resets the effort, in Documents found's words, until the next model or effort change", async () => {
+    const list = { account: { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] }, models: undefined as ModelEntry[] | undefined, modelListError: undefined, refreshAccount: () => Promise.resolve(), onChange: () => () => true } satisfies ClaudeInfoSource;
+    const entry = (overrides: Partial<ModelEntry>): ModelEntry => ({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true, ...overrides });
+    list.models = [entry({}), entry({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"], defaultEffort: "high" }), entry({ value: "sol", resolvedModel: "claude-sol", displayName: "Sol", supportedEffortLevels: ["high", "max"] })];
+    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }], engineOptions: { claude: list } });
+    const h = harness;
+    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
+    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "fable" } });
+    expect((buildSnapshot(h.engine).folderMissing!.panel as SetupPanel).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
+    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { keepAwake: false } });
+    expect(panelOf(h).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
+    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { effort: "max" } });
+    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
+    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "opus", effort: "low" } });
+    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "sol" } });
+    expect(panelOf(h).choiceNotice).toBe("Choose an effort for Sol; no supported default was reported.");
+  });
+
+  it("tags a repository a session added with the phase that added it, on either start's Repositories list", async () => {
+    const h = await twoRepositories();
+    const api = h.engine.record.repositories.find(entry => entry.name === "returns-api")!;
+    Object.assign(api, { kind: "added", addedInPhase: "1" });
+    rmSync(api.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    // The base branch is suggested; the run's own entry for the repository keeps its tag there too.
+    expect(panelOf(h).selected).toBe("base");
+    expect(panelOf(h).repositories.map(row => [row.name, row.addedInPhase])).toEqual([["acme-shop", undefined], ["returns-api", "1"]]);
+    await h.engine.changeFolderPanel({ start: "branch", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.addedInPhase])).toEqual([["acme-shop", undefined], ["returns-api", "1"]]);
   });
 });

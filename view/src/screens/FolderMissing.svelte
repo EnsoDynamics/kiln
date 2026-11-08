@@ -80,7 +80,7 @@
     <p class="note">{lostNote(view)}</p>
   </section>
 
-  {#if view.panel}<FolderSetupPanel {snapshot} {config} {connected} />{/if}
+  {#if view.panel}<FolderSetupPanel {snapshot} {config} {connected} {now} />{/if}
 
   <div class="self">
     <div>

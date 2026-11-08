@@ -1,4 +1,5 @@
 # Phase 5: Complete the page's facts, the unchecked reads it names, and the setup panel's fields
+**Closed:** 2026-11-07
 
 **Added by delivery audit:** 2026-11-07, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md

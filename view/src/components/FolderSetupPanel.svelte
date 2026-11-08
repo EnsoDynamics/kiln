@@ -6,17 +6,19 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import type { Effort } from "../../../src/state/records.js";
+  import AccountPanel from "./AccountPanel.svelte";
   import BillingPanel from "./BillingPanel.svelte";
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import { changeFolderPanel, checkFolders, startFolderSetup, type PageConfig } from "../lib/api.js";
   import CodeText from "./CodeText.svelte";
   import { accountLines, EFFORT_LABELS, EFFORTS, effortDisabled, modelOptions } from "../lib/documents-found.js";
   import { day } from "../lib/folder-missing.js";
+  import { addedLabel } from "../lib/progress.js";
 
   /** What sessions may do in a repository they add, as on Documents found (multi-repo AC-ADD-01, AC-PRS-04). */
   const SESSIONS_ADD = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
 
-  let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
+  let { snapshot, config, connected, now = Date.now() }: { snapshot: Snapshot; config: PageConfig; connected: boolean; now?: number } = $props();
   const view = $derived(snapshot.folderMissing!);
   const panel = $derived(view.panel && !("blocked" in view.panel) ? view.panel as SetupPanel : undefined);
   const blocked = $derived(view.panel && "blocked" in view.panel ? view.panel.blocked : undefined);
@@ -112,7 +114,7 @@
           <ul class="repos" aria-labelledby="fm-repos">
             {#each panel.repositories as row (row.name)}
               <li>
-                <span><code>{row.name}</code>{#if row.kind === "prd"} <span class="tag">PRD’s repository</span>{/if}</span>
+                <span><code>{row.name}</code>{#if row.kind === "prd"} <span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined} <span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
                 {#if row.leftOut}<span class="help">{row.problem}</span>{:else}
                   <select class="mono" value={row.baseBranch} disabled={!connected || fixed("bases") || fixed("baseBranch")} onchange={(event) => change(panel.selected, row.kind === "prd" ? { baseBranch: event.currentTarget.value } : { bases: { [row.name]: event.currentTarget.value } })}>
                     {#each row.baseChoices as base (base)}<option value={base}>{base}</option>{/each}
@@ -167,7 +169,9 @@
         </div>
       </div>
       <span class="help">Listed models do not guarantee account access.</span>
-      <button type="button" class="button" disabled={!connected} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
+      {#if panel.choiceNotice}<p class="message">{panel.choiceNotice}</p>{/if}
+      {#if snapshot.settings.readinessErrors?.length}<p class="message">{snapshot.settings.readinessErrors.join(" ")}</p>{/if}
+      <button type="button" class="button" disabled={!connected || snapshot.settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
       <fieldset class="effort">
         <legend>Effort</legend>
         <div class="segments">
@@ -179,7 +183,8 @@
         <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
         {#if panel.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
       </fieldset>
-      <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span></span></label>
+      {#if snapshot.account && snapshot.settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={snapshot.settings.agent} paused={false} notStarted={true} {now} />{/if}
+      <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span>{#if snapshot.settings.keepAwakeError}<span class="message block">{snapshot.settings.keepAwakeError}</span>{/if}</span></label>
       <label class="check"><input type="checkbox" checked={panel.fields.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => change(panel.selected, { resumeAfterUsageLimit: event.currentTarget.checked })} /> <span>Resume after a usage limit<span class="help block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>
       <dl class="fixed">
         <dt>Pushes</dt><dd>After every phase</dd>
@@ -245,6 +250,7 @@
   .help.block { display: block; }
   .message { font-size: 12.5px; color: var(--amber); margin: 0; }
   .message.wide { flex-basis: 100%; }
+  .message.block { display: block; }
   .effort { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
   .segments { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
   .segments button { min-height: 40px; border: 0; background: transparent; color: var(--muted); font-size: 13.5px; cursor: pointer; }

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { folderMissingSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { baseCard, factRows, restoreText } from "./folder-missing.js";
+import { baseCard, day, factRows, restoreText } from "./folder-missing.js";
 
 const view = (which: Parameters<typeof folderMissingSnapshot>[0]) => folderMissingSnapshot(which).folderMissing!;
 const text = (parts: { text: string }[]) => parts.map((part) => part.text).join("");
@@ -56,5 +56,27 @@ describe("putting the folder back (AC-SETUP-06)", () => {
     facts.repositories[0]!.unknown = ["whether this run’s last pushed commit is on origin"];
     expect(restoreText(facts)).toBe("Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can read what it needs about the branch.");
     expect(restoreText(view("unknown"))).toBe("Moved or removed the folder on purpose? Kiln can say whether it can be put back once it can reach origin.");
+  });
+});
+
+describe("the feature branch's facts (Phase 5 of missing worktree recovery: AC-FACTS-01, AC-FACTS-03)", () => {
+  it("says whether the branch is in the base branch when origin couldn't be reached, naming the checkout's base branch it was compared with", () => {
+    const facts = view("unknown");
+    const featureRow = () => factRows(facts, "develop").map((row) => text(row.value))[0];
+    expect(featureRow()).toBe("In your checkout · last commit 4c80c80, Oct 24 · on origin: couldn’t check · fully merged into your checkout’s develop");
+    facts.repositories[0]!.featureBranch = { ...facts.repositories[0]!.featureBranch, inBase: false, notInBaseCount: 3 };
+    expect(featureRow()).toBe("In your checkout · last commit 4c80c80, Oct 24 · on origin: couldn’t check · 3 commits not in your checkout’s develop");
+  });
+
+  it("names the checkout's branch it couldn't read inside the branch's row when only origin's was read, never saying the branch is only on origin", () => {
+    const facts = view("unmerged");
+    const repository = facts.repositories[0]!;
+    const origin = repository.featureBranch.local!;
+    repository.featureBranch = { origin };
+    repository.unknown = [`your checkout’s ${repository.branch}`, `whether ${repository.branch} is in develop`];
+    const rows = factRows(facts, "develop").map((row) => [text(row.label), text(row.value)]);
+    expect(rows[0]![1]).toBe(`On origin · last commit ${origin.sha.slice(0, 7)}, ${day(origin.date!)} · in your checkout: couldn’t check`);
+    expect(rows.filter(([label]) => label === `Your checkout’s ${repository.branch}`)).toEqual([]);
+    expect(rows).toContainEqual([`Whether ${repository.branch} is in develop`, "Couldn’t check"]);
   });
 });

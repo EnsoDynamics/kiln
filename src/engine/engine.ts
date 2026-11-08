@@ -2882,7 +2882,7 @@ export class Engine {
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
       completedByRun, phasesByRepository, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
-      model: choice => this.folderModelCheck(choice),
+      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
@@ -2907,8 +2907,11 @@ export class Engine {
     this.changed();
   }
 
-  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>): void {
+  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>, notice?: string): void {
     this.folderDraft.selected = start;
+    // The notice stays until the next model or effort change in the panel.
+    if (notice) this.folderDraft.choiceNotice = notice;
+    else if (fields.model !== undefined || fields.effort !== undefined) delete this.folderDraft.choiceNotice;
     for (const [key, value] of Object.entries(fields) as [keyof PanelFields, PanelFields[keyof PanelFields]][]) {
       if (["model", "effort", "keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
       else if (key === "bases") this.folderDraft.edits[start].bases = { ...this.folderDraft.edits[start].bases, ...(value as Record<string, string>) };
@@ -2917,7 +2920,7 @@ export class Engine {
   }
 
   /** Reads a posted draft change; undefined with the reason when it is malformed or changes a fixed field. */
-  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields> } | { reason: string } {
+  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields>; notice?: string } | { reason: string } {
     const start = body.start;
     if (start !== "base" && start !== "branch") return { reason: "Choose a starting point." };
     const raw = body.fields;
@@ -2935,10 +2938,15 @@ export class Engine {
     const model = fields.model ?? this.folderDraft.edits[start].model ?? saved.model;
     const entry = this.modelEntry(model);
     if (fields.effort !== undefined && fields.effort !== "" && entry && !entry.supportedEffortLevels.includes(fields.effort)) return { reason: `${entry.displayName} doesn’t take that effort. Choose a supported effort.` };
+    // A reset effort is said in Documents found's words (AC-SETUP-01).
+    let notice: string | undefined;
     if (fields.model !== undefined && fields.effort === undefined && entry) {
       const effort = this.folderDraft.edits[start].effort ?? saved.effort ?? "";
       if (!entry.supportsEffort) fields.effort = "";
-      else if (!entry.supportedEffortLevels.includes(effort)) fields.effort = entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort) ? entry.defaultEffort : "";
+      else if (!entry.supportedEffortLevels.includes(effort)) {
+        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) { fields.effort = entry.defaultEffort; notice = `Effort changed to ${entry.defaultEffort} for ${entry.displayName}.`; }
+        else { fields.effort = ""; notice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
+      }
     }
     // Starting from the existing branch fixes the branch, each repository's base and, for several repositories, the workspace folder.
     if (start === "branch") {
@@ -2946,7 +2954,7 @@ export class Engine {
       const changed = (fields.featureBranch !== undefined && fields.featureBranch !== saved.featureBranch) || (fields.baseBranch !== undefined && fields.baseBranch !== this.setUpRepositories[0]?.baseBranch) || (fields.bases !== undefined && Object.entries(fields.bases).some(([name, base]) => this.setUpRepositories.find(entry => entry.name === name)?.baseBranch !== base)) || (this.multiRepository && fields.workspaceFolder !== undefined && expandHome(fields.workspaceFolder) !== expandHome(saved.workspaceFolder));
       if (changed) return { reason: "That field is fixed when starting from the run’s existing branch." };
     }
-    return { start, fields };
+    return { start, fields, ...(notice ? { notice } : {}) };
   }
 
   /** `POST /api/folder-setup/panel`: one draft change, checked and previewed, published by SSE. */
@@ -2954,7 +2962,7 @@ export class Engine {
     if (!this.folderMissing) return { ok: false, status: 409, code: "wrong_activity", reason: "The run’s folders are in place; there is nothing to set up again." };
     const change = this.folderChange(body);
     if ("reason" in change) return { ok: false, status: 400, code: "invalid_input", reason: change.reason };
-    this.applyFolderDraft(change.start, change.fields);
+    this.applyFolderDraft(change.start, change.fields, change.notice);
     await this.refreshFolderPanel();
     return { ok: true, panel: this.folderPanel };
   }
@@ -2983,7 +2991,7 @@ export class Engine {
     }
     const change = this.folderChange({ start: inputs.start, fields: inputs.fields });
     if ("reason" in change) return { ok: false, code: "invalid_input", reason: change.reason, status: 400 };
-    this.applyFolderDraft(change.start, change.fields);
+    this.applyFolderDraft(change.start, change.fields, change.notice);
     const kind = change.start;
 
     // Start rechecks the facts and the plan it showed before acting (AC-SAFE-01).
