@@ -3,18 +3,9 @@
   "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
   "activityId": "40fc34e4-9c57-442b-a94e-c0b6e8776768",
   "kind": "test_audit",
-  "outcome": "needs_you",
-  "summary": "This fixing chat of the whole-PRD test audit added tests for AC-SAFE-01, AC-SAFE-02, AC-SAFE-03 and AC-SAFE-04 at 958d680, and saw each new test fail with its behavior broken, except where the only break would widen a guard on what Start writes, launches or removes. A fresh re-grade raised AC-SAFE-03 to 20 of 23 stated parts, AC-SAFE-01 to 18 of 21, AC-SAFE-02 to 18 of 20 and AC-SAFE-04 to 11 of 14, but all four are still Weak. AC-SAFE-03 and AC-SAFE-01 have now been re-graded below the target twice, so the audit marks them stuck and no chat works them until a person says how. All 18 criteria remain Weak; test-audit.md lists the remaining gaps in order. The full unit and integration suites pass. Only tests and audit records changed.",
+  "outcome": "continue_test",
+  "summary": "At Doug's request every criterion was re-graded at 10ab04a under the current test-audit skill, which takes required parts from the PRD criteria and assumptions and uses the technical design only to find code. AC-SAFE-01, AC-SAFE-02, AC-SAFE-03 and AC-SAFE-04 are now Adequate, with new tests seen failing except where the only break would widen a guard on what Start writes, launches or removes. AC-SETUP-06 has one gap left; the other 13 rows remain Weak with gaps listed in order in test-audit.md, so test work continues. Doug's ruling on a pending pause was added to AC-SAFE-03 in the PRD: on an existing-branch start, the phase the run stopped on is still to run until its done check passes. The final full integration run had one failure in a test whose session could fail before waiting; that test and one like it were fixed, repeated eight times and the whole folder-setup file passes.",
   "completionPhases": [],
-  "needsYou": [
-    {
-      "problem": "AC-SAFE-03 (existing limits still apply) is stuck after two re-grades at 20 of 23 stated parts. Three parts stated in the technical design are untested: a carried pause through preparation, an existing-branch start that resumes and then pauses, and the position and mark of the takeover and pause lines.",
-      "action": "Say to keep working AC-SAFE-03 on the fixes listed in test-audit.md, or accept it as it stands. Recommended: keep working it, since the three fixes are small and it is high risk."
-    },
-    {
-      "problem": "AC-SAFE-01 (nothing changes until Start) is stuck after two re-grades at 18 of 21 stated parts. Three parts stated in the technical design are untested: a live audit session left by an earlier Kiln, a finished step dropped from the list after a failed Start, and a passing folder check during a Start in progress.",
-      "action": "Say to keep working AC-SAFE-01 on the fixes listed in test-audit.md, or accept it as it stands. Recommended: keep working it, since the three fixes are small and it is high risk."
-    }
-  ],
-  "changedImplementation": false
+  "needsYou": [],
+  "changedImplementation": true
 }
