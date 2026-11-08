@@ -20,6 +20,8 @@ for a folder that no longer exists.
 
 - **`kiln status` no longer fails on old saved records** that can't affect the work it reports.
 - **A repeated check name no longer blanks the Needs you page.**
+- **Every stop that needs a person now prints a line in the terminal**, including one raised
+  before the browser view is ready.
 
 ## Changed
 
