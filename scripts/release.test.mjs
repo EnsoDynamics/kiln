@@ -62,9 +62,8 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
   assert.equal(evaluate(candidate.if, { steps: { scope: { outputs: { full: 'true' } } } }), true);
   assert.equal(release.jobs.verify.uses, './.github/workflows/ci.yml');
   assert.equal(release.jobs.verify.with.full, true);
-  for (const publish of ['true', 'false']) assert.equal(evaluate(release.jobs.publish.if, { needs: { preflight: { outputs: { publish } } } }), publish === 'true');
-  const hold = release.jobs.preflight.steps.find(step => step.id === 'check').env.NPM_PUBLISH_ENABLED;
-  assert.equal(evaluate(hold, { vars: {} }), 'false', 'missing configuration must preserve publication hold');
+  assert.equal(release.jobs.publish.if, undefined, 'every push to main that passes verification publishes');
+  assert.deepEqual(release.jobs.publish.needs, ['preflight', 'verify']);
   assert.equal(release.concurrency['cancel-in-progress'], false);
   assert.equal(evaluate(ci.concurrency['cancel-in-progress'], { github: { event_name: 'push', ref: 'refs/heads/main' } }), false);
 
@@ -306,17 +305,15 @@ test('an explicit worktree installation guards shared pushes and can be replaced
   assert.equal(readFileSync(join(f.root, '.git', 'hooks', 'pre-push'), 'utf8'), readFileSync(join(f.root, '.githooks', 'pre-push'), 'utf8'));
 });
 
-test('publication hold, visibility, credential and authentication-mode checks are explicit', async () => {
-  assert.equal(await publishingReadiness({ enabled: 'false' }), false);
-  await assert.rejects(publishingReadiness({ enabled: 'yes' }), /true or false/);
-  await assert.rejects(publishingReadiness({ enabled: 'true', isPrivate: true }), /public/);
-  await assert.rejects(publishingReadiness({ enabled: 'true', isPrivate: false, mode: 'token' }), /NPM_TOKEN is missing/);
-  await assert.rejects(publishingReadiness({ enabled: 'true', isPrivate: false, mode: 'wrong' }), /NPM_AUTH_MODE/);
-  await assert.rejects(publishingReadiness({ enabled: 'true', isPrivate: false, mode: 'trusted' }), /OIDC access is unavailable/);
+test('visibility, credential and authentication-mode checks are explicit', async () => {
+  await assert.rejects(publishingReadiness({ isPrivate: true }), /public/);
+  await assert.rejects(publishingReadiness({ isPrivate: false, mode: 'token' }), /NPM_TOKEN is missing/);
+  await assert.rejects(publishingReadiness({ isPrivate: false, mode: 'wrong' }), /NPM_AUTH_MODE/);
+  await assert.rejects(publishingReadiness({ isPrivate: false, mode: 'trusted' }), /OIDC access is unavailable/);
   const valid = await registry({ body: { username: 'doug-ensodynamics' } });
-  assert.equal(await publishingReadiness({ enabled: 'true', isPrivate: false, mode: 'token', token: 'synthetic-token', registryUrl: valid.url }), true);
+  await publishingReadiness({ isPrivate: false, mode: 'token', token: 'synthetic-token', registryUrl: valid.url });
   const invalid = await registry({ status: 401, body: { error: 'synthetic-sensitive-error' } });
-  await assert.rejects(publishingReadiness({ enabled: 'true', isPrivate: false, mode: 'token', token: 'synthetic-token', registryUrl: invalid.url }), error => /authentication/.test(error.message) && !error.message.includes('synthetic-sensitive'));
+  await assert.rejects(publishingReadiness({ isPrivate: false, mode: 'token', token: 'synthetic-token', registryUrl: invalid.url }), error => /authentication/.test(error.message) && !error.message.includes('synthetic-sensitive'));
 });
 
 test('trusted readiness exchanges identity over HTTP and rejects an unconfigured publisher', async () => {
@@ -335,8 +332,8 @@ test('trusted readiness exchanges identity over HTTP and rejects an unconfigured
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   cleanups.push(() => new Promise(resolve => server.close(resolve)));
   const url = `http://127.0.0.1:${server.address().port}`;
-  const options = { enabled: 'true', isPrivate: false, mode: 'trusted', registryUrl: url, oidcUrl: `${url}/identity`, oidcRequestToken: 'synthetic-request-token' };
-  assert.equal(await publishingReadiness(options), true);
+  const options = { isPrivate: false, mode: 'trusted', registryUrl: url, oidcUrl: `${url}/identity`, oidcRequestToken: 'synthetic-request-token' };
+  await publishingReadiness(options);
   assert.equal(requests[0].method, 'GET');
   assert.equal(new URL(`${url}${requests[0].url}`).searchParams.get('audience'), 'npm:registry.npmjs.org');
   assert.equal(requests[0].authorization, 'Bearer synthetic-request-token');

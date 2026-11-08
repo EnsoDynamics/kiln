@@ -2,7 +2,7 @@
 
 Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics/kiln`). The package contains the CLI, browser interface, fonts and prompts. There are no separate operating-system installers.
 
-**Publication is held.** Doug authorized release automation and credential preparation on 2026-10-29 in chat `01a1882a-ab45-7fc2-b10c-26612946d050`: “whatever other actions that we need to take to get a repository publishing secret into GitHub Secrets or whatever, let's get that all there as well.” He also said, “I'm not quite ready to do the first merge to main yet.” Preparation does not authorize a main merge, repository visibility change, release tag or npm publication. The [public release readiness review](kiln-public-release-readiness-review.md) records the earlier content review and release evidence; its October 25 prohibition on preparing credentials is superseded by this authorization.
+**Every push to `main` is a production release.** Doug decided this on 2026-11-08: “every main push should be a real production release on NPM.” There is no separate publication switch; work that should not ship yet stays on `develop`. To stop releases in an emergency, disable the Release workflow in GitHub Actions.
 
 ## Workflows and artifacts
 
@@ -10,11 +10,11 @@ Kiln is one repository (`EnsoDynamics/kiln`) and one npm package (`@ensodynamics
 | --- | --- | --- |
 | Push to develop, or PR targeting another development branch | Ubuntu full verification, including integration tests, and installed-package checks against the built archive; no macOS/Windows jobs | No publication or retained development archive |
 | PR targeting main | Cheap package/version/registry preflight, Ubuntu checks, full macOS verification and installed-package tests, Windows build/pack | Candidate archive and checksum retained seven days |
-| Push to main, or manual Release retry on main | Cheap version/publishing preflight, then the same full candidate checks once | With publication enabled: npm package, version tag and GitHub Release |
+| Push to main, or manual Release retry on main | Cheap version/publishing preflight, then the same full candidate checks once | npm package, version tag and GitHub Release |
 
-Release preflight precedes every expensive platform job. It rejects inconsistent package/lockfile versions, a version that has not advanced from the previous main commit, an existing version tag, a version already present on npm, a version without written release notes, and registry failures. The initial main scaffold has no package, so the first unpublished `1.0.0` is valid. An enabled publication also checks public repository visibility and authentication. Token mode checks the intended npm identity; trusted mode exchanges the actual GitHub OIDC identity with npm before verification starts. Authentication checks cannot prove that the eventual package write will succeed; scoped permissions and direct-publish permission must also be configured correctly.
+Release preflight precedes every expensive platform job. It rejects inconsistent package/lockfile versions, a version that has not advanced from the previous main commit, an existing version tag, a version already present on npm, a version without written release notes, and registry failures. The initial main scaffold has no package, so the first unpublished `1.0.0` is valid. Preflight also checks public repository visibility and authentication. Token mode checks the intended npm identity; trusted mode exchanges the actual GitHub OIDC identity with npm before verification starts. Authentication checks cannot prove that the eventual package write will succeed; scoped permissions and direct-publish permission must also be configured correctly.
 
-Ubuntu builds the archive once and produces `SHA256SUMS`. macOS verifies that checksum, installs the downloaded archive and runs the installed-package suite against it. Publishing downloads and checks that same archive without rebuilding. Candidate archives are release builds, so their `kiln --version` prints the plain version; any other build adds `(dev build, <built>)`. To rerun the installed-package checks against a candidate or published archive, set `KILN_RELEASE_BUILD=true` beside `KILN_PACKAGE_TARBALL`, as the macOS job does. `actions/upload-artifact` retains the candidate for seven days; after publication, the GitHub Release keeps the archive and checksum with its release notes. Tags created by this workflow trigger no duplicate verification run. A held main run still performs candidate checks and saves the archive, but does not publish, create a tag or create a GitHub Release.
+Ubuntu builds the archive once and produces `SHA256SUMS`. macOS verifies that checksum, installs the downloaded archive and runs the installed-package suite against it. Publishing downloads and checks that same archive without rebuilding. Candidate archives are release builds, so their `kiln --version` prints the plain version; any other build adds `(dev build, <built>)`. To rerun the installed-package checks against a candidate or published archive, set `KILN_RELEASE_BUILD=true` beside `KILN_PACKAGE_TARBALL`, as the macOS job does. `actions/upload-artifact` retains the candidate for seven days; after publication, the GitHub Release keeps the archive and checksum with its release notes. Tags created by this workflow trigger no duplicate verification run.
 
 Development CI runs `npm run verify` and installed-package checks on Ubuntu only, with a 45-minute job budget; test and hook deadlines stay unchanged. Main candidates retain the full macOS integration and installed-package suite and Windows build/pack checks. Run relevant local checks before delivery; CI provides the full development gate without requiring expensive macOS runners on each development push. Native Windows/Linux agent, console, sleep and desktop behavior remains best effort, not a first-release proof gate.
 
@@ -46,7 +46,6 @@ Repository: `EnsoDynamics/kiln`. npm organization/scope: `ensodynamics` / `@enso
 
 | Name | Kind | Preparation value |
 | --- | --- | --- |
-| `NPM_PUBLISH_ENABLED` | Variable | `false`; missing also deliberately holds publication |
 | `NPM_AUTH_MODE` | Variable | `token` for the initial publication; `trusted` after OIDC setup |
 | `NPM_TOKEN` | Secret | Restricted initial-publication granular token; never an npm password |
 
@@ -58,7 +57,7 @@ Before arming publication, check the token's real npm identity and its selected 
 
 1. Finish the final candidate's content/history and exact-package review, including third-party notices. Obtain Doug's explicit publication approval. Keep the website unlisted/noindex unless separately authorized.
 2. Prepare and commit the release version. Run local full verification and installed-package checks; review the candidate PR's full checks.
-3. Under the explicit release approval, make the Kiln repository public for npm provenance, confirm initial npm access, and set `NPM_PUBLISH_ENABLED=true`. Do not make sibling or proof repositories public.
+3. Under the explicit release approval, make the Kiln repository public for npm provenance, and confirm initial npm access. Do not make sibling or proof repositories public.
 4. Merge the approved candidate to main. Release preflight runs first, followed by one full candidate verification. Only then does Actions publish the checked archive with provenance and create `v<version>` and its GitHub Release. Do not push a release tag manually.
 5. Check the public registry version, integrity and provenance; install that exact version in a disposable prefix and run its installed help/browser checks. Record the candidate SHA and registry evidence. No public install or provenance verification is claimed before this step.
 
@@ -70,7 +69,7 @@ Configure OIDC after the initial package exists, close to the next approved rele
 
 Use GitHub Actions, organization `EnsoDynamics`, repository `kiln`, workflow filename `release.yml`, and no environment name. Explicitly allow direct `npm publish`; staged-only authorization cannot satisfy the automated release. Set `NPM_AUTH_MODE=trusted`. Both preflight and publishing have `id-token: write`; preflight proves the workflow identity can exchange with npm and the publish job obtains its own fresh credentials. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and its [OIDC exchange contract](https://api-docs.npmjs.com/#tag/registry.npmjs.org/operation/exchangeOidcToken).
 
-After a successful trusted release, revoke the bootstrap token, remove `NPM_TOKEN` from GitHub, and restrict conventional publishing tokens in npm. Leave publication held whenever no release is approved.
+After a successful trusted release, revoke the bootstrap token, remove `NPM_TOKEN` from GitHub, and restrict conventional publishing tokens in npm.
 
 ## Preparation evidence and remaining human actions
 
@@ -90,4 +89,4 @@ The local gate is installed in the repository's shared Git hooks using the retai
 | Live external reads | npm still reports `1.0.0` unused; GitHub secret/variable presence and the real npm account identity were checked |
 | Publication boundaries | No main merge, visibility change, release tag or npm publication performed. Live GitHub artifact transfer, first publish and OIDC trust remain unproved until the approved workflow runs. |
 
-Doug approved the first publication on 2026-11-05, and Kiln 1.0.0 was published that day from `e4e9b9c`; its release run, reruns and registry evidence are in [Kiln public release readiness — CI reruns](../changes/kiln-public-release-readiness/kiln-public-release-readiness-ci-reruns.md). Publication is held again until the next approved release. Ongoing credentials use OIDC after the one-time trusted-publisher setup becomes possible; the bootstrap token is not a recurring rotation scheme.
+Doug approved the first publication on 2026-11-05, and Kiln 1.0.0 was published that day from `e4e9b9c`; its release run, reruns and registry evidence are in [Kiln public release readiness — CI reruns](../changes/kiln-public-release-readiness/kiln-public-release-readiness-ci-reruns.md). Ongoing credentials use OIDC after the one-time trusted-publisher setup becomes possible; the bootstrap token is not a recurring rotation scheme.
