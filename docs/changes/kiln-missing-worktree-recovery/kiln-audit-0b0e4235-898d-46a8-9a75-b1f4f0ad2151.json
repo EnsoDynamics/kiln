@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "executionId": "b8e63cef-5e87-49ba-a0ec-96dc53bfa8a7",
+  "activityId": "0b0e4235-898d-46a8-9a75-b1f4f0ad2151",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Whole-PRD delivery audit of Kiln Missing Worktree Recovery at 1b3fd4b, after Phases 5 and 6: 3 of 18 criteria are still partly implemented (AC-SETUP-02, AC-SETUP-03, AC-SAFE-02); the other 15 are implemented, and every gap Phases 5 and 6 targeted is closed. The remaining gaps are narrow: the panel blocks instead of offering the base branch when the existing branch's availability is unknown but the work is known to be in the base branch; multi-repository starting-point lines lack the latest commit and, for the existing branch, whether it holds all of this run's work; and an existing-branch start from origin's copy never names phases whose unpushed work it leaves out. Phase 7 was added to build them. Three rounds ran: round 1 confirmed 2 new gaps, round 2 confirmed 1, round 3 confirmed none.",
+  "completionPhases": ["7"],
+  "needsYou": []
+}
