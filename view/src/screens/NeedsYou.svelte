@@ -259,7 +259,7 @@
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
         <ul class="checks">
-          {#each stop.checks as check (check.name)}
+          {#each stop.checks as check, index (index)}
             {@const state = verdict(check)}
             <li>
               <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>

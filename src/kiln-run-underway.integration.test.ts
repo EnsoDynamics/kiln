@@ -167,7 +167,7 @@ describe("kiln run on a feature underway", () => {
     expect(lines[2]).toMatch(new RegExp(`^${time}  2b  Store credit       started$`));
     expect(lines[3]).toMatch(new RegExp(`^${time}  2b  Store credit       done · pushed [0-9a-f]{7}$`));
     expect(lines[4]).toMatch(new RegExp(`^${time}  3   Returns dashboard  started$`));
-    expect(lines[5]).toMatch(new RegExp(`^${time}  3   Returns dashboard  stopped$`));
+    expect(lines[5]).toMatch(new RegExp(`^${time}  3   Returns dashboard  stopped · waiting for you at http://127\\.0\\.0\\.1:\\d+/\\S+$`));
     // Kiln waited at Needs you in the foreground until Ctrl+C (AC-KEEP-01).
     expect(lines[6]).toBe("Kiln stopped. Phase 3 still needs you; kiln run checks it again.");
     expect(lines).toHaveLength(7);

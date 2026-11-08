@@ -694,6 +694,61 @@ describe("automatic completion activities", () => {
     await h.engine.start(); await h.engine.settled(); expect(h.engine.record.completedAt).toBeTruthy();
   });
 
+  describe("one row per check on a stopped audit", () => {
+    const rows = (current: Harness, name: string) => current.engine.record.phases[current.engine.stoppedPhaseKey()!]!.stop!.checks.filter(check => check.name === name);
+    const names = (current: Harness) => current.engine.record.phases[current.engine.stoppedPhaseKey()!]!.stop!.checks.map(check => check.name);
+
+    it("lists Everything committed and Pushed once when the audit ends needing a person", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed", "Audit work resolved"]);
+    });
+
+    it("still lists both repository checks when no report was submitted", async () => {
+      const h = await fixture([auditSession({ noReport: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed"]);
+    });
+
+    it("still lists both repository checks when the report is refused before they are read", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      const activity = h.engine.record.completionAudits!.activities[0]!;
+      writeFileSync(join(h.engine.worktreePath, activity.reportPath), "not json");
+      await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+      expect(names(h)).toEqual(["Audit result recorded", "Everything committed", "Pushed"]);
+      expect(rows(h, "Audit result recorded")[0]!.passed).toBe(false);
+      expect(rows(h, "Everything committed")[0]!.passed).toBe(false);
+    });
+
+    it("keeps a repository failure that only the later read saw", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      // Only the engine's read goes through the module export; submission's own read stays real and passes.
+      const real = auditAdmission.repositoryChecks;
+      const spy = vi.spyOn(auditAdmission, "repositoryChecks").mockImplementation(async context => (await real(context)).map(check => check.name === "Pushed" ? { name: check.name, passed: false, facts: ["acme-shop: current head is not pushed to its assigned branch."] } : check));
+      try { await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); } finally { spy.mockRestore(); }
+      expect(rows(h, "Pushed")).toMatchObject([{ passed: false, facts: ["acme-shop: current head is not pushed to its assigned branch."] }]);
+    });
+
+    it("lists the repository checks once on an already accepted audit", async () => {
+      const h = await fixture([{ actions: [{ auditReport: {} }, { write: { path: "stray.txt", content: "left behind\n" } }, { result: "Audit ended." }, { exit: 0 }] }]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      expect(h.engine.record.completionAudits!.activities[0]!.acceptedResult).toBeDefined();
+      expect(names(h)).toEqual(["Audit result recorded", "Audit evidence is current", "Everything committed", "Pushed"]);
+      expect(rows(h, "Everything committed")[0]!.passed).toBe(false);
+    });
+
+    it("lists the delivery check once when development delivery is on", async () => {
+      const h = await fixture([auditSession({ blocked: true })]);
+      await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+      const target = { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" };
+      expect(h.engine.authorizeDevelopmentTarget({ executionId: h.engine.record.executionId, authorizationRevision: h.engine.record.developmentAuthorization!.revision, target, confirmedNonProduction: true })).toEqual({ ok: true });
+      await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+      expect(names(h).filter(name => name === "Required development delivery verified")).toHaveLength(1);
+      expect(new Set(names(h)).size).toBe(names(h).length);
+    });
+  });
+
   it("rechecks an already accepted audit under its first development grant before consuming the gate", async () => {
     const h=await fixture(); let requested=false;
     const off=h.engine.onChange(()=>{if(!requested&&h.engine.current?.session?.kind==="delivery_audit"){requested=true;h.engine.pause();}});

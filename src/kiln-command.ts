@@ -247,7 +247,7 @@ function makeEngine(
     onTerminal: (event) => {
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
-      write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id)) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
+      write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id), run.stop.server?.address) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
   });
@@ -380,8 +380,8 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
  *
  *   "19:16  3   Dev delivery fixes   complete · 1 check waived 2026-11-01 19:16 EST · browser · alex"
  */
-export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, readAudit?: AuditWaiverReader): string {
-  const line = formatEventLine(event, record, colors);
+export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, readAudit?: AuditWaiverReader, viewAddress?: string): string {
+  const line = formatEventLine(event, record, colors, viewAddress);
   const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? `audit-${event.activityId}` : event.kind === "pull_request" && (event.event === "completed" || event.event === "opened") ? "pr" : undefined;
   if (key === undefined || !record.phases?.[key]?.doneAt) return line;
   const { suffix, warnings } = terminalWaivers(record, key, readAudit);
@@ -402,12 +402,13 @@ function auditTitle(event: Extract<TerminalEvent, { kind: "audit" }>): string {
   return `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`;
 }
 
-function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: TerminalColors): string {
+function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, viewAddress?: string): string {
   const columns = planColumns(record.plan ?? []);
+  const where = viewAddress === undefined ? {} : { viewAddress };
   switch (event.kind) {
     case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
-    case "audit": return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event }, columns, colors);
+    case "audit": return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event, ...where }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":
       return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);
@@ -420,7 +421,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
           ? { kind: "done", pushedSha: event.pushedSha ?? "", ...(event.pushes ? { pushes: event.pushes } : {}) }
           : event.event === "waiting"
             ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
-            : { kind: event.event },
+            : { kind: event.event, ...where },
         columns,
         colors,
       );
@@ -437,7 +438,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
           ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) }
           : event.event === "waiting"
             ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
-            : { kind: event.event },
+            : { kind: event.event, ...where },
         columns,
         colors,
       );

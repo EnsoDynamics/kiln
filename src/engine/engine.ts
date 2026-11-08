@@ -31,7 +31,7 @@ import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
-import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
+import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerCheck, repositoryChecks, latestAuditRefusal, type AdmissionContext } from "../audit/admission.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
@@ -3164,7 +3164,7 @@ export class Engine {
       if (deliveryEnabled(this.record)) checks.push(ownerDeliveryCheck(this.deliveryContext(key), { kind: "audit", activityId: activity.activityId }), ...this.activationChecks().filter(c => !c.passed));
       if (!plan.ok) checks.push(planCheck(plan));
       this.save();
-      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks, plan, judgedLeafId: key });
+      const outcome = this.withCodexSafety<DoneCheckOutcome>(key, { passed: false, checks: oneRowPerCheck(checks), plan, judgedLeafId: key });
       outcome.passed = await this.markChecks(key, outcome.checks);
       this.lastDoneCheck = { key, outcome };
       return outcome;

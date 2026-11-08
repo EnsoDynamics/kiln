@@ -204,7 +204,7 @@
       <div class="between"><h2>Is {inSentence} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
       <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {inSentence} and moves to the next step. Nothing is committed or pushed for you.</p>
       <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
-        {#each stop.checks as check (check.name)}
+        {#each stop.checks as check, index (index)}
           {@const state = verdict(check)}
           <li><div><strong>{check.name}</strong><span class={state}>{VERDICT[state]}</span></div><CheckFacts {snapshot} {check} changes={page.markChanges} /></li>
         {/each}
