@@ -338,6 +338,7 @@ Each started step's line on Phase detail is worded as UI-010 item 11 gives and b
 | Couldn't be started, after an earlier run of the session started | UI-007's couldn't-restart line; the last lines shown end with the spawn error's output line |
 | Couldn't be started, and no run of the session ever started | UI-007's never-started line, followed by the spawn error's output line |
 | No final message, exit 0 | "The session exited with no final message. These are the last lines it wrote." |
+| No session ran (a check stopped an implementation phase, not the pull request or an audit, that no Kiln session worked on; the failing check is listed on the right) | "No Kiln session ran this phase. Kiln checked it and found what's shown on the right." under the headline "`<Phase>` hasn't passed its checks." No facts row; step 1 is a fresh session |
 | No final message, ended by a signal | "The session was ended by `<signal>` with no final message. These are the last lines it wrote." |
 
 A signal Kiln sends itself is an interruption and the session is resumed ([Stopping a session](#stopping-a-session-ctrlc-a-closed-terminal-and-signals)), so the last row covers only a signal from something else. The other Needs you variants nobody drew (pull request, not resumable, a broken plan with no session, a session that never started or couldn't be restarted) follow UI-007.

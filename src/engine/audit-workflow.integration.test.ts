@@ -577,7 +577,8 @@ describe("automatic completion activities", () => {
     const historicalAt = "2026-10-01T12:00:00Z";
     const old = structuredClone(h.engine.record);
     old.schemaVersion = 5; old.completedAt = historicalAt;
-    old.phases = { "1": old.phases["1"]! };
+    // The historical run delivered phase 1 in a Kiln session, so its development evidence is owed (AC-DEV-03).
+    old.phases = { "1": { sessionIds: ["historical-phase-session"], finishedByPerson: false, repositories: {} } };
     delete old.completionAudits; delete old.activities; delete old.nextActivityKey;
     old.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" }, confirmedAt: historicalAt, source: "start" }] };
     writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(old));

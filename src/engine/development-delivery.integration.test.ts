@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
+import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { readPrdRecord, migrateRecord } from "../state/records.js";
 import { assertDevelopmentState, type DeliveryCheckpoint } from "../state/development-delivery.js";
-import { documentsDigest, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
+import { documentsDigest, evaluateRepositories, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 import { codexSessionPrompt, phaseSessionPrompt, freshSessionPrompt, resumePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
 let h: Harness | undefined;
@@ -236,3 +237,52 @@ function checkpoint(h: Harness): DeliveryCheckpoint {
   const repo = h.engine.record.repositories[0]!; const source = git(h.sandbox, repo.worktreePath, "rev-parse", "HEAD").trim();
   return { id: "acceptance-development", executionId: h.engine.record.executionId!, phaseId: "1", target, featureBranch: h.engine.record.settings.featureBranch, headSha: source, baseSha: repo.baseCommit!, criteria: ["AC-RET-01"], dependsOn: [], workflowSource: { path: "README.md", revision: source }, requirements: [{ id: "deploy", purpose: "deployment", source: { path: "README.md", revision: source }, match: { kind: "github_deployment" } }, { id: "verify", purpose: "verification", source: { path: "README.md", revision: source }, match: { kind: "github_workflow", path: ".github/workflows/deploy.yml", jobs: ["verify"], deploymentJob: "deploy", attempt: 1 } }], requiredChecks: [], requireReview: false, createdAt: new Date().toISOString(), operations: [], evidence: [] };
 }
+
+describe("phases closed before the run started (AC-DEV-03)", () => {
+  /** The fixture plan with phase 1 closed too: 1 and 2a are Closed before Start, with no assessments; 2b is the first unclosed phase. */
+  async function preclosedRun() {
+    const files = prdDirectoryFiles();
+    files["phase-1-return-intake.md"] = files["phase-1-return-intake.md"]!.replace(/^(#.*)\n/, "$1\n**Closed:** 2026-10-05\n");
+    h = await createHarness({ sessions: [landingSession()], files });
+    await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: { repository: target.repository, baseBranch: target.baseBranch } }] } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled();
+    return h;
+  }
+  it("launches the first session on the first unclosed phase, with no stop on the phases closed before Start", async () => {
+    const h = await preclosedRun();
+    expect(h.engine.record.developmentAuthorization?.enabled).toBe(true);
+    expect(h.engine.record.developmentDelivery!.assessments).toEqual([]);
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.engine.record.phases["2b"]?.sessionIds).toHaveLength(1);
+    for (const id of ["1", "2a"]) {
+      expect(h.engine.record.phases[id]?.stop).toBeUndefined();
+      expect(h.engine.record.phases[id]?.sessionIds ?? []).toEqual([]);
+    }
+  });
+  it("still stops a phase this run closed without development evidence", async () => {
+    const h = await preclosedRun();
+    const stop = h.engine.record.phases["2b"]?.stop;
+    expect(stop?.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", passed: false, facts: expect.arrayContaining(["Phase 2b needs a current development-delivery assessment."]) }));
+    expect(buildSnapshot(h.engine).needsYou?.phaseId).toBe("2b");
+  });
+  it("clears, at Check again, a stop an earlier Kiln saved on a phase closed before Start", async () => {
+    const h = await preclosedRun();
+    delete h.engine.record.phases["2b"]!.stop;
+    (h.engine as unknown as { recordStop(key: string, kind: string, checks: unknown[]): void }).recordStop("1", "done_check", [phaseDeliveryCheck(context(h, "1"), "1")]);
+    expect(buildSnapshot(h.engine).needsYou?.phaseId).toBe("1");
+    await h.engine.checkAgain(); await h.engine.settled();
+    expect(h.engine.record.phases["1"]?.stop).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+  it("at finalization, asks evidence of a phase closed during the run but not of the phases closed before Start", async () => {
+    const h = await preclosedRun();
+    const phase3 = join(h.engine.worktreePath, h.engine.paths.prdDirectoryFromRoot, "phase-3-returns-dashboard.md");
+    writeFileSync(phase3, readFileSync(phase3, "utf8").replace(/^(#.*)\n/, "$1\n**Closed:** 2026-11-07\n"));
+    const facts = (await evaluateRepositories(context(h))).checks.flatMap(check => check.facts).join("\n");
+    expect(facts).toContain("Phase 3 needs a current development-delivery assessment.");
+    expect(facts).toContain("Phase 2b needs a current development-delivery assessment.");
+    expect(facts).not.toContain("Phase 1 needs");
+    expect(facts).not.toContain("Phase 2a needs");
+  });
+});

@@ -9,7 +9,7 @@ import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, type PlannedPhase } from "../plan/phase-plan.js";
 import { deliveryOwner } from "../state/development-delivery.js";
 import type { PrdRecord } from "../state/records.js";
-import { requireOwnerDeliveryEvidence, validateDeliverySplits } from "./development-delivery.js";
+import { owesDevelopmentEvidence, requireOwnerDeliveryEvidence, validateDeliverySplits } from "./development-delivery.js";
 import { gitRead, HISTORICAL_PLAN_READ, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
 import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { judgedPhase } from "./plan-reading.js";
@@ -158,7 +158,8 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       }
       if (evidence.integration !== "integrated_verified") row.problems.push(`Phase ${phase.id}: ${name} work ${revision} is not verified in origin/${repo.baseBranch}. Supply verified integration evidence or reconcile an explicit preparation step in the dependent phase; a Closed line or closed PR is insufficient.`);
     }
-    if (record.developmentAuthorization?.enabled) checkDevelopment(record, candidate, phase, row.problems);
+    // Accounting runs before the continuation starts, so every leaf it accepts was Closed before that run (AC-DEV-03).
+    if (record.developmentAuthorization?.enabled && owesDevelopmentEvidence(record, phase.id, true)) checkDevelopment(record, candidate, phase, row.problems);
     if (!row.problems.length) { row.classification = "externally_verified"; row.verifiedAt = verifiedAt; }
   }
   // Removed or split completed identities must remain represented in total accounting.
