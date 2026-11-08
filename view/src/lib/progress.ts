@@ -375,6 +375,8 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
     }
     return { ...copy, line: "Kiln couldn’t restart this session. These are the last lines it wrote, ending with the error it got." };
   }
+  // A check stopped an implementation phase no Kiln session worked on: there is no session ending to describe.
+  if (!isPr && !stop.phaseId.startsWith("audit-") && stop.sessionId === undefined && stop.finalMessage === undefined && stop.exitCode === undefined && stop.signal === undefined) return { ...copy, headline: `${name} hasn’t passed its checks.`, line: "No Kiln session ran this phase. Kiln checked it and found what’s shown on the right.", showFacts: false, firstStep: "fresh", freshLink: false };
   if (stop.finalMessage !== undefined) return { ...copy, line: "Kiln doesn’t try to interpret why. This is how the session ended." };
   if (stop.signal !== undefined) return { ...copy, line: `The session was ended by ${stop.signal} with no final message. These are the last lines it wrote.` };
   if (stop.exitCode !== undefined && stop.exitCode !== 0) return { ...copy, line: "The session exited with an error and no final message. These are the last lines it wrote." };

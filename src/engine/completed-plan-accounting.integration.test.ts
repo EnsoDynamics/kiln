@@ -215,3 +215,13 @@ it("does not rescan historical Codex conversations to account for a retained Git
     expect(h.claudeCalls()).toEqual([]);
   } finally { scan.mockRestore(); }
 });
+
+it("asks no development-delivery evidence of an externally closed phase no Kiln session delivered, with early merges on (AC-DEV-03)", async () => {
+  const f = await createCometContinuation(); h = f.h;
+  h.engine.record.developmentAuthorization = { revision: 1, enabled: true, grants: [] };
+  // A finished execution with early merges on: its delivery finalization completed.
+  h.engine.record.developmentDelivery = { ...emptyDevelopmentLedger(), currentComplete: true };
+  f.integrate();
+  const passed = await h.engine.checkCompletedPlan();
+  expect(passed.result?.leaves?.find(p => p.id === "8")).toMatchObject({ classification: "externally_verified", provenance: "not_applicable", problems: [] });
+});
