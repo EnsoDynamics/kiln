@@ -1176,9 +1176,10 @@ describe("work a base-branch start leaves behind (Phase 6 of missing worktree re
     harness = await createHarness({ sessions: [] });
     const h = harness;
     const releasePath = join(h.sandbox.root, release);
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { waitForFile: releasePath }, { result: "Stopping here." }] }] }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { touch: `${releasePath}-reached` }, { waitForFile: releasePath }, { result: "Stopping here." }] }] }));
     await h.engine.start({ refinementConfirmed: true });
-    await waitFor(() => git(h.sandbox, h.repository, "log", "-1", "--format=%s", "feature/customer-returns").trim() === "wip: store credit");
+    // The session must be waiting first: removing its folder sooner makes the stand-in's next step fail.
+    await waitFor(() => existsSync(`${releasePath}-reached`));
     rmSync(h.engine.worktreePath, { recursive: true, force: true });
     // While Phase 2b's session still works.
     await h.engine.folderGuard({ gather: true, mayLeave: false });
@@ -1867,9 +1868,10 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
   const stillWorking = async (): Promise<Harness> => {
     harness = await createHarness({ sessions: [] });
     const h = harness;
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { waitForFile: released(h) }, { result: "Stopping here." }] }] }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ write: { path: "src/credit.txt", content: "half done\n" } }, { commit: "wip: store credit" }, { touch: `${released(h)}-reached` }, { waitForFile: released(h) }, { result: "Stopping here." }] }] }));
     await h.engine.start({ refinementConfirmed: true });
-    await waitFor(() => git(h.sandbox, h.repository, "log", "-1", "--format=%s", "feature/customer-returns").trim() === "wip: store credit");
+    // The session must be waiting first: removing its folder sooner makes the stand-in's next step fail.
+    await waitFor(() => existsSync(`${released(h)}-reached`));
     return h;
   };
 
@@ -1990,7 +1992,7 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
 });
 
 /** Phase 2b finished by hand on the run's feature branch before the folder went: closed, committed and pushed. */
-function landStoppedPhase(h: Harness): void {
+function landStoppedPhase(h: Harness, push = true): void {
   const folder = h.engine.worktreePath;
   const path = join(folder, "docs/prds/customer-returns/phase-2b-store-credit.md");
   const [title, ...rest] = readFileSync(path, "utf8").split("\n");
@@ -1998,7 +2000,7 @@ function landStoppedPhase(h: Harness): void {
   writeFileSync(join(folder, "src", "credit.txt"), "done\n");
   git(h.sandbox, folder, "add", "-A");
   git(h.sandbox, folder, "commit", "-qm", "feat: store credit");
-  git(h.sandbox, folder, "push", "-q", "origin", "feature/customer-returns");
+  if (push) git(h.sandbox, folder, "push", "-q", "origin", "feature/customer-returns");
 }
 const shown = (path: string) => path.replace(process.env.HOME ?? "\0", "~");
 const CLEAR_LINE = "Clear git’s record of the missing folder";
@@ -2088,6 +2090,7 @@ describe("the limits Start keeps, on the cases still open (AC-SAFE-03)", () => {
     h.engine.record.pause.requestedAt = new Date().toISOString();
     rmSync(h.engine.worktreePath, { recursive: true, force: true });
     await h.engine.folderGuard({ gather: true });
+    expect(lines(panelOf(h))).toContain("Kiln will pause after Phase 2b is Done");
     const calls = h.claudeCalls().length;
     expect(await start(h)).toEqual({ ok: true, status: 200 });
     await h.engine.settled();
@@ -2095,6 +2098,23 @@ describe("the limits Start keeps, on the cases still open (AC-SAFE-03)", () => {
     expect(record.phases["2b"]!.doneAt).toBeDefined();
     expect(record.pause.activeSince).toBeDefined();
     expect(h.claudeCalls().slice(calls)).toEqual([]);
+  });
+
+  it("leaves the pause waiting when the stopped phase is closed on the branch but its done check still fails", async () => {
+    const h = await landedThenStopped();
+    // Closed and committed, never pushed: the phase's done check can't pass.
+    landStoppedPhase(h, false);
+    const requestedAt = new Date().toISOString();
+    h.engine.record.pause.requestedAt = requestedAt;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    const calls = h.claudeCalls().length;
+    expect(await start(h, { start: "branch" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const record = readPrdRecord(h.stateDirectory)!;
+    expect(record.phases["2b"]!.doneAt).toBeUndefined();
+    expect(record.pause).toEqual({ requestedAt });
+    expect(h.claudeCalls().slice(calls).some(call => call.prompt.includes("phase-3-returns-dashboard.md"))).toBe(false);
   });
 
   it("clears a carried request's phase when the pause is cancelled", async () => {
@@ -2163,6 +2183,25 @@ describe("what Start rechecks, and a Start that stops partway (AC-SAFE-01)", () 
     expect(readStartIntent(h.stateDirectory, "plan-moved")!.state).toBe("superseded");
     expect(h.engine.folderMissing).toBeDefined();
     expect(h.claudeCalls()).toHaveLength(calls);
+  });
+
+  it("stays in the state when the folders pass while a Start is working, leaving that Start to end it", async () => {
+    const h = await landedThenStopped();
+    const saved = h.engine.worktreePath;
+    rmSync(saved, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    (h.engine as unknown as { runBranchStart: () => Promise<void> }).runBranchStart = () => held;
+    const running = start(h, { commandId: "mid-start" });
+    await waitFor(() => readStartIntent(h.stateDirectory, "mid-start") !== undefined);
+    // Start's own worktree add makes the saved folder pass; a check from the page must not act on that.
+    git(h.sandbox, h.repository, "worktree", "add", "-f", saved, "feature/customer-returns");
+    expect(await h.engine.folderGuard()).toBe(false);
+    expect(h.engine.folderMissing).toBeDefined();
+    expect(readStartIntent(h.stateDirectory, "mid-start")!.state).toBe("in_progress");
+    release();
+    await running;
   });
 
   it.skipIf(process.platform === "win32")("says which steps a failed existing-branch Start finished, saves nothing, and the next Start does only the rest", async () => {
@@ -2264,6 +2303,26 @@ describe("git's record of a missing folder (AC-SAFE-04)", () => {
     expect(await start(h, { commandId: "stale-no-more" })).toMatchObject({ ok: false, status: 500, code: "folder_setup_failed", reason: expect.stringContaining("is no longer stale. Nothing was removed; press Check again.") });
     expect(removedRecords(h, calls)).toEqual([]);
     expect(readFileSync(join(saved, "back.txt"), "utf8")).toBe("back\n");
+    expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain(`worktree ${saved}`);
+  });
+
+  it("leaves a record git doesn't report as stale, as a locked worktree's, though its folder is gone", async () => {
+    const h = await loggedThenStopped();
+    const saved = h.engine.worktreePath;
+    git(h.sandbox, h.repository, "worktree", "lock", saved);
+    rmSync(saved, { recursive: true, force: true });
+    const listed = git(h.sandbox, h.repository, "worktree", "list", "--porcelain");
+    expect(listed).toContain("locked");
+    expect(listed).not.toContain("prunable");
+    await h.engine.folderGuard({ gather: true });
+    for (const kind of ["branch", "base"] as const) {
+      await h.engine.changeFolderPanel({ start: kind, fields: {} });
+      expect(lines(panelOf(h)).filter(line => line.startsWith(CLEAR_LINE)), kind).toEqual([]);
+    }
+    const calls = h.kilnGitCalls().length;
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(removedRecords(h, calls)).toEqual([]);
     expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain")).toContain(`worktree ${saved}`);
   });
 

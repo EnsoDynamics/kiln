@@ -27,3 +27,19 @@ describe("the run's history on the Folder missing page (AC-GONE-02)", () => {
     expect(page(folderMissingSnapshot("unmerged"))).not.toContain("waiting for usage");
   });
 });
+
+describe("the put-it-back command on the Folder missing page (AC-SETUP-06)", () => {
+  const body = (snapshot: ReturnType<typeof folderMissingSnapshot>) => render(FolderMissing, { props: { snapshot, connected: true, now: FOLDER_MISSING_NOW, lastSeenAt: undefined } }).body;
+  it("shows the command git needs when the existing branch can be used", () => {
+    const snapshot = folderMissingSnapshot("unmerged");
+    const commands = snapshot.folderMissing!.restoreCommands;
+    expect(commands.length).toBeGreaterThan(0);
+    const markup = body(snapshot);
+    const details = markup.slice(markup.indexOf("Show the command"), markup.indexOf("</details>", markup.indexOf("Show the command")));
+    expect([...details.matchAll(/<code[^>]*>([^<]*)<\/code>/g)].map(match => match[1])).toEqual(commands);
+  });
+
+  it("shows no command when the existing branch isn't an available start", () => {
+    expect(body(folderMissingSnapshot("occupied"))).not.toContain("Show the command");
+  });
+});
