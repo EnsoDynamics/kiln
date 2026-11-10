@@ -1,4 +1,5 @@
 import { preparationPermissions } from "./preparation-permissions.js";
+import { outstandingLines, personItems, settledLines } from "../audit/person-items.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt } from "../session/prompts.js";
 import { newPreparationState, preparationAttemptNeedsReconciliation, preparationDigest, preparesPhase, type PreparationReference } from "./preparation-state.js";
@@ -3719,7 +3720,7 @@ export class Engine {
     // Grades remain history: this activity independently reassesses all current rows.
     const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && hasEffectiveResult(a) && effectiveAudit(this.stateDirectory, a)?.reportBytes);
     const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
-    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}) });
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding) });
   }
 
   private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
@@ -6014,7 +6015,14 @@ export class Engine {
       prdFile: this.pathFrom(folder, this.prdFile()),
       branch: this.record.settings.featureBranch,
       repositories: this.promptRepositories(await this.pullRequestRepositoriesNow()),
+      personItems: this.personItemsForDelivery(),
     };
+  }
+
+  /** Settled items once each, then any still open because an audit was marked complete (AC-NEUTRAL-03). */
+  private personItemsForDelivery(): string {
+    const ledger = personItems(this.stateDirectory, this.record.completionAudits?.activities ?? []);
+    return [settledLines(ledger.settled), ...ledger.outstanding.map(item => `- ${item.problem} Listed by ${item.listedBy}; still open, not settled by a later audit.`)].filter(Boolean).join("\n");
   }
 
   private checkedRepository(entry: RepositoryEntry): CheckedRepository {

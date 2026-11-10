@@ -124,11 +124,14 @@ describe("the prompts", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
     expect(prompt).toContain("Follow that skill exactly as it is written");
     for (const field of ['"schemaVersion": 2', '"outcome"', '"summary"', '"completionPhases"', '"needsYou"', '"changedImplementation"', '"afterDeliveryActions"']) expect(prompt).toContain(field);
-    expect(prompt).toContain("or ended normally but lists anything a person must still decide or do before delivery");
-    // Added phases still build while a person settles listed items; the next audit carries unsettled ones (AC-NEUTRAL-03).
-    expect(prompt).toContain('"completion_phases" when it added phases to the plan for missing work, even when it also lists something a person must decide or do');
-    expect(prompt).toContain('"needs_you" when it added no phases');
-    expect(prompt).toContain("An item a prior report below lists in needsYou that is still unsettled goes in this report's needsYou again.");
+    expect(prompt).toContain("or when it ended normally but lists anything a person must still decide or do before delivery");
+    // Items: chosen by whether the added work depends on the answer, and every outstanding one accounted for (AC-NEUTRAL-03).
+    expect(prompt).toContain("choose by whether that work depends on the person's answer: if it does not, report completion_phases or continue_test with the items in needsYou");
+    expect(prompt).toContain("if it does, or the skill stopped to surface a critical finding, report needs_you");
+    expect(prompt).toContain("Account for every outstanding item exactly once, in needsYou with its id when it is still open or in settled; Kiln refuses a report that leaves one out.");
+    expect(prompt).toContain("Items earlier audits left for a person (outstanding): None.");
+    const carried = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 2, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", outstanding: "- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD." });
+    expect(carried).toContain("Items earlier audits left for a person (outstanding):\n- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD.\n\nPrior accepted work:");
     expect(prompt).toContain("Never write \"passed\" to finish");
     for (const method of ["red check", "test-audit.md", "Added by", "kiln-assessment", "audit snapshot", "independent assessment"]) expect(prompt).not.toContain(method);
   });

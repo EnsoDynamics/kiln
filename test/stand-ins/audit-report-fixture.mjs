@@ -35,6 +35,10 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
   else{report.outcome='needs_you';report.needsYou=[{problem:`${behavior.humanAction} is due before delivery.`,action:'Perform it and record the result.'}];}
  }
  if(behavior.blocked){report.outcome='needs_you';report.needsYou=[{problem:'Required evidence is unavailable.',action:'Restore the named evidence.'}];}
+ // Items earlier audits left for a person, as the prompt lists them: list each again or settle it.
+ const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \(listed by [^)]*\): (.*)$/gm)].map(m=>({id:m[1],text:m[2]}));
+ if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.'})));
+ if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
  mkdirSync(dirname(s.requiredReportPath),{recursive:true});writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');
  command(`git add -- ${changed.join(' ')}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
  if(behavior.beforeSubmitFile){writeFileSync(behavior.beforeSubmitFile,'ready');while(!readFileSync(behavior.beforeSubmitFile,'utf8').includes('continue'))await new Promise(r=>setTimeout(r,20));}

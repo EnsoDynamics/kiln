@@ -7,32 +7,42 @@ import type { PrdRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReportV2, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { requirementsDocumentFilter } from "./snapshots.js";
 import { effectiveRecordedClosed } from "../engine/waivers.js";
+import type { PersonItem } from "./person-items.js";
 
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({problem, action}[]; with needs_you or completion_phases), changedImplementation (test audits) and optional afterDeliveryActions";
-export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot }
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action}[]; not with passed), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
+export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[] }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
   try { return validate(raw as AuditReportV2, context); }
   catch (error) { if (error instanceof AuditRefusal) throw error; throw new AuditRefusal("invalid_report", `Malformed audit report: ${(error as Error).message}`); }
 }
 
-function validate(report: AuditReportV2, { record, activity, initial, current }: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
+function validate(report: AuditReportV2, { record, activity, initial, current, outstanding }: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
   requireAudit(report && typeof report === "object" && !Array.isArray(report), "The audit report must be a JSON object.");
   requireAudit((report.schemaVersion as number) === 2, `Unsupported audit report schemaVersion ${JSON.stringify(report.schemaVersion)}. Write the version-2 report: ${REPORT_FIELDS}.`);
   requireAudit(report.executionId === record.executionId && report.activityId === activity.activityId && report.kind === activity.kind, "Report identity differs from the assigned audit activity.");
   requireAudit(OUTCOMES.includes(report.outcome), `Unknown audit outcome ${JSON.stringify(report.outcome)}; use passed, completion_phases, continue_test or needs_you.`);
   requireAudit(nonempty(report.summary), "The report needs a non-empty summary.");
   requireAudit(strings(report.completionPhases) && new Set(report.completionPhases).size === report.completionPhases.length, "completionPhases must list distinct appended phase IDs ([] when none).");
-  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action)), "needsYou must be a list of {problem, action} ([] when none).");
+  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action) && (item.id === undefined || nonempty(item.id))), "needsYou must be a list of {problem, action}, with id when listing an outstanding item again ([] when none).");
+  requireAudit(report.settled === undefined || (Array.isArray(report.settled) && report.settled.every(item => item && nonempty(item.id) && nonempty(item.how))), "settled must be a list of {id, how}.");
   requireAudit(report.afterDeliveryActions === undefined || strings(report.afterDeliveryActions), "afterDeliveryActions must be a list of strings.");
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
   else requireAudit(report.changedImplementation === undefined, "Only a test audit reports changedImplementation.");
-  // Added phases are built while a person settles what the audit listed; the next audit decides whether each is settled.
   if (report.outcome === "needs_you") requireAudit(report.needsYou.length > 0, "A needs_you report must say what a person must decide in needsYou.");
-  else if (report.outcome !== "completion_phases") requireAudit(!report.needsYou.length, "Only a needs_you or completion_phases report lists needsYou; use outcome needs_you when a person is needed and you added no phases.");
+  if (report.outcome === "passed") requireAudit(!report.needsYou.length, "A passing report lists nothing in needsYou; use needs_you when a person is needed, or settled for an earlier item that is settled.");
+  // Every item an earlier audit left for a person is accounted for: open again, or settled (AC-NEUTRAL-03).
+  const known = new Map(outstanding.map(item => [item.id, item]));
+  const named = [...report.needsYou.flatMap(item => item.id === undefined ? [] : [item.id]), ...(report.settled ?? []).map(item => item.id)];
+  const unknown = named.filter(id => !known.has(id));
+  requireAudit(!unknown.length, `No outstanding item ${unknown.join(", ")}; outstanding: ${outstanding.map(item => item.id).join(", ") || "none"}.`);
+  const repeated = named.filter((id, index) => named.indexOf(id) !== index);
+  requireAudit(!repeated.length, `Each outstanding item is listed once, in needsYou or settled; repeated: ${[...new Set(repeated)].join(", ")}.`);
+  const missing = outstanding.filter(item => !named.includes(item.id));
+  requireAudit(!missing.length, `Account for every item earlier audits left for a person, in needsYou with its id when still open or in settled with how: missing ${missing.map(item => `${item.id} (${item.problem})`).join("; ")}.`);
 
   // The audit may append phases; it never rewrites the plan it started from (AC-NEUTRAL-04).
   requireAudit(initial.plan.every((phase, index) => { const now = current.plan[index]; return now && now.id === phase.id && now.file === phase.file && now.closed === phase.closed && now.content === phase.content && JSON.stringify(now.splitInto ?? []) === JSON.stringify(phase.splitInto ?? []); }), "The audit changed an original phase's identity, order, scope or closure; it may only append phases.", "inconsistent_plan");
@@ -44,7 +54,6 @@ function validate(report: AuditReportV2, { record, activity, initial, current }:
   const open = current.plan.filter(phase => !phase.splitInto && !effectiveRecordedClosed(record, phase));
   if (report.outcome === "passed") requireAudit(!appended.length && !open.length, `A passing audit leaves no open phase; open: ${open.map(phase => phase.id).join(", ")}.`, "inconsistent_plan");
   if (report.outcome === "completion_phases") requireAudit(appended.length > 0, "A completion_phases report must append at least one phase to the plan.", "inconsistent_plan");
-  if (report.outcome === "needs_you") requireAudit(!appended.length, `This audit appended phases (${appended.map(phase => phase.id).join(", ")}); report outcome completion_phases and keep needsYou. Kiln builds the phases and shows those items to a person meanwhile.`, "inconsistent_plan");
   if (report.outcome === "continue_test") {
     requireAudit(activity.kind === "test_audit", "Only a test audit saves test work for a continuation.");
     requireAudit(!appended.length && !open.length, "A test continuation leaves no open or appended phase; report completion_phases instead.", "inconsistent_plan");

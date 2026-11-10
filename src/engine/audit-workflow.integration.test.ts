@@ -376,13 +376,29 @@ describe("automatic completion activities", () => {
   });
   it("builds an added phase while a person settles what the audit listed, then hands the item to the next audit (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01 names a file the design kept.";
-    const h = await fixture([auditSession({ gap: true, decision }), auditSession({ blocked: true })], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    const h = await fixture([auditSession({ gap: true, decision }), auditSession({ blocked: true, relist: true })], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.label} round ${e.round}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit round 1", "Phase 2", "Delivery audit round 2"]);
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.kind === "delivery_audit");
-    expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`] } });
+    expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`], personItems: { count: 1, waiting: true } } });
     expect(rows[1]!.state).toBe("needs_you");
-    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(decision);
+    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (listed by Delivery audit round 1): ${decision} Decide it before the next audit.`);
+  });
+  it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
+    const decision = "AC-PROOF-01's export name differs from the design.";
+    const h = await fixture([auditSession(), auditSession({ gap: true, decision, directFix: true }), auditSession({ settle: "A person kept the design's name." }), auditSession()], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
+    expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["test_audit", 1], ["delivery_audit", 2], ["test_audit", 2]]);
+    const calls = h.claudeCalls(); const audits = calls.filter(c => /^Run (Delivery|Test) audit/.test(c.prompt));
+    expect(audits[2]!.prompt).toContain(`- item-1 (listed by Test audit round 1): ${decision} Decide it before the next audit.`);
+    expect(audits[3]!.prompt).toContain("Items earlier audits left for a person (outstanding):\nNone.");
+    const rows = buildSnapshot(h.engine).activities!.filter(row => row.audit);
+    expect(rows.find(row => row.kind === "test_audit")!.audit!.personItems).toEqual({ count: 1, waiting: false });
+    expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`]);
+    const pr = calls.at(-1)!.prompt;
+    expect(pr).toContain('under the heading "Settled during the build"');
+    expect(pr).toContain(`- ${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`);
   });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);

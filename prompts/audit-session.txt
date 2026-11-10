@@ -25,17 +25,22 @@ The report has these fields and nothing else is required:
 - "schemaVersion": 2, "executionId", "activityId", and "kind" ("delivery_audit" or "test_audit").
 - "outcome", the place the skill ended:
   "passed" when it found nothing left to build or test;
-  "completion_phases" when it added phases to the plan for missing work, even when it also
-  lists something a person must decide or do: Kiln builds the phases meanwhile;
+  "completion_phases" when it added phases to the plan for missing work;
   "continue_test" (test audit only) when it saved remaining test work for another session;
-  "needs_you" when it added no phases and either stopped for a decision, permission or action
-  only a person can give, or ended normally but lists anything a person must still decide or do
-  before delivery, such as behavior changed outside the requirements or a human action still waiting.
+  "needs_you" when it stopped for a decision, permission or action only a person can give,
+  or when it ended normally but lists anything a person must still decide or do before
+  delivery, such as behavior changed outside the requirements or a human action still waiting.
+  When it added phases or saved test work and also lists something for a person, choose by
+  whether that work depends on the person's answer: if it does not, report completion_phases
+  or continue_test with the items in needsYou, and Kiln builds the work while a person settles
+  them; if it does, or the skill stopped to surface a critical finding, report needs_you.
 - "summary": a few plain sentences on what the audit concluded.
 - "completionPhases": the IDs of the phases this audit appended, [] when none.
-- "needsYou": [{"problem","action"}] for each thing a person must resolve, with needs_you or
-  completion_phases; [] otherwise. An item a prior report below lists in needsYou that is still
-  unsettled goes in this report's needsYou again.
+- "needsYou": [{"problem","action"}] for each thing a person must resolve; [] when passed.
+  Add "id" to an entry that lists again an item from the outstanding list below.
+- "settled": [{"id","how"}] for each item from the outstanding list below that is now settled,
+  saying how; omit or [] when none. Account for every outstanding item exactly once, in needsYou
+  with its id when it is still open or in settled; Kiln refuses a report that leaves one out.
 - "changedImplementation" (test audit only): true when you changed anything other than tests
   and audit records, including configuration, dependency manifests or helpers that runtime code
   also uses, so Kiln runs a fresh delivery audit; otherwise false.
@@ -43,6 +48,9 @@ The report has these fields and nothing else is required:
   such as a later production release; these alone do not make the outcome needs_you.
 Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,
 write "needs_you" and say what is needed.
+
+Items earlier audits left for a person (outstanding):
+{{outstanding}}
 
 Prior accepted work:
 {{previous}}

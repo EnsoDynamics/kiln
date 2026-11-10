@@ -1,0 +1,3 @@
+While Kiln built this work, its audits left items for a person. In each pull request's description, under the heading "Settled during the build", list them one line each, word for word as below:
+
+{{items}}
