@@ -4,6 +4,7 @@ import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
 import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
+import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
 import { simpleCommands } from "../session/bash-command.js";
 import { deliveryEnabled } from "./development-delivery.js";
@@ -124,7 +125,11 @@ export interface PhaseView {
   kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[] };
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[];
+    /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
+    personItems?: { count: number; waiting: boolean };
+    /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
+    settledItems?: string[] };
   outputLineCount?: number;
   id: string;
   title: string;
@@ -1066,6 +1071,9 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   const { record } = engine;
   const rows: PhaseView[] = [];
   const started = new Set<string>();
+  const audits = record.completionAudits?.activities ?? [];
+  let ledger: ReturnType<typeof personItems> | undefined;
+  try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
     if (activity.kind === "implementation" || activity.kind === "final_delivery") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
@@ -1099,6 +1107,13 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
         if (report.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.afterDeliveryActions ?? [];
+        if (accepted && report.needsYou.length) {
+          // Until a later audit's report is accepted, every item this one listed is still outstanding;
+          // an audit marked complete in between settles nothing, so the items are still waiting.
+          row.audit.personItems = { count: report.needsYou.length, waiting: !audits.some(other => other.sequence > audit.sequence && other.acceptedResult) };
+        }
+        const settledHere = ledger?.settled.filter(item => item.settledByActivityId === audit.activityId) ?? [];
+        if (settledHere.length) row.audit.settledItems = settledLines(settledHere).split("\n").map(line => line.slice(2));
       } else {
         // A version-1 result keeps its history: criteria, findings, blockers and human actions.
         row.audit = { ...optional("outcome", report?.outcome), checks, criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories, blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };

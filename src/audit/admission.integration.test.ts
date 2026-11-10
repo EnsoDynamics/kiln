@@ -19,6 +19,7 @@ import { captureSnapshot, requirementManifest, phaseScope } from "./snapshots.js
 import { AuditRefusal, type AuditActivity, type AuditReportV2 } from "./contracts.js";
 import { commandContracts } from "../control/help.js";
 import { auditNext } from "./workflow.js";
+import { personItems } from "./person-items.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(f => f())); });
@@ -105,12 +106,74 @@ describe("version-2 audit admission", () => {
     expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["AC-PROOF-01 needs a staging login. Grant the staging role."] });
     expect(latestAuditRefusal(f.stateDirectory, f.activity)).toMatchObject({ code: "unresolved_checks", reason: expect.stringContaining("Grant the staging role.") });
   });
+  it("builds added phases while a person settles what the audit also listed (AC-NEUTRAL-03)", async () => {
+    const f = await fixture(); appendPhase(f, "2");
+    f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." }]; f.saveReport();
+    const result = await f.submit();
+    expect(result).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
+    expect(result.checks.map(check => check.name)).not.toContain("Audit work resolved");
+    expect(f.activity.acceptedResult).toBeDefined();
+  });
+  it("stops at Needs you when phases the audit added depend on the person's answer (AC-NEUTRAL-03)", async () => {
+    const f = await fixture(); appendPhase(f, "2");
+    f.report.outcome = "needs_you"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "Phase 2 depends on the refund rate.", action: "Choose the rate." }]; f.saveReport();
+    const result = await f.submit();
+    expect(result.refusal).toBeUndefined();
+    expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
+    expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["Phase 2 depends on the refund rate. Choose the rate."] });
+  });
+  describe("items an audit left for a person (AC-NEUTRAL-03)", () => {
+    const item = { problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." };
+    /** An accepted round-1 delivery audit that added phase 2 and listed one item, then phase 2 closed and round 2 allocated. */
+    async function carried() {
+      const f = await fixture(); appendPhase(f, "2");
+      f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [item]; f.saveReport();
+      expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
+      f.record.phases[`audit-${f.activity.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
+      const path = join(f.root, directory, "phase-2-completion.md"); writeFileSync(path, readFileSync(path, "utf8").replace("# Phase 2: Completion\n\n", "# Phase 2: Completion\n\n**Closed:** 2026-11-02\n\n")); commit(f.sandbox, f.root, [`${directory}/phase-2-completion.md`]);
+      const allocate = async (sequence: number) => {
+        const next: AuditActivity = { ...f.activity, activityId: randomUUID(), sequence, round: sequence, snapshots: [], attempts: [] }; delete next.acceptedResult;
+        next.reportPath = `${directory}/kiln-audit-${next.activityId}.json`; f.record.completionAudits!.activities.push(next);
+        next.snapshots.push(f.store.put(await captureSnapshot({ ...f.context, activity: next, now: new Date().toISOString() })));
+        const report = (change: Partial<AuditReportV2>): AuditReportV2 => ({ ...f.report, activityId: next.activityId, outcome: "passed", completionPhases: [], needsYou: [], ...change });
+        const submit = async (body: AuditReportV2) => { writeFileSync(join(f.root, next.reportPath), JSON.stringify(body)); commit(f.sandbox, f.root, [next.reportPath]); return submitAudit(f.context, { ...f.body(), activityId: next.activityId, reportPath: next.reportPath }); };
+        return { activity: next, report, submit };
+      };
+      return { f, allocate };
+    }
+    it("refuses a later report that leaves an outstanding item out, naming it, and an unknown id", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", ...item, listedBy: "Delivery audit round 1" }]);
+      expect((await round2.submit(round2.report({}))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining(`missing item-1 (${item.problem})`) });
+      expect((await round2.submit(round2.report({ settled: [{ id: "item-9", how: "x" }] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("No outstanding item item-9") });
+      expect((await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item }], settled: [{ id: "item-1", how: "x" }] }))).refusal).toMatchObject({ reason: expect.stringContaining("repeated: item-1") });
+      expect(round2.activity.acceptedResult).toBeUndefined();
+    });
+    it("keeps an item listed again outstanding, and records how a later audit settled it", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      const relisted = await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item, action: "Decide before Phase 3." }] }));
+      expect(relisted.refusal).toBeUndefined(); expect(relisted).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
+      const settled = await round2.submit(round2.report({ settled: [{ id: "item-1", how: "A person amended AC-RET-04 to keep the name." }] }));
+      expect(settled).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
+      const ledger = personItems(f.stateDirectory, f.record.completionAudits!.activities);
+      expect(ledger.outstanding).toEqual([]);
+      expect(ledger.settled).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1", settledBy: "Delivery audit round 2", how: "A person amended AC-RET-04 to keep the name." }]);
+    });
+    it("carries items past an audit marked complete without an accepted report", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      round2.activity.waivedResult = f.store.put({ kind: "audit_waiver", activityId: round2.activity.activityId });
+      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding.map(open => open.id)).toEqual(["item-1"]);
+      const round3 = await allocate(3);
+      expect((await round3.submit(round3.report({}))).refusal).toMatchObject({ reason: expect.stringContaining("missing item-1") });
+      expect(await round3.submit(round3.report({ settled: [{ id: "item-1", how: "Renamed." }] }))).toMatchObject({ disposition: "recorded" });
+    });
+  });
   it.each([
     ["a version-1 report", (r: Record<string, unknown>) => { r.schemaVersion = 1; }, "Write the version-2 report"],
     ["another activity", (r: Record<string, unknown>) => { r.activityId = "other"; }, "Report identity differs"],
     ["an unknown outcome", (r: Record<string, unknown>) => { r.outcome = "blocked"; }, "Unknown audit outcome"],
     ["an empty summary", (r: Record<string, unknown>) => { r.summary = " "; }, "non-empty summary"],
-    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "Only a needs_you report lists needsYou"],
+    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "A passing report lists nothing in needsYou"],
     ["needs_you without needsYou", (r: Record<string, unknown>) => { r.outcome = "needs_you"; }, "must say what a person must decide"],
     ["changedImplementation on a delivery audit", (r: Record<string, unknown>) => { r.changedImplementation = false; }, "Only a test audit reports changedImplementation"],
     ["a malformed needsYou entry", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ problem: "x" }]; }, "needsYou must be a list"],
