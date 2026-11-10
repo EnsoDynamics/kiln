@@ -4,7 +4,7 @@
 
 **Follow-on to:** [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md)
 
-**Changes:** [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md).
+**Changes:** [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md), whose technical design made every unmarked linked document required; none of its criteria change.
 
 **Mockup:** [Documents found with a link Kiln did not follow](mockups/kiln-linked-documents.html).
 
@@ -24,18 +24,19 @@ Run by hand, one session at a time, nobody would stop for that link. The session
 
 A broken link in the requirements is the agent's to deal with, during the phase, like any other detail in the documents.
 
-- [ ] **AC-LINK-01 — A broken link never stops Kiln.** When a local Markdown link in a document Kiln reads cannot be followed, Kiln carries on as if the link were not there: at setup, when it starts the first phase, after a handback, on restart and on Check again. A link cannot be followed when its target is not in the repository, is outside the repository, is reached through a symbolic link, or is not a file. A run already stopped on such a link continues on its next Check again. Kiln no longer stops for linked documents; required documents stay as AC-LINK-02 says.
-  - Replaces in part: AC-HANDBACK-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (only the requirement that every document the plan links to be present; the assigned worktree still owns the run's plan).
+- [ ] **AC-LINK-01 — A broken link never stops Kiln.** When a local Markdown link in a document Kiln reads cannot be followed, Kiln carries on as if the link were not there: at setup, when it starts the first phase, after a handback, on restart and on Check again. A link cannot be followed when its target is not in the repository, is outside the repository, is reached through a symbolic link, or is not a file, or when the link itself can't be read as a path. A run already stopped on such a link continues on its next Check again. Kiln no longer stops for linked documents; required documents stay as AC-LINK-02 says.
 - [ ] **AC-LINK-02 — The documents Kiln runs on still stop it.** Kiln stops, as it does today, for each case in the table. Nothing else about following links stops it.
 
   | Case | Why it still stops |
   |---|---|
-  | The PRD, the technical design or a phase document is missing, or the assumptions or phase documents are named twice | Kiln reads these to know what to build |
+  | The PRD, the technical design or the phase documents are missing, there are two PRDs, or the technical design or assumptions are there under both names | Kiln reads these to know what to build |
   | The phase plan does not read: a phase number Kiln can't read, a `## Split into` row with no file, a phase file no parent lists | Kiln can't choose the next phase |
-  | A `Superseded by:` or `Replaces:` pointer names a file that is not there | The pointer says which requirement is in force |
+  | A `Superseded by:` or `Replaces:` pointer in one of the PRD's own documents names a file that is not there | The pointer says which requirement is in force |
   | One of the PRD's own documents is a symbolic link | Kiln reads only real files in the repository |
   | A document exists but can't be read, such as for its permissions | The computer has a problem the agent would also hit |
   | A document changes while Kiln reads it | Kiln reads again, as today |
+
+  The PRD's own documents are the PRD, technical design, assumptions and phase documents in its directory. A pointer inside a document Kiln reached only by a link is a link like any other.
 
 ### Tell the agent and show it once
 
@@ -52,6 +53,6 @@ The agent needs to know about a broken link, because it may need that document. 
 ## Out of Scope
 
 - The `kiln:reference` link title keeps working: a link with it is still not followed. Nobody needs it to avoid a stop any more, and Kiln does not list such links.
-- The completion audits are unchanged. They already read only the PRD's own documents and do not follow links.
+- The completion audits are unchanged. They already read only the PRD's own documents and do not read link targets.
 - Waivers are unchanged. A broken link no longer produces a failing check, so there is nothing to waive.
 - Missing credentials, vendor setup and other prerequisites a phase finds while it works are a separate matter, handled as they are today.
