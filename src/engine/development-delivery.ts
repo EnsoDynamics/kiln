@@ -10,7 +10,7 @@ import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.j
 import { checkpointAgainst, emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
 import { readPlanAt } from "./plan-reading.js";
-import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import type { PhasePlan } from "../plan/phase-plan.js";
 import { applyWaivers, effectivePlan, matchKey, type CheckItem, type Waiver } from "./waivers.js";
@@ -654,7 +654,7 @@ export async function leavesClosedAtRunBase(context: DeliveryContext): Promise<R
   const key = `${context.prdWorktree}\0${context.prdDirectory}\0${base}`;
   let closed = closedAtBaseCache.get(key);
   if (!closed) {
-    const source = await observeGitPlan(context.git, context.prdWorktree, context.prdDirectory, base, HISTORICAL_PLAN_READ);
+    const source = await observeGitPlan(context.git, context.prdWorktree, context.prdDirectory, base);
     closed = new Set(source.plan.phases.filter(phase => phase.splitInto === undefined && phase.closed).map(phase => phase.id));
     closedAtBaseCache.set(key, closed);
   }

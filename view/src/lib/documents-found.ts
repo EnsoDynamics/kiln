@@ -29,6 +29,11 @@ export function assumptionsLine(assumptions: Documents["assumptions"]): string {
   return `${plural(assumptions.total, "assumption", "assumptions")}, ${assumptions.notYetConfirmed} not yet confirmed. They’re green lights; nothing waits on them.`;
 }
 
+/** The Linked documents line (Kiln Linked Documents AC-LINK-04): "1 not followed. Kiln starts anyway and tells the agent." */
+export function linkedDocumentsLine(count: number): string {
+  return `${count} not followed. Kiln starts anyway and tells the agent.`;
+}
+
 /**
  * The count above the phase list (UI-010 item 12): only the phases left to implement, with the
  * closed ones after it.

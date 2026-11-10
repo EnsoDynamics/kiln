@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import type { PlannedPhase } from "../plan/phase-plan.js";
 import type { Effort, PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { ensureObjects, listWorktrees, originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
-import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
 import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
@@ -280,7 +280,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   if (!prdTip) return { unavailable: `${prdBase} isn’t on origin.`, known: true };
   if (prdTip !== prdRead.base.sha || prdBase !== prdRead.entry.baseBranch) {
     await ensureObjects(git, prdRead.entry.mainCheckoutPath, prdTip);
-    try { plan = await observeGitPlan(git, prdRead.entry.mainCheckoutPath, context.prdDirectoryFromRoot, prdTip, HISTORICAL_PLAN_READ); }
+    try { plan = await observeGitPlan(git, prdRead.entry.mainCheckoutPath, context.prdDirectoryFromRoot, prdTip); }
     catch { return { unavailable: `the plan on ${prdBase}`, known: false }; }
   }
   baseCommits[prdRead.name] = prdTip;

@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { lstatSync } from "node:fs";
 import type { PrdRecord, RepositoryEntry } from "../state/records.js";
 import { ensureObjects, parseWorktreeList, runGit, type GitContext } from "./git-reads.js";
-import { observeGitPlan, HISTORICAL_PLAN_READ } from "./completed-plan-sources.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
 import { displayPath, expandHome } from "./worktree-setup.js";
 import { worktreeAt, type FolderCheck, type FolderClassification, type FolderState } from "./folder-check.js";
 import { effectiveRecordedClosed } from "./waivers.js";
@@ -369,7 +369,7 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   if (!prd?.base) return { saved, base: { error: `${baseBranch} could not be read`, branch: baseBranch } };
   const main = prd.check.mainCheckoutPath;
   let basePlan: PlannedPhase[];
-  try { sources.basePlan = await observeGitPlan(git, main, directory, prd.base.sha, HISTORICAL_PLAN_READ); basePlan = sources.basePlan.plan.phases; }
+  try { sources.basePlan = await observeGitPlan(git, main, directory, prd.base.sha); basePlan = sources.basePlan.plan.phases; }
   catch (error) { prd.facts.unknown.push(`the plan on ${baseBranch}`); return { saved, base: { error: `The plan on ${baseBranch} couldn’t be read: ${(error as Error).message}`, branch: baseBranch } }; }
   const baseLeaves = leavesOf(basePlan);
   const next = baseLeaves.find(leaf => !leaf.closed);
@@ -377,7 +377,7 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   // The feature plan, for the existing-branch start, whenever there is a tip (The Setup Panel, What will run).
   // A failed read is named whatever it decides (AC-FACTS-03): it withholds the existing-branch start.
   if (prd.tip) {
-    try { sources.featurePlan = await observeGitPlan(git, main, directory, prd.tip, HISTORICAL_PLAN_READ); }
+    try { sources.featurePlan = await observeGitPlan(git, main, directory, prd.tip); }
     catch { prd.facts.unknown.push(`the plan on ${record.settings.featureBranch}`); }
   }
   // Where the run's latest work lives: the feature branch when it has work not in the base branch.
@@ -385,7 +385,7 @@ async function readPlans(git: GitContext, record: PrdRecord, reads: RepositoryRe
   let compared: PlannedPhase[] = basePlan; let where: "branch" | "base" = "base";
   if (prd.workNotInBase && prd.workTip) {
     // The latest work is on origin's copy, not the checkout's tip: compare with the plan there.
-    try { compared = (await observeGitPlan(git, main, directory, prd.workTip, HISTORICAL_PLAN_READ)).plan.phases; where = "branch"; }
+    try { compared = (await observeGitPlan(git, main, directory, prd.workTip)).plan.phases; where = "branch"; }
     catch { prd.facts.unknown.push(`the plan on origin’s ${record.settings.featureBranch}`); return { saved, base }; }
   } else if (prd.workNotInBase && prd.tip) {
     if (!sources.featurePlan) return { saved, base, featurePlanFailed: true };

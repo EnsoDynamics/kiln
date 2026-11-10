@@ -95,25 +95,18 @@ describe("automatic completion activities", () => {
       expect(current.claudeCalls()).toHaveLength(1);
     } finally { submit.mockRestore(); }
   });
-  it("offers Mark complete for an audit whose plan links a document that is not in the repository (AC-WAIVE-02)", async () => {
+  it("does not fail an audit's plan check on a link Kiln can't follow (Kiln Linked Documents AC-LINK-01, AC-LINK-05)", async () => {
     const current = await fixture([auditSession({ noReport: true })]);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
     const key = auditKey(current.engine.record.completionAudits!.activities.at(-1)!);
     const prd = join(current.engine.worktreePath, directory, "proof-prd.md");
     writeFileSync(prd, `${readFileSync(prd, "utf8")}\nSee the [brief](../../source/brief.md).\n`);
-    // A broken document link is a plan problem the check finishes on, never a read that could not happen.
     expect(await current.engine.checkAgain()).toMatchObject({ ok: true }); await current.engine.settled();
     const stop = current.engine.record.phases[key]!.stop!;
     expect(stop.run).toMatchObject({ origin: "recheck", finished: true });
-    expect(stop.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false, facts: [expect.stringContaining("Linked document is missing: docs/source/brief.md")] }));
-    const offer = current.engine.markCompleteOffer();
-    expect(offer).toMatchObject({ offered: true, label: "Mark delivery audit complete" });
-    if (!offer.offered) throw new Error("not offered");
-    current.engine.commands.submit({ command_id: "waive-broken-link", execution_id: current.engine.record.executionId, status_token: current.engine.controlView().token, action: "waive-and-advance", inputs: { check_run_id: offer.checkRunId, via: "browser" } }, "caller", true);
-    await current.engine.commands.settled();
-    expect(current.engine.commands.all().find(r => r.command_id === "waive-broken-link")!.outcome).toBe("marked_complete");
-    expect(current.engine.record.phases[key]!.doneAt).toEqual(expect.any(String));
-    expect(current.engine.record.waivers![0]!.items).toContainEqual(expect.objectContaining({ kind: "known_problem", text: expect.stringContaining("Linked document is missing") }));
+    expect(JSON.stringify(stop.checks)).not.toContain("Linked document");
+    expect(stop.checks.filter(check => check.name === "Phase plan reads" && !check.passed)).toEqual([]);
+    expect(current.engine.unfollowedLinks).toEqual([{ from: `${directory}/proof-prd.md`, href: "../../source/brief.md", target: "docs/source/brief.md", reason: "not in this repository" }]);
   });
   it("retains a failed handback observation when an audit completion read is unavailable", async () => {
     const current = await fixture([auditSession({ noReport: true })]);
