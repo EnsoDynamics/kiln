@@ -23,6 +23,7 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
   const label=readdirSync(directory).filter(name=>name.endsWith('-prd.md')).map(name=>/AC-[A-Z0-9]+-\d+/.exec(readFileSync(join(directory,name),'utf8'))?.[0]).find(Boolean);
   writeFileSync(path,`# Phase ${id}: Repair value\n\n## Acceptance criteria covered\n${label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');
   changed.push(path);report.outcome='completion_phases';report.completionPhases=[id];report.summary='One criterion is not delivered; added a completion phase.';
+  if(behavior.decision)report.needsYou=[{problem:behavior.decision,action:'Decide it before the next audit.'}];
  }
  if(testing&&!behavior.noRecord){writeFileSync(`${directory}/test-audit.md`,`# Test audit\n\n${behavior.findingText??'Every criterion has adequate tests.'}\n`);changed.push(`${directory}/test-audit.md`);}
  if(behavior.continueTest){
@@ -34,6 +35,10 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
   else{report.outcome='needs_you';report.needsYou=[{problem:`${behavior.humanAction} is due before delivery.`,action:'Perform it and record the result.'}];}
  }
  if(behavior.blocked){report.outcome='needs_you';report.needsYou=[{problem:'Required evidence is unavailable.',action:'Restore the named evidence.'}];}
+ // Items earlier audits left for a person, as the prompt lists them: list each again or settle it.
+ const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \(listed by [^)]*\): (.*)$/gm)].map(m=>({id:m[1],text:m[2]}));
+ if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.'})));
+ if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
  mkdirSync(dirname(s.requiredReportPath),{recursive:true});writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');
  command(`git add -- ${changed.join(' ')}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
  if(behavior.beforeSubmitFile){writeFileSync(behavior.beforeSubmitFile,'ready');while(!readFileSync(behavior.beforeSubmitFile,'utf8').includes('continue'))await new Promise(r=>setTimeout(r,20));}

@@ -65,7 +65,11 @@ export interface AuditReportV1 {
 export interface AuditReportV2 {
   schemaVersion: 2; executionId: string; activityId: string; kind: AuditKind;
   outcome: "passed" | "completion_phases" | "continue_test" | "needs_you";
-  summary: string; completionPhases: string[]; needsYou: { problem: string; action: string }[];
+  summary: string; completionPhases: string[];
+  /** `id` names an outstanding item listed again; an entry without one is a new item (AC-NEUTRAL-03). */
+  needsYou: { id?: string; problem: string; action: string }[];
+  /** Outstanding items this audit found settled, and how. */
+  settled?: { id: string; how: string }[];
   /** Test audits only: whether the audit changed anything other than tests and audit records. */
   changedImplementation?: boolean;
   afterDeliveryActions?: string[];

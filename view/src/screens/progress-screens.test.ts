@@ -7,7 +7,7 @@ process.env.TZ = "America/New_York";
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
-import type { Snapshot } from "../../../src/engine/snapshot.js";
+import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
 import { stepStates } from "../../../src/session/session-output.js";
 import {
   completeRepositoriesSnapshot,
@@ -285,6 +285,22 @@ describe("Phase detail", () => {
 
   it("labels the repository and the PRD folder above the feature name (AC-LOOK-05)", () => {
     expect(detail(runningSnapshot())).toMatch(/^Repository acme-shop PRD folder docs\/prds\/customer-returns\/ Customer returns /);
+  });
+
+  it("shows items an audit left for the person while they wait, and how a later audit settled them (AC-NEUTRAL-03)", () => {
+    const snapshot = runningSnapshot();
+    const item = "AC-RET-04 names a file the design kept. Amend AC-RET-04 or ask for the rename.";
+    const row = (id: string, round: number, audit: Partial<NonNullable<PhaseView["audit"]>>): PhaseView => ({ id, activityId: id, kind: "delivery_audit" as const, title: "Delivery audit", file: `Round ${round}`, round, continuationIndex: 1, state: "done" as const, finishedByPerson: false, sessionStartedAt: "2026-10-17T14:00:00Z", doneAt: "2026-10-17T14:09:00Z", details: { from: "2026-10-17T14:00:00Z", to: "2026-10-17T14:09:00Z", model: "Opus", worktree: "/w", branch: "feature/x", sessionId: `s-${id}` }, audit: { checks: [], criteria: [], repositories: [], blockers: [], pendingActions: [], ...audit } });
+    const listed = row("audit-da1", 1, { outcome: "completion_phases", summary: "Added Phase 5.", blockers: [item], personItems: { count: 1, waiting: true } });
+    snapshot.activities = [...snapshot.phases, listed];
+    const page = (id: string) => text(strip(render(PhaseDetail, { props: { snapshot, phaseId: id, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
+    expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 9m · 1 item waiting for you/);
+    expect(page("audit-da1")).toContain(`Outcome: added phases Added Phase 5. Waiting for you while Kiln builds the work. Every later audit must settle each item or list it again: ${item}`);
+    listed.audit!.personItems = { count: 1, waiting: false };
+    snapshot.activities.push(row("audit-da2", 2, { outcome: "passed", summary: "Nothing left.", settledItems: [`${item} Listed by Delivery audit round 1, settled by Delivery audit round 2: Kept the names.`] }));
+    expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 9m · listed 1 item for you/);
+    expect(page("audit-da1")).toContain("Listed for you while Kiln built the work; a later audit accounted for each:");
+    expect(page("audit-da2")).toContain(`Settled: ${item} Listed by Delivery audit round 1, settled by Delivery audit round 2: Kept the names.`);
   });
 
   it("offers no pause and shows no progress steps during the pull-request session (AC-PR-05)", () => {

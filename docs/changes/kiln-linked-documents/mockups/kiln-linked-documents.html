@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Linked Documents</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<style>
+/* Kiln PRD: Kiln Linked Documents. The Documents found screen's "What Kiln found" panel (AC-LINK-04) and the phase prompt's added text (AC-LINK-03), in Kiln's dark theme. */
+:root {
+  --bg: #12110e; --panel: #1b1a16; --deep: #0d0c0a; --text: #ede8dd; --muted: #bdb6a8; --dim: #8c8577;
+  --green: #9cc49a; --line: rgba(237,232,221,.12); --line-stronger: rgba(237,232,221,.24);
+  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; background: var(--bg); }
+body { color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+main { max-width: 1120px; margin: 0 auto; padding: 40px max(16px, 4vw) 80px; display: flex; flex-direction: column; gap: 28px; box-sizing: border-box; }
+h1 { font-family: var(--serif); font-weight: 400; font-size: 32px; margin: 0; }
+.state { font-size: 13px; color: var(--muted); margin: 0; max-width: 72ch; }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 24px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.found-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.found-list > li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+.mark { margin-top: 4px; }
+.item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.item-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.item-name { font-size: 15px; font-weight: 600; }
+.file { font-family: var(--mono); font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+.item-line { font-size: 14px; color: var(--muted); }
+.phases { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.phase { display: flex; align-items: center; gap: 12px; font-size: 14.5px; }
+.circle { width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--line-stronger); display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.links { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.links li { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.links code { font-family: var(--mono); font-size: 12.5px; color: var(--text); overflow-wrap: anywhere; }
+.links span { font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.passed { display: inline-flex; align-items: center; gap: 6px; }
+.prompt { margin: 0; background: var(--deep); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.prompt b { color: var(--text); font-weight: 400; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Documents found, with a link Kiln did not follow</h1>
+  <p class="state">Example PRD: Customer returns. Its technical design links a background document by a path that does not exist in this repository. The new item sits after the phase plan with a neutral mark; the passed checks and Start are unchanged (AC-LINK-04). Right: the text the phase prompt gains while the link stays broken (AC-LINK-03).</p>
+  <div class="columns">
+    <section class="panel" aria-labelledby="found-h">
+      <h2 id="found-h" class="eyebrow">What Kiln found</h2>
+      <ul class="found-list">
+        <li><svg class="mark" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="1.8"/></svg>
+          <div class="item"><div class="item-head"><span class="item-name">PRD</span><span class="file">customer-returns-prd.md</span></div><span class="item-line">14 acceptance criteria · AC-RET-01 to AC-RET-14</span></div></li>
+        <li><svg class="mark" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="1.8"/></svg>
+          <div class="item"><div class="item-head"><span class="item-name">Technical design</span><span class="file">technical-design.md</span></div><span class="item-line">Cites 14 of 14 acceptance criteria</span></div></li>
+        <li><svg class="mark" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="1.8"/></svg>
+          <div class="item"><div class="item-head"><span class="item-name">Assumptions</span><span class="file">assumptions.md</span></div><span class="item-line">4 assumptions · 1 not yet confirmed · green lights, nothing waits on them</span></div></li>
+        <li><svg class="mark" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="1.8"/></svg>
+          <div class="item"><div class="item-head"><span class="item-name">Phase plan</span><span class="file">3 phase docs</span></div><span class="item-line">3 phases to implement, in order</span>
+            <ol class="phases"><li class="phase"><span class="circle">1</span>Return intake</li><li class="phase"><span class="circle">2</span>Refunds</li><li class="phase"><span class="circle">3</span>Store credit</li></ol></div></li>
+        <li><svg class="mark" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#8c8577" stroke-width="1.5"/><path d="M5.5 8h5" stroke="#8c8577" stroke-width="1.5"/></svg>
+          <div class="item"><div class="item-head"><span class="item-name">Linked documents</span></div><span class="item-line">1 not followed. Kiln starts anyway and tells the agent.</span>
+            <ul class="links"><li><code>billing-service/docs/event-history.md</code><span>linked from docs/prds/customer-returns/technical-design.md · not in this repository</span></li></ul></div></li>
+      </ul>
+      <div class="checks">
+        <span class="passed"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="2"/></svg>Every phase cites its criteria</span>
+        <span class="passed"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="2"/></svg>Dependencies point backward</span>
+        <span class="passed"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="#9cc49a" stroke-width="2"/></svg>Working tree is clean</span>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="prompt-h">
+      <h2 id="prompt-h" class="eyebrow">Added to each phase session's prompt</h2>
+<pre class="prompt">Kiln could not follow this link in the requirements, so it did not read the document:
+
+- <b>docs/prds/customer-returns/technical-design.md</b> links to <b>../../../billing-service/docs/event-history.md</b>: not in this repository.
+
+If this phase needs that document, find it. If you can't, and the phase needs it, say so in your final message.</pre>
+    </section>
+  </div>
+</main>
+</body>
+</html>

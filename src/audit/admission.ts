@@ -7,6 +7,7 @@ import { AuditStore, hashBytes, hashValue, REPORT_LIMIT, strictJson } from "./st
 import { assignedPath, captureSnapshot, compareSnapshots, gitText, repositoryFor } from "./snapshots.js";
 import { REPORT_FIELDS, validateReport } from "./validate-report.js";
 import { effectiveAudit, hasEffectiveResult } from "./effective-result.js";
+import { personItems } from "./person-items.js";
 
 export const RESULT_CHECK = "Audit result recorded";
 /**
@@ -134,7 +135,8 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     // Kiln captures what the audit left behind; the session never declares a snapshot (AC-NEUTRAL-02).
     const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString() });
     activity.snapshots.push(store.put(current)); snapshotId = current.id;
-    const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current });
+    const outstanding = personItems(context.stateDirectory, context.record.completionAudits!.activities, activity.sequence, store).outstanding;
+    const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, outstanding });
     checks.push({ name: RESULT_CHECK, passed: true, facts: [`Outcome ${validated.report.outcome}: ${validated.report.summary}`.slice(0, 600)] });
     checks.push(...await repositoryChecks(context));
     checks.push(...context.developmentChecks?.() ?? []);

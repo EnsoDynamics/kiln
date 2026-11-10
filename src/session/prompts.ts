@@ -65,6 +65,8 @@ export interface PullRequestPromptValues {
   branch: string;
   /** The repositories that get a pull request, in list order. */
   repositories: PromptRepository[];
+  /** Items audits left for a person, settled or still open, one per line (AC-NEUTRAL-03). */
+  personItems?: string;
 }
 
 /**
@@ -89,14 +91,15 @@ export function pullRequestSessionPrompt(values: PullRequestPromptValues): strin
     .map((repository) => `- \`${repository.name}\` (\`${repository.github}\`), worktree \`${repository.worktreePath}\`, into \`${repository.baseBranch}\``)
     .join("\n");
   const crossLinks = values.repositories.length > 1 ? template("pull-request-cross-links.txt") : "";
-  if (values.deliveryAuthority) return fill(template("development-finalization.txt"), { featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, repositoryList: list, deliveryAuthority: authorityBlock(values.deliveryAuthority) });
+  const items = values.personItems ? `\n\n${fill(template("pull-request-person-items.txt"), { items: values.personItems })}` : "";
+  if (values.deliveryAuthority) return fill(template("development-finalization.txt"), { featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, repositoryList: list, deliveryAuthority: authorityBlock(values.deliveryAuthority) }) + items;
   return fill(template("pull-request-session.txt"), {
     featureName: values.featureName,
     prdFile: values.prdFile,
     branch: values.branch,
     repositoryList: list,
     crossLinks: crossLinks === "" ? "" : `\n${crossLinks}\n`,
-  });
+  }) + items;
 }
 
 /**
@@ -256,8 +259,8 @@ function authorizedPhase(prompt: string, authority?: string): string {
     .replace(/(You're finished when[^\n]+)(\n|$)/, "$1 Required development-delivery assessment, merge, deployment, verification and source synchronization must also pass Kiln’s current evidence checks.$2") + "\n\n" + authorityBlock(authority);
 }
 
-export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string }): string {
-  return fill(template("audit-session.txt"), { ...values, round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ?? "No development merge or deployment is authorized.", previous: values.previous ?? "No prior audit result." });
+export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string; outstanding?: string }): string {
+  return fill(template("audit-session.txt"), { ...values, outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ?? "No development merge or deployment is authorized.", previous: values.previous ?? "No prior audit result." });
 }
 
 export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }
