@@ -1,0 +1,5 @@
+Kiln could not follow {{linkPhrase}} in the requirements, so it did not read {{documentPhrase}}:
+
+{{linkList}}
+
+If this phase needs {{needPhrase}}, find it. If you can't, and the phase needs it, say so in your final message.

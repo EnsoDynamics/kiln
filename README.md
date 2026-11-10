@@ -178,15 +178,13 @@ The browser view is the main interface, but every control for existing work is a
 
 ## Writing requirements for Kiln
 
-Kiln's audits snapshot the PRD, design, assumptions, phases and every local Markdown link in them, recursively. Links can reach other requirements directories and roadmap contracts. A missing required target stops the audit and reports the document chain.
+Kiln reads the PRD, technical design, assumptions and phase documents, then every local Markdown file they link to, recursively. A link Kiln can't follow, because its file isn't in the repository, is outside it, or is a symbolic link, never stops a run. Kiln lists it on Documents found and names it in each phase session's prompt, so the agent can find the document if the phase needs it.
 
-For a link that is background only (provenance or history, not requirements or required evidence), give it the exact title `kiln:reference` and Kiln won't follow it.
+The PRD's own documents, the phase plan, and `Superseded by:` / `Replaces:` pointers written in the PRD's own documents are still required: Kiln stops when one is missing. To keep Kiln from reading a background link at all, give it the exact title `kiln:reference`:
 
 ```markdown
 [Original handoff](../../../source-material/handoff/index.md "kiln:reference")
 ```
-
-Governing documents and explicit `Superseded by:` / `Replaces:` pointers stay mandatory even when a reference-only link also points at them. Existing files still count in repository fingerprints, reports must still supply all required evidence, and no directory is excluded automatically.
 
 ## Billing
 

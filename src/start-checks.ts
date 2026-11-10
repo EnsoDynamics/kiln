@@ -3,6 +3,7 @@
 // dependencies point backward, the checkout is clean, and the tools Kiln needs are there; and
 // each repository the phase documents name is beside the PRD's repository (multi-repo AC-REPO-02).
 
+import { readLinkedDocuments, type UnfollowedLink } from "./engine/plan-reconciliation.js";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseGithubOrigin } from "./github-origin.js";
@@ -31,7 +32,7 @@ export interface StartCheckReport {
   /** Every other failed check, one line each, in the wording of assumptions UI-010 item 10. */
   problems: string[];
   /** The file names found. Either is absent when neither of its names is there, or when both are (a problem). */
-  found: { designFile?: string; assumptionsFile?: string; phaseDocCount: number };
+  found: { designFile?: string; assumptionsFile?: string; phaseDocCount: number; unfollowedLinks?: UnfollowedLink[] };
   plan: PhasePlan | undefined;
   /** `<owner>/<name>` on GitHub, parsed from origin's URL, when it is there. */
   github?: string;
@@ -149,10 +150,18 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   if (originUrl.exitCode !== 0) problems.push("The checkout has no origin remote.");
   else if (!github) problems.push(`origin isn't on GitHub: ${originUrl.stdout.trim()}`);
 
+  // Only once every other check passed: Documents found lists the links Kiln won't follow, and a
+  // required one it can't follow is a problem here as it would be at the first plan read (AC-LINK-02, 04).
+  let unfollowedLinks: UnfollowedLink[] = [];
+  if (missingDocuments.length === 0 && problems.length === 0) {
+    try { unfollowedLinks = readLinkedDocuments(location.checkoutRoot, location.prdDirectoryFromRoot).unfollowed; }
+    catch (error) { problems.push((error as Error).message); }
+  }
+
   return {
     missingDocuments,
     problems,
-    found: { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: phaseFileNames.length },
+    found: { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: phaseFileNames.length, ...(unfollowedLinks.length ? { unfollowedLinks } : {}) },
     plan,
     ...(github ? { github: `${github.owner}/${github.name}` } : {}),
     repositories,

@@ -5,7 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { observePlan } from "./plan-reconciliation.js";
-import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
+import { observeGitPlan, readGitPlan } from "./completed-plan-sources.js";
 import { recordedPlan } from "./plan-reading.js";
 import { writePrdRecord } from "../state/records.js";
 
@@ -41,11 +41,11 @@ async function completedWithDanglingLink() {
   writePrdRecord(h.stateDirectory, record);
   return revision;
 }
-it("reads a completion revision past a dangling link, still refuses it for a revision that can be fixed, and finds the new phase", async () => {
+it("reads any revision past a dangling link, recording it, and finds the new phase (Kiln Linked Documents AC-LINK-01)", async () => {
   const revision = await completedWithDanglingLink();
   const context = { git: h.tools.git, env: h.env };
-  await expect(observeGitPlan(context, h.repository, directory, revision)).rejects.toThrow("Missing or unsafe document");
-  const historical = await observeGitPlan(context, h.repository, directory, revision, HISTORICAL_PLAN_READ);
+  const { source: historical, unfollowed } = await readGitPlan(context, h.repository, directory, revision);
+  expect(unfollowed).toEqual([expect.objectContaining({ target: "source-material/snapshot/PRD.md", reason: "not in this repository" })]);
   expect(Object.keys(historical.documents)).toContain("source-material/snapshot/DESIGN.md");
   expect(Object.keys(historical.documents)).not.toContain("source-material/snapshot/PRD.md");
 
@@ -63,6 +63,6 @@ it("still requires a Superseded by target at a completion revision", async () =>
   const revision = await completedWithDanglingLink();
   write(`${directory}/phase-1-catalog.md`, phase("1") + "\nSuperseded in part by: `docs/prds/comet/missing-replacement.md`\n");
   const amended = publish();
-  await expect(observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, directory, amended, HISTORICAL_PLAN_READ)).rejects.toThrow(`Missing or unsafe document at ${amended}:docs/prds/comet/missing-replacement.md`);
+  await expect(observeGitPlan({ git: h.tools.git, env: h.env }, h.repository, directory, amended)).rejects.toThrow(`Missing or unsafe document at ${amended}:docs/prds/comet/missing-replacement.md`);
   expect(revision).not.toBe(amended);
 });

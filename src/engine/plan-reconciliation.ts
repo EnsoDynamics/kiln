@@ -99,68 +99,157 @@ export function phaseScopeDigest(content: string, fileName: string, phaseLinks: 
   return digest({ scope: normalizedScope(content, phaseLinks, documentPath), repositories: phase.repositories, dependencies: dependencyIds(phase.dependenciesText), splitInto: phase.splitInto?.map(child => child.id) });
 }
 
-function safeFile(root: string, path: string): string {
-  if (isAbsolute(path) || path.includes("\\") || path.includes("\0") || path.split("/").some(p => p === ".." || !p)) throw new Error(`Document path escapes repository: ${path}`);
-  const target = resolve(root, path);
+/** Why Kiln did not follow a local Markdown link (Kiln Linked Documents AC-LINK-01). */
+export type UnfollowedReason = "not a usable path" | "outside the repository" | "not in this repository" | "a symbolic link" | "not a file";
+/** A local Markdown link Kiln did not follow: the document holding it, the link as written, the path it names and why. */
+export interface UnfollowedLink { from: string; href: string; target: string; reason: UnfollowedReason }
+/** One link or replacement pointer a document names: its repository path, or why it names none. */
+export type DocumentLink = { href: string; required: boolean } & ({ target: string } | { target?: undefined; reason: UnfollowedReason });
+const POINTER = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/;
+
+/** A repository path from a decoded link path, or why it isn't one. `base` is the linking document's directory; pointers name repository paths. */
+function linkTarget(decoded: string, base: string): { target: string } | { reason: UnfollowedReason } {
+  if (decoded.includes("\\") || decoded.includes("\0")) return { reason: "not a usable path" };
+  if (posix.isAbsolute(decoded)) return { reason: "outside the repository" };
+  const target = posix.normalize(posix.join(base, decoded));
+  return target === ".." || target.startsWith("../") ? { reason: "outside the repository" } : { target };
+}
+
+/**
+ * Every local Markdown link and replacement pointer in one document, in order. A link titled
+ * `kiln:reference` is not listed unless it is a pointer. Only a pointer in one of the PRD's own
+ * documents (`seed`) is required; every other target is optional (AC-LINK-02).
+ *
+ *   documentLinks("docs/prds/x/technical-design.md", "[a](../../a.md)", true)
+ *   // [{ href: "../../a.md", required: false, target: "docs/a.md" }]
+ */
+export function documentLinks(file: string, content: string, seed: boolean): DocumentLink[] {
+  const links: DocumentLink[] = [];
+  for (const block of markdown.parse(content, {})) for (const token of block.children ?? []) {
+    if (token.type !== "link_open") continue;
+    const pointer = POINTER.test(block.content);
+    if (token.attrGet("title") === "kiln:reference" && !pointer) continue;
+    const href = token.attrGet("href")?.toString() ?? "";
+    const path = href.split(/[?#]/)[0]!;
+    if (!path || /^[a-z][a-z0-9+.-]*:/i.test(path)) continue;
+    let decoded: string;
+    try { decoded = decodeURIComponent(path); } catch { links.push({ href, required: seed && pointer, reason: "not a usable path" }); continue; }
+    if (!decoded.endsWith(".md")) continue;
+    links.push({ href, required: seed && pointer, ...linkTarget(decoded, posix.dirname(file)) });
+  }
+  for (const match of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) {
+    links.push({ href: match[1]!, required: seed, ...linkTarget(match[1]!, "") });
+  }
+  return links;
+}
+
+/** A required target Kiln cannot follow stops it with the problem; an optional one is recorded (AC-LINK-02). */
+export function requiredLinkError(link: DocumentLink & { reason: UnfollowedReason }, from: string): Error {
+  return new Error(link.reason === "not a usable path" || link.reason === "outside the repository" ? `Document path escapes repository: ${link.href} (in ${from})` : `Linked document is missing: ${link.target ?? link.href} (in ${from})`);
+}
+
+/** The file at a repository path, or why Kiln won't read it. Errors other than absence, such as permissions, propagate. */
+function targetFile(root: string, path: string): { file: string } | { reason: UnfollowedReason } {
   // Reject every symlink, including a directory link that happens to lead back inside.
   let cursor = root;
   try {
-    for (const part of path.split("/")) { cursor = join(cursor, part); if (lstatSync(cursor).isSymbolicLink()) throw new Error(`Document symlink is not allowed: ${path}`); }
+    for (const part of path.split("/")) { cursor = join(cursor, part); if (lstatSync(cursor).isSymbolicLink()) return { reason: "a symbolic link" }; }
   } catch (error) {
-    // A document the plan links to that is not in the repository is a plan problem, which can be waived, not a read that could not happen (waivers "Failing Items").
-    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new Error(`Linked document is missing: ${path}`, { cause: error });
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return { reason: "not in this repository" };
     throw error;
   }
-  const physical = realpathSync(target);
-  if (!physical.startsWith(root + sep) || !lstatSync(target).isFile()) throw new Error(`Document is not a repository file: ${path}`);
-  return target;
+  const target = resolve(root, path);
+  if (!realpathSync(target).startsWith(root + sep) || !lstatSync(target).isFile()) return { reason: "not a file" };
+  return { file: target };
+}
+
+/** A required document's file; its absence or an unsafe path stops Kiln, as before Kiln Linked Documents. */
+function safeFile(root: string, path: string): string {
+  if (isAbsolute(path) || path.includes("\\") || path.includes("\0") || path.split("/").some(p => p === ".." || !p)) throw new Error(`Document path escapes repository: ${path}`);
+  const found = targetFile(root, path);
+  if ("file" in found) return found.file;
+  if (found.reason === "a symbolic link") throw new Error(`Document symlink is not allowed: ${path}`);
+  if (found.reason === "not in this repository") throw new Error(`Linked document is missing: ${path}`);
+  throw new Error(`Document is not a repository file: ${path}`);
+}
+
+export interface LinkedDocuments { documents: Record<string, string>; unfollowed: UnfollowedLink[] }
+
+/**
+ * Reads the PRD's own documents in a checkout, then every local Markdown file they link to,
+ * recursively. A link Kiln cannot follow is recorded, never thrown (AC-LINK-01); the PRD's own
+ * documents and the replacement pointers in them stay required (AC-LINK-02).
+ *
+ *   readLinkedDocuments("/home/person/shop", "docs/prds/customer-returns").unfollowed
+ *   // [{ from: "docs/prds/customer-returns/technical-design.md", href: "../../../x/a.md", target: "x/a.md", reason: "not in this repository" }]
+ */
+export function readLinkedDocuments(path: string, prdDirectory: string): LinkedDocuments {
+  const root = realpathSync(path);
+  if (relative(root, resolve(root, prdDirectory)).startsWith("..")) throw new Error("PRD directory escapes repository.");
+  const names = readdirSync(resolve(root, prdDirectory)).sort();
+  const phases = names.filter(isPhaseFileName);
+  if (!phases.length) throw new Error(`No phase documents in ${path}/${prdDirectory}`);
+  if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
+  const prds = names.filter(n => n.endsWith("-prd.md"));
+  if (prds.length !== 1) throw new Error(`Expected one governing PRD in ${path}/${prdDirectory}`);
+  const documents: Record<string, string> = {}; let size = 0;
+  const seeds = new Set([...phases, ...prds, ...names.filter(n => /technical-design|assumptions|phase-plan/.test(n) && n.endsWith(".md"))].map(n => `${prdDirectory}/${n}`));
+  if (![...seeds].some(n => n.includes("technical-design"))) throw new Error(`Missing technical design in ${path}/${prdDirectory}`);
+  const read = (name: string, target: string) => {
+    size += lstatSync(target).size;
+    if (size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "document bytes");
+    return documents[name] = readFileSync(target, "utf8");
+  };
+  for (const fileName of phases) read(`${prdDirectory}/${fileName}`, safeFile(root, `${prdDirectory}/${fileName}`));
+  const structure = readPhasePlan(phases.map(fileName => ({ fileName, markdown: documents[`${prdDirectory}/${fileName}`]! })));
+  if (structure.problems.length) throw new Error(structure.problems.join(" "));
+  const required = new Set(seeds);
+  const pending = new Map<string, { from: string; href: string }[]>([...seeds].map(name => [name, []]));
+  const unfollowed: UnfollowedLink[] = [];
+  // A target already judged unfollowable: a later link to it is recorded straight away.
+  const skipped = new Map<string, UnfollowedReason>();
+  const skip = (from: string, href: string, target: string, reason: UnfollowedReason) => {
+    if (!unfollowed.some(link => link.from === from && link.href === href)) unfollowed.push({ from, href, target, reason });
+  };
+  // Seeds come first, so every required pointer is known before an optional target is judged.
+  for (const [name, citations] of pending) {
+    let content = documents[name];
+    if (content === undefined) {
+      if (required.has(name)) content = read(name, safeFile(root, name));
+      else {
+        const found = targetFile(root, name);
+        if (!("file" in found)) { skipped.set(name, found.reason); for (const citation of citations) skip(citation.from, citation.href, name, found.reason); continue; }
+        content = read(name, found.file);
+      }
+    }
+    for (const link of documentLinks(name, content, seeds.has(name))) {
+      if (link.target === undefined) {
+        if (link.required) throw requiredLinkError(link, name);
+        skip(name, link.href, link.href, link.reason);
+        continue;
+      }
+      if (link.required) required.add(link.target);
+      if (Object.hasOwn(documents, link.target)) continue;
+      const reason = skipped.get(link.target);
+      if (reason) { skip(name, link.href, link.target, reason); continue; }
+      const citations = pending.get(link.target);
+      if (citations) citations.push({ from: name, href: link.href });
+      else pending.set(link.target, [{ from: name, href: link.href }]);
+    }
+  }
+  return { documents, unfollowed };
 }
 
 /** Read membership and bytes twice. No plan ever combines files from separate observations. */
-export function observePlan(path: string, prdDirectory: string): PlanSource {
-  const root = realpathSync(path);
-  if (relative(root, resolve(root, prdDirectory)).startsWith("..")) throw new Error("PRD directory escapes repository.");
-  const read = () => {
-    const names = readdirSync(resolve(root, prdDirectory)).sort();
-    const phases = names.filter(isPhaseFileName);
-    if (!phases.length) throw new Error(`No phase documents in ${path}/${prdDirectory}`);
-    if (phases.length > PHASE_LIMIT) throw new PlanCapacityError(PHASE_LIMIT, "phase records");
-    const prds = names.filter(n => n.endsWith("-prd.md"));
-    if (prds.length !== 1) throw new Error(`Expected one governing PRD in ${path}/${prdDirectory}`);
-    const documents: Record<string, string> = {}; let size = 0;
-    const pending = new Set([...phases, ...prds, ...names.filter(n => /technical-design|assumptions|phase-plan/.test(n) && n.endsWith(".md"))].map(n => `${prdDirectory}/${n}`));
-    if (![...pending].some(n => n.includes("technical-design"))) throw new Error(`Missing technical design in ${path}/${prdDirectory}`);
-    const readDocument = (name: string) => {
-      const target = safeFile(root, name); size += lstatSync(target).size;
-      if (size > PLAN_LIMIT) throw new PlanCapacityError(PLAN_LIMIT, "document bytes");
-      return documents[name] = readFileSync(target, "utf8");
-    };
-    for (const fileName of phases) readDocument(`${prdDirectory}/${fileName}`);
-    const structure = readPhasePlan(phases.map(fileName => ({ fileName, markdown: documents[`${prdDirectory}/${fileName}`]! })));
-    if (structure.problems.length) throw new Error(structure.problems.join(" "));
-    for (const name of pending) {
-      const content = documents[name] ?? readDocument(name);
-      for (const block of markdown.parse(content, {})) for (const token of block.children ?? []) {
-        if (token.type !== "link_open") continue;
-        const replacementPointer = /(?:Superseded(?: in part)? by|Replaces(?: in part)?):/.test(block.content);
-        if (token.attrGet("title") === "kiln:reference" && !replacementPointer) continue;
-        const href = token.attrGet("href")?.toString().split(/[?#]/)[0];
-        if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
-        const decoded = decodeURIComponent(href);
-        if (!decoded.endsWith(".md")) continue;
-        if (isAbsolute(decoded) || decoded.includes("\\")) throw new Error(`Document path escapes repository: ${href}`);
-        const linked = posix.normalize(posix.join(posix.dirname(name), decoded));
-        if (!Object.hasOwn(documents, linked)) pending.add(linked);
-      }
-      for (const pointer of content.matchAll(/(?:Superseded(?: in part)? by|Replaces(?: in part)?):[^\n]*?`([^`]+\.md)`/g)) {
-        if (!Object.hasOwn(documents, pointer[1]!)) pending.add(pointer[1]!);
-      }
-    }
-    return { names, documents, phases };
-  };
-  const first = read(); const second = read();
+export function observeActivePlan(path: string, prdDirectory: string): { source: PlanSource; unfollowed: UnfollowedLink[] } {
+  const first = readLinkedDocuments(path, prdDirectory); const second = readLinkedDocuments(path, prdDirectory);
   if (digest(first) !== digest(second)) throw new Error(`source_changed: documents changed while reading ${path}; retry the handback.`);
-  return planSourceFromDocuments(root, prdDirectory, first.documents);
+  return { source: planSourceFromDocuments(realpathSync(path), prdDirectory, first.documents), unfollowed: first.unfollowed };
+}
+
+/** The active plan alone, for callers that need no unfollowed links. */
+export function observePlan(path: string, prdDirectory: string): PlanSource {
+  return observeActivePlan(path, prdDirectory).source;
 }
 
 /** Shared parser for a coherent saved checkout or one immutable Git tree. */

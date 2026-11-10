@@ -117,6 +117,8 @@ export interface DocumentsFound {
     /** `repositories`: the names on each document's `**Repositories:**` line (multi-repo AC-REPO-03). */
     phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[] }[];
   };
+  /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
+  unfollowedLinks?: { target: string; from: string; reason: string }[];
   checks: { name: string; passed: boolean }[];
 }
 
@@ -982,6 +984,8 @@ export function documentsFound(
       closedCount: leaves.filter((leaf) => leaf.closed).length,
       phases: plan.phases.map((phase) => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })),
     },
+    // One row per document and target: two links from one document to one file (a section link) are one row.
+    ...(found.unfollowedLinks?.length ? { unfollowedLinks: found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
     checks: [
       { name: "Every phase cites its criteria", passed: true },
       { name: "Dependencies point backward", passed: true },
