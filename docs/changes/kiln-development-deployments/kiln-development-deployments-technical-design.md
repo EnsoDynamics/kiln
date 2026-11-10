@@ -81,47 +81,6 @@ Checkpoint head, target and required evidence form an immutable identity once an
 
 Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Persisted schema 4 (schema version and added authorization/delivery records; provider identities and migrations retained).
 
-### Proposed operator recovery for an incorrect command lookup
-
-**Design proposal; not implemented.** [Review the proposed correction flow](mockups/kiln-deployment-check-correction.html).
-A malformed positional lookup can prevent
-reconciliation of a retained deployment operation even after its underlying
-infrastructure problem is fixed. The session cannot approve a different matcher
-as though it were an equivalent obligation: expected-value equality alone does
-not prove that a changed projection observes the same remote state.
-
-Provide an operator review for one checkpoint requirement in a stopped execution.
-The proposal binds the execution, active owner, current ledger revision, checkpoint,
-requirement, exact prior matcher and proposed field selectors. Show the old and new
-lookups, the unchanged expected environment/revision/literal assertions, and the
-actual recorded probe values with their observation time. Missing or ambiguous
-observations are labelled unproved, never shown as successful values. Reject stale
-proposals and expose no approval action to the session delivery helper.
-
-A correction changes only field selectors over the same raw structured response.
-Invocation, working directory, source reference, purpose, target and every expected
-scalar value/type remain unchanged. No command changes, CLI projections, literal
-expressions or executable transformations are accepted. Bounded named-array
-selection requires an exact key/value match and exactly one result; absent or
-duplicate matches fail the evidence check. Existing JSON Pointer lookups remain
-supported. The operator reviews which observed source establishes each assertion;
-Kiln does not infer semantic equivalence from a multiset of expected values.
-
-Approval records a separately versioned correction with the complete prior and new
-lookup contracts, reason, operator decision, current owner and timestamps. Retain
-the original checkpoint, merge, prepared/failed operations, evidence and failures.
-All source-coverage, checks, review, prerequisite and criterion obligations survive.
-Older readers must refuse the newer private record schema rather than discard the
-correction history. A covering checkpoint must retain the operator-approved
-requirement, not silently fall back to its original invalid lookup.
-
-Approval neither accepts rejected evidence nor changes a delivery result. A later
-ordinary reconciliation must obtain and validate authoritative evidence under the
-approved selectors before an operation becomes observed. Approval never resumes a
-session, starts a deployment, launches a task, grants another target, or closes a
-phase. Wider verifier changes require their own explicit review and are outside
-this bounded lookup-correction action.
-
 ## Session Contract and Delivery Interface
 
 ### One authority statement everywhere
