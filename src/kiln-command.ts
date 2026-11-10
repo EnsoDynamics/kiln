@@ -35,6 +35,8 @@ import { formatCompletedPlanCheck, formatDecisionLine, formatFolderMissing, form
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
 import type { AuditWaiverResult } from "./engine/waivers.js";
+import { copyCommandDirectory } from "./installed-copy.js";
+import { fileURLToPath } from "node:url";
 
 export interface CommandContext {
   cwd: string;
@@ -245,7 +247,7 @@ function makeEngine(
     ...(start?.prdTree === undefined ? {} : { prdTree: start.prdTree }),
     ...(start?.plan === undefined ? {} : { startPlan: start.plan }),
     ...(start === undefined ? {} : { namedRepositories: start.repositories }),
-    ...kilnBinDirectory(),
+    ...kilnBinDirectory(context.env),
     onTerminal: (event) => {
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
@@ -489,9 +491,12 @@ function portRange(env: NodeJS.ProcessEnv): { first: number; last: number } | { 
  * On macOS and Linux, the directory of the `kiln` the person ran, put first on each session's
  * PATH so `kiln add-repository` reaches this Kiln: npm links `kiln` to `dist/cli.js`, and Node
  * keeps the link's path in `process.argv[1]`. On Windows npm's shim hides it, so PATH is left
- * as it is (multi-repo technical design, "The command").
+ * as it is (multi-repo technical design, "The command"). Running from a private copy, it is
+ * the copy's own `kiln`, since npm's may be a newer version by now (Kiln Upgrade While Running, AC-UPG-01).
  */
-function kilnBinDirectory(): { kilnBinDirectory?: string } {
+function kilnBinDirectory(env: NodeJS.ProcessEnv): { kilnBinDirectory?: string } {
+  const copy = copyCommandDirectory(fileURLToPath(new URL("..", import.meta.url)), env);
+  if (copy) return { kilnBinDirectory: copy };
   const script = process.argv[1];
   if (process.platform === "win32" || script === undefined || basename(script) !== "kiln") return {};
   return { kilnBinDirectory: dirname(script) };
