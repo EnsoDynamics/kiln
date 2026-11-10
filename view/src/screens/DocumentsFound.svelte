@@ -22,6 +22,7 @@
     accountLines,
     assumptionsLine,
     designLine,
+    linkedDocumentsLine,
     EFFORT_LABELS,
     EFFORTS,
     effortDisabled,
@@ -162,6 +163,21 @@
             </ol>
           </div>
         </li>
+        {#if documents.unfollowedLinks?.length}
+          <!-- Neither passed nor failed: Kiln starts anyway and tells the agent (Kiln Linked Documents AC-LINK-04). -->
+          <li class="linked">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--dim)" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" class="found-mark"><circle cx="8" cy="8" r="5.5"></circle><path d="M5.5 8h5"></path></svg>
+            <div class="item">
+              <div class="item-head"><span class="item-name">Linked documents</span></div>
+              <span class="item-line">{linkedDocumentsLine(documents.unfollowedLinks.length)}</span>
+              <ul class="links">
+                {#each documents.unfollowedLinks as link (`${link.from} ${link.target}`)}
+                  <li><span class="mono link-target">{link.target}</span><span class="link-from">linked from <span class="mono">{link.from}</span> · {link.reason}</span></li>
+                {/each}
+              </ul>
+            </div>
+          </li>
+        {/if}
       </ul>
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
@@ -358,6 +374,11 @@
   .item-name { font-size: 15px; font-weight: 600; color: var(--text); }
   .file { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .item-line { font-size: 14px; color: var(--muted); }
+  .links { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .links li { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .link-target { font-size: 12.5px; color: var(--text); overflow-wrap: anywhere; }
+  .link-from { font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+  .link-from .mono { font-size: 12.5px; }
   .phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .split { display: flex; flex-direction: column; gap: 8px; }
   .phase { display: flex; align-items: center; gap: 12px; }

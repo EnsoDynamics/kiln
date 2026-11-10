@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { observePlan, retainBaseline, BASELINE_LIMIT, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
+import { observePlan, readLinkedDocuments, retainBaseline, BASELINE_LIMIT, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
+import { readGitPlan } from "./completed-plan-sources.js";
 import * as gitReads from "./git-reads.js";
 import type { CompletedPlanCheck } from "./completed-plan-discovery.js";
 import { recordedPlan } from "./plan-reading.js";
@@ -281,28 +282,27 @@ it.each(["saved", "git", "baseline", "baseline publication", "accounting", "prop
   } finally { restore(); }
 }, 120_000);
 
-it("reads decoded Markdown extensions from saved/Git sources, refusing missing and unsafe targets", async () => {
-  await fixture(); add(); publish(); const earlier = await h.engine.checkCompletedPlan();
+it("follows decoded Markdown extensions in saved and Git sources, and never fails the check on a link it can't follow (Kiln Linked Documents AC-LINK-01)", async () => {
+  await fixture(); add(); publish(); await h.engine.checkCompletedPlan();
   const design = join(h.repository, directory, "comet-technical-design.md");
-  writeFileSync(design, "# Design\n[Required](shared-requirements%2Emd)\n");
-  let response = await checkHttp(); expect(response.status).toBe(503);
-  expect((await response.json() as { check: CompletedPlanCheck }).check).toMatchObject({ status: "failed", earlierResult: earlier.result, lastSuccessfulAt: earlier.lastSuccessfulAt });
-  writeFileSync(join(h.repository, directory, "shared-requirements.md"), "# Required shared catalog rules\n"); publish();
+  const head = () => git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  const context = { git: h.tools.git, env: h.env };
+  writeFileSync(design, "# Design\n[Shared](shared-requirements%2Emd)\n"); publish();
+  let response = await checkHttp(); expect(response.status).toBe(200);
+  expect((await readGitPlan(context, h.repository, directory, head())).unfollowed).toEqual([{ from: `${directory}/comet-technical-design.md`, href: "shared-requirements%2Emd", target: `${directory}/shared-requirements.md`, reason: "not in this repository" }]);
+  writeFileSync(join(h.repository, directory, "shared-requirements.md"), "# Shared catalog rules\n"); publish();
+  expect(Object.keys(readLinkedDocuments(h.repository, directory).documents)).toContain(`${directory}/shared-requirements.md`);
+  expect(Object.keys((await readGitPlan(context, h.repository, directory, head())).source.documents)).toContain(`${directory}/shared-requirements.md`);
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { proposal: { readiness: "ready" } } });
-  // A remote-only required reference must fail even when the saved source stays readable.
-  writeFileSync(design, "# Design\n[Required](missing%2Emd)\n"); publish();
-  writeFileSync(design, "# Design\n[Required](shared-requirements%2Emd)\n");
-  response = await checkHttp(); expect(response.status).toBe(503);
-  expect((await response.json() as { check: CompletedPlanCheck }).check.sources.find(s => s.kind === "delivery_base")?.error).toContain("missing.md");
-  for (const href of ["../../../../outside%2Emd", "%2Foutside%2Emd", "..%5Coutside%2Emd"]) {
-    writeFileSync(design, `# Design\n[Required](${href})\n`);
-    expect((await h.engine.checkCompletedPlan()).sources[0]!.error).toContain("escapes");
+  for (const href of ["missing%2Emd", "../../../../outside%2Emd", "%2Foutside%2Emd", "..%5Coutside%2Emd"]) {
+    writeFileSync(design, `# Design\n[Background](${href})\n`); publish();
+    expect((await h.engine.checkCompletedPlan()).errors).toEqual([]);
   }
-  const target = join(h.repository, directory, "linked.md"); symlinkSync(join(h.repository, directory, "shared-requirements.md"), target);
-  writeFileSync(design, "# Design\n[Required](linked%2Emd)\n");
-  expect((await h.engine.checkCompletedPlan()).sources[0]!.error).toContain("symlink");
-  publish();
-  expect((await h.engine.checkCompletedPlan()).sources[1]!.error).toContain("unsafe document");
+  symlinkSync(join(h.repository, directory, "shared-requirements.md"), join(h.repository, directory, "linked.md"));
+  writeFileSync(design, "# Design\n[Background](linked%2Emd)\n"); publish();
+  expect((await h.engine.checkCompletedPlan()).errors).toEqual([]);
+  expect((await readGitPlan(context, h.repository, directory, head())).unfollowed).toMatchObject([{ reason: "a symbolic link" }]);
+  response = await checkHttp(); expect(response.status).toBe(200);
   expect(h.claudeCalls()).toEqual([]);
 });
 

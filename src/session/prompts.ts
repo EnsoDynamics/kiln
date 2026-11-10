@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import type { UnfollowedLink } from "../engine/plan-reconciliation.js";
 
 // src/session/ and dist/session/ both sit two levels under the package root, beside prompts/.
 const PROMPTS = new URL("../../prompts/", import.meta.url);
@@ -56,6 +57,8 @@ export interface PhasePromptValues {
   parentFolder: string;
   /** Present for a multi-repository PRD: its workspace folder, absolute, and its repositories in list order. */
   workspace?: { folder: string; repositories: PromptRepository[] };
+  /** Links in the requirements Kiln did not follow, from its latest plan read (Kiln Linked Documents AC-LINK-03). */
+  unfollowedLinks?: UnfollowedLink[];
 }
 
 export interface PullRequestPromptValues {
@@ -75,12 +78,12 @@ export interface PullRequestPromptValues {
 export function phaseSessionPrompt(values: PhasePromptValues): string {
   const { workspace } = values;
   const common = { phaseDoc: values.phaseDoc, featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, parentFolder: values.parentFolder };
-  if (!workspace) return authorizedPhase(fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath }), values.deliveryAuthority);
+  if (!workspace) return authorizedPhase(withUnfollowedLinks(fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath }), values.unfollowedLinks), values.deliveryAuthority);
   const list = workspace.repositories
     .map((repository) => `- \`${repository.name}\`: \`${repository.worktreePath}\`, base \`${repository.baseBranch}\`${repository.isPrd ? " (the PRD's repository)" : ""}`)
     .join("\n");
   const example = workspace.repositories.find((repository) => !repository.isPrd)?.name ?? workspace.repositories[0]!.name;
-  return authorizedPhase(fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list }), values.deliveryAuthority);
+  return authorizedPhase(withUnfollowedLinks(fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list }), values.unfollowedLinks), values.deliveryAuthority);
 }
 
 /** The pull-request session's prompt (AC-PR-01; multi-repo AC-PRS-02, AC-PRS-05): one pull request per repository listed. */
@@ -249,6 +252,22 @@ function joinWithAnd(items: string[]): string {
 }
 
 function authorityBlock(authority: string): string { return fill(template("development-authority.txt"), { authority, sourceRevision: "{{sourceRevision}}", mergeRevision: "{{mergeRevision}}", environment: "{{environment}}" }); }
+/**
+ * The phase prompt with the links Kiln did not follow, one per line, or unchanged when there are none (AC-LINK-03).
+ *
+ *   - `docs/prds/customer-returns/technical-design.md` links to `../../../billing/a.md`: not in this repository.
+ */
+function withUnfollowedLinks(prompt: string, links: UnfollowedLink[] | undefined): string {
+  if (!links?.length) return prompt;
+  const one = links.length === 1;
+  return `${prompt}\n\n${fill(template("unfollowed-links.txt"), {
+    linkPhrase: one ? "this link" : "these links",
+    documentPhrase: one ? "the document" : "the documents they point at",
+    needPhrase: one ? "that document" : "one of those documents",
+    linkList: links.map(link => `- \`${link.from}\` links to \`${link.href}\`: ${link.reason}.`).join("\n"),
+  })}`;
+}
+
 function authorizedPhase(prompt: string, authority?: string): string {
   if (!authority) return prompt;
   return prompt.replace("You are not authorized to open a pull request, merge, deploy, or touch any other branch.", "Development delivery is governed by the saved authority below.")

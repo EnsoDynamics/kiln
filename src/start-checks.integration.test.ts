@@ -42,6 +42,29 @@ describe("runStartChecks", () => {
     expect(report.plan?.phases.map((phase) => phase.id)).toEqual(["1", "2", "2a", "2b", "3"]);
   });
 
+  it("lists links it won't follow without failing, and passes them to Documents found (Kiln Linked Documents AC-LINK-04)", async () => {
+    const files = prdDirectoryFiles(); files["technical-design.md"] += "\n[Event history](../../../billing-service/docs/event-history.md)\n[Retention](../../../billing-service/docs/event-history.md#retention)\n";
+    commitFiles(sandbox, repository, prdDirectory, files);
+    const report = await check();
+    expect(report.problems).toEqual([]);
+    expect(startChecksPassed(report)).toBe(true);
+    const link = { from: `${prdDirectory}/technical-design.md`, href: "../../../billing-service/docs/event-history.md", target: "billing-service/docs/event-history.md", reason: "not in this repository" };
+    expect(report.found.unfollowedLinks).toEqual([link, { ...link, href: `${link.href}#retention` }]);
+    const location = await locate();
+    const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories }, location.repositoryName);
+    // Two section links to one missing file are one row on the screen.
+    expect(documents.unfollowedLinks).toEqual([{ target: link.target, from: link.from, reason: link.reason }]);
+    expect(documents.checks.map(check => check.name)).not.toContain("Linked documents");
+  });
+
+  it("still stops on a missing replacement target in the PRD's own documents (AC-LINK-02)", async () => {
+    const files = prdDirectoryFiles(); files["technical-design.md"] += "\nReplaces: AC-OLD-01 in `docs/changes/gone/gone-prd.md`\n";
+    commitFiles(sandbox, repository, prdDirectory, files);
+    const report = await check();
+    expect(report.problems).toEqual(["Linked document is missing: docs/changes/gone/gone-prd.md"]);
+    expect(startChecksPassed(report)).toBe(false);
+  });
+
   it("names each missing document; assumptions are optional", async () => {
     commitFiles(sandbox, repository, prdDirectory, { "notes.md": "keeps the directory\n" });
     for (const name of ["technical-design.md", "assumptions.md", `${FOLDER}-prd.md`, ...Object.keys(PHASES)]) git(sandbox, repository, "rm", "-q", `${prdDirectory}/${name}`);

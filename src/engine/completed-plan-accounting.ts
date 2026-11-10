@@ -10,7 +10,7 @@ import { leavesOf, type PlannedPhase } from "../plan/phase-plan.js";
 import { deliveryOwner } from "../state/development-delivery.js";
 import type { PrdRecord } from "../state/records.js";
 import { owesDevelopmentEvidence, requireOwnerDeliveryEvidence, validateDeliverySplits } from "./development-delivery.js";
-import { gitRead, HISTORICAL_PLAN_READ, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
+import { gitRead, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
 import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { judgedPhase } from "./plan-reading.js";
 import { PLAN_LIMIT, PlanCapacityError, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
@@ -136,7 +136,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       const exists = await runGit(git, path, ["cat-file", "-t", revision]);
       if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${name}, then check again.`); continue; }
       if (name === prdName) {
-        const original = await observeGitPlan(git, path, record.prdDirectory, revision, HISTORICAL_PLAN_READ);
+        const original = await observeGitPlan(git, path, record.prdDirectory, revision);
         const originalPhase = leavesOf(original.plan).find(p => p.id === phase.id);
         if (!originalPhase?.closed || !completedPhaseScopeUnchanged(original, candidate, phase.id) || JSON.stringify(original.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort()) !== JSON.stringify(candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort())) {
           row.problems.push(`Phase ${phase.id}: ${revision} does not contain its unchanged Closed scope at ${row.file}. Restore the matching source reference.`); continue;

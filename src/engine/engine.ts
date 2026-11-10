@@ -138,8 +138,8 @@ import { compareToMinimum } from "../agents/tooling-minimums.js";
 type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][number];
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
-import { HISTORICAL_PLAN_READ, observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
+import { observeGitPlan } from "./completed-plan-sources.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, observeActivePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource, type UnfollowedLink } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
 import {
@@ -358,6 +358,8 @@ export class Engine {
   stoppedCommits: { phaseKey: string; commits: RepositoryCommits[] } | undefined;
   /** The last successful read of the plan in this run. */
   plan: PhasePlan | undefined;
+  /** Links in the requirements Kiln did not follow, from its latest read of the active plan (Kiln Linked Documents AC-LINK-03). Never saved. */
+  unfollowedLinks: UnfollowedLink[] = [];
   /** Set once a stop begins (Ctrl+C, a closed terminal, a signal); from then on nothing is judged. */
   stopping: InterruptCause | undefined;
 
@@ -3115,7 +3117,8 @@ export class Engine {
     const prd = intent.repositories.find(repository => repository.kind === "prd")!;
     let source: PlanSource | undefined;
     await step(intent, "plan", save, async () => {
-      source = observePlan(expandHome(prd.worktreePath), this.paths.prdDirectoryFromRoot);
+      const observed = observeActivePlan(expandHome(prd.worktreePath), this.paths.prdDirectoryFromRoot);
+      source = observed.source; this.unfollowedLinks = observed.unfollowed;
       if (source.digest !== build.plan!.digest) throw new FolderSetupChanged("The plan in the new folder isn’t the one the page showed. Review the refreshed page, then press Start again.");
     });
     source ??= observePlan(expandHome(prd.worktreePath), this.paths.prdDirectoryFromRoot);
@@ -5979,6 +5982,7 @@ export class Engine {
       branch: this.record.settings.featureBranch,
       parentFolder: displayPath(this.parentFolder),
       ...(workspace ? { workspace: { folder: this.workspaceFolder, repositories: this.promptRepositories(this.setUpRepositories) } } : {}),
+      unfollowedLinks: this.unfollowedLinks,
     };
   }
 
@@ -6112,8 +6116,10 @@ export class Engine {
     let baseline: Omit<PlanBaseline, "id">;
     let added: string[];
     try {
-      const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision, HISTORICAL_PLAN_READ) }) : undefined;
-      const active = observePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
+      const previous = this.record.planReconciliation?.baselineId ? await comparisonBaseline(this.stateDirectory, this.record.planReconciliation.baselineId, { repositoryName: this.paths.repositoryName, read: revision => observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision) }) : undefined;
+      const observed = observeActivePlan(this.worktreePath, this.paths.prdDirectoryFromRoot);
+      const active = observed.source;
+      this.unfollowedLinks = observed.unfollowed;
       // Once set up, the assigned worktree owns this execution's documents.
       // Other checkouts are considered only by completed-run discovery.
       if (!previous) for (const [key, facts] of Object.entries(this.record.phases)) {
@@ -6144,7 +6150,7 @@ export class Engine {
               if (!revision && waiverId) scopeRepositories = phaseRepositories(active, phase.id);
               else {
                 if (!revision) throw new Error(`baseline_unavailable: Phase ${phase.id} has no retained scope or recorded published document revision. Restore that receipt/revision before returning control.`);
-                const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision!, HISTORICAL_PLAN_READ);
+                const original = await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, revision!);
                 if (!original.plan.phases.find(p => p.id === phase.id)?.closed && !this.waiverClosed(phase.id) || !completedPhaseScopeUnchanged(original, active, phase.id)) throw new Error(`baseline_unavailable: Phase ${phase.id} differs from, or cannot be read at, its recorded completion revision ${revision}. Reconcile the earlier completed scope or restore that revision; today's document cannot prove yesterday's work.`);
                 scopeRepositories = phaseRepositories(original, phase.id);
               }

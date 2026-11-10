@@ -24,7 +24,7 @@ Each optional target is classified before it is read:
 
 | Link or target | Reason recorded | When required |
 |---|---|---|
-| The href has a backslash or NUL, or malformed percent-encoding | `not a usable path` | Stops, as today |
+| The href has a backslash or NUL, or can't be decoded (Markdown re-encodes a malformed escape first, so such a link usually reads as a missing file) | `not a usable path` | Stops, as today |
 | Normalizes outside the root (`../…`) or is absolute | `outside the repository` | Stops, as today |
 | Not present (`ENOENT`, `ENOTDIR`, or absent from the Git tree) | `not in this repository` | Stops, as today |
 | A path part is a symbolic link (worktree), or mode `120000` (Git) | `a symbolic link` | Stops, as today |
@@ -50,7 +50,7 @@ The engine keeps the list from its most recent active-plan read in memory (`this
 
 ## Documents Found (AC-LINK-04, AC-LINK-05)
 
-`runStartChecks` calls `readLinkedDocuments` on the shared checkout once every other start check has passed, and adds `unfollowed` to `StartCheckReport`; it never adds a problem. A required case it throws on (a symbolic-link seed, a missing pointer target in a seed) becomes a start-check problem with the reader's message, as the engine would stop on it at its first read. `kiln-command.ts` passes `report.unfollowed` to `documentsFound`, which adds `unfollowedLinks` (target, from, reason) to the snapshot's documents. `DocumentsFound.svelte` renders the **Linked documents** item after **Phase plan** with a neutral mark when the list is non-empty, as the mockup draws. Terminal output, the passed checks, the phase rows, waivers and stop copy are untouched.
+`runStartChecks` calls `readLinkedDocuments` on the shared checkout once every other start check has passed, and adds the list to `StartCheckReport.found` as `unfollowedLinks`; it never adds a problem for an optional link. A required case it throws on (a symbolic-link seed, a missing pointer target in a seed) becomes a start-check problem with the reader's message, as the engine would stop on it at its first read. `kiln-command.ts` already passes `report.found` to `documentsFound`, which adds `unfollowedLinks` (target, from, reason) to the snapshot's documents. `DocumentsFound.svelte` renders the **Linked documents** item after **Phase plan** with a neutral mark when the list is non-empty, as the mockup draws. Terminal output, the passed checks, the phase rows, waivers and stop copy are untouched.
 
 ## Changes to Earlier Designs
 
