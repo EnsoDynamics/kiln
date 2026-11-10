@@ -17,13 +17,13 @@ The session writes `<prd-directory>/kiln-audit-<activityId>.json`, as today.
 | `outcome` | `passed \| completion_phases \| continue_test \| needs_you` |
 | `summary` | Non-empty plain text: what the audit concluded |
 | `completionPhases` | Phase IDs this audit appended; `[]` when none |
-| `needsYou` | `{problem, action}[]`, non-empty exactly when `outcome` is `needs_you` |
+| `needsYou` | `{problem, action}[]`: non-empty when `outcome` is `needs_you`, allowed with `completion_phases`, `[]` otherwise |
 | `changedImplementation` | Test audits only, required boolean: whether it changed anything other than tests and audit records |
 | `afterDeliveryActions` | Optional string list: person actions the requirements place after Kiln's delivery, shown at Complete |
 
 Unknown extra fields are ignored, so a session may add detail. Strict JSON parsing (no duplicate keys) and the 8 MiB limit remain. A `schemaVersion` 1 report is refused with `invalid_report` naming the version-2 fields.
 
-The audit prompt (`prompts/audit-session.txt`) states this contract and maps it onto the skill's own ending: the skill found nothing left → `passed`; it added phases → `completion_phases`; it saved test work for another session → `continue_test`; it stopped for a person, or ended normally while listing behavior changed outside the requirements or a person action due before delivery → `needs_you`. Configuration, dependency manifests and helpers runtime code also uses count as implementation for `changedImplementation`. It tells the session to follow the skill as written and to commit and push the report. It names no method vocabulary, record file or marker.
+The audit prompt (`prompts/audit-session.txt`) states this contract and maps it onto the skill's own ending: the skill found nothing left → `passed`; it added phases → `completion_phases`, with anything a person must decide or do before delivery in `needsYou`; it saved test work for another session → `continue_test`; it added no phases and stopped for a person, or ended normally while listing behavior changed outside the requirements or a person action due before delivery → `needs_you`. It also tells the session that any `needsYou` item in a prior report shown under its prior work that is still unsettled goes in this report's `needsYou` again. Configuration, dependency manifests and helpers runtime code also uses count as implementation for `changedImplementation`. It tells the session to follow the skill as written and to commit and push the report. It names no method vocabulary, record file or marker.
 
 ## Admission
 
@@ -33,11 +33,11 @@ Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-wai
 
 1. Report readable, size, strict JSON, contract fields above.
 2. Plan: the plan reads; each phase in the activity's initial snapshot is still present in order with the same ID, file, scope and closure; appended phases equal `completionPhases` and are open.
-3. Routing: `passed` has no open leaf and no appended phase; `completion_phases` appends at least one; `continue_test` is a test audit with no open leaf, no appended phase and at least one assigned-repository file, other than its own report, changed since the initial snapshot, and for a continuation (index above 1) a file outside the requirements documents; `needs_you` has `needsYou` entries, and no other outcome has any.
+3. Routing: `passed` has no open leaf and no appended phase; `completion_phases` appends at least one; `continue_test` is a test audit with no open leaf, no appended phase and at least one assigned-repository file, other than its own report, changed since the initial snapshot, and for a continuation (index above 1) a file outside the requirements documents; `needs_you` has `needsYou` entries and appends no phase (an audit that added phases reports `completion_phases` and lists its items there); `passed` and `continue_test` have none.
 4. Everything committed and Pushed (`repositoryChecks`), then development-delivery checks. The submission snapshot is stored before these run.
 5. Re-read: heads and report bytes unchanged during admission.
 
-A `needs_you` report adds a failing **Audit work resolved** check listing `needsYou`, so its attempt stays unresolved and the activity stops at Needs you; it is never accepted.
+A `needs_you` report adds a failing **Audit work resolved** check listing `needsYou`, so its attempt stays unresolved and the activity stops at Needs you; it is never accepted. A `completion_phases` report with `needsYou` entries is accepted and routes to implementation: the items show on the audit's row, as its blockers on the detail page and as a count of items left for you on the plan row, and reach the next audit through its prompt's prior work, which already carries the latest delivery and test reports. Kiln does not track them further; the next audit decides whether each is settled, and one still open makes it report `needs_you` unless it adds phases again.
 
 `nextAction`: `needs_you` → needs_you; `completion_phases` → implementation; `continue_test` → continue_test; test audit `passed` or `continue_test` with `changedImplementation` → delivery_audit; delivery `passed` → test_audit; test `passed` → final_delivery.
 
@@ -67,4 +67,4 @@ Replaces in part: `docs/changes/kiln-completion-checks/kiln-completion-checks-te
 
 ## Validation
 
-Real temporary Git repositories and bare origins: each outcome advances or stops as above; a changed original phase, an unnamed appended phase, a passing report with an open leaf, an unchanged continuation, a v1 report and a dirty or unpushed worktree are refused; a changed skill file does not affect admission; `changedImplementation` routes to a delivery audit; a retired snapshot request changes nothing; a `needs_you` report is never accepted; a missing report leaves the activity at Needs you; an accepted version-1 result still gates; a version-2 repair inherits every criterion of its audit's development obligations. The engine audit workflow runs a delivery and test audit to completion with version-2 reports.
+Real temporary Git repositories and bare origins: each outcome advances or stops as above; a changed original phase, an unnamed appended phase, a passing report with an open leaf, an unchanged continuation, a v1 report and a dirty or unpushed worktree are refused; a changed skill file does not affect admission; `changedImplementation` routes to a delivery audit; a retired snapshot request changes nothing; a `needs_you` report is never accepted, and one that appended phases is refused; a `completion_phases` report with `needsYou` entries is accepted, routes to implementation and shows its items on the row; a missing report leaves the activity at Needs you; an accepted version-1 result still gates; a version-2 repair inherits every criterion of its audit's development obligations. The engine audit workflow runs a delivery and test audit to completion with version-2 reports.

@@ -105,12 +105,27 @@ describe("version-2 audit admission", () => {
     expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["AC-PROOF-01 needs a staging login. Grant the staging role."] });
     expect(latestAuditRefusal(f.stateDirectory, f.activity)).toMatchObject({ code: "unresolved_checks", reason: expect.stringContaining("Grant the staging role.") });
   });
+  it("builds added phases while a person settles what the audit also listed (AC-NEUTRAL-03)", async () => {
+    const f = await fixture(); appendPhase(f, "2");
+    f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." }]; f.saveReport();
+    const result = await f.submit();
+    expect(result).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
+    expect(result.checks.map(check => check.name)).not.toContain("Audit work resolved");
+    expect(f.activity.acceptedResult).toBeDefined();
+  });
+  it("refuses a needs_you report that appended phases, naming the outcome to use (AC-NEUTRAL-03)", async () => {
+    const f = await fixture(); appendPhase(f, "2");
+    f.report.outcome = "needs_you"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "x", action: "y" }]; f.saveReport();
+    const result = await f.submit();
+    expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you", refusal: { code: "inconsistent_plan", reason: expect.stringContaining("report outcome completion_phases and keep needsYou") } });
+    expect(f.activity.acceptedResult).toBeUndefined();
+  });
   it.each([
     ["a version-1 report", (r: Record<string, unknown>) => { r.schemaVersion = 1; }, "Write the version-2 report"],
     ["another activity", (r: Record<string, unknown>) => { r.activityId = "other"; }, "Report identity differs"],
     ["an unknown outcome", (r: Record<string, unknown>) => { r.outcome = "blocked"; }, "Unknown audit outcome"],
     ["an empty summary", (r: Record<string, unknown>) => { r.summary = " "; }, "non-empty summary"],
-    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "Only a needs_you report lists needsYou"],
+    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "Only a needs_you or completion_phases report lists needsYou"],
     ["needs_you without needsYou", (r: Record<string, unknown>) => { r.outcome = "needs_you"; }, "must say what a person must decide"],
     ["changedImplementation on a delivery audit", (r: Record<string, unknown>) => { r.changedImplementation = false; }, "Only a test audit reports changedImplementation"],
     ["a malformed needsYou entry", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ problem: "x" }]; }, "needsYou must be a list"],

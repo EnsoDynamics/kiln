@@ -124,7 +124,11 @@ describe("the prompts", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
     expect(prompt).toContain("Follow that skill exactly as it is written");
     for (const field of ['"schemaVersion": 2', '"outcome"', '"summary"', '"completionPhases"', '"needsYou"', '"changedImplementation"', '"afterDeliveryActions"']) expect(prompt).toContain(field);
-    expect(prompt).toContain("or when it ended normally but lists anything a person must still decide or do before delivery");
+    expect(prompt).toContain("or ended normally but lists anything a person must still decide or do before delivery");
+    // Added phases still build while a person settles listed items; the next audit carries unsettled ones (AC-NEUTRAL-03).
+    expect(prompt).toContain('"completion_phases" when it added phases to the plan for missing work, even when it also lists something a person must decide or do');
+    expect(prompt).toContain('"needs_you" when it added no phases');
+    expect(prompt).toContain("An item a prior report below lists in needsYou that is still unsettled goes in this report's needsYou again.");
     expect(prompt).toContain("Never write \"passed\" to finish");
     for (const method of ["red check", "test-audit.md", "Added by", "kiln-assessment", "audit snapshot", "independent assessment"]) expect(prompt).not.toContain(method);
   });

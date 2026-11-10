@@ -49,6 +49,14 @@ describe("a plan row", () => {
     expect(rowFacts(rows.at(-1)!, "done", RUNNING_NOW)).toBe("9m");
   });
 
+  it("counts the items an audit that added phases left for the person (AC-NEUTRAL-03)", () => {
+    const audit = { id: "audit-1", title: "Delivery audit", file: "Round 1", kind: "delivery_audit" as const, state: "done" as const, finishedByPerson: false, sessionStartedAt: "2026-10-17T15:00:00Z", doneAt: "2026-10-17T15:09:00Z" };
+    const shape = (outcome: string, blockers: string[]) => ({ ...audit, audit: { outcome, checks: [], criteria: [], repositories: [], blockers, pendingActions: [] } });
+    expect(rowFacts(shape("completion_phases", ["Decide AC-RET-04's file name."]), "done", RUNNING_NOW)).toBe("9m · left 1 item for you");
+    expect(rowFacts(shape("completion_phases", ["a", "b"]), "done", RUNNING_NOW)).toBe("9m · left 2 items for you");
+    expect(rowFacts(shape("completion_phases", []), "done", RUNNING_NOW)).toBe("9m");
+  });
+
   it("shows nothing beside a phase closed without a Kiln session, and no duration for a pull request found already open", () => {
     expect(rowFacts({ id: "1", title: "Return intake", file: "f.md", state: "done", finishedByPerson: false }, "done", RUNNING_NOW)).toBeUndefined();
     expect(rowFacts({ id: "pr", title: "Final pull request", file: "pull request session", state: "done", doneAt: "2026-10-17T18:55:00Z", finishedByPerson: false }, "done", RUNNING_NOW)).toBeUndefined();

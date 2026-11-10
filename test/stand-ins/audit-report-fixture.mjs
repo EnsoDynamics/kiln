@@ -23,6 +23,7 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
   const label=readdirSync(directory).filter(name=>name.endsWith('-prd.md')).map(name=>/AC-[A-Z0-9]+-\d+/.exec(readFileSync(join(directory,name),'utf8'))?.[0]).find(Boolean);
   writeFileSync(path,`# Phase ${id}: Repair value\n\n## Acceptance criteria covered\n${label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');
   changed.push(path);report.outcome='completion_phases';report.completionPhases=[id];report.summary='One criterion is not delivered; added a completion phase.';
+  if(behavior.decision)report.needsYou=[{problem:behavior.decision,action:'Decide it before the next audit.'}];
  }
  if(testing&&!behavior.noRecord){writeFileSync(`${directory}/test-audit.md`,`# Test audit\n\n${behavior.findingText??'Every criterion has adequate tests.'}\n`);changed.push(`${directory}/test-audit.md`);}
  if(behavior.continueTest){

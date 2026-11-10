@@ -25,14 +25,17 @@ The report has these fields and nothing else is required:
 - "schemaVersion": 2, "executionId", "activityId", and "kind" ("delivery_audit" or "test_audit").
 - "outcome", the place the skill ended:
   "passed" when it found nothing left to build or test;
-  "completion_phases" when it added phases to the plan for missing work;
+  "completion_phases" when it added phases to the plan for missing work, even when it also
+  lists something a person must decide or do: Kiln builds the phases meanwhile;
   "continue_test" (test audit only) when it saved remaining test work for another session;
-  "needs_you" when it stopped for a decision, permission or action only a person can give,
-  or when it ended normally but lists anything a person must still decide or do before
-  delivery, such as behavior changed outside the requirements or a human action still waiting.
+  "needs_you" when it added no phases and either stopped for a decision, permission or action
+  only a person can give, or ended normally but lists anything a person must still decide or do
+  before delivery, such as behavior changed outside the requirements or a human action still waiting.
 - "summary": a few plain sentences on what the audit concluded.
 - "completionPhases": the IDs of the phases this audit appended, [] when none.
-- "needsYou": [{"problem","action"}] for each thing a person must resolve; [] unless needs_you.
+- "needsYou": [{"problem","action"}] for each thing a person must resolve, with needs_you or
+  completion_phases; [] otherwise. An item a prior report below lists in needsYou that is still
+  unsettled goes in this report's needsYou again.
 - "changedImplementation" (test audit only): true when you changed anything other than tests
   and audit records, including configuration, dependency manifests or helpers that runtime code
   also uses, so Kiln runs a fresh delivery audit; otherwise false.

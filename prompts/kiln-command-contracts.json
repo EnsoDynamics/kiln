@@ -2471,10 +2471,10 @@
           "AuditReport": {
             "schemaVersion": "Required literal 2. A version-1 report is refused with invalid_report.",
             "executionId, activityId, kind": "Required exact values from audit status; kind delivery_audit or test_audit.",
-            "outcome": "Required: passed (nothing left), completion_phases (phases appended for missing work), continue_test (test audit only; remaining test work saved for another session), needs_you (a person must decide or act).",
+            "outcome": "Required: passed (nothing left), completion_phases (phases appended for missing work; Kiln builds them even when needsYou lists items), continue_test (test audit only; remaining test work saved for another session), needs_you (no phases appended and a person must decide or act).",
             "summary": "Required non-empty plain text.",
             "completionPhases": "Required string[] of the phase IDs this audit appended; [] when none. Must equal the phases appended to the plan.",
-            "needsYou": "Required {problem,action}[]; non-empty exactly when outcome is needs_you.",
+            "needsYou": "Required {problem,action}[]; non-empty with needs_you, allowed with completion_phases, [] otherwise.",
             "changedImplementation": "Test audits only, required boolean: true when the audit changed anything other than tests and audit records. Absent for delivery audits.",
             "afterDeliveryActions": "Optional string[] of person actions the requirements place after delivery."
           }

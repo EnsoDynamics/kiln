@@ -374,6 +374,16 @@ describe("automatic completion activities", () => {
     expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
   // Eight real process sessions plus Git/audit handoffs have a whole-workflow budget.
   });
+  it("builds an added phase while a person settles what the audit listed, then hands the item to the next audit (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
+    const decision = "AC-PROOF-01 names a file the design kept.";
+    const h = await fixture([auditSession({ gap: true, decision }), auditSession({ blocked: true })], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.label} round ${e.round}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit round 1", "Phase 2", "Delivery audit round 2"]);
+    const rows = buildSnapshot(h.engine).activities!.filter(row => row.kind === "delivery_audit");
+    expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`] } });
+    expect(rows[1]!.state).toBe("needs_you");
+    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(decision);
+  });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();

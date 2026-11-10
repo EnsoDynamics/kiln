@@ -83,6 +83,7 @@
       {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}
       {#each row.audit.criteria as criterion}<p>{criterion.key}: {criterion.status}</p>{#each criterion.findings as finding}<p>{finding}</p>{/each}{/each}
       {#each row.audit.checks.filter(c => !c.passed) as check}<p>{check.name}: {check.facts.join(" ")}</p>{/each}
+      {#if row.audit.outcome === "completion_phases" && row.audit.blockers.length}<p>Left for you while Kiln built the added phases. The next audit stops at Needs you for any still unsettled:</p>{/if}
       {#each row.audit.blockers as blocker}<p>{blocker}</p>{/each}
       {#each row.audit.pendingActions as action}<p>Human action: {action}</p>{/each}
     </section>

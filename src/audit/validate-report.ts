@@ -11,7 +11,7 @@ import { effectiveRecordedClosed } from "../engine/waivers.js";
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({problem, action}[]), changedImplementation (test audits) and optional afterDeliveryActions";
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({problem, action}[]; with needs_you or completion_phases), changedImplementation (test audits) and optional afterDeliveryActions";
 export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
@@ -30,7 +30,9 @@ function validate(report: AuditReportV2, { record, activity, initial, current }:
   requireAudit(report.afterDeliveryActions === undefined || strings(report.afterDeliveryActions), "afterDeliveryActions must be a list of strings.");
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
   else requireAudit(report.changedImplementation === undefined, "Only a test audit reports changedImplementation.");
-  requireAudit((report.outcome === "needs_you") === (report.needsYou.length > 0), report.outcome === "needs_you" ? "A needs_you report must say what a person must decide in needsYou." : "Only a needs_you report lists needsYou; use outcome needs_you when a person is needed.");
+  // Added phases are built while a person settles what the audit listed; the next audit decides whether each is settled.
+  if (report.outcome === "needs_you") requireAudit(report.needsYou.length > 0, "A needs_you report must say what a person must decide in needsYou.");
+  else if (report.outcome !== "completion_phases") requireAudit(!report.needsYou.length, "Only a needs_you or completion_phases report lists needsYou; use outcome needs_you when a person is needed and you added no phases.");
 
   // The audit may append phases; it never rewrites the plan it started from (AC-NEUTRAL-04).
   requireAudit(initial.plan.every((phase, index) => { const now = current.plan[index]; return now && now.id === phase.id && now.file === phase.file && now.closed === phase.closed && now.content === phase.content && JSON.stringify(now.splitInto ?? []) === JSON.stringify(phase.splitInto ?? []); }), "The audit changed an original phase's identity, order, scope or closure; it may only append phases.", "inconsistent_plan");
@@ -42,6 +44,7 @@ function validate(report: AuditReportV2, { record, activity, initial, current }:
   const open = current.plan.filter(phase => !phase.splitInto && !effectiveRecordedClosed(record, phase));
   if (report.outcome === "passed") requireAudit(!appended.length && !open.length, `A passing audit leaves no open phase; open: ${open.map(phase => phase.id).join(", ")}.`, "inconsistent_plan");
   if (report.outcome === "completion_phases") requireAudit(appended.length > 0, "A completion_phases report must append at least one phase to the plan.", "inconsistent_plan");
+  if (report.outcome === "needs_you") requireAudit(!appended.length, `This audit appended phases (${appended.map(phase => phase.id).join(", ")}); report outcome completion_phases and keep needsYou. Kiln builds the phases and shows those items to a person meanwhile.`, "inconsistent_plan");
   if (report.outcome === "continue_test") {
     requireAudit(activity.kind === "test_audit", "Only a test audit saves test work for a continuation.");
     requireAudit(!appended.length && !open.length, "A test continuation leaves no open or appended phase; report completion_phases instead.", "inconsistent_plan");
