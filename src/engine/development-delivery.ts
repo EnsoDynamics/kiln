@@ -187,7 +187,7 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
         const prior = state.checkpoints.find(one => one.id === replaces);
         const replacingOwner = operationOwner(context);
         need(prior && replacingOwner && ["requiredMerge", ...prior.requirements.map(one => one.id)].every(id => prior.criteria.every(criterion => assignedObligationCriteria(state, prior, replacingOwner, id).includes(criterion))), "Replacing a checkpoint requires all retained merge/evidence obligations and criteria to be assigned to the current owner.", 422);
-        need(prior && prior.headSha !== checkpoint.headSha && !prior.supersededBy && targetKey(prior.target) === targetKey(checkpoint.target) && prior.criteria.every(criterion => checkpoint.criteria.includes(criterion)) && prior.dependsOn.every(id => checkpoint.dependsOn.includes(id)) && prior.requiredChecks.every(check => checkpoint.requiredChecks.includes(check)) && (!prior.requireReview || checkpoint.requireReview) && prior.requirements.every(requirement => checkpoint.requirements.some(one => one.id === requirement.id && one.purpose === requirement.purpose && one.source.path === requirement.source.path && hash(one.match) === hash(requirement.match))) && await ancestor(context, repo, prior.headSha, checkpoint.headSha), "Replacement must retain the earlier source work, target, criteria, requirements and prerequisites.", 422);
+        need(prior && !prior.supersededBy && targetKey(prior.target) === targetKey(checkpoint.target) && prior.criteria.every(criterion => checkpoint.criteria.includes(criterion)) && prior.dependsOn.every(id => checkpoint.dependsOn.includes(id)) && prior.requiredChecks.every(check => checkpoint.requiredChecks.includes(check)) && (!prior.requireReview || checkpoint.requireReview) && prior.requirements.every(requirement => checkpoint.requirements.some(one => one.id === requirement.id && one.purpose === requirement.purpose && one.source.path === requirement.source.path)) && await ancestor(context, repo, prior.headSha, checkpoint.headSha), "Replacement must retain the earlier source work, target, criteria, requirements and prerequisites.", 422);
         prior.supersededBy = checkpoint.id;
       }
       state.checkpoints.push(checkpoint); added.push(checkpoint.id);
@@ -586,6 +586,9 @@ export async function reconcileDelivery(context: DeliveryContext): Promise<void>
   const signal = AbortSignal.any([...(context.signal ? [context.signal] : []), AbortSignal.timeout(120_000)]);
   const bounded = { ...context, signal, git: { ...context.git, signal } };
   for (const checkpoint of state.checkpoints) {
+    // Replacements own the remaining work. Preserve old attempts as history; a stale
+    // matcher or unavailable historical source must not block the corrected check.
+    if (checkpoint.supersededBy) continue;
     try {
       delete checkpoint.unresolvedReason; delete checkpoint.mergeUnresolvedReason; delete checkpoint.observedActivity; checkpoint.unresolvedRequirements = {};
       try { await readMerge(bounded, checkpoint); }
@@ -692,8 +695,9 @@ export function ownerDeliveryItems(state: DevelopmentLedger, owner: DeliveryOwne
     const ids = assignedObligations(state, checkpoint, owner).filter(id => id === "requiredMerge" || checkpoint.requirements.find(one => one.id === id)?.purpose !== "current_artifact");
     if (!ids.length) continue;
     if (checkpoint.supersededBy) { const replaced = resolution(state, waivers, checkpoint); if (replaced) { items.push(...replaced); continue; } }
-    items.push(...failingObligations(checkpoint, ids));
-    for (const id of checkpoint.dependsOn) items.push(...prerequisiteItems(state, waivers, checkpoint, id));
+    const current = effectiveCheckpoint(state, checkpoint.id) ?? checkpoint;
+    items.push(...failingObligations(current, ids));
+    for (const id of current.dependsOn) items.push(...prerequisiteItems(state, waivers, current, id));
   }
   return uniqueItems(items);
 }
@@ -703,7 +707,7 @@ export function requireOwnerDeliveryEvidence(state: DevelopmentLedger, owner: De
   if (first) throw new DeliveryRefusal(first.text);
 }
 export async function prepareOperation(context: DeliveryContext, body: Record<string, unknown>): Promise<{ operationId: string; disposition: "proceed" | "already_observed" | "unresolved"; facts: string[] }> {
-  const state = ledger(context.record); const checkpoint = state.checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown delivery checkpoint.", 422); granted(context, checkpoint);
+  const state = ledger(context.record); const checkpoint = state.checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown delivery checkpoint.", 422); need(!checkpoint.supersededBy, `Checkpoint ${checkpoint.id} was replaced; use ${effectiveCheckpoint(state, checkpoint.id)?.id ?? checkpoint.supersededBy}.`); granted(context, checkpoint);
   await reconcileDelivery(context);
   const request = object(body.operation); need(["merge", "deploy", "verify", "synchronize"].includes(String(request.kind)), "Unknown delivery operation.", 400);
   const kind = request.kind as "merge" | "deploy" | "verify" | "synchronize";
@@ -773,7 +777,7 @@ export async function prepareOperation(context: DeliveryContext, body: Record<st
   checkpoint.operations.push(operation); return { operationId: operation.id, disposition: "proceed", facts: ["Intent persisted before dispatch. Use the documented operation with this exact target and head; submit its evidence afterwards."] };
 }
 export async function submitEvidence(context: DeliveryContext, body: Record<string, unknown>): Promise<void> {
-  const checkpoint = ledger(context.record).checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown checkpoint.", 422); granted(context, checkpoint);
+  const checkpoint = ledger(context.record).checkpoints.find(one => one.id === body.checkpointId); need(checkpoint, "Unknown checkpoint.", 422); need(!checkpoint.supersededBy, `Checkpoint ${checkpoint.id} was replaced; use ${effectiveCheckpoint(ledger(context.record), checkpoint.id)?.id ?? checkpoint.supersededBy}.`); granted(context, checkpoint);
   if (body.operationId === "current-artifact") {
     need(Array.isArray(body.references) && body.references.length > 0, "Submit current-artifact probe references.", 400);
     const state = ledger(context.record);

@@ -21,18 +21,26 @@ This change applies that philosophy to delivery-check recovery. It does not repl
 
 The agent should resolve a bad lookup or a mistaken workflow check as ordinary implementation work, without making the person interpret internal evidence formats.
 
-- [ ] **AC-RECOVER-01 — A mistaken check can be replaced.** The active agent can replace a delivery checkpoint with corrected command, field or workflow matchers, including when the source revision has not changed. The replacement retains the original target, source work, acceptance criteria, prerequisite obligations, required pre-merge checks and review requirements, and each evidence requirement's identity, purpose and source document. Kiln does not demand semantic equivalence between the original and corrected matcher. The agent explains the correction in its delivery assessment and uses the project's documented verification method.
+- [x] **AC-RECOVER-01 — A mistaken check can be replaced.** The active agent can replace a delivery checkpoint with corrected command, field or workflow matchers, including when the source revision has not changed. The replacement retains the original target, source work, acceptance criteria, prerequisite obligations, required pre-merge checks and review requirements, and each evidence requirement's identity, purpose and source document. Kiln does not demand semantic equivalence between the original and corrected matcher. The agent explains the correction in its delivery assessment and uses the project's documented verification method.
   - Replaces in part: AC-RECOVERY-02 in [Kiln development deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), for recovery blocked by an incorrect evidence matcher; actual operation reconciliation remains required.
-- [ ] **AC-RECOVER-02 — Correction does not claim success.** The old attempt and its failures remain in history. The replacement must satisfy its own merge, deployment and verification checks before completion. Evidence accepted under the old matcher is not automatically accepted under the new one. A failed or missing result remains unfinished work; replacing the check grants no new deployment authority.
-- [ ] **AC-RECOVER-03 — Recovery works in an existing run.** A run stopped on an incorrect check can use the correction after upgrade and normal resume. The agent receives usable correction instructions through the existing delivery interface. A correction neither starts a new agent session nor performs a remote side effect itself; subsequent authorized preparation and execution use the ordinary workflow. Reopening the run preserves both attempts and the replacement relationship.
+- [x] **AC-RECOVER-02 — Correction does not claim success.** The old attempt and its failures remain in history. The replacement must satisfy its own merge, deployment and verification checks before completion. Evidence accepted under the old matcher is not automatically accepted under the new one. A failed or missing result remains unfinished work; replacing the check grants no new deployment authority.
+- [x] **AC-RECOVER-03 — Recovery works in an existing run.** A run stopped on an incorrect check can use the correction after upgrade and normal resume. The agent receives usable correction instructions through the existing delivery interface. A correction neither starts a new agent session nor performs a remote side effect itself; subsequent authorized preparation and execution use the ordinary workflow. Reopening the run preserves both attempts and the replacement relationship.
 
 ### Show the work that still needs doing
 
 Historical failures should explain how the run arrived here, not appear as separate outstanding work after a replacement takes over.
 
-- [ ] **AC-RECOVER-04 — Outstanding checks follow the replacement.** Completion checks report the current replacement's unmet obligations rather than repeating superseded attempts as independent blockers. Required work is still blocked until the replacement satisfies it. Historical attempts remain inspectable and unchanged.
+- [x] **AC-RECOVER-04 — Outstanding checks follow the replacement.** Completion checks report the current replacement's unmet obligations rather than repeating superseded attempts as independent blockers. Required work is still blocked until the replacement satisfies it. Historical attempts remain inspectable and unchanged.
   - Replaces in part: AC-DISPLAY-02 in [Kiln development deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), for presentation of superseded delivery failures.
 
 ## Out of scope
 
 New correction approval screens; automatic operator waivers; broader deployment permissions; treating unfinished runtime tests as complete; changes to the separate linked-document recovery feature; publishing or upgrading a running installation in this change.
+
+## Implementation evidence
+
+Implemented in the existing delivery assessment, reconciliation and completion paths; no new endpoint, approval screen or saved-record schema. The agent instructions describe correction through checkpoint replacement.
+
+`src/engine/development-check-recovery.integration.test.ts` exercises the failed positional lookup, same-head correction, retained historical success/failure evidence, ordinary retry, failed deployment, missing verification, successful completion and reopening. It also checks unchanged permission and requirement boundaries. The existing provider prompt matrix checks recovery guidance for both agents and all resume causes. These tests use real temporary Git repositories, the controller and persisted records, with recorded provider responses; they do not claim live cloud deployment validation.
+
+Validation scope: focused recovery/delivery/waiver/audit integration checks, full unit suite, lint/types, build, release checks and Codex command-evidence proofs. The broad local integration invocation was stopped while still running; it is not recorded as a pass. Full CI remains required before merge.

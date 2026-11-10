@@ -142,6 +142,8 @@ describe("one saved authority across provider entry points", () => {
       expect(prompt).toContain("Never bypass protections, use administrator overrides or force-push");
       expect(prompt).toContain("Separate release workflows, other branches, destructive actions, unrelated infrastructure/data access and other people's checkouts remain unauthorized");
       expect(prompt).toContain("An approval rejection is still a rejection");
+      expect(prompt).toContain("Corrected work or a mistaken evidence check uses a new checkpoint with `replaces: <old-id>`, including at the same source head");
+      expect(prompt).toContain("ordinary prepare/evidence flow on the replacement ID");
       expect(prompt).not.toContain("You are not authorized to open a pull request, merge, deploy");
     }
     expect(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("Keep my reply first.")).toBeLessThan(resumePrompt({ agentId, time: "2026-10-24T12:00:00Z", deliveryAuthority: values.deliveryAuthority, note: "Keep my reply first." }).indexOf("saved early-merge authority"));

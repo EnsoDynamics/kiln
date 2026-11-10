@@ -2821,7 +2821,7 @@
             "requiredChecks": "Required string[] naming exact required checks; [] only if none required.",
             "requireReview": "Required boolean reflecting actual review requirement.",
             "references": "Optional EvidenceReference[] initially for pre_merge evidence only.",
-            "replaces": "Optional existing checkpoint ID; replacement must retain source ancestry, targets, criteria, checks, requirements and every assigned retained obligation.",
+            "replaces": "Optional existing checkpoint ID; replacement may correct matchers at the same head. Retain source ancestry, target, criteria, checks/review, requirement IDs/purposes/source documents and assigned obligations. Explain the correction in reason, then use the new checkpoint ID and ordinary prepare/evidence flow; replacement itself proves no success.",
             "operations, evidence, createdAt": "Engine-owned output; omit from new assessment input."
           },
           "EvidenceRequirement": {
