@@ -5,7 +5,7 @@
 // Ubuntu-built archive on macOS (AC-INSTALL-03/05); local runs pack the working source.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const windows = process.platform === "win32";
 let sandbox: Sandbox;
 let packedFiles: string[];
+let packageArchive: string;
 let kilnCommand: string;
 let installedPackage: string;
 let env: NodeJS.ProcessEnv;
@@ -68,6 +69,7 @@ beforeAll(() => {
     packedFiles = packed[0].files.map((file) => file.path.replace(/\\/g, "/"));
     archive = join(sandbox.root, packed[0].filename);
   }
+  packageArchive = archive;
   const prefix = join(sandbox.root, "prefix");
   npm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", archive], sandbox.root);
   kilnCommand = windows ? join(prefix, "kiln.cmd") : join(prefix, "bin", "kiln");
@@ -341,6 +343,43 @@ describe("the installed package", () => {
         expect(response.status, font).toBe(200);
         expect((await response.arrayBuffer()).byteLength, font).toBeGreaterThan(1000);
       }
+    } finally {
+      end(child);
+      await output.exit;
+    }
+  });
+
+  // Kiln Upgrade While Running, AC-UPG-01: a run keeps serving and reading its own version
+  // after npm installs a newer Kiln over the package it started from. Runs last: it upgrades.
+  it("keeps a run on its own version when a newer Kiln is installed over it", async () => {
+    const child = runInstalled(["run", `docs/prds/${FOLDER}/`], repository);
+    const output = collect(child);
+    try {
+      await waitFor(() => /http:\/\/127\.0\.0\.1:\d+\/customer-returns/.test(output.text()), 60_000);
+      const address = /http:\/\/127\.0\.0\.1:\d+\/customer-returns/.exec(output.text())![0];
+      expect(await (await fetch(address)).text()).not.toContain("kiln-upgraded-build");
+
+      const newer = join(sandbox.root, "newer");
+      mkdirSync(newer);
+      const extracted = spawnSync("tar", ["-xzf", packageArchive, "-C", newer], { encoding: "utf8", timeout: 60_000 });
+      expect(extracted.status, extracted.stderr).toBe(0);
+      const manifestFile = join(newer, "package", "package.json");
+      const manifest = JSON.parse(readFileSync(manifestFile, "utf8")) as { version: string };
+      const version = `${manifest.version}-upgraded`;
+      writeFileSync(manifestFile, JSON.stringify({ ...manifest, version }, null, 2));
+      const view = join(newer, "package", "dist", "view", "index.html");
+      writeFileSync(view, readFileSync(view, "utf8").replace("<title>", "<!-- kiln-upgraded-build --><title>"));
+      const packed = JSON.parse(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", newer], join(newer, "package"))) as [{ filename: string }];
+      npm(["install", "--global", "--prefix", join(sandbox.root, "prefix"), "--no-audit", "--no-fund", join(newer, packed[0].filename)], sandbox.root);
+      expect(readFileSync(join(installedPackage, "dist", "view", "index.html"), "utf8")).toContain("kiln-upgraded-build");
+
+      const page = await (await fetch(address)).text();
+      expect(page).toContain("<title>Customer returns · Kiln</title>");
+      expect(page).not.toContain("kiln-upgraded-build");
+      expect(child.exitCode).toBeNull();
+      const current = collect(runInstalled(["--version"], sandbox.root));
+      expect(await current.exit).toBe(0);
+      expect(current.text().startsWith(`${version} `) || current.text() === `${version}\n`).toBe(true);
     } finally {
       end(child);
       await output.exit;
