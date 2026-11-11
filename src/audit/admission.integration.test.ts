@@ -131,11 +131,11 @@ describe("version-2 audit admission", () => {
       expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
       f.record.phases[`audit-${f.activity.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
       const path = join(f.root, directory, "phase-2-completion.md"); writeFileSync(path, readFileSync(path, "utf8").replace("# Phase 2: Completion\n\n", "# Phase 2: Completion\n\n**Closed:** 2026-11-02\n\n")); commit(f.sandbox, f.root, [`${directory}/phase-2-completion.md`]);
-      const allocate = async (sequence: number) => {
-        const next: AuditActivity = { ...f.activity, activityId: randomUUID(), sequence, round: sequence, snapshots: [], attempts: [] }; delete next.acceptedResult;
+      const allocate = async (sequence: number, kind: AuditActivity["kind"] = f.activity.kind) => {
+        const next: AuditActivity = { ...f.activity, kind, activityId: randomUUID(), sequence, round: sequence, snapshots: [], attempts: [] }; delete next.acceptedResult;
         next.reportPath = `${directory}/kiln-audit-${next.activityId}.json`; f.record.completionAudits!.activities.push(next);
         next.snapshots.push(f.store.put(await captureSnapshot({ ...f.context, activity: next, now: new Date().toISOString() })));
-        const report = (change: Partial<AuditReportV2>): AuditReportV2 => ({ ...f.report, activityId: next.activityId, outcome: "passed", completionPhases: [], needsYou: [], ...change });
+        const report = (change: Partial<AuditReportV2>): AuditReportV2 => ({ ...f.report, kind, activityId: next.activityId, outcome: "passed", completionPhases: [], needsYou: [], ...(kind === "test_audit" ? { changedImplementation: false } : {}), ...change });
         const submit = async (body: AuditReportV2) => { writeFileSync(join(f.root, next.reportPath), JSON.stringify(body)); commit(f.sandbox, f.root, [next.reportPath]); return submitAudit(f.context, { ...f.body(), activityId: next.activityId, reportPath: next.reportPath }); };
         return { activity: next, report, submit };
       };
@@ -159,6 +159,23 @@ describe("version-2 audit admission", () => {
       expect(ledger.outstanding).toEqual([]);
       expect(ledger.settled).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1", settledBy: "Delivery audit round 2", how: "A person amended AC-RET-04 to keep the name." }]);
     });
+    it("lets a delivery audit that found nothing to build pass while carrying an open item to the test audit", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      expect((await round2.submit(round2.report({ needsYou: [item] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("only outstanding items still open") });
+      const carriedOn = await round2.submit(round2.report({ needsYou: [{ id: "item-1", ...item }] }));
+      expect(carriedOn.refusal).toBeUndefined(); expect(carriedOn).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
+      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1" }]);
+    });
+    it("refuses a passing test audit that changed only tests and leaves an item open, since final delivery follows", async () => {
+      const { allocate } = await carried(); const tests = await allocate(2, "test_audit");
+      expect((await tests.submit(tests.report({ needsYou: [{ id: "item-1", ...item }] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("since final delivery follows") });
+    });
+    it("lets a passing test audit that changed implementation carry an open item to the fresh delivery audit", async () => {
+      const { f, allocate } = await carried(); const tests = await allocate(2, "test_audit");
+      writeFileSync(join(f.root, "src-change.ts"), "export const changed = true;\n"); commit(f.sandbox, f.root, ["src-change.ts"]);
+      const result = await tests.submit(tests.report({ changedImplementation: true, needsYou: [{ id: "item-1", ...item }] }));
+      expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ disposition: "recorded", nextAction: "delivery_audit" });
+    });
     it("carries items past an audit marked complete without an accepted report", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
       round2.activity.waivedResult = f.store.put({ kind: "audit_waiver", activityId: round2.activity.activityId });
@@ -173,7 +190,7 @@ describe("version-2 audit admission", () => {
     ["another activity", (r: Record<string, unknown>) => { r.activityId = "other"; }, "Report identity differs"],
     ["an unknown outcome", (r: Record<string, unknown>) => { r.outcome = "blocked"; }, "Unknown audit outcome"],
     ["an empty summary", (r: Record<string, unknown>) => { r.summary = " "; }, "non-empty summary"],
-    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "A passing report lists nothing in needsYou"],
+    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "only outstanding items still open"],
     ["needs_you without needsYou", (r: Record<string, unknown>) => { r.outcome = "needs_you"; }, "must say what a person must decide"],
     ["changedImplementation on a delivery audit", (r: Record<string, unknown>) => { r.changedImplementation = false; }, "Only a test audit reports changedImplementation"],
     ["a malformed needsYou entry", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ problem: "x" }]; }, "needsYou must be a list"],
