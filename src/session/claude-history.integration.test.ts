@@ -1,6 +1,6 @@
 // Read-only installed SDK and real provider-owned JSONL contract. No model request.
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, chmodSync, symlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, chmodSync, symlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
@@ -25,5 +25,27 @@ it('agrees with installed Claude SDK metadata for usable, partial and corrupt hi
   writeFileSync(file, row); chmodSync(file, 0o000); expect(claudeHistoryAvailability(sandbox.env, id).available).toBe(false); chmodSync(file, 0o600);
   expect(claudeHistoryAvailability(sandbox.env, id, Date.now() - 1).available).toBe(false);
   writeFileSync(file, 'x'.repeat(16 * 1024 * 1024 + 1)); expect(claudeHistoryAvailability(sandbox.env, id).available).toBe(false);
-  symlinkSync(file, join(folder, 'symlink.jsonl')); expect(claudeHistoryAvailability(sandbox.env, 'symlink').available).toBe(false);
+  symlinkSync(file, join(folder, 'symlink.jsonl')); expect(claudeHistoryAvailability(sandbox.env, 'symlink')).toEqual({ available: false, reason: `Provider history can be changed by other users: ${join(folder, 'symlink.jsonl')}.` });
+});
+it('judges only the conversation\'s own folder, accepting group-writable folders a 0002 umask leaves and refusing ones other users can write', () => {
+  sandbox = createSandbox(); const id = randomUUID(); const projects = join(sandbox.env.CLAUDE_CONFIG_DIR!, 'projects');
+  const row = JSON.stringify({ type: 'user', sessionId: id, message: { role: 'user', content: 'Group-writable folder contract message' } }) + '\n';
+  // Unrelated folders other sessions left behind: group-writable (a 0002 umask) and writable by anyone.
+  for (const [name, mode] of [['-a-group-writable-memory-folder', 0o775], ['-another-world-writable-folder', 0o777]] as const) { const other = join(projects, name); mkdirSync(join(other, 'memory'), { recursive: true }); chmodSync(other, mode); }
+  const folder = join(projects, '-the-conversations-folder'); mkdirSync(folder, { recursive: true }); chmodSync(folder, 0o700);
+  writeFileSync(join(folder, `${id}.jsonl`), row); chmodSync(join(folder, `${id}.jsonl`), 0o600);
+  expect(claudeHistoryAvailability(sandbox.env, id)).toEqual({ available: true, reason: 'Saved provider conversation contains usable history.' });
+  chmodSync(folder, 0o775); expect(claudeHistoryAvailability(sandbox.env, id).available).toBe(true);
+  chmodSync(folder, 0o777); expect(claudeHistoryAvailability(sandbox.env, id)).toEqual({ available: false, reason: `Provider history can be changed by other users: ${folder}.` });
+  const file = join(folder, `${id}.jsonl`); const changeable = { available: false, reason: `Provider history can be changed by other users: ${file}.` };
+  chmodSync(folder, 0o700); chmodSync(file, 0o606); expect(claudeHistoryAvailability(sandbox.env, id)).toEqual(changeable);
+  chmodSync(file, 0o660); expect(claudeHistoryAvailability(sandbox.env, id)).toEqual(changeable);
+  chmodSync(file, 0o600);
+  // A conversation in no folder makes Kiln read every folder, so the unrelated ones above, and one this user can't search, are each passed over rather than judged.
+  const locked = join(projects, '-a-folder-this-user-cannot-search'); mkdirSync(locked); chmodSync(locked, 0o000);
+  try {
+    if (process.getuid?.() !== 0) expect(() => readdirSync(locked)).toThrow();
+    expect(claudeHistoryAvailability(sandbox.env, randomUUID())).toEqual({ available: false, reason: 'Provider history is missing.' });
+    expect(claudeHistoryAvailability(sandbox.env, id).available).toBe(true);
+  } finally { chmodSync(locked, 0o700); }
 });
