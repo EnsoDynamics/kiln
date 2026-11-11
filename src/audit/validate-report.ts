@@ -12,7 +12,7 @@ import type { PersonItem } from "./person-items.js";
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action}[]; not with passed), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action}[]; with passed, only outstanding items listed again by id, and none when final delivery follows), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
 export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[] }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
@@ -33,7 +33,13 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
   else requireAudit(report.changedImplementation === undefined, "Only a test audit reports changedImplementation.");
   if (report.outcome === "needs_you") requireAudit(report.needsYou.length > 0, "A needs_you report must say what a person must decide in needsYou.");
-  if (report.outcome === "passed") requireAudit(!report.needsYou.length, "A passing report lists nothing in needsYou; use needs_you when a person is needed, or settled for an earlier item that is settled.");
+  // A passing report that leads to another audit carries still-open items to it, since that audit does not depend
+  // on them (AC-NEUTRAL-03); one that leads to final delivery, a test audit that changed only tests, lists none.
+  if (report.outcome === "passed") {
+    const toFinalDelivery = activity.kind === "test_audit" && !report.changedImplementation;
+    if (toFinalDelivery) requireAudit(!report.needsYou.length, "A passing test audit that changed only tests lists nothing in needsYou, since final delivery follows; use needs_you when a person is needed, or settled for an earlier item that is settled.");
+    else requireAudit(report.needsYou.every(item => item.id !== undefined), "A passing report lists in needsYou only outstanding items still open, each with its id; report needs_you for a new item a person must resolve.");
+  }
   // Every item an earlier audit left for a person is accounted for: open again, or settled (AC-NEUTRAL-03).
   const known = new Map(outstanding.map(item => [item.id, item]));
   const named = [...report.needsYou.flatMap(item => item.id === undefined ? [] : [item.id]), ...(report.settled ?? []).map(item => item.id)];

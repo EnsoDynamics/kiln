@@ -34,9 +34,13 @@ The report has these fields and nothing else is required:
   whether that work depends on the person's answer: if it does not, report completion_phases
   or continue_test with the items in needsYou, and Kiln builds the work while a person settles
   them; if it does, or the skill stopped to surface a critical finding, report needs_you.
+  An audit that found nothing left to build reports passed and lists each outstanding item still
+  open in needsYou with its id, and the next audit runs while a person settles them; but a test
+  audit that changed only tests reports passed only when no outstanding item is left open.
 - "summary": a few plain sentences on what the audit concluded.
 - "completionPhases": the IDs of the phases this audit appended, [] when none.
-- "needsYou": [{"problem","action"}] for each thing a person must resolve; [] when passed.
+- "needsYou": [{"problem","action"}] for each thing a person must resolve; when passed, only
+  outstanding items listed again, and [] for a test audit that changed only tests.
   Add "id" to an entry that lists again an item from the outstanding list below.
 - "settled": [{"id","how"}] for each item from the outstanding list below that is now settled,
   saying how; omit or [] when none. Account for every outstanding item exactly once, in needsYou
