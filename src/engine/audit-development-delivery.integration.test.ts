@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Engine } from "./engine.js";
-import { documentsDigest, evaluateRepositories, ownerDeliveryCheck, ownerDocuments, phaseDeliveryCheck, prepareOperation, recordAssessment, reconcileDelivery, type DeliveryContext } from "./development-delivery.js";
+import { acceptAuditDocuments, documentsDigest, evaluateRepositories, ownerDeliveryCheck, ownerDocuments, phaseDeliveryCheck, prepareOperation, recordAssessment, reconcileDelivery, type DeliveryContext } from "./development-delivery.js";
 import { assignAuditObligations } from "./development-owners.js";
 import { deliveryFixture } from "../test-support/development-delivery-fixture.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
@@ -84,6 +84,67 @@ describe("audit development owners", () => {
     expect(ownerDeliveryCheck(f.context, f.owner)).toMatchObject({ passed: false, facts: expect.arrayContaining([expect.stringContaining("needs a current development-delivery assessment")]) });
   });
 
+  it("keeps a finished audit's delivery decision when later work edits the documents", async () => {
+    const f = await fixture(); const key = `audit-${f.activity.activityId}`; const stale = /needs a current development-delivery assessment/;
+    const edit = (text: string) => { const file = join(f.h.engine.worktreePath, directory, "technical-design.md"); writeFileSync(file, `${readFileSync(file, "utf8")}\n${text}\n`); };
+    f.record.developmentDelivery!.checkpoints = []; // this audit owes no delivery
+    await recordAssessment(f.context, f.assess({ required: false, checkpoints: [], reason: "Nothing here needs development delivery" }));
+    expect(ownerDeliveryCheck(f.context, f.owner).passed).toBe(true);
+    // An audit still running answers to the documents as they are.
+    expect(acceptAuditDocuments(f.context, f.activity.activityId)).toBe(false);
+    const before = ownerDocuments(f.context, f.owner);
+    f.record.phases[key]!.doneAt = new Date().toISOString();
+    expect(acceptAuditDocuments(f.context, f.activity.activityId)).toBe(true);
+    expect(acceptAuditDocuments(f.context, f.activity.activityId)).toBe(false);
+    edit("A completion phase added this line after the audit finished.");
+    expect(ownerDocuments(f.context, f.owner)).toEqual(before);
+    expect(ownerDeliveryCheck(f.context, f.owner).passed).toBe(true);
+    // The saved record keeps the binding through validation.
+    writePrdRecord(f.h.stateDirectory, f.record);
+    expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.acceptedAudits).toEqual([{ activityId: f.activity.activityId, ...before }]);
+    // A waiver given for the finished audit names the bound documents, so a later edit doesn't end it.
+    const kept = f.record.developmentDelivery!.assessments; f.record.developmentDelivery!.assessments = kept.filter(one => one.owner?.kind !== "audit");
+    const waived = ownerDeliveryCheck(f.context, f.owner).items![0]!.against; edit("Another later line.");
+    expect(ownerDeliveryCheck(f.context, f.owner).items![0]!.against).toBe(waived);
+    f.record.developmentDelivery!.assessments = kept;
+    // Without the binding the same edits make the decision out of date, and a finished audit cannot record another.
+    delete f.record.developmentDelivery!.acceptedAudits;
+    const check = ownerDeliveryCheck(f.context, f.owner); expect(check.passed).toBe(false); expect(check.facts.join(" ")).toMatch(stale);
+    // Reopened, the audit answers to the current documents again.
+    f.record.developmentDelivery!.acceptedAudits = [{ activityId: f.activity.activityId, ...before } as never]; delete f.record.phases[key]!.doneAt;
+    expect(ownerDeliveryCheck(f.context, f.owner).facts.join(" ")).toMatch(stale);
+  });
+  it("binds an audit as it finishes, so the completion phases it added can edit the documents", async () => {
+    const f = await fixture(); const key = `audit-${f.activity.activityId}`;
+    f.record.developmentDelivery!.checkpoints = []; // this audit owes no delivery
+    await recordAssessment(f.context, f.assess({ required: false, checkpoints: [], reason: "Nothing here needs development delivery" }));
+    f.activity.acceptedResult = f.store.put({ activityId: f.activity.activityId, disposition: "recorded", reportBytes: JSON.stringify({ outcome: "completion_phases", completionPhases: [] }) } as AuditResult);
+    const read = readPlanAt(f.h.engine.worktreePath, directory); if (!read.ok) throw new Error(read.problem);
+    const engine = f.h.engine as unknown as { recordDone(key: string, outcome: unknown, byPerson: boolean): Promise<void>; nextActivity(plan: unknown): Promise<{ kind: string; key?: string }> };
+    const bound = ownerDocuments(f.context, f.owner);
+    await engine.recordDone(key, { passed: true, checks: [ownerDeliveryCheck(f.context, f.owner)], plan: read }, false);
+    expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.acceptedAudits).toEqual([{ activityId: f.activity.activityId, ...bound }]);
+    // A completion phase now edits the shared design; before the next audit Kiln rechecks the finished one.
+    const file = join(f.h.engine.worktreePath, directory, "technical-design.md"); writeFileSync(file, `${readFileSync(file, "utf8")}\nWritten by a completion phase.\n`);
+    const next = await engine.nextActivity(read.plan);
+    expect(next.kind === "stopped" && next.key === key).toBe(false);
+    expect(f.h.engine.record.phases[key]!.stop).toBeUndefined();
+    expect(ownerDeliveryCheck(f.context, f.owner).passed).toBe(true);
+  });
+  it("records nothing for a finished audit whose snapshot cannot be read", async () => {
+    const f = await fixture(); f.record.phases[`audit-${f.activity.activityId}`]!.doneAt = new Date().toISOString(); f.activity.snapshots = [];
+    expect(acceptAuditDocuments(f.context, f.activity.activityId)).toBe(false);
+    expect(f.record.developmentDelivery!.acceptedAudits).toBeUndefined();
+  });
+  it("binds an audit finished by an earlier Kiln when its recheck before the next audit passes", async () => {
+    const f = await fixture(); const key = `audit-${f.activity.activityId}`;
+    f.record.developmentDelivery!.checkpoints = []; // this audit owes no delivery
+    await recordAssessment(f.context, f.assess({ required: false, checkpoints: [], reason: "Nothing here needs development delivery" }));
+    f.record.phases[key]!.doneAt = new Date().toISOString(); delete f.record.phases[key]!.stop;
+    const read = readPlanAt(f.h.engine.worktreePath, directory); if (!read.ok) throw new Error(read.problem);
+    await (f.h.engine as unknown as { nextActivity(plan: unknown): Promise<unknown> }).nextActivity(read.plan);
+    expect(readPrdRecord(f.h.stateDirectory)!.developmentDelivery!.acceptedAudits).toEqual([{ activityId: f.activity.activityId, ...ownerDocuments(f.context, f.owner) }]);
+  });
   it("migrates schema-6 phase origins without rewriting history and refuses ambiguous audit origins", async () => {
     const f = await fixture();
     f.record.schemaVersion = 6;

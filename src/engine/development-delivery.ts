@@ -95,6 +95,9 @@ export function ownerDocuments(context: DeliveryContext, owner: DeliveryOwner): 
     if (accepted && currentLeaves(context).some(leaf => leaf.id === owner.phaseId && leaf.closed) && accepted.phaseDocumentDigest === phaseDocumentDigest(context, owner.phaseId)) return { documentsDigest: accepted.documentsDigest };
     return { documentsDigest: documentsDigest(context, owner.phaseId) };
   }
+  const bound = context.record.developmentDelivery?.acceptedAudits?.find(one => one.activityId === owner.activityId);
+  // A finished audit has no document of its own and can record nothing more: later edits to the documents never ask it again.
+  if (bound && context.record.phases[`audit-${owner.activityId}`]?.doneAt) return { documentsDigest: bound.documentsDigest, requirementManifestDigest: bound.requirementManifestDigest };
   const binding = auditDeliveryScope(context, owner);
   return { documentsDigest: binding.documentsDigest, requirementManifestDigest: binding.requirementManifestDigest };
 }
@@ -691,6 +694,18 @@ export function acceptPhaseDocuments(context: DeliveryContext, phaseId: string):
   try { bound = ownerDocuments(context, { kind: "phase", phaseId }).documentsDigest; own = phaseDocumentDigest(context, phaseId); } catch (error) { if (error instanceof DeliveryRefusal) return false; throw error; } const current = state.accepted?.find(one => one.phaseId === phaseId);
   if (current && current.documentsDigest === bound && current.phaseDocumentDigest === own) return false;
   state.accepted = [...(state.accepted ?? []).filter(one => one.phaseId !== phaseId), { phaseId, documentsDigest: bound, phaseDocumentDigest: own }];
+  return true;
+}
+/**
+ * Records the documents and criteria a finished audit's delivery check passed against; true when the record changed.
+ * Called as the audit finishes, before a completion phase can edit them, and again where finished audits are rechecked.
+ */
+export function acceptAuditDocuments(context: DeliveryContext, activityId: string): boolean {
+  const state = ledger(context.record);
+  if (!context.record.phases[`audit-${activityId}`]?.doneAt || state.acceptedAudits?.some(one => one.activityId === activityId)) return false;
+  // An audit completed on a waiver may have no readable snapshot; there is then nothing to record and its waiver stands as before.
+  let bound: ReturnType<typeof ownerDocuments>; try { bound = ownerDocuments(context, { kind: "audit", activityId }); } catch { return false; }
+  state.acceptedAudits = [...(state.acceptedAudits ?? []), { activityId, documentsDigest: bound.documentsDigest, requirementManifestDigest: bound.requirementManifestDigest! }];
   return true;
 }
 export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult { return ownerDeliveryCheck(context, { kind: "phase", phaseId }); }
