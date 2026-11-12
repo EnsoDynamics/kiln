@@ -49,9 +49,9 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
   | Is the base branch | Unavailable; the screen says to choose a new feature branch |
   | Is the feature branch of another PRD that Kiln has started | Unavailable, naming that PRD |
   | Is checked out in the person's own checkout, the repository's main folder | Unavailable, with the reason |
-  | Is still recorded by git at a worktree folder that no longer exists | Unavailable, naming that folder: git won't add the branch elsewhere until `git worktree prune` clears the record |
+  | Is still recorded by git at a worktree folder that is gone or now holds something else | Unavailable, naming that folder: git won't add the branch elsewhere until `git worktree prune` clears the record |
   | Has a local copy behind or diverged from the remote's | Unavailable, with the reason: Kiln's first push would be rejected, and Kiln never resets or force-pushes |
-  | Is checked out in another worktree, such as Kiln's own from before a reset, including the one `kiln run` was run from | **Worktree** shows that folder, fixed, and Kiln works there. Uncommitted files in it are counted on the screen, and the first session is told about them |
+  | Is checked out in another worktree, such as Kiln's own from before a reset, including the one `kiln run` was run from | **Worktree** shows that folder, fixed, and Kiln works there. Uncommitted files in it are counted on the screen, and the first session is told about them; while any are in the PRD's directory, Start is unavailable, naming them and saying to commit or discard them in that worktree. A worktree git left half made is unavailable instead, naming that folder and why. |
   | Is not checked out anywhere | Kiln makes a worktree of it at the **Worktree** folder, after the folder checks a first Start runs today; a branch only on the remote first gets a local branch that tracks it |
 
   - Replaces in part: AC-START-06, AC-START-07 and AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (an existing worktree, its folder then fixed, and a local branch tracking one only on the remote).
