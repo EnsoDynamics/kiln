@@ -1,10 +1,13 @@
 <script lang="ts">
   // The top bar every screen carries (PRD AC-LOOK-05): the Kiln mark on the left, leading back to
-  // the progress view; on the right, whether the view is connected to the running Kiln, and when
+  // the progress view, and the running Kiln's version beside it; on the right, whether the view is connected to the running Kiln, and when
   // it last saw Kiln once it isn't (AC-VIEW-04, AC-VIEW-07), and the Enso Method mark.
   import ensoMark from "../assets/enso-method-mark.svg";
   import { routedClick, type Router } from "../lib/router.svelte.js";
   import { clockTime } from "../lib/time.js";
+  // A run keeps the view of the Kiln it started with (AC-UPG-01), so the version this view was
+  // built from is the running Kiln's.
+  import { version } from "../../../package.json";
 
   let { connected, lastEventAt, now, home, router }: { connected: boolean; lastEventAt: number | undefined; now: number; home?: string; router?: Router } = $props();
   const ago = $derived(lastEventAt === undefined ? undefined : Math.max(0, Math.round((now - lastEventAt) / 1000)));
@@ -16,6 +19,7 @@
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg>
       <span class="word">kiln</span>
     </a>
+    <span class="version" data-testid="kiln-version">v{version}</span>
   </div>
   <div class="right">
     {#if lastEventAt !== undefined}
@@ -34,6 +38,7 @@
   .kiln { display: inline-flex; align-items: center; gap: 9px; color: var(--text); text-decoration: none; }
   .kiln:hover { color: var(--text); }
   .word { font-family: var(--serif); font-size: 28px; line-height: 1; }
+  .version { font: 12px/1 var(--mono); color: var(--dim); }
   .right { display: flex; align-items: center; gap: 16px; }
   .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
   .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--amber); }

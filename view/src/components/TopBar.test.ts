@@ -1,9 +1,10 @@
-// The top bar every screen carries (PRD AC-LOOK-05): the Kiln mark on the left; on the right,
+// The top bar every screen carries (PRD AC-LOOK-05): the Kiln mark and the running version on the left; on the right,
 // the connection status and the Enso Method mark.
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import TopBar from "./TopBar.svelte";
+import { version } from "../../../package.json";
 
 const html = (props: { connected: boolean; lastEventAt: number | undefined; now: number }) => render(TopBar, { props }).body.replace(/<!--[\s\S]*?-->/g, "");
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -11,7 +12,9 @@ const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g,
 describe("the top bar", () => {
   it("carries the Kiln mark first, then the connection status, then the Enso Method mark", () => {
     const page = html({ connected: true, lastEventAt: 10_000, now: 12_000 });
-    expect(text(page)).toBe("kiln Connected to Kiln · updated 2s ago The Enso Method");
+    expect(text(page)).toBe(`kiln v${version} Connected to Kiln · updated 2s ago The Enso Method`);
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(page).toMatch(/<div class="left[^"]*">[\s\S]*<\/a> <span class="version[^"]*"[^>]*>v[^<]+<\/span>[\s\S]*<div class="right/);
     expect(page).toMatch(/<div class="left[^"]*">[\s\S]*<span class="word[^"]*">kiln<\/span>[\s\S]*<div class="right/);
     expect(page).toMatch(/<a class="enso[^"]*" href="https:\/\/ensomethod\.org"><img src="[^"]*enso-method-mark[^"]*"/);
     // Green means connected (AC-LOOK-04).
@@ -22,7 +25,7 @@ describe("the top bar", () => {
     process.env.TZ = "America/New_York";
     const lastSeen = Date.parse("2026-10-17T15:47:00Z");
     const page = html({ connected: false, lastEventAt: lastSeen, now: lastSeen + 20_000 });
-    expect(text(page)).toBe("kiln Disconnected from Kiln · last seen 11:47 AM The Enso Method");
+    expect(text(page)).toBe(`kiln v${version} Disconnected from Kiln · last seen 11:47 AM The Enso Method`);
     // Amber marks a disconnected Kiln (AC-LOOK-04).
     expect(page).toMatch(/<span class="lost[^"]*">Disconnected from Kiln<\/span>/);
     expect(page).not.toMatch(/\bconnected"/);

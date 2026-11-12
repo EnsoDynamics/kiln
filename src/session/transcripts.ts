@@ -2,7 +2,7 @@
 // (multi-repo technical design, "Transcripts"; "Stayed in the workspace"): the main session's
 // file and every subagent's, found by session ID, never by rebuilding Claude Code's folder name.
 
-import { existsSync, readdirSync, readFileSync, opendirSync, openSync, closeSync, readSync, fstatSync, lstatSync } from "node:fs";
+import { constants, existsSync, readdirSync, readFileSync, opendirSync, openSync, closeSync, readSync, fstatSync, lstatSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -155,26 +155,38 @@ function resultText(content: unknown): string {
 /** Establish usable conversation contents without loading a transcript or starting a turn.
  * Partial trailing/legacy records are supported; only a readable user/assistant message
  * for this conversation establishes availability. Each record and the total scan are bounded.
+ *
+ * Only the projects root, the one folder holding this conversation and its file must be owner
+ * controlled: owned by this user and not a symbolic link, with the file writable by its owner
+ * alone and the folders by no one outside the owner's group. Claude Code writes transcripts 0600
+ * but, under a umask of 0002, leaves project folders group-writable, so a folder's group write
+ * passes. Other project folders are skipped, never judged, so one folder elsewhere can't make
+ * every conversation unresumable.
  */
 export function claudeHistoryAvailability(env: NodeJS.ProcessEnv, sessionId: string, deadline = Date.now() + 5000): { available: boolean; reason: string } {
   const unavailable = (reason: string) => ({ available: false, reason });
   if (!/^[a-zA-Z0-9_.-]{1,200}$/.test(sessionId) || sessionId === "." || sessionId === "..") return unavailable("Provider conversation identity is invalid.");
   const check = () => { if (Date.now() > deadline) throw new Error("Provider history read deadline expired."); };
-  const owned = (path: string) => { const stat = lstatSync(path); if (stat.isSymbolicLink() || process.getuid && stat.uid !== process.getuid() || process.platform !== "win32" && stat.mode & 0o022) throw new Error("Provider history is not owner controlled."); return stat; };
+  const unsafe = (stat: Stats, writers: number) => stat.isSymbolicLink() || !!process.getuid && stat.uid !== process.getuid() || process.platform !== "win32" && (stat.mode & writers) !== 0;
+  const owned = (path: string, writers: number) => { const stat = lstatSync(path); if (unsafe(stat, writers)) throw new HistoryUnsafe(`Provider history can be changed by other users: ${path}.`); return stat; };
   try {
     check();
-    const projects = join(claudeConfigFolder(env), "projects"); owned(projects);
+    const projects = join(claudeConfigFolder(env), "projects"); owned(projects, 0o002);
     const directory = opendirSync(projects);
     try {
       for (;;) {
         check(); const project = directory.readSync(); if (!project) break;
-        const folder = join(projects, project.name); if (!owned(folder).isDirectory()) continue;
-        const file = join(folder, `${sessionId}.jsonl`);
-        try { if (!owned(file).isFile()) return unavailable("Provider history is not a regular file."); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
-        const fd = openSync(file, "r");
+        if (!project.isDirectory()) continue;
+        const folder = join(projects, project.name); const file = join(folder, `${sessionId}.jsonl`);
+        // A folder this user can't search can't hold this user's conversation; skip it.
+        try { lstatSync(file); } catch (error) { if (["ENOENT", "EACCES", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) continue; throw error; }
+        owned(folder, 0o002);
+        if (!owned(file, 0o022).isFile()) return unavailable("Provider history is not a regular file.");
+        // The folder may be group-writable, so the file is opened without following a link and judged again as opened.
+        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
         try {
-          const size = fstatSync(fd).size; const chunk = Buffer.allocUnsafe(65536); const parts: Buffer[] = []; let lineSize = 0;
+          const opened = fstatSync(fd); if (!opened.isFile() || unsafe(opened, 0o022)) throw new HistoryUnsafe(`Provider history can be changed by other users: ${file}.`);
+          const size = opened.size; const chunk = Buffer.allocUnsafe(65536); const parts: Buffer[] = []; let lineSize = 0;
           const usable = () => {
             if (!lineSize) return false;
             let record: TranscriptRecord & { sessionId?: unknown };
@@ -202,5 +214,11 @@ export function claudeHistoryAvailability(env: NodeJS.ProcessEnv, sessionId: str
       }
     } finally { directory.closeSync(); }
     return unavailable("Provider history is missing.");
-  } catch { return unavailable("Provider history is unreadable, unsafe or its read deadline expired."); }
+  } catch (error) {
+    if (error instanceof HistoryUnsafe) return unavailable(error.message);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return unavailable("Provider history is missing.");
+    return unavailable("Provider history is unreadable or its read deadline expired.");
+  }
 }
+
+class HistoryUnsafe extends Error {}
