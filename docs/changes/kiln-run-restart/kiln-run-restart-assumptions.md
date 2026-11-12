@@ -29,30 +29,45 @@
 
 > Business decisions the team made because each is easy to change after release. A stakeholder can still correct them.
 
-### RERUN-001. Offer "Run Phase N again" at every hand-back, not only when the old conversation is unusable?
+### RERUN-001. Offer a Kiln-run new session at every stopped phase, or only when the old conversation can't be reopened?
 
-**Assumption**: Yes: every phase hand-back offers **Run Phase N again**, including when the saved conversation could be resumed. The new session starts from the worktree as it stands, uncommitted changes included, and is told what is there.
+**Assumption**: Only when the conversation can't be reopened. While it can, the page offers today's two choices, reply or resume in the same conversation, and no third.
 
-The 2026-11-11 run is the case for offering it widely: the conversation was resumable in fact, but the person still wanted a clean start, because the old session had stopped on a blocker that no longer applied.
+A stopped phase with a usable conversation already has a button that gets Kiln going. A second button that does nearly the same thing in a fresh session is one more choice to puzzle over on a page that should be obvious. The 2026-11-11 run, which looked like a case for a fresh session, needed its branch brought up to date instead (AC-CURRENT-01).
 
-**If they choose otherwise**: The choice appears only when Kiln cannot reopen the conversation, or only when the phase has no commits since it started; otherwise the person replies to or resumes the old conversation.
+**If they choose otherwise**: Every stopped-phase page also offers "Start a new session for Phase N", for a person who would rather not continue a conversation that has gone off track.
 
 **Confirm or Correct**:
-- [ ] Correct — offer it at every hand-back
-- [ ] Wrong — offer it only when the conversation can't be reopened
+- [ ] Correct — a new session only when the conversation can't be reopened
+- [ ] Wrong — offer a new session at every stopped phase as well
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 80% | **Impact**: 🟡 MEDIUM
 
-### CTRL-001. Are "Run again" and "Start over" browser-only in this change?
+### UI-001. Hide the completion checks and Mark complete for a phase that built nothing?
 
-**Assumption**: **Run Phase N again** is also a command for phone-driven control, alongside reply and resume, with the same eligibility. **Start over** is browser-only in this change, because it needs the setup panel's choices; the command-line status of a stopped run lists it as a choice the browser offers.
+**Assumption**: Yes: when a stopped phase has no commits and no uncommitted changes, the page shows **Nothing to check yet** in place of the completion checks and **Mark complete**, with **Check Phase N anyway** for a person who built the phase somewhere else.
 
-**If they choose otherwise**: Start over gets a command too, taking the starting point and branch as options, or neither action gets a command.
+On 2026-11-11 the page showed failing checks and **Mark phase 1 complete** for a phase that had never started; marking it complete would have skipped the phase.
+
+**If they choose otherwise**: The checks and **Mark complete** stay on the page as today, under a line saying the phase has built nothing yet.
 
 **Confirm or Correct**:
-- [ ] Correct — a command for Run again; Start over in the browser only
-- [ ] Wrong — commands for both
+- [ ] Correct — replace them with "Nothing to check yet"
+- [ ] Wrong — keep the checks visible, with a line saying nothing is built
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 75% | **Impact**: 🟢 LOW
+
+### CTRL-001. Which of the new actions can be given from phone-driven control, and which are browser-only?
+
+**Assumption**: The two actions that start a session, **Send reply & continue Phase N** and **Start Phase N again**, are also commands for phone-driven control, alongside reply and resume, with the same limits. **Reset Kiln for this PRD** is browser-only in this change, because it needs its confirmation read; the command-line status of a stopped phase says the browser offers it.
+
+**If they choose otherwise**: Reset gets a command too, with a confirming second step, or none of the three gets a command.
+
+**Confirm or Correct**:
+- [ ] Correct — commands for the two that start a session; reset in the browser only
+- [ ] Wrong — a command for reset as well
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 70% | **Impact**: 🟢 LOW
