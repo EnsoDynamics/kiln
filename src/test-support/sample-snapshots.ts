@@ -682,7 +682,7 @@ export function handBackSnapshot(options: { resumeOffered?: boolean; rechecked?:
     counts: { passed: checks.length - failed, waived: 0, failed },
     checkedAt: rechecked ? "2026-10-17T15:56:05Z" : "2026-10-17T15:52:00Z",
     checkRun: rechecked ? { id: "run-2b-recheck", at: "2026-10-17T15:56:05Z", origin: "recheck", finished: true } : { id: "run-2b-stop", at: "2026-10-17T15:52:00Z", origin: "stop", finished: true },
-    markComplete: rechecked && !checking ? markCompleteOfferSample(mixed) : { offered: false, reason: checking ? "Kiln is checking." : "No check has run since Phase 2b stopped." },
+    markComplete: rechecked && !checking ? markCompleteOfferSample(mixed) : checking ? { offered: false, reason: "Kiln is checking." } : { offered: false, reason: "No check has run since Phase 2b stopped.", awaitingRecheck: { label: "Mark Phase 2b complete", heading: "Phase 2b is done, and Kiln’s check is wrong?" } },
     ...(checking ? { checking: true as const } : {}),
     phaseRecovery: { target: { executionId: "display-execution", phaseKey: "2b", sessionId: SESSION_2B, stoppedAt: "2026-10-17T15:52:00Z" }, completion: "incomplete" },
   };

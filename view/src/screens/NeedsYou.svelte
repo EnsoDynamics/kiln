@@ -65,13 +65,15 @@
   let note = $state("");
   let resuming = $state(false);
   let resumeReason = $state<string | undefined>(undefined);
-  // Mark complete sits below Check again once a recheck still fails (waivers AC-WAIVE-02); a
-  // pressed offer stays shown, reading Checking…, while its rerun runs (AC-WAIVE-06).
+  // Mark complete sits below Check again, usable once a recheck still fails and shown unusable
+  // before one (waivers AC-WAIVE-02); a pressed offer stays shown, reading Checking…, while its rerun runs (AC-WAIVE-06).
   let marking = $state(false);
   let markOffer = $state<Extract<MarkCompleteOffer, { offered: true }> | undefined>(undefined);
   let markChanges = $state<ItemChange[]>([]);
   let markError = $state<string | undefined>(undefined);
   const offer = $derived(stop.markComplete?.offered ? stop.markComplete : marking ? markOffer : undefined);
+  // Before a recheck the button shows, unusable, saying to check again first.
+  const waiting = $derived(!offer && stop.markComplete && !stop.markComplete.offered ? stop.markComplete.awaitingRecheck : undefined);
   const connected = $derived(connection ? connection.connected : true);
   // From a press of Resume, Check again or Mark complete until the session runs again or the
   // result is shown, none can be pressed (AC-RESUME-02, AC-WAIVE-06); a disconnected page submits nothing.
@@ -273,7 +275,7 @@
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}
-        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{/if}
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
       </aside>
     </div>
   </div>

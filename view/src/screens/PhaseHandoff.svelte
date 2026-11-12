@@ -43,7 +43,7 @@
   const ending = $derived(endingFact(stop));
   const limit = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, agent) : undefined);
   // Checking has its own section (AC-NEXT-02): when the checks ran, how many fail after a recheck,
-  // and Mark complete once a recheck still fails (AC-WAIVE-02). A pressed offer stays shown,
+  // and Mark complete, usable once a recheck still fails and shown unusable before one (AC-WAIVE-02). A pressed offer stays shown,
   // reading Checking…, while its rerun runs (AC-WAIVE-06).
   const counts = $derived(stop.counts ?? countsOf(stop.checks));
   const rechecked = $derived(stop.checkRun ? stop.checkRun.origin === "recheck" && stop.checkRun.finished : !!page.rechecked);
@@ -51,6 +51,8 @@
   const checkedLine = $derived(`${stop.checkedAt ? rechecked ? `Checked again ${secondsTime(stop.checkedAt)}` : stop.checkRun?.origin === "recheck" ? `Checked ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"} · ${passedOf(counts)}`);
   const stillFailing = $derived(rechecked && counts.failed > 0 && !page.markChanges?.length && !stop.checking && !page.pending);
   const offer = $derived(stop.markComplete?.offered ? stop.markComplete : page.pending === "mark" ? page.markOffer : undefined);
+  // Before a recheck the button shows, unusable, saying to check again first.
+  const waiting = $derived(!offer && stop.markComplete && !stop.markComplete.offered ? stop.markComplete.awaitingRecheck : undefined);
   const VERDICT = { passed: "Passed", waived: "Waived", failed: "Not yet" } as const;
   let choiceHeading: HTMLHeadingElement | undefined = $state();
   let replyField: HTMLTextAreaElement | undefined = $state();
@@ -212,7 +214,7 @@
       <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button></div>
       {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {inSentence} again to retry.</p>{/if}
       {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
-      {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{/if}
+      {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{:else if waiting}<MarkComplete {waiting} />{/if}
     </section>
   {/if}
   {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}

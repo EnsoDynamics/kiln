@@ -46,7 +46,7 @@ async function stoppedOnPush(): Promise<Harness> {
 describe("Mark complete after a failed recheck (AC-WAIVE-01 to 04)", () => {
   it("is not offered before a recheck, is offered after one fails, and checking again never waives anything", async () => {
     const h = await stoppedOnPush();
-    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: false, reason: expect.stringMatching(/No check has run since Phase 1 stopped/) });
+    expect(h.engine.markCompleteOffer()).toEqual({ offered: false, reason: expect.stringMatching(/No check has run since Phase 1 stopped/), awaitingRecheck: { label: "Mark phase 1 complete", heading: "Phase 1 is done, and Kiln’s check is wrong?" } });
     const refused = await submit(h.engine, "waive-and-advance", { check_run_id: h.engine.record.phases["1"]!.stop!.run!.id, via: "command_line" });
     expect(refused).toMatchObject({ state: expect.stringMatching(/refused|failed/) });
     expect(refused.outcome).toBe("mark_complete_not_offered");

@@ -1612,8 +1612,9 @@ export class Engine {
    * Whether Mark complete is offered at the current stop, and what it would do (AC-WAIVE-02,
    * AC-WAIVE-03): the one predicate the snapshot, CLI and server share. Offered exactly when the
    * activity holds a Needs you stop whose latest run is a finished recheck with an unmet check, and
-   * nothing is checking, dispatching or writing. `admitting`: the journal's own instruction is the
-   * one in progress.
+   * nothing is checking, dispatching or writing. When only that finished recheck is missing, the
+   * refusal carries `awaitingRecheck`, the wording the page shows on the unusable button.
+   * `admitting`: the journal's own instruction is the one in progress.
    */
   markCompleteOffer(admitting = false): MarkCompleteOffer {
     const key = this.stoppedPhaseKey();
@@ -1621,17 +1622,15 @@ export class Engine {
     const name = this.activityName(key);
     if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || !admitting && this.commands?.busy) return { offered: false, reason: "Kiln is checking, dispatching or writing. Try again when it has finished." };
     const { run, checks } = this.stopRun(key);
-    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.` };
-    if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read." };
     const failing = checks.filter(check => !check.passed);
+    const { label, heading, continueInOrder } = this.offerWording(key, failing);
+    // Only a finished recheck is missing when the stop's checks still fail, or none has run yet.
+    const awaiting = !run || failing.length ? { awaitingRecheck: { label, heading } } : {};
+    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.`, ...awaiting };
+    if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read.", ...awaiting };
     if (!failing.length) return { offered: false, reason: "Every check passed. Check again advances without a waiver." };
     const items = unmetItems(checks);
-    const stopKind = this.record.phases[key]?.stop?.kind;
-    const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
     const complete = this.alreadyComplete(key);
-    const started = this.activityRan(key) || complete;
-    const continueInOrder = problemStop && !started;
-    const lower = name.charAt(0).toLowerCase() + name.slice(1);
     const audit = this.auditActivity(key);
     const preview = audit && !complete ? this.auditWaiverPreview(audit) : undefined;
     const nextActivity = continueInOrder || complete ? null : this.forecastNext(key, preview?.countedOutcome);
@@ -1642,10 +1641,22 @@ export class Engine {
     const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => item.subject))];
     return {
       offered: true,
+      label, heading, continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
+      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder }),
+    };
+  }
+
+  /** Mark complete's button and heading: Continue in normal order for a plan or readiness problem on an activity that has not started (AC-WAIVE-04). */
+  private offerWording(key: string, failing: readonly CheckResult[]): { label: string; heading: string; continueInOrder: boolean } {
+    const name = this.activityName(key);
+    const stopKind = this.record.phases[key]?.stop?.kind;
+    const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
+    const continueInOrder = problemStop && !(this.activityRan(key) || this.alreadyComplete(key));
+    const lower = name.charAt(0).toLowerCase() + name.slice(1);
+    return {
       label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
       heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
-      continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
-      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder }),
+      continueInOrder,
     };
   }
 

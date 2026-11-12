@@ -320,6 +320,11 @@ export type MarkCompleteOffer = {
   /** The sentence above the button, one paragraph per entry (AC-WAIVE-03). */
   sentence: string[];
   noReport: boolean;
-} | { offered: false; reason: string };
+} | {
+  offered: false;
+  reason: string;
+  /** Set when only a finished recheck is missing: the page shows the button, unusable, saying to check again first (AC-WAIVE-02). */
+  awaitingRecheck?: { label: string; heading: string };
+};
 
 export type MarkCompleteOutcome = "marked_complete" | "continued" | "checks_passed" | "check_results_changed" | "check_unavailable";
