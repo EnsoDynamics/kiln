@@ -42,7 +42,7 @@ import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerChe
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -2231,6 +2231,8 @@ export class Engine {
       if ((this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) || this.record.folderSetupStart) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
       if (!await this.markChecks(leaf.id, [check])) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
+      // Finished and met: from here only a change to its own phase document asks for its assessment again.
+      acceptPhaseDocuments(this.deliveryContext(leaf.id), leaf.id);
     }
     this.save(); return undefined;
   }

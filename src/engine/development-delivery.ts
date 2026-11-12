@@ -75,8 +75,26 @@ async function source(context: DeliveryContext, repo: RepositoryEntry, path: str
 function currentLeaves(context: DeliveryContext) {
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem); return effectivePlan(plan.plan, context.record).plan.phases.filter(phase => !phase.splitInto);
 }
+/** A phase's own document alone, read as `documentsDigest` reads it. */
+export function phaseDocumentDigest(context: Pick<DeliveryContext, "prdWorktree" | "prdDirectory">, phaseId: string): string {
+  const plan = readPlanAt(context.prdWorktree, context.prdDirectory);
+  need(plan.ok, plan.ok ? "" : plan.problem);
+  const phase = plan.plan.phases.find(one => one.id === phaseId); need(phase, `Phase ${phaseId} is not in the current plan.`);
+  return phaseFileDigest(phase.fileName, readFileSync(join(context.prdWorktree, context.prdDirectory, phase.fileName), "utf8"));
+}
+export function phaseFileDigest(fileName: string, text: string): string { return hash([[fileName, mechanical(text)]]); }
+/**
+ * The documents an owner's assessment and waivers bind to. A finished phase stays bound to the documents its check
+ * last passed against until its own phase document changes: a later phase editing the shared PRD or design does not
+ * reopen it (technical design, "Assessments and evidence").
+ */
 export function ownerDocuments(context: DeliveryContext, owner: DeliveryOwner): { documentsDigest: string; requirementManifestDigest?: string } {
-  if (owner.kind === "phase") return { documentsDigest: documentsDigest(context, owner.phaseId) };
+  if (owner.kind === "phase") {
+    const accepted = context.record.developmentDelivery?.accepted?.find(one => one.phaseId === owner.phaseId);
+    // A reopened phase is unfinished again: its Closed line is not part of its document digest, so ask the plan.
+    if (accepted && currentLeaves(context).some(leaf => leaf.id === owner.phaseId && leaf.closed) && accepted.phaseDocumentDigest === phaseDocumentDigest(context, owner.phaseId)) return { documentsDigest: accepted.documentsDigest };
+    return { documentsDigest: documentsDigest(context, owner.phaseId) };
+  }
   const binding = auditDeliveryScope(context, owner);
   return { documentsDigest: binding.documentsDigest, requirementManifestDigest: binding.requirementManifestDigest };
 }
@@ -218,7 +236,7 @@ export async function recordAssessment(context: DeliveryContext, body: Record<st
   for (const id of added) dependencyProofDeclared(state, state.checkpoints.find(one => one.id === id)!);
   const splits = [...(assessment.split ? [assessment.split] : []), ...(assessment.splits ?? [])];
   for (const split of splits) { need(typeof split.phaseId === "string" && (split.phaseId === context.phaseId || owner.kind === "phase" && isAncestorOf(split.phaseId, owner.phaseId)) && split.documentsDigest === documentsDigest(context, split.phaseId) && Array.isArray(split.assignments), "Invalid or stale split assignment.");
-    state.splits = [...state.splits.filter(one => one.phaseId !== split.phaseId), { ...split, revision: state.revision + 1 }];
+    state.splits = [...state.splits.filter(one => one.phaseId !== split.phaseId), { ...split, phaseDocumentDigest: phaseDocumentDigest(context, split.phaseId), revision: state.revision + 1 }];
   }
   if (splits.length) validateSplits(context);
 }
@@ -238,10 +256,13 @@ function dependencyProofDeclared(state: DevelopmentLedger, checkpoint: DeliveryC
 function dependencyBound(requirement: EvidenceRequirement, id: string): boolean { return requirement.match.kind === "command" && Object.values(requirement.match.fields).includes(`$dependency:${id}`); }
 export function validateSplits(context: DeliveryContext): void {
   const plan = readPlanAt(context.prdWorktree, context.prdDirectory); need(plan.ok, plan.ok ? "" : plan.problem);
-  validateDeliverySplits(ledger(context.record), plan.plan, id => documentsDigest(context, id));
+  validateDeliverySplits(ledger(context.record), plan.plan, id => documentsDigest(context, id), id => phaseDocumentDigest(context, id));
 }
-/** Same split checks for live files and immutable continuation observations. */
-export function validateDeliverySplits(state: DevelopmentLedger, plan: PhasePlan, digest: (phaseId: string) => string): void {
+/**
+ * A split stands while it matches the current documents, or while the split phase's own document (`own`) is as it was
+ * when the split was recorded, so a later phase editing the shared PRD or design does not ask for it again.
+ */
+export function validateDeliverySplits(state: DevelopmentLedger, plan: PhasePlan, digest: (phaseId: string) => string, own: (phaseId: string) => string | undefined): void {
   const leaves = plan.phases.filter(phase => !phase.splitInto);
   for (const checkpoint of state.checkpoints) {
     const origin = deliveryOwner(checkpoint);
@@ -253,7 +274,7 @@ export function validateDeliverySplits(state: DevelopmentLedger, plan: PhasePlan
         const split = state.splits.find(one => one.phaseId === parent.id);
         const inherited = parent.id === root ? assignedObligations(state, checkpoint, { kind: "phase", phaseId: root }).map(requirementId => ({ requirementId, criteria: origin.kind === "phase" && origin.phaseId === root ? checkpoint.criteria : (state.assignments ?? []).filter(one => one.checkpointId === checkpoint.id && one.requirementId === requirementId && one.owner.kind === "phase" && one.owner.phaseId === root).flatMap(one => one.criteria) })) : state.splits.flatMap(ancestor => isAncestorOf(ancestor.phaseId, parent.id) ? ancestor.assignments.filter(one => one.checkpointId === checkpoint.id && one.leafIds.some(id => isAncestorOf(parent.id, id))) : []);
         if (!inherited.length) continue;
-        need(split && split.documentsDigest === digest(parent.id), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
+        need(split && (split.documentsDigest === digest(parent.id) || split.phaseDocumentDigest !== undefined && split.phaseDocumentDigest === own(parent.id)), `Assign the retained obligations of checkpoint ${checkpoint.id} across the current split ${parent.id}.`);
         const obligations = new Map<string, Set<string>>();
         for (const obligation of inherited) { const criteria = obligations.get(obligation.requirementId) ?? new Set<string>(); for (const criterion of obligation.criteria) criteria.add(criterion); obligations.set(obligation.requirementId, criteria); }
         for (const [requirementId, inheritedCriteria] of obligations) {
@@ -659,6 +680,18 @@ export async function leavesClosedAtRunBase(context: DeliveryContext): Promise<R
     closedAtBaseCache.set(key, closed);
   }
   return closed;
+}
+/**
+ * Records the documents a finished phase's delivery check just passed against; true when the record changed.
+ * It is no assessment or evidence, so the ledger revision a session answers to stays as it is.
+ */
+export function acceptPhaseDocuments(context: DeliveryContext, phaseId: string): boolean {
+  const state = ledger(context.record); let bound: string; let own: string;
+  // A check can pass under a waiver while its documents are unreadable or the phase has left the plan; there is then nothing to record.
+  try { bound = ownerDocuments(context, { kind: "phase", phaseId }).documentsDigest; own = phaseDocumentDigest(context, phaseId); } catch (error) { if (error instanceof DeliveryRefusal) return false; throw error; } const current = state.accepted?.find(one => one.phaseId === phaseId);
+  if (current && current.documentsDigest === bound && current.phaseDocumentDigest === own) return false;
+  state.accepted = [...(state.accepted ?? []).filter(one => one.phaseId !== phaseId), { phaseId, documentsDigest: bound, phaseDocumentDigest: own }];
+  return true;
 }
 export function phaseDeliveryCheck(context: DeliveryContext, phaseId: string): CheckResult { return ownerDeliveryCheck(context, { kind: "phase", phaseId }); }
 /**

@@ -67,13 +67,19 @@ export interface DeliveryCheckpoint extends DeliveryOwnership {
 export function checkpointAgainst(checkpoint: Pick<DeliveryCheckpoint, "id" | "merge">): string { return `${checkpoint.id}@${checkpoint.merge?.resultSha ?? "unmerged"}`; }
 export interface DeliveryAssessment extends DeliveryOwnership { requirementManifestDigest?: string; documentsDigest: string; required: boolean; criteria: string[]; reason: string; checkpointIds: string[] }
 export interface SplitAssignment { checkpointId: string; requirementId: string; originPhaseId?: string; originOwner?: DeliveryOwner; criteria: string[]; leafIds: string[] }
-export interface DeliverySplit { phaseId: string; documentsDigest: string; revision: number; assignments: SplitAssignment[] }
+/** `phaseDocumentDigest` is the split phase's own document when the split was recorded; while it is unchanged the split stands, whatever happens to the shared PRD or design. */
+export interface DeliverySplit { phaseId: string; documentsDigest: string; phaseDocumentDigest?: string; revision: number; assignments: SplitAssignment[] }
 export interface RepositoryDeliveryResult {
   repository: string; state: "unchanged" | "delivered" | "review" | "mixed" | "unresolved";
   deliveredCheckpointIds: string[]; remainingHeadSha?: string; reviewPullRequest?: { number: number; url: string }; reasons: string[];
 }
+/**
+ * The documents a finished phase's delivery check last passed against. While the phase's own document still has
+ * `phaseDocumentDigest`, the phase stays bound to `documentsDigest`, whatever later happens to the shared PRD or design.
+ */
+export interface AcceptedPhaseDocuments { phaseId: string; documentsDigest: string; phaseDocumentDigest: string }
 export interface DevelopmentLedger {
-  assignments?: DeliveryAssignment[];
+  assignments?: DeliveryAssignment[]; accepted?: AcceptedPhaseDocuments[];
   revision: number; assessments: DeliveryAssessment[]; checkpoints: DeliveryCheckpoint[]; splits: DeliverySplit[];
   sourceUnavailable?: boolean; lastReadError?: string; checkedAt?: string; repositoryResults: RepositoryDeliveryResult[]; currentComplete?: boolean;
 }
@@ -165,9 +171,10 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     require(checkpoint.supersededBy === undefined || ids.has(checkpoint.supersededBy) && checkpoint.supersededBy !== checkpoint.id, "checkpoint replacement");
     for (const operation of checkpoint.operations) require(operation.restorationFor === undefined || operation.kind === "deploy" && ids.has(operation.restorationFor), "prerequisite restoration scope");
   }
+  require(state.accepted === undefined || Array.isArray(state.accepted) && state.accepted.every(one => object(one) && text(one.phaseId) && digest(one.documentsDigest) && digest(one.phaseDocumentDigest)) && new Set(state.accepted.map(one => one.phaseId)).size === state.accepted.length, "accepted phase documents");
   for (const assessment of state.assessments) require(object(assessment) && owned(assessment) && (deliveryOwner(assessment).kind !== "audit" || digest(assessment.requirementManifestDigest)) && digest(assessment.documentsDigest) && typeof assessment.required === "boolean" && texts(assessment.criteria) && text(assessment.reason) && texts(assessment.checkpointIds) && assessment.checkpointIds.every(id => ids.has(id)) && (!assessment.required || assessment.checkpointIds.length > 0), "phase delivery assessment");
   for (const split of state.splits) {
-    require(object(split) && text(split.phaseId) && digest(split.documentsDigest) && Number.isSafeInteger(split.revision) && split.revision <= state.revision && Array.isArray(split.assignments), "split assignment digest/revision");
+    require(object(split) && text(split.phaseId) && digest(split.documentsDigest) && (split.phaseDocumentDigest === undefined || digest(split.phaseDocumentDigest)) && Number.isSafeInteger(split.revision) && split.revision <= state.revision && Array.isArray(split.assignments), "split assignment digest/revision");
     for (const assignment of split.assignments) require(object(assignment) && ids.has(assignment.checkpointId) && text(assignment.requirementId) && owned({ owner: assignment.originOwner, phaseId: assignment.originPhaseId }) && texts(assignment.criteria) && assignment.criteria.length > 0 && texts(assignment.leafIds) && assignment.leafIds.length > 0, "split obligation assignment");
   }
   require(state.assignments === undefined || Array.isArray(state.assignments), "retained owner assignments");
