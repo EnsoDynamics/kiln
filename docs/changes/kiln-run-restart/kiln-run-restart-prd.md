@@ -18,6 +18,10 @@ On 2026-11-11 Doug started a run on a remote development machine. Phase 1's sess
 - The completion checks for a phase that had not started, two of them failing, and **Mark phase 1 complete**, which would have skipped the phase.
 - No way to run Phase 1 again, and no way to start the run over. The only way out was stopping Kiln, moving its saved state aside by hand, removing its worktree and deleting the feature branch.
 
+Doug did what the page suggested: he pressed **Check Phase 1 again**, and it showed the same failing checks for work that had never started. He didn't know where Kiln keeps a run's state, so he had no way to reset it without help. The person Kiln is for should never need to know that. Every way forward the page offered was wrong for the situation: replying to a conversation Kiln said it couldn't reopen, or marking complete a phase that had done nothing.
+
+The same day he raised the case behind the existing-branch choice: someone builds part of a PRD by hand, say its first phases, and then decides to let Kiln finish it. Kiln can't do that today. The first Start always cuts a new feature branch and refuses a branch Kiln did not make, so that person has to move the work onto Kiln's branch themselves.
+
 A run that stops before doing anything, or that the person wants to begin again, is ordinary. Kiln already knows how to set a run up again: when a run's folder goes missing, its **Set the run up again** panel offers the base branch or the run's existing feature branch as a starting point (AC-SETUP-01 to AC-SETUP-07 in Kiln Missing Worktree Recovery). It already treats a phase closed on the branch it starts from as done, whoever closed it. This change offers those abilities when the person asks for them, not only when a folder is missing.
 
 ## Acceptance Criteria
