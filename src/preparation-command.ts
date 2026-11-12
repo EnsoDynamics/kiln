@@ -1,7 +1,7 @@
 /** Session-facing references only; submissions never run validation or launch providers. */
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { findPrd } from "./add-repository-command.js";
+import { findPrd, lookupProblem } from "./add-repository-command.js";
 import { recordedInstancePort } from "./state/instance-lock.js";
 import { stateRoot } from "./state/state-files.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
@@ -10,8 +10,8 @@ export async function runPreparation(args: string[], context: CommandContext): P
   const [action, file] = args;
   if (!["status", "submit"].includes(action ?? "") || args.length !== (action === "status" ? 1 : 2)) { context.stderr.write("Usage: kiln preparation status | submit <JSON file>\n"); return 2; }
   try {
-    const found = findPrd(stateRoot(context.env), realpathSync(resolve(context.cwd)));
-    if (found.kind !== "found") throw new Error("Run this command in the assigned preparation workspace.");
+    const directory = realpathSync(resolve(context.cwd)); const found = await findPrd(stateRoot(context.env), directory);
+    if (found.kind !== "found") throw new Error(`Run this command in the assigned preparation workspace. ${lookupProblem(found, directory)}`);
     const port = recordedInstancePort(found.stateDirectory); if (!port) throw new Error("Kiln is not running for this execution.");
     const address = `http://127.0.0.1:${port}`;
     const state = found.record.preparation; if (!state) throw new Error("No preparation is assigned to this execution.");

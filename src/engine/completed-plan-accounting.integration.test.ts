@@ -11,7 +11,7 @@ import { startLocalServer } from "../server/local-server.js";
 import { launchChrome } from "../test-support/headless-chrome.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { SCHEMA_VERSION, writeSessionRecord } from "../state/records.js";
-import { documentsDigest } from "./development-delivery.js";
+import { documentsDigest, phaseFileDigest } from "./development-delivery.js";
 import { emptyDevelopmentLedger } from "../state/development-delivery.js";
 let h: Harness;
 afterEach(async () => { await h?.cleanup(); });
@@ -158,6 +158,23 @@ it("requires inherited delivery obligations even when a leaf assessment declares
   expect((await h.engine.checkCompletedPlan()).result?.leaves?.find(row => row.id === "8")?.classification).toBe("externally_verified");
 });
 
+
+it("keeps a finished phase's assessment after the shared documents change, until its own phase document does", async () => {
+  const f = await createCometContinuation(); h = f.h; f.integrate();
+  h.engine.record.developmentAuthorization = { revision: 1, enabled: true, grants: [] };
+  const state = h.engine.record.developmentDelivery = emptyDevelopmentLedger();
+  state.currentComplete = true;
+  // Assessed against documents that have since changed: the digest no longer matches the PRD and design on the base.
+  const earlier = "a".repeat(64);
+  state.assessments.push({ phaseId: "8", documentsDigest: earlier, required: false, criteria: ["AC-COMET-01"], reason: "No new checkpoint", checkpointIds: [] });
+  const leaf = async () => (await h.engine.checkCompletedPlan()).result?.leaves?.find(row => row.id === "8");
+  expect(await leaf()).toMatchObject({ classification: "externally_unverified", problems: [expect.stringContaining("scope-bound development-delivery assessment")] });
+  const own = phaseFileDigest("phase-8-catalog.md", readFileSync(join(h.repository, COMET_DIRECTORY, "phase-8-catalog.md"), "utf8"));
+  state.accepted = [{ phaseId: "8", documentsDigest: earlier, phaseDocumentDigest: own }];
+  expect((await leaf())?.classification).toBe("externally_verified");
+  state.accepted = [{ phaseId: "8", documentsDigest: earlier, phaseDocumentDigest: "b".repeat(64) }];
+  expect((await leaf())?.classification).toBe("externally_unverified");
+});
 
 it("recognizes verified squash integration pairs and refuses unresolved or unrelated pairs", async () => {
   const f = await createCometContinuation(); h = f.h;

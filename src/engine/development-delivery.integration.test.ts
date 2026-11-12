@@ -7,7 +7,7 @@ import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { readPrdRecord, migrateRecord } from "../state/records.js";
 import { assertDevelopmentState, type DeliveryCheckpoint } from "../state/development-delivery.js";
-import { documentsDigest, evaluateRepositories, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
+import { documentsDigest, ownerDocuments, phaseDocumentDigest, evaluateRepositories, phaseDeliveryCheck, validateStartTargets, recordAssessment, validateSplits, checkpointSatisfied, prepareOperation, type DeliveryContext } from "./development-delivery.js";
 import { buildSnapshot } from "./snapshot.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import { codexSessionPrompt, phaseSessionPrompt, freshSessionPrompt, resumePrompt, pullRequestSessionPrompt } from "../session/prompts.js";
@@ -157,6 +157,33 @@ describe("retained delivery obligations", () => {
     writeFileSync(prd, original + "\nA new acceptance requirement.\n"); expect(documentsDigest(c, "1")).not.toBe(before);
     await expect(recordAssessment(c, { phaseId: "1", documentsDigest: before, required: false, criteria: [], reason: "No deployment", checkpoints: [] })).rejects.toThrow("changed");
     await expect(recordAssessment(c, { phaseId: "2b", documentsDigest: before, required: false, criteria: [], reason: "No deployment", checkpoints: [] })).rejects.toThrow("current judged leaf");
+  });
+  it("keeps a split, and a finished leaf's binding, through shared-document edits but not through a change to the phase's own document or a reopening", async () => {
+    const h = await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const c = context(h); const state = h.engine.record.developmentDelivery!;
+    const cp = checkpoint(h); state.checkpoints.push(cp);
+    const dir = join(c.prdWorktree, c.prdDirectory); const parent = join(dir, "phase-1-return-intake.md"); const design = join(dir, "technical-design.md"); const leaf = join(dir, "phase-1a-first.md");
+    writeFileSync(parent, "# Phase 1: Return intake\n\n## Split into\n| Phase | What | Depends on |\n|---|---|---|\n| [1a First](phase-1a-first.md) | First | None |\n| [1b Delivery](phase-1b-delivery.md) | Delivery | 1a |\n");
+    writeFileSync(leaf, "# Phase 1a: First\n\n**Closed:** 2026-10-24\n"); writeFileSync(join(dir, "phase-1b-delivery.md"), "# Phase 1b: Delivery\n");
+    state.splits.push({ phaseId: "1", documentsDigest: documentsDigest(c, "1"), phaseDocumentDigest: phaseDocumentDigest(c, "1"), revision: 1, assignments: ["requiredMerge", ...cp.requirements.map(one => one.id)].map(requirementId => ({ checkpointId: cp.id, requirementId, originPhaseId: "1", criteria: cp.criteria, leafIds: ["1b"] })) });
+    const finished = "c".repeat(64); state.accepted = [{ phaseId: "1a", documentsDigest: finished, phaseDocumentDigest: phaseDocumentDigest(c, "1a") }];
+    // A later phase corrects the shared design: the split and the finished leaf both stand.
+    writeFileSync(design, `${readFileSync(design, "utf8")}\nA later correction.\n`);
+    expect(state.splits[0]!.documentsDigest).not.toBe(documentsDigest(c, "1"));
+    expect(() => validateSplits(c)).not.toThrow();
+    expect(ownerDocuments(c, { kind: "phase", phaseId: "1a" }).documentsDigest).toBe(finished);
+    // A split recorded before Kiln kept the phase document's digest still answers to the whole set.
+    const own = state.splits[0]!.phaseDocumentDigest!; delete state.splits[0]!.phaseDocumentDigest;
+    expect(() => validateSplits(c)).toThrow("Assign the retained obligations"); state.splits[0]!.phaseDocumentDigest = own;
+    // The split phase's own document changing asks for the split again.
+    writeFileSync(parent, `${readFileSync(parent, "utf8")}\nA changed split.\n`);
+    expect(() => validateSplits(c)).toThrow("Assign the retained obligations");
+    // Reopening the finished leaf leaves its text digest as it was, and still ends its binding.
+    writeFileSync(leaf, "# Phase 1a: First\n\n");
+    expect(phaseDocumentDigest(c, "1a")).toBe(state.accepted[0]!.phaseDocumentDigest);
+    expect(ownerDocuments(c, { kind: "phase", phaseId: "1a" }).documentsDigest).toBe(documentsDigest(c, "1a"));
+    // The leaf's own document changing ends it too, Closed or not.
+    writeFileSync(leaf, "# Phase 1a: First\n\nA changed scope.\n\n**Closed:** 2026-10-24\n");
+    expect(ownerDocuments(c, { kind: "phase", phaseId: "1a" }).documentsDigest).toBe(documentsDigest(c, "1a"));
   });
   it("does not erase a required checkpoint through an empty reassessment and names missing split assignments", async () => {
     const h = await setup(); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const c = context(h); const state = h.engine.record.developmentDelivery!;
@@ -321,6 +348,27 @@ describe("a waived development-delivery assessment on a phase this run delivered
     expect(h.engine.record.phases["3"]?.sessionIds).toHaveLength(1);
     const facts = (await evaluateRepositories(context(h))).checks.flatMap(check => check.facts).join("\n");
     expect(facts).toContain("Phase 3 needs a current development-delivery assessment.");
+    expect(facts).not.toContain("Phase 1 needs");
+    expect(facts).not.toContain("Phase 2b needs");
+  });
+  it("keeps a finished phase met when a later phase edits the shared PRD or technical design", async () => {
+    const h = await waivedThenLaterPush();
+    const accepted = h.engine.record.developmentDelivery?.accepted?.find(one => one.phaseId === "1");
+    expect(accepted).toBeDefined();
+    // What a later phase's session routinely does: correct the shared design, and the PRD, while it builds.
+    for (const file of ["technical-design.md", "customer-returns-prd.md"]) {
+      const relative = join(h.engine.paths.prdDirectoryFromRoot, file); const path = join(h.engine.worktreePath, relative);
+      writeFileSync(path, `${readFileSync(path, "utf8")}\nA correction made while building a later phase.\n`);
+      git(h.sandbox, h.engine.worktreePath, "add", relative);
+    }
+    git(h.sandbox, h.engine.worktreePath, "commit", "-m", "Correct the shared documents"); git(h.sandbox, h.engine.worktreePath, "push");
+    await markComplete(h);
+    expect(h.engine.record.phases["1"]?.stop).toBeUndefined();
+    expect(h.engine.record.phases["3"]?.sessionIds).toHaveLength(1);
+    // Phase 1 is still bound to the documents it was finished under; the unfinished phase answers to the current ones.
+    expect(h.engine.record.developmentDelivery?.accepted?.find(one => one.phaseId === "1")).toEqual(accepted);
+    expect(accepted!.documentsDigest).not.toBe(documentsDigest(context(h), "1"));
+    const facts = (await evaluateRepositories(context(h))).checks.flatMap(check => check.facts).join("\n");
     expect(facts).not.toContain("Phase 1 needs");
     expect(facts).not.toContain("Phase 2b needs");
   });

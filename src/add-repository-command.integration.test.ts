@@ -2,10 +2,12 @@
 // "The command"), and what it says when it can't act. Adding through a running Kiln is proved
 // end to end in kiln-run-repositories.integration.test.ts.
 
-import { mkdirSync, realpathSync } from "node:fs";
+import { cpSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAddRepository } from "./add-repository-command.js";
+import { runDelivery } from "./delivery-command.js";
+import { takeInstanceLock } from "./state/instance-lock.js";
 import { newPrdRecord } from "./state/new-record.js";
 import { writePrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
@@ -62,6 +64,39 @@ describe("kiln add-repository", () => {
     );
     // From inside a worktree, the PRD it belongs to is the one.
     expect((await run(join(workspace, "storefront"))).stderr).toBe("kiln: kiln run isn't running for customer-returns, so nothing was added.\n");
+  });
+
+  it("ignores a copy of a PRD's state set aside beside the original, for every workspace command", async () => {
+    sandbox = createSandbox();
+    writeRecord(sandbox, "product", "customer-returns", ["product"]);
+    // What a person does to make Kiln forget a run by hand: the old state stays in Kiln's state root, still naming the worktree.
+    const state = prdStateDirectory(stateRoot(sandbox.env), join(sandbox.root, "product"), "product", "docs/prds/customer-returns");
+    cpSync(state, `${state}.reset-20261111-1701`, { recursive: true });
+    const worktree = realpathSync.native(join(sandbox.root, ".worktrees", "customer-returns", "product"));
+    expect((await run(worktree)).stderr).toBe("kiln: kiln run isn't running for customer-returns, so nothing was added.\n");
+    let stderr = "";
+    const code = await runDelivery(["status"], { cwd: worktree, env: sandbox.env, stdout: { write: () => undefined }, stderr: { write: (text: string) => (stderr += text) } } as never);
+    expect({ code, stderr }).toEqual({ code: 1, stderr: "kiln: kiln run is not running for this execution.\n" });
+  });
+
+  it("picks the PRD a running Kiln holds when several claim the folder, and names them when it can't", async () => {
+    sandbox = createSandbox();
+    writeRecord(sandbox, "product", "customer-returns", ["product"]);
+    writeRecord(sandbox, "storefront", "customer-returns", ["storefront"]);
+    const workspace = realpathSync.native(join(sandbox.root, ".worktrees", "customer-returns"));
+    let stderr = "";
+    const delivery = () => runDelivery(["status"], { cwd: workspace, env: sandbox!.env, stdout: { write: () => undefined }, stderr: { write: (text: string) => (stderr += text) } } as never);
+    expect(await delivery()).toBe(1);
+    expect(stderr).toBe(`kiln: Run this command inside one running Kiln execution's assigned workspace. ${workspace} is in the workspace of more than one PRD (customer-returns, customer-returns), and Kiln is not running for exactly one of them.\n`);
+    const root = stateRoot(sandbox.env);
+    const lock = await takeInstanceLock(root, prdStateDirectory(root, join(sandbox.root, "storefront"), "storefront", "docs/prds/customer-returns"));
+    if (!lock.taken) throw new Error("the lock was not taken");
+    try {
+      // Found: the command now reaches for the running Kiln's port, where this test has no server.
+      expect((await run(workspace)).stderr).toContain(`kiln: Couldn't reach Kiln at 127.0.0.1:${lock.port}`);
+    } finally {
+      lock.release();
+    }
   });
 
   it("takes exactly one folder name", async () => {
