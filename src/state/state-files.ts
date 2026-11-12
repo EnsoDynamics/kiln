@@ -30,7 +30,12 @@ export function stateRoot(env: NodeJS.ProcessEnv): string {
  */
 export function prdStateDirectory(root: string, mainCheckoutPath: string, repositoryName: string, prdDirectoryFromRoot: string): string {
   const hash = createHash("sha256").update(mainCheckoutPath).digest("hex").slice(0, 8);
-  return join(root, `${repositoryName}-${hash}`, prdDirectoryFromRoot.split("/").join("--"));
+  return join(root, `${repositoryName}-${hash}`, prdKey(prdDirectoryFromRoot));
+}
+
+/** A PRD's key, the name of its state directory: `docs/prds/customer-returns` gives `docs--prds--customer-returns`. */
+export function prdKey(prdDirectoryFromRoot: string): string {
+  return prdDirectoryFromRoot.split("/").join("--");
 }
 
 /** Creates a directory and its parents readable by their owner only. */

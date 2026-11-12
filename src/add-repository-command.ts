@@ -4,12 +4,12 @@
 
 import { readdirSync, realpathSync } from "node:fs";
 import { request } from "node:http";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { comparable, expandHome, isWithin, realPathOfNearestAncestor } from "./engine/worktree-setup.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
 import { liveInstance } from "./state/instance-lock.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
-import { stateRoot } from "./state/state-files.js";
+import { prdKey, stateRoot } from "./state/state-files.js";
 
 interface CommandStreams {
   cwd: string;
@@ -39,7 +39,7 @@ export async function runAddRepository(args: string[], context: CommandStreams):
   };
 
   const directory = realpathSync.native(resolve(context.cwd));
-  const found = findPrd(stateRoot(context.env), directory);
+  const found = await findPrd(stateRoot(context.env), directory);
   if (found.kind === "none") return fail(`${directory} isn't in a Kiln workspace.`);
   if (found.kind === "several") {
     return fail(`${directory} is in the workspace of more than one PRD (${found.featureNames.join(", ")}); run it from inside a repository's worktree.`);
@@ -71,8 +71,12 @@ type PrdLookup = { kind: "found"; record: PrdRecord; stateDirectory: string } | 
 /**
  * The PRD whose recorded worktree contains the directory, else the one whose workspace folder
  * does, found among Kiln's state directories (`<root>/<repository>-<hash>/<PRD key>/prd.json`).
+ *
+ * Only a record in the folder Kiln itself would name for it counts: a copy of a PRD's state set
+ * aside beside the original (`<PRD key>.reset-20261111`) still claims the same worktree, and is
+ * not a PRD. When several PRDs do claim the folder, the one a running Kiln holds is the answer.
  */
-export function findPrd(root: string, directory: string): PrdLookup {
+export async function findPrd(root: string, directory: string): Promise<PrdLookup> {
   const inWorktree: { record: PrdRecord; stateDirectory: string }[] = [];
   const inWorkspace: { record: PrdRecord; stateDirectory: string }[] = [];
   for (const stateDirectory of prdStateDirectories(root)) {
@@ -82,16 +86,28 @@ export function findPrd(root: string, directory: string): PrdLookup {
     } catch {
       continue;
     }
-    if (!record) continue;
+    if (!record || basename(stateDirectory) !== prdKey(record.prdDirectory)) continue;
     const worktrees = record.repositories.length > 0 ? record.repositories.map((entry) => entry.worktreePath) : [record.settings.worktreePath];
     if (worktrees.some((path) => contains(path, directory))) inWorktree.push({ record, stateDirectory });
     else if (contains(record.settings.workspaceFolder, directory)) inWorkspace.push({ record, stateDirectory });
   }
   for (const level of [inWorktree, inWorkspace]) {
     if (level.length === 1) return { kind: "found", ...level[0]! };
-    if (level.length > 1) return { kind: "several", featureNames: level.map((candidate) => candidate.record.featureName) };
+    if (level.length > 1) {
+      const running: typeof level = [];
+      for (const candidate of level) if (await liveInstance(candidate.stateDirectory)) running.push(candidate);
+      if (running.length === 1) return { kind: "found", ...running[0]! };
+      return { kind: "several", featureNames: level.map((candidate) => candidate.record.featureName) };
+    }
   }
   return { kind: "none" };
+}
+
+/** Why a command that needs exactly one running Kiln for this folder found none or several. */
+export function lookupProblem(found: Exclude<PrdLookup, { kind: "found" }>, directory: string): string {
+  return found.kind === "none"
+    ? `${directory} isn't in a Kiln workspace.`
+    : `${directory} is in the workspace of more than one PRD (${found.featureNames.join(", ")}), and Kiln is not running for exactly one of them.`;
 }
 
 function prdStateDirectories(root: string): string[] {

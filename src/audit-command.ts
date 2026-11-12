@@ -1,7 +1,7 @@
 /** The audit client only submits bounded data to the existing authenticated loopback owner. */
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { findPrd } from "./add-repository-command.js";
+import { findPrd, lookupProblem } from "./add-repository-command.js";
 import { recordedInstancePort } from "./state/instance-lock.js";
 import { stateRoot } from "./state/state-files.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
@@ -12,8 +12,8 @@ export async function runAudit(args: string[], context: CommandContext): Promise
   const [action, file] = args;
   if (!action || !["status", "snapshot", "submit"].includes(action) || (action === "submit" ? args.length !== 2 : args.length > (action === "status" ? 1 : 2))) { context.stderr.write("Usage: kiln audit status | submit <JSON file>\n"); return 2; }
   try {
-    const found = findPrd(stateRoot(context.env), realpathSync(resolve(context.cwd)));
-    if (found.kind !== "found") throw new Error("Run this command inside one running Kiln execution's assigned workspace.");
+    const directory = realpathSync(resolve(context.cwd)); const found = await findPrd(stateRoot(context.env), directory);
+    if (found.kind !== "found") throw new Error(`Run this command inside one running Kiln execution's assigned workspace. ${lookupProblem(found, directory)}`);
     const port = recordedInstancePort(found.stateDirectory); if (!port) throw new Error("kiln run is not running for this execution.");
     const address = `http://127.0.0.1:${port}`;
     // The retired snapshot command still reaches Kiln, which refuses it without changing state.

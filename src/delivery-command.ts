@@ -1,7 +1,7 @@
 /** Structured delivery client; it has no grant or remote-command operation. */
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { findPrd } from "./add-repository-command.js";
+import { findPrd, lookupProblem } from "./add-repository-command.js";
 import { recordedInstancePort } from "./state/instance-lock.js";
 import { stateRoot } from "./state/state-files.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
@@ -10,8 +10,8 @@ export async function runDelivery(args: string[], context: CommandContext): Prom
   const [action, file] = args;
   if (!action || !["status", "assess", "prepare", "evidence"].includes(action) || args.length !== (action === "status" ? 1 : 2)) { context.stderr.write("Usage: kiln delivery status | assess|prepare|evidence <JSON file>\n"); return 2; }
   try {
-    const found = findPrd(stateRoot(context.env), realpathSync(resolve(context.cwd)));
-    if (found.kind !== "found") throw new Error("Run this command inside one running Kiln execution's assigned workspace.");
+    const directory = realpathSync(resolve(context.cwd)); const found = await findPrd(stateRoot(context.env), directory);
+    if (found.kind !== "found") throw new Error(`Run this command inside one running Kiln execution's assigned workspace. ${lookupProblem(found, directory)}`);
     const port = recordedInstancePort(found.stateDirectory); if (!port) throw new Error("kiln run is not running for this execution.");
     const address = `http://127.0.0.1:${port}`;
     const body = file ? JSON.parse(readFileSync(resolve(context.cwd, file), "utf8")) as unknown : undefined;
