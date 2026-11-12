@@ -49,12 +49,10 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
 <div id="bar"><strong>Mockup only</strong>
  <label for="state" style="margin:0;display:inline">State</label>
  <select id="state">
-  <option value="checking">1 · Kiln just stopped: the reason shows, the checks are running, Mark complete hidden</option>
-  <option value="failed">2 · Checks finished, one failing: Mark complete usable at once</option>
-  <option value="passed">3 · Checks finished, all passing: Check again moves Kiln on</option>
-  <option value="error">4 · The checks could not finish</option>
+  <option value="stopped">1 · Kiln stopped: the row is labelled Why Kiln stopped</option>
+  <option value="failed">2 · Checked again: the rows are labelled Completion checks</option>
  </select>
- <span style="opacity:.75">Only the checks section of the hand-back page is drawn; reply and resume, above it, stay usable in every state. The standard Needs you page shows the same section in its side panel. Sample names are illustrative.</span>
+ <span style="opacity:.75">Only the checks section of the hand-back page is drawn; the standard Needs you page shows the same labels in its side panel. Sample names are illustrative.</span>
 </div>
 <section id="kiln-page" aria-label="Kiln checks at a stop mockup">
 <header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Example feature / Delivery audit</span><span class="kp-muted kp-small">Connected · Claude Code</span></header>
@@ -62,23 +60,21 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
  <span class="kp-eyebrow">Needs you · Kiln is waiting</span>
  <h1>Delivery audit needs your input.</h1>
  <section class="kp-return">
-  <div class="kp-between"><h2>Is delivery audit already done?</h2><span class="kp-note" style="margin:0" id="checked"></span></div>
-  <div class="kp-why"><span class="kp-eyebrow">Why Kiln stopped · 7:12:40 PM</span><p style="margin-top:4px"><strong>Audit report accepted</strong> · The audit ended without a report Kiln could read.</p></div>
-  <p class="kp-muted" id="checking" style="margin-top:16px"><span class="kp-spin"></span>Checking delivery audit…</p>
-  <ul class="kp-checks" id="rows" style="margin-top:14px">
-   <li><span><strong>Audit report accepted</strong><br><span class="kp-muted" id="report-fact">The audit ended without a report Kiln could read.</span></span><span id="report-state" class="kp-state">Not yet</span></li>
-   <li><span><strong>Everything committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Passed</span></li>
-   <li><span><strong>Pushed</strong><br><span class="kp-muted">example-app: no commits waiting to be pushed</span></span><span class="kp-pass">Passed</span></li>
-   <li><span><strong>Phase plan reads</strong><br><span class="kp-muted">4 phases, all closed</span></span><span class="kp-pass">Passed</span></li>
+  <h2>Is delivery audit already done?</h2>
+  <p class="kp-muted">If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out delivery audit and moves to the next step. Nothing is committed or pushed for you.</p>
+  <div class="kp-between" style="margin-top:18px"><span class="kp-eyebrow" id="label"></span><span class="kp-note" style="margin:0" id="checked"></span></div>
+  <ul class="kp-checks">
+   <li><span><strong>Audit report accepted</strong><br><span class="kp-muted">The audit ended without a report Kiln could read.</span></span><span class="kp-state">Not yet</span></li>
+   <li class="more"><span><strong>Everything committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Passed</span></li>
+   <li class="more"><span><strong>Pushed</strong><br><span class="kp-muted">example-app: no commits waiting to be pushed</span></span><span class="kp-pass">Passed</span></li>
+   <li class="more"><span><strong>Phase plan reads</strong><br><span class="kp-muted">4 phases, all closed</span></span><span class="kp-pass">Passed</span></li>
   </ul>
-  <p class="kp-feedback" id="error" role="alert" hidden>Could not check: couldn’t reach origin. Nothing was checked; check delivery audit again to retry.</p>
-  <p class="kp-feedback" id="all-pass" role="status" hidden><strong>Every check passes.</strong> Check delivery audit again to have Kiln move on.</p>
-  <div class="kp-actions"><button id="recheck">Check delivery audit again</button></div>
-  <div style="margin-top:22px;padding-top:20px;border-top:1px solid var(--kp-line)" id="override">
+  <div class="kp-actions"><button id="recheck">Check delivery audit again</button><span class="kp-note" style="margin:0" id="runs-all">Check again runs all of delivery audit’s completion checks.</span></div>
+  <div style="margin-top:22px;padding-top:20px;border-top:1px solid var(--kp-line)">
    <h3>Delivery audit is done, and Kiln’s check is wrong?</h3>
    <p class="kp-muted" id="waive-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit. Delivery audit will show as “Complete · 1 check waived”.</p>
    <div class="kp-actions"><button id="waive">Mark delivery audit complete</button></div>
-   <p class="kp-muted" id="check-first" hidden>Check again first. If a check still fails, this button becomes available.</p>
+   <p class="kp-muted" id="check-first">Check again first. If a check still fails, this button becomes available.</p>
   </div>
  </section>
 </main>
@@ -87,14 +83,13 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
 (()=>{
  const $=id=>document.getElementById(id), state=$('state');
  function render(){
-  const s=state.value, checking=s==='checking', failed=s==='failed', passed=s==='passed', error=s==='error';
-  $('checking').hidden=!checking; $('rows').hidden=checking||error; $('error').hidden=!error; $('all-pass').hidden=!passed;
-  $('checked').textContent=checking?'Checking…':error?'Not yet checked':'Checked 7:12:44 PM · '+(passed?4:3)+' of 4 passed';
-  $('report-state').textContent=passed?'Passed':'Not yet'; $('report-state').className=passed?'kp-pass':'kp-state';
-  $('report-fact').textContent=passed?'delivery-audit-report.md reads and is accepted (written since Kiln stopped)':'The audit ended without a report Kiln could read.';
-  $('recheck').disabled=checking;
-  $('override').hidden=passed||checking; $('waive').disabled=!failed; $('waive-hint').hidden=!failed; $('check-first').hidden=failed;
+  const rechecked=state.value==='failed';
+  $('label').textContent=rechecked?'Completion checks':'Why Kiln stopped';
+  $('checked').textContent=rechecked?'Checked again 7:14:05 PM · 3 of 4 passed':'When Kiln stopped, 7:12:40 PM';
+  for(const row of document.querySelectorAll('.more'))row.hidden=!rechecked;
+  $('runs-all').hidden=rechecked; $('waive').disabled=!rechecked; $('waive-hint').hidden=!rechecked; $('check-first').hidden=rechecked;
  }
+ $('recheck').addEventListener('click',()=>{state.value='failed';render();});
  state.addEventListener('change',render);
  const asked=new URLSearchParams(location.search).get('state'); if(asked)state.value=asked;
  render();
