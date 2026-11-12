@@ -1,6 +1,6 @@
 {
   "name": "@ensodynamics/kiln",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Runs an Enso Method phase plan with Claude Code or Codex, Git completion checks and a local browser view.",
   "keywords": [
     "claude-code",

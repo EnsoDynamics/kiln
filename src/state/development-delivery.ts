@@ -78,8 +78,13 @@ export interface RepositoryDeliveryResult {
  * `phaseDocumentDigest`, the phase stays bound to `documentsDigest`, whatever later happens to the shared PRD or design.
  */
 export interface AcceptedPhaseDocuments { phaseId: string; documentsDigest: string; phaseDocumentDigest: string }
+/**
+ * The documents and criteria a finished audit's delivery check last passed against. A finished audit can no longer
+ * record an assessment, so it stays bound to these, whatever later phases and audits write into the documents.
+ */
+export interface AcceptedAuditDocuments { activityId: string; documentsDigest: string; requirementManifestDigest: string }
 export interface DevelopmentLedger {
-  assignments?: DeliveryAssignment[]; accepted?: AcceptedPhaseDocuments[];
+  assignments?: DeliveryAssignment[]; accepted?: AcceptedPhaseDocuments[]; acceptedAudits?: AcceptedAuditDocuments[];
   revision: number; assessments: DeliveryAssessment[]; checkpoints: DeliveryCheckpoint[]; splits: DeliverySplit[];
   sourceUnavailable?: boolean; lastReadError?: string; checkedAt?: string; repositoryResults: RepositoryDeliveryResult[]; currentComplete?: boolean;
 }
@@ -172,6 +177,7 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
     for (const operation of checkpoint.operations) require(operation.restorationFor === undefined || operation.kind === "deploy" && ids.has(operation.restorationFor), "prerequisite restoration scope");
   }
   require(state.accepted === undefined || Array.isArray(state.accepted) && state.accepted.every(one => object(one) && text(one.phaseId) && digest(one.documentsDigest) && digest(one.phaseDocumentDigest)) && new Set(state.accepted.map(one => one.phaseId)).size === state.accepted.length, "accepted phase documents");
+  require(state.acceptedAudits === undefined || Array.isArray(state.acceptedAudits) && state.acceptedAudits.every(one => object(one) && text(one.activityId) && digest(one.documentsDigest) && digest(one.requirementManifestDigest)) && new Set(state.acceptedAudits.map(one => one.activityId)).size === state.acceptedAudits.length, "accepted audit documents");
   for (const assessment of state.assessments) require(object(assessment) && owned(assessment) && (deliveryOwner(assessment).kind !== "audit" || digest(assessment.requirementManifestDigest)) && digest(assessment.documentsDigest) && typeof assessment.required === "boolean" && texts(assessment.criteria) && text(assessment.reason) && texts(assessment.checkpointIds) && assessment.checkpointIds.every(id => ids.has(id)) && (!assessment.required || assessment.checkpointIds.length > 0), "phase delivery assessment");
   for (const split of state.splits) {
     require(object(split) && text(split.phaseId) && digest(split.documentsDigest) && (split.phaseDocumentDigest === undefined || digest(split.phaseDocumentDigest)) && Number.isSafeInteger(split.revision) && split.revision <= state.revision && Array.isArray(split.assignments), "split assignment digest/revision");

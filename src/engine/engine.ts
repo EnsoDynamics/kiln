@@ -42,7 +42,7 @@ import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerChe
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, acceptAuditDocuments, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -3649,6 +3649,8 @@ export class Engine {
       if (deliveryEnabled(this.record)) for (const activity of this.record.completionAudits?.activities ?? []) {
         const check = ownerDeliveryCheck(this.deliveryContext(auditKey(activity)), { kind: "audit", activityId: activity.activityId });
         if (!await this.markChecks(auditKey(activity), [check])) { this.recordStop(auditKey(activity), "done_check", [check]); return { kind: "stopped", key: auditKey(activity) }; }
+        // Bound when it finished; this covers an audit finished by an earlier Kiln and later marked complete.
+        if (acceptAuditDocuments(this.deliveryContext(auditKey(activity)), activity.activityId)) this.save();
       }
       kind = await auditNext(this.admissionContext());
       if (kind === "final_delivery") { this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" }; }
@@ -5074,6 +5076,8 @@ export class Engine {
         }
         await finalTakeoverCheck();
         facts.doneAt ??= this.now().toISOString(); facts.finishedByPerson = byPerson; delete facts.stop; waivedFacts();
+        // Its delivery check just passed against these documents; the completion phases it added will edit them.
+        if (deliveryEnabled(this.record)) acceptAuditDocuments(this.deliveryContext(phaseKey), audit.activityId);
         if (acceptManual && this.record.billing?.hold?.phaseKey === phaseKey) delete this.record.billing.hold;
         if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
         this.save();

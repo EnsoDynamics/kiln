@@ -111,7 +111,8 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("preserves elapsed wa
     expect(page.problems).toEqual([]);
     // No elapsed-time deadline signals the tracked child; only natural exit releases it.
     child.stdin!.end(); expect((await exit)[0]).toBe(0);
-    await h.engine.reconcileTakeover();
+    // A timer read that began before the exit may still be in flight; see above.
+    for (let i = 0; i < 3; i++) await h.engine.reconcileTakeover();
     expect(h.engine.record.liveControl!.takeover.state).toBe("released");
     expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toContain(target.sessionId);
     expect(h.claudeCalls()).toHaveLength(1);
