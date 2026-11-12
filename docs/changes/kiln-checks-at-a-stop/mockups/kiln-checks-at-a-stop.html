@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln checks at a stop — mockup</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0}
+#bar{padding:12px 18px;border-bottom:1px solid light-dark(#d8d3c6,#3d3a30);background:light-dark(#efece2,#0c0b09);color:light-dark(#2c2b24,#ece8dd);font:13px/1.5 system-ui;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+#bar select{font:inherit;padding:6px;background:light-dark(#fffef9,#1d1c17);color:inherit;border:1px solid light-dark(#d8d3c6,#3d3a30);border-radius:5px}
+#kiln-page{--kp-bg:light-dark(#f6f4ed,#12110e);--kp-panel:light-dark(#fffef9,#1d1c17);--kp-inset:light-dark(#f0eee5,#15140f);--kp-text:light-dark(#2c2b24,#ece8dd);--kp-muted:light-dark(#6e695c,#b2ac9d);--kp-line:light-dark(#d8d3c6,#3d3a30);--kp-button:light-dark(#32362a,#e4dec9);--kp-button-text:light-dark(#fffdf6,#24261e);--kp-amber:light-dark(#795d1e,#d6b474);--kp-green:light-dark(#456247,#a8bd9b);--kp-red:light-dark(#9a3b2e,#e0907f);background:var(--kp-bg);color:var(--kp-text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+#kiln-page *{box-sizing:border-box}#kiln-page [hidden]{display:none!important}
+.kp-top{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:16px 32px;border-bottom:1px solid var(--kp-line)}
+.kp-brand{font:28px/1 Georgia,serif;letter-spacing:-1px}.kp-breadcrumb{color:var(--kp-muted);font-size:13px}.kp-body{padding:30px 32px;max-width:1100px;margin:auto}
+h1{font:36px/1.2 Georgia,serif;margin:8px 0;font-weight:400}h2{font-size:19px;line-height:1.35;font-weight:600;margin:0}h3{font-size:16px;font-weight:600;margin:0}p{margin:8px 0 0}
+.kp-muted{color:var(--kp-muted)}.kp-small{font-size:12px}.kp-eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--kp-amber);font-weight:600}
+.kp-between{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.kp-question{border-left:3px solid var(--kp-amber);background:var(--kp-panel);padding:18px 22px;margin:24px 0}
+.kp-return{margin-top:26px;padding:22px;border:1px solid var(--kp-line);border-radius:12px}.kp-return-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px}.kp-finished{border-left:1px solid var(--kp-line);padding-left:26px}
+button{font:inherit;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:normal;background:transparent;color:var(--kp-text);border:1px solid var(--kp-line);border-radius:7px;padding:9px 14px;max-width:100%;cursor:pointer}
+button:hover{border-color:var(--kp-muted)}button:disabled{opacity:.45;cursor:not-allowed}button.kp-primary{background:var(--kp-button);color:var(--kp-button-text);border-color:var(--kp-button)}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--kp-amber);outline-offset:3px}
+.kp-link{border:0;padding:5px 0;min-height:30px;color:var(--kp-muted);text-decoration:underline;text-underline-offset:3px}
+label{display:block;font-size:12px;color:var(--kp-muted);margin-top:16px;margin-bottom:7px}
+textarea{width:100%;min-height:90px;background:var(--kp-inset);color:var(--kp-text);font:inherit;border:1px solid var(--kp-line);border-radius:7px;padding:12px;resize:vertical}
+code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
+.kp-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.kp-note{color:var(--kp-muted);font-size:12px;margin-top:10px}
+.kp-checks{list-style:none;margin:10px 0 0;padding:0}.kp-checks li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--kp-line);font-size:12px}.kp-state{color:var(--kp-amber);white-space:nowrap}.kp-pass{color:var(--kp-green);white-space:nowrap}.kp-waived{color:var(--kp-amber);white-space:nowrap;font-weight:600}
+.kp-feedback{border-left:3px solid var(--kp-amber);padding:8px 12px;background:var(--kp-panel);margin-top:14px;font-size:13px}
+.kp-waiver{margin-top:18px;padding:18px;border:1px solid var(--kp-amber);border-radius:10px;background:var(--kp-panel)}
+.kp-waive-list{list-style:none;margin:12px 0 0;padding:0}.kp-waive-list li{padding:10px 12px;background:var(--kp-inset);border:1px solid var(--kp-line);border-radius:7px;margin-top:8px;font-size:12.5px}
+.kp-changed{text-decoration:line-through;color:var(--kp-muted)}.kp-new{color:var(--kp-red);font-weight:600}
+.kp-card{background:var(--kp-panel);border:1px solid var(--kp-line);border-radius:12px;padding:22px;margin-top:20px}
+.kp-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid var(--kp-amber);color:var(--kp-amber)}
+.kp-record{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin-top:14px;font-size:13px}.kp-record dt{color:var(--kp-muted)}.kp-record dd{margin:0;overflow-wrap:anywhere}
+.kp-term{background:#151410;color:#e8e3d6;border-radius:10px;padding:16px 18px;font:12.5px/1.7 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:12px}
+.kp-term .a{color:#d6b474}.kp-term .g{color:#a8bd9b}.kp-term .d{color:#8f897b}
+.kp-cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:24px;align-items:start}.kp-step{display:grid;grid-template-columns:30px minmax(0,1fr);gap:0 12px;margin-top:16px}.kp-num{width:30px;height:30px;border-radius:99px;border:1px solid var(--kp-line);display:inline-flex;align-items:center;justify-content:center;font:17px Georgia,serif}
+.kp-warn{display:inline-flex;align-items:center;gap:6px;color:var(--kp-amber);font-weight:600;white-space:nowrap}.kp-warn-icon{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:99px;background:var(--kp-amber);color:var(--kp-panel);font:700 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;flex:none}
+.kp-divider{margin:40px 0 18px;padding-top:14px;border-top:2px dashed var(--kp-line)}
+.kp-phase-rows{list-style:none;padding:0;margin:12px 0 0}.kp-phase-rows li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--kp-line);font-size:13px}
+@media(max-width:720px){.kp-cols{grid-template-columns:1fr}.kp-body{padding:24px 18px}.kp-top{padding-left:18px}h1{font-size:30px}.kp-return-grid{grid-template-columns:1fr}.kp-finished{border-left:0;border-top:1px solid var(--kp-line);padding:22px 0 0}}
+</style>
+<style>.kp-spin{display:inline-block;width:13px;height:13px;border:2px solid var(--kp-line);border-top-color:var(--kp-amber);border-radius:99px;animation:kp-spin .9s linear infinite;vertical-align:-2px;margin-right:8px}@keyframes kp-spin{to{transform:rotate(360deg)}}.kp-why{border-left:3px solid var(--kp-amber);background:var(--kp-panel);padding:12px 16px;margin-top:14px;font-size:13px}</style>
+</head>
+<body>
+<div id="bar"><strong>Mockup only</strong>
+ <label for="state" style="margin:0;display:inline">State</label>
+ <select id="state">
+  <option value="checking">1 · Kiln just stopped: the reason shows, the checks are running</option>
+  <option value="failed">2 · Checks finished, one failing: Mark complete usable at once</option>
+  <option value="passed">3 · Checks finished, all passing: Check again moves Kiln on</option>
+  <option value="error">4 · The checks could not finish</option>
+ </select>
+ <span style="opacity:.75">Only the checks section of the hand-back page is drawn; the standard Needs you page shows the same section in its side panel. Sample names are illustrative.</span>
+</div>
+<section id="kiln-page" aria-label="Kiln checks at a stop mockup">
+<header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Example feature / Delivery audit</span><span class="kp-muted kp-small">Connected · Claude Code</span></header>
+<main class="kp-body">
+ <span class="kp-eyebrow">Needs you · Kiln is waiting</span>
+ <h1>Delivery audit needs your input.</h1>
+ <section class="kp-return">
+  <div class="kp-between"><h2>Is delivery audit already done?</h2><span class="kp-note" style="margin:0" id="checked"></span></div>
+  <div class="kp-why"><span class="kp-eyebrow">Why Kiln stopped</span><p style="margin-top:4px"><strong>Audit report accepted</strong> · The audit ended without a report Kiln could read.</p></div>
+  <p class="kp-muted" id="checking" style="margin-top:16px"><span class="kp-spin"></span>Checking delivery audit…</p>
+  <ul class="kp-checks" id="rows" style="margin-top:14px">
+   <li><span><strong>Audit report accepted</strong><br><span class="kp-muted" id="report-fact">The audit ended without a report Kiln could read.</span></span><span id="report-state" class="kp-state">Not yet</span></li>
+   <li><span><strong>Everything committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Passed</span></li>
+   <li><span><strong>Pushed</strong><br><span class="kp-muted">example-app: no commits waiting to be pushed</span></span><span class="kp-pass">Passed</span></li>
+   <li><span><strong>Phase plan reads</strong><br><span class="kp-muted">4 phases, all closed</span></span><span class="kp-pass">Passed</span></li>
+  </ul>
+  <p class="kp-feedback" id="error" role="alert" hidden>Could not check: couldn’t reach origin. Nothing was checked; check delivery audit again to retry.</p>
+  <p class="kp-feedback" id="all-pass" role="status" hidden><strong>Every check passes.</strong> Check delivery audit again to have Kiln move on.</p>
+  <div class="kp-actions"><button id="recheck">Check delivery audit again</button></div>
+  <div style="margin-top:22px;padding-top:20px;border-top:1px solid var(--kp-line)" id="override">
+   <h3>Delivery audit is done, and Kiln’s check is wrong?</h3>
+   <p class="kp-muted" id="waive-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit. Delivery audit will show as “Complete · 1 check waived”.</p>
+   <div class="kp-actions"><button id="waive">Mark delivery audit complete</button></div>
+   <p class="kp-muted" id="check-first" hidden>Check again first. If a check still fails, this button becomes available.</p>
+  </div>
+ </section>
+</main>
+</section>
+<script>
+(()=>{
+ const $=id=>document.getElementById(id), state=$('state');
+ function render(){
+  const s=state.value, checking=s==='checking', failed=s==='failed', passed=s==='passed', error=s==='error';
+  $('checking').hidden=!checking; $('rows').hidden=checking||error; $('error').hidden=!error; $('all-pass').hidden=!passed;
+  $('checked').textContent=checking?'Checking…':error?'Not yet checked':'Checked when Kiln stopped, 7:12:44 PM · '+(passed?4:3)+' of 4 passed';
+  $('report-state').textContent=passed?'Passed':'Not yet'; $('report-state').className=passed?'kp-pass':'kp-state';
+  $('report-fact').textContent=passed?'delivery-audit-report.md reads and is accepted':'The audit ended without a report Kiln could read.';
+  $('recheck').disabled=checking;
+  $('override').hidden=passed; $('waive').disabled=!failed; $('waive-hint').hidden=!failed; $('check-first').hidden=failed;
+ }
+ state.addEventListener('change',render);
+ const asked=new URLSearchParams(location.search).get('state'); if(asked)state.value=asked;
+ render();
+})();
+</script>
+</body>
+</html>
