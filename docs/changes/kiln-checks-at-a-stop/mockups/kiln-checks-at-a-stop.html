@@ -52,7 +52,7 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
   <option value="stopped">1 · Kiln stopped: the row is labelled Why Kiln stopped</option>
   <option value="failed">2 · Checked again: the rows are labelled Completion checks</option>
  </select>
- <span style="opacity:.75">Only the checks section of the hand-back page is drawn; the standard Needs you page shows the same labels in its side panel. Sample names are illustrative.</span>
+ <span style="opacity:.75">The checks section of the hand-back page, drawn for an audit held for takeover, then the side panel of the standard Needs you page. Sample names are illustrative.</span>
 </div>
 <section id="kiln-page" aria-label="Kiln checks at a stop mockup">
 <header class="kp-top"><span class="kp-brand">kiln</span><span class="kp-breadcrumb">Example feature / Delivery audit</span><span class="kp-muted kp-small">Connected · Claude Code</span></header>
@@ -77,6 +77,26 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
    <p class="kp-muted" id="check-first">Check again first. If a check still fails, this button becomes available.</p>
   </div>
  </section>
+
+ <p class="kp-muted kp-small" style="margin-top:34px">Standard Needs you page · side panel</p>
+ <section class="kp-card" style="max-width:420px;margin-top:8px">
+  <span class="kp-eyebrow" id="side-label"></span>
+  <ul class="kp-checks">
+   <li><span><strong>Audit report accepted</strong><br><span class="kp-muted">The audit ended without a report Kiln could read.</span></span><span class="kp-state">Not yet</span></li>
+   <li class="more"><span><strong>Everything committed</strong><br><span class="kp-muted">example-app: working tree is clean</span></span><span class="kp-pass">Yes</span></li>
+   <li class="more"><span><strong>Pushed</strong><br><span class="kp-muted">example-app: no commits waiting to be pushed</span></span><span class="kp-pass">Yes</span></li>
+   <li class="more"><span><strong>Phase plan reads</strong><br><span class="kp-muted">4 phases, all closed</span></span><span class="kp-pass">Yes</span></li>
+  </ul>
+  <div class="kp-actions"><button class="kp-primary" style="width:100%">Check again</button></div>
+  <p class="kp-note" id="side-checked"></p>
+  <p class="kp-note" id="side-runs-all">Check again runs all of delivery audit’s completion checks.</p>
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--kp-line)">
+   <h3>Delivery audit is done, and Kiln’s check is wrong?</h3>
+   <p class="kp-muted" id="side-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit.</p>
+   <div class="kp-actions"><button id="side-waive">Mark delivery audit complete</button></div>
+   <p class="kp-muted" id="side-first">Check again first. If a check still fails, this button becomes available.</p>
+  </div>
+ </section>
 </main>
 </section>
 <script>
@@ -85,9 +105,11 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
  function render(){
   const rechecked=state.value==='failed';
   $('label').textContent=rechecked?'Completion checks':'Why Kiln stopped';
-  $('checked').textContent=rechecked?'Checked again 7:14:05 PM · 3 of 4 passed':'When Kiln stopped, 7:12:40 PM';
+  $('checked').textContent=rechecked?'Checked again 7:14:05 PM · 3 of 4 passed':'Checked when Kiln stopped, 7:12:40 PM';
   for(const row of document.querySelectorAll('.more'))row.hidden=!rechecked;
   $('runs-all').hidden=rechecked; $('waive').disabled=!rechecked; $('waive-hint').hidden=!rechecked; $('check-first').hidden=rechecked;
+  $('side-label').textContent=$('label').textContent; $('side-checked').textContent=rechecked?'Checked again 7:14 PM.':'Checked when Kiln stopped, 7:12 PM.';
+  $('side-runs-all').hidden=rechecked; $('side-waive').disabled=!rechecked; $('side-hint').hidden=!rechecked; $('side-first').hidden=rechecked;
  }
  $('recheck').addEventListener('click',()=>{state.value='failed';render();});
  state.addEventListener('change',render);
