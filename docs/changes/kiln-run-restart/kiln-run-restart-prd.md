@@ -2,13 +2,13 @@
 
 **Source:** Doug's report on 2026-11-11, after a run on a remote development machine stopped Phase 1 before any code and offered no way to continue it or begin again, and the concept he worked through the same day on mockups of Kiln's existing screens.
 
-**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Needs You Handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md), [Kiln Missing Worktree Recovery](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md) and [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md).
+**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Needs You Handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md), [Kiln Missing Worktree Recovery](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md) and [Kiln Live Session Control](../kiln-live-session-control/kiln-live-session-control-prd.md).
 
 **Mockup:** [Open the interactive mockup](mockups/kiln-run-restart.html).
 
 ## Summary
 
-Kiln stops leaving the person at a dead end. A phase whose session stops says plainly which kind of stop it is, and offers a button that has Kiln carry on even when the agent couldn't start or its earlier conversation can't be reopened, unless Kiln found a safety problem with a Codex session. The person can **reset Kiln for a PRD**, which makes Kiln forget its progress and return to the first screen. And that first screen lets Kiln start on a branch that already exists, so a person who built some phases themselves can hand the rest to Kiln.
+Kiln stops leaving the person at a dead end. A phase whose session stops says plainly which kind of stop it is, and offers a button that has Kiln carry on even when the agent couldn't start or its earlier conversation can't be reopened, unless Kiln found a safety problem with a Codex session. The person, or a bot, can **reset Kiln for a PRD**, which makes Kiln forget its progress and return to the first screen. And that first screen lets Kiln start on a branch that already exists, so a person who built some phases themselves can hand the rest to Kiln.
 
 ## Business Context
 
@@ -69,7 +69,7 @@ A branch cut before something it needs reached the base branch can't build on th
   |---|---|
   | Documents found, with an existing branch selected | **Start** |
   | A stopped phase's page (AC-CASE-01), once, above the ways to resolve it | Every button on the page that starts or resumes this phase's session, not **Mark complete** |
-  | A command that starts or resumes a stopped phase's session: `kiln reply`, `kiln resume` and AC-CARRY-04's | The command, as if ticked, unless it is told to leave the branch as it is |
+  | A command that starts or resumes a stopped phase's session, not a held one's: `kiln reply`, `kiln resume` and AC-CARRY-04's | The command, as if ticked, unless it is told to leave the branch as it is |
 
   - Replaces in part: AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SAFE-03 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (Kiln may move forward, and push, a branch that has no commits of its own).
   - Replaces in part: AC-ACT-02 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (`kiln reply` and `kiln resume` may first bring the branch up to date).
@@ -78,7 +78,7 @@ A branch cut before something it needs reached the base branch can't build on th
 
 A phase can stop in three different ways, and today's page treats them alike. The person should see at once whether an agent ever ran and whether anything was built, because the right next step differs.
 
-- [ ] **AC-CASE-01 — Two pages change, and each one's headline says which case it is.** This theme, Always a Way for Kiln to Carry On and AC-CURRENT-01's stopped-phase row change two of today's pages, each a **stopped phase**'s page: the handoff page headed **Phase N needs your input.**, and the Needs you page headed **Phase N ended before it was done.** with the line **Kiln couldn't start this session.** A phase held by **Pause & take over** or a message Kiln isn't sure was delivered keeps today's page whole apart from the reset line until resumed or advanced. So does every other page, for example **Phase N hasn't started.** or **Phase N hasn't passed its checks.** A phase's **work** is two things: the commits the phase's branch has gained in any of the PRD's repositories since the phase started, leaving out any that came from the base branch, and uncommitted changes in any of the PRD's worktrees. A phase with neither has **built nothing**. A stopped phase's headline follows the table.
+- [ ] **AC-CASE-01 — A stopped phase's headline says which case it is.** This theme, Always a Way for Kiln to Carry On and AC-CURRENT-01's stopped-phase row change two of today's pages (AC-CARRY-06 changes one held page besides), each a **stopped phase**'s page: the handoff page headed **Phase N needs your input.**, and the Needs you page headed **Phase N ended before it was done.** with the line **Kiln couldn't start this session.** A phase held by **Pause & take over** or a message Kiln isn't sure was delivered keeps today's page whole, apart from the reset line and AC-CARRY-06's case, until the hold ends. So does every other page, for example **Phase N hasn't started.** or **Phase N hasn't passed its checks.** A phase's **work** is two things: the commits the phase's branch has gained in any of the PRD's repositories since the phase started, leaving out any that came from the base branch, and uncommitted changes in any of the PRD's worktrees. A phase with neither has **built nothing**. A stopped phase's headline follows the table.
 
   | The phase | Headline |
   |---|---|
@@ -98,7 +98,7 @@ A phase can stop in three different ways, and today's page treats them alike. Th
 
 ### Always a Way for Kiln to Carry On
 
-When Kiln can't reopen a phase's saved conversation, today's page offers only terminal instructions. The reply card should still work, for a bot as well as in the browser, and the person should learn the real reason and be able to clear it.
+When Kiln can't reopen a phase's saved conversation, today's page offers only terminal instructions, and a phase paused for takeover waits for good. The reply card should still work, for a bot as well as in the browser, and the person should learn the real reason and be able to clear it.
 
 - [ ] **AC-CARRY-01 — Kiln carries on only when the conversation can't be reopened.** When a stopped phase (AC-CASE-01) has had a conversation, the reply card follows the table for the phase's latest conversation.
 
@@ -134,10 +134,18 @@ When Kiln can't reopen a phase's saved conversation, today's page offers only te
 - [ ] **AC-CARRY-04 — Bots can start these sessions too.** **Send reply & continue Phase N** and **Start Phase N again** each have a command with the button's effect, eligibility and limits (AC-CARRY-03), accepted only where the button would be offered. Each follows bot control's rules for changing commands (AC-ACT-04, AC-ACT-05 and AC-CLI-01/02 in Kiln Bot Control). The continue command takes an optional reply in the same forms as `kiln reply`. Neither asks for confirmation, and neither's name or output promises to resume the earlier conversation.
   - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls for a run already started).
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (two more ways for a session to start after a stop).
+- [ ] **AC-CARRY-06 — A held phase can carry on when its conversation can't be reopened.** The page changes for a phase when:
+
+  - it is held by **Pause & take over** or by a message Kiln isn't sure was delivered
+  - its attempt has ended
+  - the hold can't be released because the saved conversation can't be reopened, for a reason in AC-CARRY-02's table
+
+  In place of today's wait text and card, the page shows **Reply here and let Kiln carry on** (AC-CARRY-05, with AC-CARRY-02's reason and **Check again**) beside today's card for a fresh session in the terminal. Above them, each uncertain message shows with its acknowledgement (AC-MSG-05 in Kiln Live Session Control), and **Send reply & continue Phase N** is unavailable until each is acknowledged; the continue command takes the acknowledgements as `kiln resume` does. The button and the terminal card's copy buttons are unavailable, saying why, while Claude is open on that conversation or work the attempt started is still running (AC-TAKE-02 and AC-TAKE-04 there). Starting the carry-on session, or advancing from the button's already-complete choice, ends the hold; neither needs the hold released. An uncertain message reaches the new session only if the person's reply includes it.
+  - Replaces in part: AC-LIVE-02, AC-TAKE-01, AC-TAKE-02, AC-MSG-05, AC-BACK-04 and AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (for a hold whose conversation can't be reopened, the page offers these two cards in place of the explanation that terminal use must wait, and starting a Kiln-run new session, or advancing from the carry-on button's already-complete choice, ends the hold without its release).
 
 ### Reset Kiln for This PRD
 
-When nothing on the page fixes the situation, the person can make Kiln forget its progress on the PRD and begin from the first screen, without knowing where Kiln keeps anything.
+When nothing on the page fixes the situation, the person can make Kiln forget its progress on the PRD and begin from the first screen, without knowing where Kiln keeps anything. A bot can do it too, and is told first what it costs.
 
 - [ ] **AC-RESET-01 — Reset sits at the bottom of every screen.** Once a PRD has been started, every screen for it ends with a line saying what reset does and a **Reset Kiln for this PRD** button. Documents found, before the first Start, has none.
 - [ ] **AC-RESET-02 — Reset waits for Kiln to stop working.** While Kiln is working on the PRD (a session running, or Kiln's own work between sessions), the button is unavailable and the line says to stop the session first with **Pause & take over** where offered, or to pause after the current phase or audit and reset once it ends.
@@ -155,12 +163,12 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
   - Replaces in part: AC-START-06, AC-START-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after a reset the settings, worktree and branches are chosen again).
   - Replaces in part: AC-START-02 and AC-START-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after a reset, a failing start check shows on Documents found).
 - [ ] **AC-RESET-05 — Reset touches nothing in git.** A reset changes no branch, worktree, commit, pull request or document in any repository.
-- [ ] **AC-RESET-06 — The command line says reset is in the browser.** For a PRD that has been started, `kiln status` lists reset among its controls, unavailable, with the reason that reset is done in the browser and the `kiln run <PRD-path>` that opens the page (CTRL-001).
-  - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (run detail lists reset among a started PRD's controls).
+- [ ] **AC-RESET-06 — Bots can reset too, and the help says what it costs.** Reset has a command with the button's effect and eligibility, so it is refused while AC-RESET-02 makes the button unavailable. The command resets at once, with no confirming flag or step; its help is the warning. The help says plainly that a reset can't be undone, that Kiln forgets everything in AC-RESET-03's first column, and that afterwards nothing runs until someone opens the browser view with `kiln run <PRD-path>` and presses Start on Documents found, because a run is set up only in the browser. The command follows bot control's rules for changing commands (AC-ACT-04, AC-ACT-05 and AC-CLI-01/02 in Kiln Bot Control), and the reset's own result stays queryable afterwards. `kiln status` lists it among a started PRD's controls.
+  - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (one more command joins the controls for a run already started).
 
 ### Look Like the Mockup
 
-- [ ] **AC-LOOK-01 — The screens match their drawings.** Documents found with **Start from**, the three stopped-phase pages, the reset line and its confirmation match this change's mockup for layout, order and wording, in Kiln's existing visual style. Each is today's screen with the drawn change, not a new screen. Sample names, paths, commits and counts are illustrative.
+- [ ] **AC-LOOK-01 — The screens match their drawings.** Documents found with **Start from**, the three stopped-phase pages, the held page AC-CARRY-06 changes, the reset line and its confirmation match this change's mockup for layout, order and wording, in Kiln's existing visual style. Each is today's screen with the drawn change, not a new screen. Sample names, paths, commits and counts are illustrative.
 
 ## Out of Scope
 
@@ -181,5 +189,6 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 | Kiln couldn't launch the agent | AC-CASE-01, AC-CASE-04, AC-CASE-02, AC-CASE-03, AC-RESET-01 |
 | The agent stopped before building anything | AC-CASE-01, AC-CASE-04, AC-CASE-03, AC-CARRY-01, AC-CURRENT-01, AC-RESET-01 |
 | The earlier conversation can't be reopened, in a phase that built nothing (as on 2026-11-11; the reason shown is illustrative) | AC-CASE-01, AC-CASE-04, AC-CASE-03, AC-CARRY-01, AC-CARRY-05, AC-CARRY-02, AC-CURRENT-01, AC-RESET-01 |
+| A phase held for takeover whose conversation can't be reopened | AC-CARRY-06 (its note says what differs for a message Kiln isn't sure was delivered), AC-CARRY-05, AC-CARRY-02, AC-CASE-01 (a held page keeps today's headline), AC-RESET-01 |
 | Reset, the confirmation | AC-RESET-01, AC-RESET-03 |
 | A session is working | AC-RESET-02 |

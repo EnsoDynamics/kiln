@@ -23,6 +23,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
  <option value="launch">Kiln couldn't launch the agent</option>
  <option value="nothing">The agent stopped before building anything</option>
  <option value="conversation">The earlier conversation can't be reopened, in a phase that built nothing (as on 2026-11-11; the reason shown is illustrative)</option>
+ <option value="held">A phase held for takeover whose conversation can't be reopened</option>
  <option value="reset">Reset, the confirmation</option>
  <option value="working">A session is working</option>
 </select>
@@ -517,6 +518,94 @@ claude</pre>
   </main>
 </div>
 </div>
+<div id="v-held" hidden>
+<div style="background: #12110e; color: #ede8dd; font: 14.5px/1.55 Inter, -apple-system, 'Segoe UI', sans-serif; min-height: 1500px; box-sizing: border-box">
+  <header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,0.12)">
+    <span style="display: inline-flex; align-items: center; gap: 9px">
+      <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg>
+      <span style="font: 28px/1 'Instrument Serif', Georgia, serif">kiln</span>
+    </span>
+    <span style="font-size: 13px; color: #bdb6a8">Connected to Kiln <span style="color: #8c8577">· updated 1s ago</span></span>
+  </header>
+
+  <main style="max-width: 1120px; margin: 0 auto; padding: 40px 32px 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13px; color: #8c8577">Repository <code>harbor-ledger</code> &nbsp; PRD folder <code>docs/changes/clearer-receipts-screens</code></span>
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
+        <span style="padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1px solid rgba(230,180,80,0.55); color: #e6b450">Needs you</span>
+        <span style="font-size: 14px; color: #bdb6a8">Phase 4 of 7 · Seller pages · paused for takeover 11:52 AM</span>
+      </div>
+    </div>
+    <h1 style="font: 400 40px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Pausing for takeover — finishing the current operation.</h1>
+    <p style="margin: 0; color: #bdb6a8">Answer here, or talk it through in your terminal.</p>
+
+    <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-left: 3px solid #e6b450; border-radius: 18px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px">
+      <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Last message from Claude Code</span>
+      <div style="line-height: 1.65">The seller page header and contact block are in and committed. Next I'm wiring the seller's receipts list to the new matching data.</div>
+      <span style="font: 12.5px 'JetBrains Mono', monospace; color: #8c8577">Claude Code · Paused for takeover · 11:52 AM</span>
+      <a href="#output" style="font-size: 13.5px; font-weight: 600; text-decoration: none">Full session output · 1,486 lines</a>
+    </section>
+
+    <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px">
+      <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">When should Kiln pause?</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <strong style="font-size: 16px">Take over this session</strong>
+          <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6"><strong style="color: #ede8dd">At the next safe stopping point.</strong> Finish the current operation, then stop before starting more work. Open the same conversation in your terminal; the phase/audit can remain unfinished.</p>
+          <p style="margin: 0; font-size: 14px"><strong>Pausing for takeover — finishing the current operation.</strong></p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <strong style="font-size: 16px">Let Phase 4 finish first</strong>
+          <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6"><strong style="color: #ede8dd">After the whole phase.</strong> Kiln finishes its work, commits, pushes and required completion checks, then waits before starting the next activity. No terminal takeover is needed.</p>
+          <button style="align-self: stretch; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Pause after this phase</button>
+        </div>
+      </div>
+    </section>
+
+    <span style="font-size: 12.5px; color: #8c8577; line-height: 1.6; border: 1px dashed rgba(237,232,221,0.24); border-radius: 10px; padding: 12px 16px">Held by a message Kiln isn't sure was delivered, the page above these cards is today's for that hold, headed <strong style="color: #bdb6a8">Phase 4 needs your input.</strong>, and each such message shows here with <strong style="color: #bdb6a8">I reviewed this message in the conversation</strong>; <strong style="color: #bdb6a8">Send reply &amp; continue Phase 4</strong> stays unavailable until each is acknowledged. The two cards are as drawn, except that the carry-on card's first paragraph ends <strong style="color: #bdb6a8">Starting it ends the hold on that message.</strong> <span style="white-space: nowrap">(AC-CARRY-06)</span></span>
+
+    <h2 style="margin: 12px 0 0; font-size: 20px; font-weight: 600">How would you like to resolve this?</h2>
+    <p style="margin: -8px 0 0; font-size: 13px; color: #8c8577; line-height: 1.6">Exit Claude Code first if it is open on this conversation. While it is, or while work the paused session started is still running, neither choice below is available, and Kiln says why.</p>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35">Reply here and let Kiln carry on</h2>
+        <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Kiln can't reopen the earlier conversation, so it starts a new Claude Code session for Phase 4. The new session gets your reply, Claude Code's last message and Phase 4's work so far, and picks up from there. Starting it ends the takeover pause.</p>
+        <ul style="list-style: none; margin: 0; padding: 0; font-size: 13px; border-top: 1px solid rgba(237,232,221,0.12)">
+          <li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><span style="color: #bdb6a8">Phase 4's work so far</span><span>2 commits · 3 uncommitted files</span></li>
+        </ul>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label for="reply-held" style="font-size: 13.5px; color: #bdb6a8">Your reply to Claude Code <span style="color: #8c8577">Optional</span></label>
+          <textarea id="reply-held" rows="3" style="width: 100%; box-sizing: border-box; background: #0d0c0a; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 12px; padding: 12px 14px; line-height: 1.6; resize: vertical">Keep the receipts list to the last 90 days for now.</textarea>
+        </div>
+        <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; cursor: pointer">Send reply &amp; continue Phase 4</button>
+        <div style="border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: #8c8577; line-height: 1.6">
+          <strong style="color: #bdb6a8; font-weight: 600">Why the earlier conversation can't be reopened</strong>
+          <span>Claude Code has no saved conversation for this session.</span>
+          <button style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Check again</button>
+        </div>
+      </section>
+
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35">Start a fresh session in your terminal</h2>
+        <p style="margin: 0; color: #bdb6a8; line-height: 1.6">For a back-and-forth with Claude Code. Start it in the run's worktree and give it the recovery prompt.</p>
+        <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 'JetBrains Mono', monospace; padding: 14px; background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px">cd ~/work/.worktrees/clearer-receipts-screens/harbor-ledger
+claude</pre>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <button style="min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Copy terminal command</button>
+          <button style="min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Copy recovery prompt</button>
+        </div>
+        <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6"><strong style="color: #bdb6a8">Changed the plan?</strong> Ask Claude Code to record those decisions in the requirements before you exit.</p>
+      </section>
+    </div>
+
+    <footer style="margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,0.12); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
+      <span style="font-size: 13px; color: #8c8577; max-width: 760px">In a state nothing above fixes? Reset makes Kiln forget its progress on this PRD and takes you back to the first screen. Your branch, worktree and commits are kept.</span>
+      <button style="min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #bdb6a8; border: 1px solid rgba(237,232,221,0.18); cursor: pointer">Reset Kiln for this PRD</button>
+    </footer>
+  </main>
+</div>
+</div>
 <div id="v-reset" hidden>
 <div style="background: #12110e; color: #ede8dd; font: 14.5px/1.55 Inter, -apple-system, 'Segoe UI', sans-serif; min-height: 900px; box-sizing: border-box">
   <header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,0.12)">
@@ -616,7 +705,7 @@ claude</pre>
 </div>
 </div>
 <script>
-const views=["found","found-reset","launch","nothing","conversation","reset","working"];const sel=document.getElementById("mock-case");
+const views=["found","found-reset","launch","nothing","conversation","held","reset","working"];const sel=document.getElementById("mock-case");
 sel.addEventListener("change",()=>views.forEach(v=>document.getElementById("v-"+v).hidden=v!==sel.value));
 </script>
 </body>
