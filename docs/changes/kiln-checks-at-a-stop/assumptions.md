@@ -27,19 +27,21 @@
 
 ## Stop Assumptions
 
-### STOP-001. Can Mark complete be pressed straight from the automatic check, with no Check again first?
+### STOP-001. Can Mark complete be pressed straight from the automatic check, with no Check again first, revising the 2026-11-01 ruling?
 
-**Assumption**: Yes: once the automatic check at a stop finishes with a check still failing, **Mark complete** is usable at once (AC-STOPCHECK-07).
+**Assumption**: Yes: once a stop shows a finished run of the completion checks with a check still failing, **Mark complete** is usable at once (AC-STOPCHECK-07).
 
-Today Mark complete needs the person to press **Check again** first (AC-WAIVE-02). That rule made sense when a stop showed only one row, because the recheck was the first time the full checks ran. With the full checks already on the page, the press shows nothing new. Mark complete still **reruns every check before it saves** and refuses if anything changed (AC-WAIVE-04), so nothing is waived that the person did not see.
+**This revises a ruling.** On **2026-11-01** Doug directed that Mark complete be offered only **after a recheck still fails**, and the fix of 2026-11-12 kept that rule while making the button visible. That ruling was made when a stop showed only the row that raised it, so the recheck was the first time the completion checks ran. This PRD puts those checks on the page without a recheck, which is new since the ruling. The build proceeds on the revised answer.
+
+Mark complete still **reruns every check before it saves** and refuses if anything changed (AC-WAIVE-04), so nothing is waived that the person did not see.
 
 **If they choose otherwise**: the button stays unusable with "Check again first" until the person presses Check again, as it is today, even though the full checks already show.
 
 **Example**: a delivery audit stops at Needs you. The page shows **Why Kiln stopped** and, a moment later, its completion checks with one failing. **Mark delivery audit complete** can be pressed there and then.
 
 **Confirm or Correct**:
-- [ ] Correct — usable straight from the automatic check
-- [ ] Wrong — keep "Check again first" even with the full checks showing
+- [ ] Correct — usable as soon as the page shows a finished check with a failure
+- [ ] Wrong — keep the 2026-11-01 ruling: "Check again first" even with the checks showing
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 85% | **Impact**: 🟡 MEDIUM
