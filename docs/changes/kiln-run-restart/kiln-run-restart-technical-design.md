@@ -20,9 +20,9 @@ The three new commands are `kiln carry-on`, `kiln start-again` and `kiln reset` 
 - **Reused:** `listWorktrees`, `originBranches`, `localBranchCommit`, `isAncestor`, `ensureObjects` (`git-reads.ts`); `observeGitPlan` for a plan read from Git objects; the folder check's "run's worktree" predicate; `createLocalBranch` and `addWorktreeOnBranch` from Folder missing's existing-branch start; the worktree path and workspace folder checks; `runStartChecks` and its problem wording.
 - **Reused:** the evaluate-then-act boundary of manual phase recovery (`recoverPhase`): its exclusive checking, completion check, already-complete choice and stop handling. Carry on and start again run inside it.
 - **Reused:** the command journal's admission (command ID, status token, digest, busy) for all three new actions, from the browser and the command line; the launch path (`launchSession`, `runProcess`) with its billing, selection and dispatch checks.
-- **Reused:** the takeover ownership checks `requireExited`, `captureOwnedProcesses` and `requireNoTerminal`, and `reviewMessages` and `resolveMessageHold`.
+- **Reused:** the takeover ownership checks `requireExited`, `captureOwnedProcesses` and `requireNoTerminal` (the carry-on ownership check stands in for `requireTakeoverReturn`), `returningTakeover`, and `reviewMessages` and `resolveMessageHold`.
 - **Kept:** Folder missing, continuations, audits, final delivery, usage waits and every held page other than AC-CARRY-06's keep their flows. Folder missing's setup panel keeps its own "Start from" wording.
-- **Kept:** a hold releases for same-conversation resume only when the saved conversation is readable. This design adds a second way out of a hold; it does not loosen release.
+- **Kept:** a hold is released for same-conversation resume only when the saved conversation is readable: `available` in §Whether the conversation can be reopened, which looks only at the folders that hold the file. This design adds a way to end a hold that was never released; it does not otherwise loosen release.
 - **Kept:** a Codex safety problem (unresolved cleanup, ambiguous dispatch) blocks every Kiln-started session for the phase, as it blocks Resume today.
 - **Kept:** `kiln run` on a PRD with no saved record, or a not-started one, behaves as today, including exiting when a start check fails.
 
@@ -30,9 +30,9 @@ The three new commands are `kiln carry-on`, `kiln start-again` and `kiln reset` 
 
 Three structural changes carry the rest.
 
-1. **The start preview moves into the engine.** Documents found's data is computed once in `kiln-command.ts` today and handed to the server as a constant. It now depends on the starting point, so a not-started engine owns it and republishes it when the selection or a ref changes.
-2. **The server follows a replaceable engine.** Today `startLocalServer` closes over one engine everywhere: the snapshot, its change listener, the legacy-session binding, the inspection and control routes (`installInspectionRoutes`), and each event-stream connection's change, output and partial subscriptions. All of these read the engine through a holder owned by the run, and the run's stop handling closes whichever engine the holder has. Reset swaps the engine; the holder moves every open event-stream connection's subscriptions to the new engine and sends it the new snapshot, so open pages stay connected.
-3. **A phase has a latest conversation, distinct from its latest session.** A launch that never began a conversation leaves a session record that nothing can resume. Resume, reply, the terminal command, availability checks and a hold's target use the phase's latest session that began a conversation.
+1. **The start preview moves into the engine.** Documents found's data depends on the starting point, so a not-started engine owns it and republishes it when the selection or a ref changes.
+2. **The server follows a replaceable engine.** Everything `startLocalServer` serves reads the engine through a holder owned by the run: the snapshot, its change listener, the legacy-session binding, the inspection and control routes (`installInspectionRoutes`), and each event-stream connection's change, output and partial subscriptions. The run's stop handling closes whichever engine the holder has. Reset swaps the engine; the holder moves every open event-stream connection's subscriptions to the new engine and sends it the new snapshot, so open pages stay connected.
+3. **A phase has a latest conversation, distinct from its latest launch.** A launch that never began a conversation leaves a session record that nothing can resume. Resume, reply, the terminal command, availability checks and a hold's target use the phase's latest session that began a conversation.
 
 ## Design Decisions
 
@@ -40,14 +40,14 @@ Three structural changes carry the rest.
 |---|---|---|
 | Where an existing-branch start reads documents | The whole **What Kiln found** block (PRD, design, assumptions, plan, plan checks) is read from Git at the **start commit**: the branch's tip, or the base's tip when the catch-up is ticked. Neither of today's checks that compare the person's checkout with Git applies: the base check's PRD tree comparison (`checkPrdTreeAt`) and, for a PRD repository already set up by an earlier failed Start, `checkSetUpPrdTree` | AC-FROM-02. A branch someone built phases on necessarily differs from the person's checkout in its Closed lines, so either comparison would refuse every such start, the second one on the retry after a failed Start. Reading everything from the commit sessions start at keeps the purpose of those checks: what the person reviews is what sessions read |
 | What "closed before the run" means on an existing branch | A leaf Closed in the plan at the start commit. The first plan read accepts it on that alone, with no Committed or Pushed check | AC-FROM-02, AC-DEV-03. The person chose the branch as it stands; AC-FROM-03 allows uncommitted files and an unpushed local branch, either of which would fail today's evidence check for an externally closed leaf |
-| Uncommitted PRD documents in an adopted worktree | Start is unavailable while the worktree's uncommitted or untracked files touch the PRD directory, naming them and saying to commit or discard them in that worktree | The preview reads committed documents and the run reads the worktree's files (`readPlan` observes the worktree). A Closed line present in only one would start the run at a plan stop. Today's new-branch start holds the same line by requiring the PRD tree Kiln read to equal the start commit's. Other uncommitted files are counted and allowed (AC-FROM-03) |
+| Uncommitted PRD documents in an adopted worktree | Start is unavailable while the worktree's uncommitted or untracked files touch the PRD directory, naming them and saying to commit or discard them in that worktree | The preview reads committed documents and the run reads the worktree's files (`readPlan` observes the worktree). A Closed line present in only one would start the run at a plan stop. Other uncommitted files are counted and allowed (AC-FROM-03) |
 | A repository's `baseCommit` on an existing branch | The merge base of the branch's tip and the base's tip on origin, and after any catch-up the branch's new tip | Existing readers treat "tip equals `baseCommit`" as "no commits of its own": the Pushed check (`checks.ts`), the choice of repositories that need a pull request (`pullRequestRepositoriesNow`) and development delivery's unchanged test and source-work range. The merge base keeps that true at Start. A catch-up moves the tip to the base's tip, so a `baseCommit` left at the old merge base would make the caught-up branch count as having work: a pull request with no commits, and the base's commits read as source work |
 | Commits of its own | `rev-list --count <base tip on origin>..<branch tip>` | AC-CURRENT-01's definition. A branch whose commits all reached the base by an early merge counts zero, which is right: its tip is an ancestor of the base, so a fast-forward loses nothing, and reset's confirmation says it has none of its own |
 | Catch-up mechanics | In the worktree: `merge --ff-only <base tip>`, then a plain `push origin <branch>`. Two steps, each skipped when already true | Fast-forward and a non-force push cannot rewrite or lose anything, which is what lets Kiln do it unattended (AC-FROM-04). Recognizing a half-done catch-up lets a retry finish it |
 | A conversation began | Claude: a run of the session reported the stream's `init`. Codex: a run has an accepted turn, or its dispatch is ambiguous | AC-CASE-01. A process ID proves only that something spawned; for Codex it is the work server's. An ambiguous Codex dispatch is treated as begun so it keeps today's page and safety rule |
-| Why a conversation can't be reopened | The availability check returns a typed reason with the offending path and defect, not prose | AC-CARRY-02 needs seven distinct wordings and a fix command. Today's check folds four causes into one sentence |
-| Carry-on session | A new session record for the same phase, launched through the ordinary launch path with its own prompt; run cause `carry_on` | AC-CARRY-05. The launch path already applies billing, selection and one-dispatch rules (AC-CARRY-03). A distinct cause keeps history honest about which sessions were fresh starts |
-| Ending a hold without release | A separate ownership check that leaves out the saved conversation and operation-level settlement; the hold ends when the new session's conversation begins, or on advance | AC-CARRY-06. Release proves the old conversation is safe to reopen. Nothing reopens it here, so what must still hold is exclusive use: the old process, every descendant it was seen to start, and any terminal on that conversation are gone. An operation runs inside the attempt's process or in a process it started, so once all of those have exited nothing the attempt started is running. Settlement can't be required: an operation the process died in never gets a result, so the hold would never end |
+| Why a conversation can't be reopened | The availability check returns a typed reason with the offending path and defect, not prose | AC-CARRY-02 needs seven distinct wordings, the offending path and a fix command, so the check reports the cause as data and the view words it |
+| Carry-on session | A new session record for the same phase, launched through the ordinary launch path with its own prompt, run cause `launch`, and the record marked `startedAs: "carry_on"` | AC-CARRY-05. A carry-on is a fresh conversation, so every launch rule applies unchanged: billing, model selection, Codex's skill prompt and one dispatch (AC-CARRY-03). The marker keeps history clear about which sessions continued a stopped phase |
+| Ending a hold without release | A separate ownership check that leaves out the saved conversation and operation-level settlement; the hold ends when the new run reports Claude `init` or a Codex `turnId` (an ambiguous Codex dispatch does not end it), or on advance | AC-CARRY-06. Release proves the old conversation is safe to reopen. Nothing reopens it here, so what must still hold is exclusive use: the old process, every descendant it was seen to start, and any terminal on that conversation are gone. An operation runs inside the attempt's process or in a process it started, so once all of those have exited nothing the attempt started is running. Settlement can't be required: an operation the process died in never gets a result, so the hold would never end |
 | How reset discards | Replace `prd.json` with a fresh not-started record first, then delete the rest of the state directory, keeping the instance lock and the reset's own journal receipt | AC-RESET-04. Replacing the record first means every reader sees either the old run or a clean not-started PRD, never a half-deleted one. A crash after it is finished by the next `kiln run`, found from that receipt |
 | Reset in a running Kiln | The run closes the engine, discards, runs the start checks and builds a not-started engine in the same process, keeping the server, port and page token | AC-RESET-04 has the open page show Documents found. Restarting the process would drop the page and the bot's connection. The token is the page's credential, not progress |
 | The reset's own receipt | The ordinary journal receipt for the `reset` instruction, kept through the discard with its `control-index` entry and the sequence cursor | AC-RESET-06. The journal already answers a retry from the receipt before any eligibility or token check (`submitValidated`), and `kiln command-status` already finds a receipt of any execution (`lookupReceipt`: the index, else a scan of every execution's directory). Keeping the one file keeps both working with no second store or reader |
@@ -126,21 +126,33 @@ Each catch-up is saved (`branchCatchUps`) and told to the next session Kiln star
 | A stopped phase's page | The page sends `bringUpToDate` with **Send reply & resume**, **Have Kiln resume**, **Send reply & continue** and **Start again**. Ticked but no longer qualifying returns `branch_changed` (409) and the page refreshes, so a session never starts on a branch the person believed was being moved |
 | `kiln reply`, `kiln resume`, `kiln carry-on`, `kiln start-again` on a stopped phase | Done when the branch qualifies, unless `--leave-branch-as-is`. A branch that doesn't qualify proceeds; the receipt's `branch_catch_up` lists what moved, empty when nothing did |
 
-A held phase gets no offer and no catch-up. Verify, Mark complete and a waiting phase's Resume now never catch up.
+A held phase (§A Stopped Phase's Facts) gets no offer and no catch-up. Verify, Mark complete and a waiting phase's Resume now never catch up.
 
 ## A Stopped Phase's Facts (AC-CASE-01, 03, 04)
 
-A **stopped phase** is an implementation leaf with a stop of kind `done_check` or `not_resumable`, or a billing hold, that has a session and is not held. The engine derives, and the snapshot carries:
+A **stopped phase** is an implementation leaf that is not held, one of whose sessions has a run, and that has a stop of kind `done_check` or `not_resumable` or a billing hold on a resume (`action: "resume"`). A billing hold on a launch (`action: "launch"`) is a launch hold. While it lasts, the phase is not a stopped phase and keeps today's page, **The next AI launch is held for review.**, whatever stop the phase also keeps. When it clears, the kept stop's page returns.
+
+| Billing hold | The phase also has | Page | Stopped phase |
+|---|---|---|---|
+| First launch (`launch`; no session has a run) | nothing | `NeedsYou`, **The next AI launch is held for review.** | No |
+| **Start again** or **Send reply & continue** (`launch`; a new session with no run) | its stop, kept | `NeedsYou`, **The next AI launch is held for review.** | No while the launch hold lasts; the stop's page, with its button, returns when it clears |
+| Reply, **Resume**, **Have Kiln resume**, a usage-limit resume (`resume`) | its `done_check` stop or usage wait, kept | `PhaseHandoff`, **Phase N needs your input.** with the billing panel | Yes; AC-CASE-01's three cases apply |
+
+A phase is **held** while the run record carries `liveControl`, in either state, `pending` or `released`, and of either kind, takeover or `delivery_recovery`. `released` means the conversation is ready for the terminal; it does not end the hold. The hold ends when `liveControl` is removed: when a resumed or carry-on run reports Claude `init` or a Codex `turnId`, on a successful advance or Mark complete, or on Folder missing's Start. A resumed run that ends before its conversation begins leaves the phase held. While a phase is held it is not a stopped phase: its page keeps today's headline and controls, apart from the reset line and AC-CARRY-06's case. It gets no catch-up offer, and no reply, resume, carry-on or start-again catches its branch up, from the page or the command line, whatever `bringUpToDate` or `--leave-branch-as-is` says. Once the hold has ended, a later stop of that phase is a stopped phase like any other.
+
+For a stopped phase the engine derives, and the snapshot carries:
 
 **Conversation began.** Per Design Decisions, over every session of the phase. The **latest conversation** is the last session in the phase's list that began one.
 
-**Work.** Per set-up repository: commits reachable from the feature branch's tip but not from the phase's start commit there nor from the base's tip on origin; and the count of uncommitted files in the worktree. A phase **built nothing** when every repository has zero of both. Work is read when the stop is recorded, at each recheck, when the page is opened or reloaded, and before a session starts. When a read fails, work is unknown: the page names the read, uses today's headline and shows today's checks.
+**Latest launch.** The phase's latest launch is the session whose latest run started last; a session with no run never is. A resume is a run of the session it reopens, so a failed resume leaves that session the latest launch, with its conversation begun.
 
-**Case.** `could_not_start` when no session began a conversation; `built_nothing` when one did and the phase built nothing; `needs_input` otherwise, today's page. The headline, the duration line (the latest conversation's running time, from its runs' start and end times) and the first card follow AC-CASE-01 and AC-CASE-04. The first card is **What Kiln found** when the phase's latest session never began a conversation, giving the program Kiln ran, the folder and the recorded error or exit; any earlier conversation's last message follows it.
+**Work.** Per set-up repository: commits reachable from the feature branch's tip but not from the phase's start commit there nor from the base's tip on origin; and the count of uncommitted files in the worktree. A phase **built nothing** when every repository has zero of both. Work is read when the stop is recorded, at each recheck, when the page is opened or reloaded, and before a session starts. When a read fails, work is unknown: the page names the read, uses today's headline and shows today's checks. A hold with `history` set has work too (§A Held Phase That Can't Be Reopened).
 
-Both of today's pages (`PhaseHandoff` for a session that spawned, `NeedsYou` for one that didn't) render a stopped phase from these facts, so a session that spawned and exited before its conversation began shows the couldn't-start page.
+**Case.** `could_not_start` when no session began a conversation; `built_nothing` when one did and the phase built nothing; `needs_input` otherwise, today's page. The headline, the duration line (the latest conversation's running time, from its runs' start and end times) and the first card follow AC-CASE-01 and AC-CASE-04. The first card is **What Kiln found** only when the latest launch never began a conversation, giving the program Kiln ran, the folder and the recorded error or exit; any earlier conversation's last message follows it. Otherwise it is today's **Last message from**, giving the latest launch's last recorded final message (the one the carry-on prompt carries), or its last lines when none was recorded. Under its facts row, a resume that couldn't spawn shows today's spawn-error warning line.
 
-**Nothing to check yet (AC-CASE-03).** While the phase built nothing and the stop's check run is the stop's own (`run.origin` is `stop`), the snapshot sets `nothingToCheck`. The view then shows the drawn text and **Check Phase N anyway** in place of the rows the completion evaluator produced; rows recorded as the stop's reason (agent recovery, plan, billing) still show. **Check Phase N anyway** is today's recheck, after which the rows show as today. The Mark complete offer gains `builtNothing`, which selects the sentence above it.
+Both of today's pages (`PhaseHandoff` for a session that spawned, `NeedsYou` for one that didn't) render a stopped phase from these facts, so a session that spawned and exited before its conversation began shows the couldn't-start page when no other session of the phase began one.
+
+**Nothing to check yet (AC-CASE-03).** While the phase built nothing and the stop's check run is the stop's own (`run.origin` is `stop`), the snapshot sets `nothingToCheck` and the view shows the drawn text and **Check Phase N anyway** in place of every row without `reason`. A row with `reason` still shows. `CheckResult.reason?: true` marks a row that reports why the phase stopped rather than what its work satisfies. It is set where the row is made: the agent recovery rows (Claude recovery, Codex recovery, Recovered conversation), Codex process cleanup and dispatch, the launch rows (Billing approval, Agent selection and readiness, Codex launch settings, Preparation permissions), Completion audit readiness, Phase plan reads, and the preparation rows (Prerequisite preparation, Preparation recovery, Prepared checkpoint). A stop row saved before schema 21 is marked by those names when read. Mark complete needs a finished recheck, so it is never offered while `nothingToCheck` is set. **Check Phase N anyway** is today's recheck. Its rows replace the stop's rows and all of them show as today. The Mark complete offer gains `builtNothing`, which selects the sentence above it.
 
 ## Starting a Session at a Stop (AC-CASE-02, AC-CARRY-01 to 05)
 
@@ -154,26 +166,37 @@ ReopenCheck:
   reason?: "missing" | "unsafe" | "not_a_file" | "no_messages" | "unreadable" | "reopen_failed" | "codex"
   path?: string                 // unsafe, not_a_file
   defects?: ("writable_by_others" | "link" | "other_owner")[]   // unsafe
-  fixCommand?: string           // unsafe, when clearing write access alone would pass
-  detail?: string               // codex: the reason Kiln recorded
-  problems?: string[]           // safety
+  fixCommand?: string           // unsafe, only when defects is exactly writable_by_others
+  detail?: string               // codex: the wording of the first Codex cause that applies
+  problems?: string[]           // safety: the recorded sentences of the phase's Codex safety problems
 ```
 
 | `reason` | From | AC-CARRY-02 row |
 |---|---|---|
 | `missing` | No `projects` folder, no file for the session ID in any project folder, or an ID no file could have | 1 |
-| `unsafe` | The file, its project folder or the `projects` folder fails the ownership check; `path` is the first that fails. A project folder that doesn't hold the file is never the reason | 2 |
+| `unsafe` | The `projects` folder, the project folder holding the file, or the file fails the ownership check, judged in that order. `path` is the first that fails. A folder fails when it is a link, belongs to another account, or is writable by accounts outside its group; group write passes. The file fails when it is a link, belongs to another account, or is writable by its group or others, judged both before it is opened and as opened. A project folder that doesn't hold the file, or that this account can't search, is never the reason. A project folder that is a link and through which the file is reached is `link` | 2 |
 | `not_a_file` | The saved path isn't an ordinary file | 3 |
 | `no_messages` | The file holds no usable message | 4 |
 | `unreadable` | A read error, the read deadline, a record over the size Kiln reads, or a line that isn't JSON and wasn't cut off | 5 |
-| `reopen_failed` | The stop is `not_resumable` because a resumed run ended before its conversation began | 6 |
-| `codex` | Codex reports the thread can't be opened, or its recorded folder is no longer the run's | 7 |
+| `reopen_failed` | A Claude stop is `not_resumable` because a resumed run spawned and then ended before its conversation began. A resume that couldn't spawn is never this reason: the check reads the file as for any stop, so reply and resume stay offered while it is `available` | 6 |
+| `codex` | A Codex conversation with no safety problem, for a cause in the Codex table below | 7 |
 
-`fixCommand` is `chmod go-w <path>` when `defects` is only `writable_by_others`. `safety` is a Codex safety problem and wins over every reason.
+`fixCommand` is given only when `defects` is exactly `writable_by_others`: `chmod o-w <path>` for a folder, `chmod go-w <path>` for the file, with `<path>` absolute and shell-quoted. Running it makes that path pass, and **Check again** names the next path that fails, if any. A link, another owner, or more than one defect gets no command.
 
-For Claude, `available` is exactly the condition a hold's release requires (`requireHistory`: the file found, not empty, every line JSON or cut off, and `claudeHistoryAvailability`'s usable message), computed by one function that returns these typed reasons; resume's offer and release both read it. Today `claudeHistoryAvailability` returns prose and folds unsafe, unreadable and deadline failures into one sentence, and it checks every project folder, so an unrelated one fails it; both change here. With one predicate, a page never offers resume for a conversation release would refuse, and a hold never waits on a conversation the page calls reopenable.
+For Codex, `state: "safety"` comes from the phase's Codex safety problems: cleanup unresolved, or dispatch ambiguous (`codexSafetyProblems`, without launch-settings verification). `problems` holds their recorded sentences. A launch-settings verification failure is not a safety problem. Otherwise `reason: "codex"`, with `detail` from the first row that applies; with neither, the check is `available`:
 
-The check runs at every snapshot build, as the transcript check does today, so **Check again**, **Check Phase N again** and **Check Phase N anyway** need only re-read Codex's thread and republish. A conversation that reads as available again brings back reply and resume with no restart. `reopen_failed` is a recorded fact about an attempt and does not clear on a re-read.
+| Codex cause | `detail` | Read from |
+|---|---|---|
+| The recorded folder is neither the session folder nor a set-up worktree, while the run is underway | Codex reopens this conversation only in `<recorded folder>`, which is no longer this run's folder. | The session's `workingDirectory`, compared at each snapshot build as `transcriptMissing` compares it |
+| Kiln's last read of the thread failed | `resumeError` as recorded: "Codex conversation cannot be opened: `<cause>`". The cause is the app server failing to start or exiting, a Codex RPC error, a different thread identity, the 30-second deadline, or a malformed or oversized reply | `session.codex.resumeError` |
+
+A conversation that began always has a `threadId`, so no row covers a missing ID. A Codex `not_resumable` stop comes from these same conditions, so it reads `codex`, never `reopen_failed`.
+
+For Claude, one function decides `available` and returns the typed reasons above; resume's offer, the page and a hold's release (`requireHistory`) all read it. `available` means the file is found, holds a usable message by `claudeHistoryAvailability`'s rule, and every line is JSON or cut off, read to the end within the read deadline and the size Kiln reads per record. Any other outcome is the matching reason. With one predicate, a page never offers resume for a conversation release would refuse, and a hold never waits on a conversation the page calls reopenable.
+
+For Claude the check runs at every snapshot build, as the transcript check does today, so **Check again**, **Check Phase N again** and **Check Phase N anyway** need only republish. For Codex a snapshot build reads only the recorded facts above and starts no process. **Check again** runs `readCodexAvailability` on the latest conversation (one evidence-only Codex app server, `thread/read` only, 30 seconds at most), records or clears `resumeError`, then republishes. With no `codex` executable found it records nothing, and the card keeps the recorded result. **Check Phase N again** and **Check Phase N anyway** re-read through the completion check's `refreshCodexConversations`. A phase where no session accepted a turn, and none has an ambiguous dispatch, is `could_not_start` and never gets a `ReopenCheck`. When the latest launch began no conversation, the check reads the latest conversation, an earlier session's.
+
+A conversation that reads as available again brings back reply and resume with no restart. `reopen_failed` is a recorded fact about an attempt and does not clear on a re-read.
 
 The reply card follows AC-CARRY-01: `available` gives today's card; `unavailable` gives the carry-on card beside the fresh-session terminal card; `safety` gives today's **Conversation recovery unavailable**.
 
@@ -183,8 +206,8 @@ Action `carry-on`, inputs `{ message?, leave_branch?, reviewed_receipt_ids?, liv
 
 1. Run the completion check. Complete returns `phase_already_complete`: nothing starts, the reply is kept unsent, and the page shows today's already-complete choice. Unavailable returns `check_unavailable`.
 2. Catch the branch up when it applies.
-3. Write a new session record for the phase and launch it in the phase's worktree with the carry-on prompt.
-4. As the run starts, the stop clears, as a resumed run's does. A launch that fails leaves the stop, and its session in history.
+3. Write a new session record for the phase, marked `startedAs: "carry_on"`, and launch it (cause `launch`) in the phase's worktree with the carry-on prompt.
+4. As the run starts, the stop clears, as a resumed run's does. A launch that fails leaves the stop, and its session in history. A billing hold at the launch is a launch hold (§A Stopped Phase's Facts), and it leaves the stop. Once the launch hold clears, the stop offers **Send reply & continue** again, which rebuilds the prompt and takes the reply afresh.
 
 The **carry-on prompt** is its own template: the phase's fresh-session prompt, then the person's reply when there is one (with the reply policy a resume note gets), the latest conversation's last message verbatim or a line saying none was recorded, and the phase's work: each repository's commits (short SHA and subject) and its uncommitted file count. A last message over 16,000 characters is cut there, saying so.
 
@@ -192,7 +215,7 @@ The new session is judged by the completion check when it ends, like any session
 
 ### Start again
 
-Action `start-again`, inputs `{ leave_branch? }`. Offered when the phase is stopped and no session of it began a conversation. It catches the branch up when that applies, then launches the phase's first session again with the ordinary phase prompt in a new session record. It takes no reply. It does not run the completion check first: the page offers **Check Phase N anyway** for that.
+Action `start-again`, inputs `{ leave_branch? }`. Offered when the phase is stopped and no session of it began a conversation. It catches the branch up when that applies, then launches the phase's first session again with the ordinary phase prompt in a new session record. The new session record carries no marker. A session that follows sessions that never began a conversation is a start again. It takes no reply. It does not run the completion check first: the page offers **Check Phase N anyway** for that.
 
 ### Limits (AC-CARRY-03)
 
@@ -200,7 +223,7 @@ Both actions are unavailable, with the reason, while Kiln is checking, dispatchi
 
 ### Resuming after a failed launch
 
-Reply and resume reopen the phase's latest conversation. When a later launch of the phase began none, the resumed run is recorded on the earlier session, and that session is again the one the page and the hold name.
+Reply and resume reopen the phase's latest conversation. When a later launch of the phase began none, the resumed run is recorded on the earlier session, which makes it the latest launch again (§A Stopped Phase's Facts) whether or not the resume spawned; it is also the session the hold names.
 
 ## A Held Phase That Can't Be Reopened (AC-CARRY-06)
 
@@ -214,9 +237,9 @@ It does not replay the transcript or require `unsettled(gate)` to be empty. The 
 
 A hold with `history` set stays `pending`: it is never reported as released, and nothing that requires release changes.
 
-**The page.** A hold with `history` set shows the carry-on card (with its reason and **Check again**) beside the fresh-session terminal card, in place of the wait text and card. **Send reply & continue** and the terminal card's copy buttons are unavailable while the ownership check has an obstacle, showing it. Each uncertain message shows above the cards with **I reviewed this message in the conversation**, and **Send reply & continue** is unavailable until each is acknowledged. The headline is today's for the hold's kind.
+**The page.** A hold with `history` set shows the carry-on card (with its reason and **Check again**, which re-reads the hold's conversation: for Codex, `readCodexAvailability` on that conversation) beside the fresh-session terminal card, in place of the wait text and card. **Send reply & continue** and the terminal card's copy buttons are unavailable while the ownership check has an obstacle, showing it. Each uncertain message shows above the cards with **I reviewed this message in the conversation**, and **Send reply & continue** is unavailable until each is acknowledged. Work is also computed for a hold with `history` set, the same way as for a stopped phase: from the held phase's start commit in each repository (`RepositoryPhaseFacts.startCommit`). No catch-up moves it, since carrying on from a hold skips catch-up. It is read when `history` is saved, at **Check again**, when the page is opened or reloaded, and before the carry-on session starts. It is carried in `needsYou.work`. The held page renders it as the card's "Phase N's work so far" row, and the carry-on prompt's work section reads it as for a stopped phase. The headline is today's for the hold's kind and the page keeps today's checks, so `case`, `nothingToCheck` and `markComplete.builtNothing` stay absent.
 
-**Carry on from a hold.** Before step 1 of §Carry on: every uncertain message is acknowledged (acknowledgements sent with the command are applied first), and the ownership check passes. The catch-up step is skipped. The hold ends, with its acknowledged messages resolved, when the new session's conversation begins; a launch that fails leaves the hold. An uncertain message is not added to the prompt.
+**Carry on from a hold.** Before step 1 of §Carry on: every uncertain message is acknowledged (acknowledgements sent with the command are applied first), and the ownership check passes. The catch-up step is skipped. The launch path runs the carry-on ownership check on the hold's conversation in place of `requireTakeoverReturn`, and its pre-prompt guard does the same: no terminal on the hold's conversation, with the activity-material comparison unchanged, and no `requireHistory` for either conversation. A check that fails there settles the receipt `not_started` (`dispatch_not_started`). The carry-on reuses `returningTakeover`. The hold ends, with its acknowledged messages resolved, when the new run reports Claude `init` or a Codex `turnId`, and the receipt's `effects.session` becomes `started`. A launch that ends before then leaves the hold `pending` and clears `returningTakeover`. Until the hold ends, the hold is the page's live target: **Message Claude** and **Pause & take over** are unavailable for the new attempt, whatever the hold's kind, with the reason that the session is starting, and each becomes available on the new attempt once the hold ends. An uncertain message is not added to the prompt.
 
 **Advance from a hold.** The already-complete choice's advance, for a hold with `history` set, uses the same two preconditions in place of release, then accepts completion and ends the hold as a released hand-back does. Verify and Mark complete on the page are unchanged and stay unavailable until release, as AC-CARRY-06 changes only the carry-on button's path.
 
@@ -240,7 +263,7 @@ ResetPreview:
   closedOnBranch?: number        // leaves Closed in the plan on the feature branch, PRD's repository
 ```
 
-The view leaves out a line whose value is zero or absent (AC-RESET-03). A read that fails is listed in `unknown` and its line says Kiln couldn't count it; the reset is still offered, because it touches none of those things.
+Each line shows by what it names (AC-RESET-03). **Kiln forgets:** "Which phase it was on, and each phase's result" and "Its settings for this PRD, which you choose again on the first screen" always show, since every started PRD has both. "Its N session(s) and their output" shows when `forgets.sessions` > 0 ("Its 1 session and its output"). "Stops, completion waivers and audit results" shows when `stops + waivers + audits` > 0, with no count. "Its record of earlier deliveries" shows when `deliveries` > 0. **Stays exactly as it is:** each `stays` entry gives a branch line, "`<branch>`, which has N commits of its own", and, when `worktree` is set, "The worktree folder, with N uncommitted files". Both are named even at zero, written "no commits of its own" and "no uncommitted files". With several repositories each line names its repository. A repository's pull requests show when `pullRequests` is non-empty, each by number. "The phases closed in the plan on the feature branch" shows when `closedOnBranch` > 0. An absent count means the read failed: it is listed in `unknown` (for `closedOnBranch`, the `unknown` of the PRD repository's `stays` entry), its line says Kiln couldn't count it, and the reset is still offered, because it touches none of those things.
 
 ### Doing it
 
@@ -273,7 +296,7 @@ A reset refused at admission (stale token, busy, unavailable) is an ordinary jou
 | `POST /api/resume` | adds `bringUpToDate?` | adds `branch_changed` (409), `branch_catch_up_failed` (409, with the reason) |
 | `POST /api/carry-on` | `{ note?, bringUpToDate?, reviewedReceiptIds?, target }` with the `X-Kiln-Status` and `X-Kiln-Command-Id` headers Mark complete uses | `{ ok, outcome: "session_started" \| "already_complete" }` and the errors of `/api/resume` |
 | `POST /api/start-again` | `{ bringUpToDate? }`, same headers | `{ ok, outcome: "session_started" }` |
-| `POST /api/reopen-check` | none | re-reads the conversation and republishes |
+| `POST /api/reopen-check` | none | **Check again**: for Codex, reads the thread of the latest conversation, or on a held page the hold's conversation (`readCodexAvailability`), and records or clears `resumeError`; then republishes |
 | `GET /api/reset/preview` | | `ResetPreview` |
 | `POST /api/reset` | none, same headers | `{ ok, outcome: "reset" }`; `control_unavailable` (409) with the reason |
 
@@ -297,7 +320,7 @@ needsYou: adds
   case?: "could_not_start" | "built_nothing" | "needs_input"
   work?: { repositories: [{ name, commits: [{ sha, subject }], uncommittedFiles }], builtNothing: boolean } | { unknown: string }
   conversationRanMs?: number
-  launchFailure?: { ran: string, folder: string, error: string, at: string }
+  launchFailure?: { ran: string, folder: string, error: string, at: string }   // What Kiln found: only when the latest launch never began a conversation
   nothingToCheck?: true
   reopen?: ReopenCheck
   carryOn?: { available: boolean, reason?: string, endsHold?: "takeover" | "message" }
@@ -321,20 +344,21 @@ All three are changing commands under bot control's contract: a PRD path, `--onl
 | `kiln start-again <PRD-path>` | `--leave-branch-as-is` | `session_started`, `branch_catch_up_failed`, `dispatch_not_started` |
 | `kiln reset <PRD-path>` | none | `reset` |
 
-`kiln reply` and `kiln resume` gain `--leave-branch-as-is`. Receipts of the four session-starting commands gain `branch_catch_up: [{ repository, branch, from, to, commits }]`. The receipt's `effects.session` for carry on and start again is `starting` then `started`; neither command's name, help or output says "resume".
+`kiln reply` and `kiln resume` gain `--leave-branch-as-is`. Receipts of the four session-starting commands gain `branch_catch_up: [{ repository, branch, from, to, commits }]`. The receipt's `effects.session` for carry on and start again is `starting`, then `started` once the receipt's run begins its conversation, and each command succeeds on `started`. `started` counts as success wherever `resumed` does. Other receipts keep `resumed`. Neither command's name, help or output says "resume".
 
 `kiln reset --help` states, before its options, that a reset can't be undone, lists what Kiln forgets (AC-RESET-03's first column), and says nothing runs afterwards until someone opens the browser view with `kiln run <PRD-path>` and presses Start on Documents found. It takes no confirming flag. `kiln status` lists `reset` for a not-started PRD as unavailable, "Not started; there is nothing to reset."
 
 ## Data Models
 
-Schema version 21. Every addition is optional; a record from schema 20 reads unchanged.
+Schema version 21. Every addition is optional; a record from schema 20 reads unchanged, except that its stop rows are marked `reason` by name (§A Stopped Phase's Facts, Nothing to check yet).
 
 - **`PrdRecord.start?: { from: "new" | "existing"; bringUpToDate: boolean }`**: the starting point chosen on Documents found. Absent reads as `new`.
 - **`RepositoryEntry.runStartCommit?: string`**: the branch's tip when the run started on an existing branch, after any catch-up. Named apart from `RepositoryPhaseFacts.startCommit`, which is where one phase's commits begin. **`RepositoryEntry.adoptedWorktree?: true`**: the worktree existed before Start.
 - **`PrdRecord.branchCatchUps?: [{ at, repository, branch, from, to, commits, toldSessionId? }]`**: each catch-up Kiln made; `toldSessionId` is set once a session's prompt carried it.
-- **`SessionRun.cause`** adds `"carry_on"`.
+- **`CheckResult.reason?: true`**: the check row reports why the phase stopped, not what its work satisfies (§A Stopped Phase's Facts, Nothing to check yet).
+- **`SessionRecord.startedAs?: "carry_on"`**: set on a carry-on session's record. Absent means an ordinary launch. Run causes are unchanged.
 - **`TakeoverHold.history?: ReopenCheck`**: additive under `liveControl` version 1.
-- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`) and `reset` (none). A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`. An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
+- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`) and `reset` (none). A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions), the `effects.session` values `starting` and `started` (`carry-on` and `start-again`) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`. An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
 
 ## Changes to Earlier Designs
 
@@ -361,7 +385,7 @@ Each pointer is added under the named heading when this change is built.
 
 ## Delivery
 
-- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), and that a hold ends when the new conversation begins (AC-CARRY-06). Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness.
+- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), and that a hold ends when the carry-on run reports Claude `init` or a Codex `turnId` (AC-CARRY-06). Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness.
 - **After the build:** a minor release (three new commands) by `docs/release/kiln-npm-release-steps.md`, once the PRD's audits close.
 
 ## Criteria Coverage
@@ -381,7 +405,7 @@ Each pointer is added under the named heading when this change is built.
 | AC-CARRY-03 | Limits |
 | AC-CARRY-04 | Command line |
 | AC-CARRY-05 | Carry on |
-| AC-CARRY-06 | A Held Phase That Can't Be Reopened |
+| AC-CARRY-06 | A Held Phase That Can't Be Reopened; A Stopped Phase's Facts (held); Design Decisions (ending a hold without release) |
 | AC-RESET-01, 02 | Reset: Availability |
 | AC-RESET-03 | The confirmation |
 | AC-RESET-04, 05 | Doing it |

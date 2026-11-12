@@ -2,7 +2,7 @@
 
 **Source:** Doug's report on 2026-11-11, after a run on a remote development machine stopped Phase 1 before any code and offered no way to continue it or begin again, and the concept he worked through the same day on mockups of Kiln's existing screens.
 
-**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Needs You Handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md), [Kiln Missing Worktree Recovery](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md) and [Kiln Live Session Control](../kiln-live-session-control/kiln-live-session-control-prd.md).
+**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Needs You Handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md), [Kiln Missing Worktree Recovery](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), [Codex Support for Kiln](../../prds/kiln-codex-support/kiln-codex-support-prd.md), [Kiln Completion Audits](../kiln-completion-audits/kiln-completion-audits-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md) and [Kiln Live Session Control](../kiln-live-session-control/kiln-live-session-control-prd.md).
 
 **Mockup:** [Open the interactive mockup](mockups/kiln-run-restart.html).
 
@@ -32,6 +32,7 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
 
 - [ ] **AC-FROM-01 — The first screen asks where to start from.** Documents found offers **Start from** with two choices: **A new feature branch**, cut from the base branch, and **A branch that already exists**. When a branch with the name Kiln would give a new one exists, **A branch that already exists** is selected, with that branch; otherwise **A new feature branch** is. With an existing branch selected, **Feature branch** becomes a list of the repository's branches and **Branch from, and PR into** reads **PR into**.
   - Replaces in part: AC-START-06 and AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the first Start can use an existing branch, chosen from a list).
+  - Replaces in part: validated assumption UI-003 in `docs/prds/kiln-v1/assumptions.md` (a feature branch name already taken can be chosen as the branch to start from).
 - [ ] **AC-FROM-02 — The screen shows what will run from there.** **What Kiln found** reads the phase plan from where the first session will start, as the table says, says which, and keeps today's closed marks. Phases closed there count as closed before the run (AC-DEV-03). When some phases are closed there, the count line says how many and that Kiln starts at the first open phase, which is marked, and Start reads **Start at Phase N** with a line saying the closed phases won't run. When every phase is closed there, the count line and Start are today's: Start goes on to the audits and final delivery.
 
   | Start from | The plan is read from |
@@ -55,7 +56,7 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
 
   - Replaces in part: AC-START-06, AC-START-07 and AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (an existing worktree, its folder then fixed, and a local branch tracking one only on the remote).
 - [ ] **AC-FROM-04 — Kiln adds to the branch and never rewrites it.** Kiln's sessions commit to the chosen branch and push it, and never reset or force-push it. Where a final pull request is due, Kiln uses the branch's open one into the base branch, or opens one. With an existing branch selected, a line says Kiln adds to the branch and never rewrites it, and **Starting lets Kiln** names the chosen branch, that open pull request when there is one, and, while AC-CURRENT-01's offer is ticked, bringing the branch up to date.
-  - Replaces in part: AC-PR-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Kiln uses the branch's open pull request instead of opening one).
+  - Replaces in part: AC-START-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Starting lets Kiln names the chosen branch, its open pull request, and bringing an untouched branch up to date).
 - [ ] **AC-FROM-05 — Several repositories use the one branch name.** For a PRD with several repositories, the chosen branch name applies to all of them, and the list holds every repository's branches. A repository that has the branch uses it, and its **Branch from, and PR into** reads **PR into**; one that doesn't gets it cut from its own base. A branch AC-FROM-03 makes unavailable in any repository is unavailable, naming that repository, and so is one whose existing worktrees don't share one workspace folder. **What Kiln found** reads the plan from the PRD's repository.
   - Replaces in part: AC-SPACE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a repository that has the branch uses it).
 
@@ -71,7 +72,7 @@ A branch cut before something it needs reached the base branch can't build on th
   | A stopped phase's page (AC-CASE-01), once, above the ways to resolve it | Every button on the page that starts or resumes this phase's session, not **Mark complete** |
   | A command that starts or resumes a stopped phase's session, not a held one's: `kiln reply`, `kiln resume` and AC-CARRY-04's | The command, as if ticked, unless it is told to leave the branch as it is |
 
-  - Replaces in part: AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SAFE-03 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (Kiln may move forward, and push, a branch that has no commits of its own).
+  - Replaces in part: AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Kiln may move forward, and push, a branch that has no commits of its own).
   - Replaces in part: AC-ACT-02 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (`kiln reply` and `kiln resume` may first bring the branch up to date).
 
 ### Say What Kind of Stop It Is
@@ -86,15 +87,17 @@ A phase can stop in three different ways, and today's page treats them alike. Th
   | A session began one, and the phase has built nothing | **Phase N stopped before building anything.** with a line giving how long its latest conversation ran and that it has built nothing |
   | A session began one, and the phase has built something | **Phase N needs your input.** as today |
 
-  - Replaces in part: the Scope table in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the headline).
+  - Replaces in part: AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the headline).
 - [ ] **AC-CASE-04 — The first card shows the latest launch.** On a stopped phase's page, the first card shows the phase's latest launch: when it began a conversation, today's **Last message from** the agent; when the agent's process didn't start or exited before beginning one, **What Kiln found**, saying what Kiln ran and the error it got, then any earlier conversation's **Last message from** card.
-  - Replaces in part: the Scope table in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the first card).
 - [ ] **AC-CASE-02 — A phase Kiln couldn't launch can be started again.** In AC-CASE-01's first case the page offers one way to start the phase, **Start Phase N again**, which launches the phase's first session again (AC-RUN-02 in Kiln v1), with a line giving the phase's work so far. The page has no reply box and no terminal instructions.
   - Replaces in part: the Scope table and AC-TERMINAL-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (this page replaces the reply, terminal and recovery flows).
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (another way for a session to start after a stop).
+  - Replaces in part: AC-STOP-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-COMPAT-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (a phase Kiln couldn't launch offers no fresh-session prompt).
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Start Phase N again joins the browser view's controls).
 - [ ] **AC-CASE-03 — A phase that built nothing shows no completion checks until asked.** While a stopped phase has built nothing and its completion checks haven't run since it stopped, the page shows **Nothing to check yet** in place of those checks only (a row giving the stop's own reason still shows), with **Check Phase N anyway** and a line saying Kiln checks only the PRD's worktree. Once the checks have run, today's section shows their results, with **Mark complete** offered as today once a check still fails (AC-WAIVE-02 in Kiln Completion Waivers), and the sentence above it says the phase has built nothing.
-  - Replaces in part: AC-WAIVE-03 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (for a phase that built nothing, the sentence above Mark complete names no missing work).
+  - Replaces in part: AC-WAIVE-03 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (for a phase that built nothing, the sentence above Mark complete also says so).
   - Replaces in part: AC-STOP-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-NEXT-02 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (no checks shown until asked).
+  - Replaces in part: AC-VERIFY-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (no checks shown until asked).
 
 ### Always a Way for Kiln to Carry On
 
@@ -112,6 +115,7 @@ When Kiln can't reopen a phase's saved conversation, today's page offers only te
   - Replaces in part: AC-NEXT-01 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (row 2's terminal card has no resume-unavailable note).
 - [ ] **AC-CARRY-05 — Carrying on starts a new session that knows what was done.** The carry-on card keeps the reply box, now optional. Its button, **Send reply & continue Phase N**, first checks completion as resuming does, with today's already-complete choice, and otherwise starts a new session for the phase in the same worktree and on the same branch, given the person's reply, the agent's last message, and the phase's work (AC-CASE-01), which the card also shows. The earlier session stays in the phase's history, and the new one is judged by the completion checks as before.
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (another way for a session to start after a stop).
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Send reply & continue Phase N joins the browser view's controls).
 - [ ] **AC-CARRY-02 — The card says why, and how to clear it.** Under **Send reply & continue Phase N** the card says why the earlier conversation can't be reopened, in the words of the table, and offers **Check again**. When it can now be reopened, the page offers the reply and resume choices (AC-REPLY-01 and AC-TERMINAL-01 in Kiln Needs You Handoff) without restarting Kiln. **Check Phase N again** and **Check Phase N anyway** also check the conversation again.
 
   | What Kiln found | The card says |
@@ -148,6 +152,7 @@ When Kiln can't reopen a phase's saved conversation, today's page offers only te
 When nothing on the page fixes the situation, the person can make Kiln forget its progress on the PRD and begin from the first screen, without knowing where Kiln keeps anything. A bot can do it too, and is told first what it costs.
 
 - [ ] **AC-RESET-01 — Reset sits at the bottom of every screen.** Once a PRD has been started, every screen for it ends with a line saying what reset does and a **Reset Kiln for this PRD** button. Documents found, before the first Start, has none.
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Reset Kiln for this PRD joins the browser view's controls).
 - [ ] **AC-RESET-02 — Reset waits for Kiln to stop working.** While Kiln is working on the PRD (a session running, or Kiln's own work between sessions), the button is unavailable and the line says to stop the session first with **Pause & take over** where offered, or to pause after the current phase or audit and reset once it ends.
 - [ ] **AC-RESET-03 — Reset asks first, and says what goes and what stays.** Pressing the button opens a confirmation in place that lists the table's lines, leaving out any with nothing to name, and says the reset can't be undone. With several repositories, the branch and worktree counts are per repository. **Cancel** closes it and changes nothing.
 
@@ -162,6 +167,9 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 - [ ] **AC-RESET-04 — After a reset Kiln behaves as if it had never run the PRD.** Confirming discards everything Kiln recorded about the PRD. The page then shows Documents found as a first visit does (AC-FROM-01), after the start checks a first `kiln run` makes: a check that fails is named where the passed ones are listed, in the words `kiln run` prints, and Start is unavailable, with the note **Fix what failed, then reload.**, until a reload finds them all passing. `kiln run` for the PRD starts as a first run does.
   - Replaces in part: AC-START-06, AC-START-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after a reset the settings, worktree and branches are chosen again).
   - Replaces in part: AC-START-02 and AC-START-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after a reset, a failing start check shows on Documents found).
+  - Replaces in part: AC-AGENT-01 and AC-AGENT-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (after a reset the agent is chosen again).
+  - Replaces in part: AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after a reset, a phase Kiln counted done without a Closed line in the plan can run again).
+  - Replaces in part: AC-WATCH-10 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-WAIVE-08 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` and AC-AUDIT-03 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a reset discards saved session output, waiver records and audit records).
 - [ ] **AC-RESET-05 — Reset touches nothing in git.** A reset changes no branch, worktree, commit, pull request or document in any repository.
 - [ ] **AC-RESET-06 — Bots can reset too, and the help says what it costs.** Reset has a command with the button's effect and eligibility, so it is refused while AC-RESET-02 makes the button unavailable. The command resets at once, with no confirming flag or step; its help is the warning. The help says plainly that a reset can't be undone, that Kiln forgets everything in AC-RESET-03's first column, and that afterwards nothing runs until someone opens the browser view with `kiln run <PRD-path>` and presses Start on Documents found, because a run is set up only in the browser. The command follows bot control's rules for changing commands (AC-ACT-04, AC-ACT-05 and AC-CLI-01/02 in Kiln Bot Control), and the reset's own result stays queryable afterwards. `kiln status` lists it among a started PRD's controls.
   - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (one more command joins the controls for a run already started).
@@ -169,6 +177,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 ### Look Like the Mockup
 
 - [ ] **AC-LOOK-01 — The screens match their drawings.** Documents found with **Start from**, the three stopped-phase pages, the held page AC-CARRY-06 changes, the reset line and its confirmation match this change's mockup for layout, order and wording, in Kiln's existing visual style. Each is today's screen with the drawn change, not a new screen. Sample names, paths, commits and counts are illustrative.
+  - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`, AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` and AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (the screens this change draws, and the reset line on every screen; the rest of each layout remains).
 
 ## Out of Scope
 
