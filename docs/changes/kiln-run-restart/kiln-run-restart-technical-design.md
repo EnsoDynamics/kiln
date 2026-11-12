@@ -245,7 +245,7 @@ ReopenCheck:
 | `not_a_file` | The saved path isn't an ordinary file | 3 |
 | `no_messages` | The file holds no usable message | 4 |
 | `unreadable` | A read error, the read deadline, a record over the size Kiln reads, or a line that isn't JSON and wasn't cut off | 5 |
-| `reopen_failed` | The latest conversation is Claude's, and its last run is a resumed run (cause other than `launch`) that spawned and ended without reporting `init`. It is read from that run, never from the stop's kind, so it still holds after a carry-on fails and its `done_check` stop replaces the `not_resumable` one. A hold's check never gives this reason, because release reads the file alone. A resume that couldn't spawn is never this reason: the check reads the file as for any stop, so reply and resume stay offered while it is `available` | 6 |
+| `reopen_failed` | The latest conversation is Claude's, and its last run is a resumed run (cause other than `launch`) that spawned and ended, with its exit code or signal recorded, without reporting `init`. A run whose end Kiln recorded only as an observed exit, as a recovered process's is after Kiln was stopped outright, is not this reason: Kiln never read its stream. It is read from that run, never from the stop's kind, so it still holds after a carry-on fails and its `done_check` stop replaces the `not_resumable` one. A hold's check never gives this reason, because release reads the file alone. A resume that couldn't spawn is never this reason: the check reads the file as for any stop, so reply and resume stay offered while it is `available` | 6 |
 | `codex` | A Codex conversation with no safety problem, for a cause in the Codex table below | 7 |
 
 `fixCommand` is given only when `defects` is exactly `writable_by_others`: `chmod o-w <path>` for a folder, `chmod go-w <path>` for the file, with `<path>` absolute and shell-quoted. Running it makes that path pass, and **Check again** names the next path that fails, if any. A link, another owner, or more than one defect gets no command.
@@ -480,7 +480,7 @@ Each pointer is added under the named heading when this change is built.
 
 ## Delivery
 
-- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), that a hold ends when the carry-on run reports Claude `init` (AC-CARRY-06), and that a carry-on from an unheld stopped Codex phase reads `started` on its `turnId`. Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness.
+- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), that a hold ends when the carry-on run reports Claude `init` (AC-CARRY-06), and that a carry-on from an unheld stopped Codex phase reads `started` on its `turnId`. Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness. The real-agent proof is `scripts/proof-run/run-restart-provider-proof.mjs claude_code|codex`, run by hand after `npm run build`.
 - **After the build:** a minor release (three new commands) by `docs/release/kiln-npm-release-steps.md`, once the PRD's audits close.
 
 ## Criteria Coverage

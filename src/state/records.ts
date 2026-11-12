@@ -20,7 +20,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -78,6 +78,20 @@ export interface CheckResult {
   items?: import("../engine/waivers.js").CheckItem[];
   /** Passed only because a waiver covers every failing item (AC-WAIVE-09); shows as Waived, never Passed. */
   waived?: true;
+  /** The row reports why the activity stopped, not what its work satisfies (run restart AC-CASE-03, schema 21). */
+  reason?: true;
+}
+
+/**
+ * The rows that report why an activity stopped rather than what its work satisfies (run restart
+ * "Nothing to check yet"): set where each row is made, and by name on a stop saved before schema 21.
+ */
+export const REASON_CHECK_NAMES = ["Claude recovery", "Codex recovery", "Recovered conversation", "Codex process cleanup and dispatch", "Billing approval", "Agent selection and readiness", "Codex launch settings", "Preparation permissions", "Completion audit readiness", "Phase plan reads", "Prerequisite preparation", "Preparation recovery", "Prepared checkpoint"];
+
+/** Marks each row a stop's reason by its name (run restart AC-CASE-03). */
+export function markReasonRows(checks: CheckResult[]): CheckResult[] {
+  for (const check of checks) if (REASON_CHECK_NAMES.includes(check.name)) check.reason = true;
+  return checks;
 }
 
 /** The identity of a stop's latest check run (waivers "Check Runs"): Mark complete is offered on a finished recheck only. */
@@ -475,6 +489,8 @@ export interface SessionRecord {
   sleeps: { at: string; seconds: number; detectedAt: string; run: number }[];
   lastSkill?: { name: string; at: string };
   steps: StepStart[];
+  /** `carry_on`: the launch was a carry-on session for a stopped phase (run restart AC-CARRY-05); absent for an ordinary launch. */
+  startedAs?: "carry_on";
 }
 
 export const PR_PHASE_KEY = "pr";
@@ -544,7 +560,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -595,6 +611,11 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     }
   }
   assertWaivers(record.waivers);
+  // Schema 21: a stop row saved earlier that reports why the activity stopped is marked by its name (run restart AC-CASE-03).
+  if (record.schemaVersion < 21) {
+    for (const facts of Object.values(record.phases)) if (facts.stop) markReasonRows(facts.stop.checks);
+    if (record.billing?.hold?.checks) markReasonRows(record.billing.hold.checks);
+  }
   // Schema 20 adds `planReadAt`, written with the next plan read; the migration leaves it unset.
   if (record.planReadAt !== undefined && !Number.isFinite(Date.parse(record.planReadAt))) throw new Error("Malformed plan read time.");
   if (record.schemaVersion >= 2) {

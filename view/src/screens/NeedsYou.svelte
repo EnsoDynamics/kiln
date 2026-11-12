@@ -43,6 +43,13 @@
   import { clockTime, earlier } from "../lib/time.js";
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
   import { viewContext } from "../lib/view-context.js";
+  import { carryOn, reopenCheckAgain, startAgain } from "../lib/api.js";
+  import { caseHeadline } from "../lib/restart.js";
+  import LaunchFound from "../components/LaunchFound.svelte";
+  import StartAgainCard from "../components/StartAgainCard.svelte";
+  import CarryOnCard from "../components/CarryOnCard.svelte";
+  import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
+  import NothingToCheck from "../components/NothingToCheck.svelte";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
   const { config, router, connection } = viewContext();
@@ -77,6 +84,20 @@
   // result is shown, none can be pressed (AC-RESUME-02, AC-WAIVE-06); a disconnected page submits nothing.
   const busy = $derived(pressing || resuming || marking || stop.checking === true || !connected);
   const VERDICT = { passed: "Yes", waived: "Waived", failed: "Not yet" } as const;
+  // A stopped phase's case (run restart AC-CASE-01): its own headline, first card and way forward.
+  const activity = $derived(`Phase ${stop.phaseId}`);
+  const agentName = $derived(stop.agent ?? snapshot.settings.agent);
+  const restart = $derived(stop.case ? caseHeadline(stop, activity, agentName) : undefined);
+  let restartPending = $state<"carry" | "start" | "reopen" | undefined>(undefined);
+  let restartReason = $state<string | undefined>(undefined);
+  let carryDraft = $state("");
+  async function restartAction(action: "carry" | "start" | "reopen") {
+    if (busy || restartPending) return;
+    restartPending = action; restartReason = undefined;
+    const answer = action === "carry" ? await carryOn(config, carryDraft.trim() ? { note: carryDraft } : {}) : action === "start" ? await startAgain(config) : await reopenCheckAgain(config);
+    restartPending = undefined;
+    restartReason = answer.ok ? answer.outcome === "already_complete" ? `${activity} is already complete. Check it again to advance.` : undefined : answer.reason;
+  }
 
   async function copyFreshPrompt() {
     showPrompt = true;
@@ -123,6 +144,45 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
+  {#if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
+  <div class="restart">
+    <div class="headline">
+      <h2>{restart?.headline ?? copy.headline}</h2>
+      <p class="line">{restart?.line ?? copy.line}</p>
+    </div>
+    {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
+    {#if stop.startAgain}
+      <StartAgainCard {activity} work={stop.work} control={stop.startAgain} pending={restartPending === "start"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("start")} />
+    {:else if stop.carryOn && stop.reopen}
+      <div class="peer-choices">
+        <CarryOnCard agent={agentName} {activity} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={carryDraft} pending={restartPending === "carry"} checking={restartPending === "reopen"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
+        <FreshTerminalCard agent={agentName} {activity} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
+      </div>
+    {/if}
+    {#if stop.nothingToCheck}
+      <NothingToCheck {snapshot} {activity} pending={pressing} disabled={busy} warning={reason} onpress={pressCheckAgain} />
+    {:else}
+      <aside class="card side">
+        <span class="eyebrow">{copy.sideHeading}</span>
+        <ul class="checks">
+          {#each stop.checks as check, index (index)}
+            {@const state = verdict(check)}
+            <li>
+              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
+              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
+            </li>
+          {/each}
+        </ul>
+        <div class="again">
+          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check {activity} again</button>
+          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          {#if reason}<span class="reason">{reason}</span>{/if}
+        </div>
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{/if}
+      </aside>
+    {/if}
+  </div>
+  {:else}
   <div class="columns-main">
     <div class="column-wide">
       <section class="card ended">
@@ -277,11 +337,15 @@
       </aside>
     </div>
   </div>
+  {/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
   <BillingPanel {snapshot} />
 </main>
 
 <style>
+  .restart { display: flex; flex-direction: column; gap: 20px; max-width: 1120px; }
+  .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+  @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }

@@ -63,7 +63,10 @@ async function released() {
 }
 function assertHeld() {
   expect(h.engine.record.liveControl?.takeover).toMatchObject({ target, state: "pending", reason: expect.stringMatching(/history|conversation/i) });
-  expect(h.engine.record.liveControl!.takeover.reason).toContain("retry release checks");
+  // Once the attempt has ended, a conversation that can't be reopened is recorded on the hold, which then ends by a carry-on
+  // (run restart AC-CARRY-06); history that breaks during a release's own final read is refused as before.
+  const hold = h.engine.record.liveControl!.takeover;
+  expect(hold.history?.state === "unavailable" || hold.reason.includes("retry release checks"), hold.reason).toBe(true);
   expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toBeUndefined();
   expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeUndefined();
   expect(h.engine.record.pause.requestedAt).toBeDefined();
@@ -191,10 +194,12 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         expect(refused.status, JSON.stringify(refused)).toBe(409); expect(refused.body.reason).toContain("history"); expect(refused.body.outcome).not.toBe("advanced"); assertHeld();
         // Actual Svelte page receives the authoritative pending state, never a ready fixture.
         page = await chrome.open(server!.address, { width: index % 2 ? 390 : 1200, height: 1100 });
-        await page.waitFor(`document.body.innerText.includes('Wait before opening Claude')`);
+        // The held page offers carry-on and a fresh terminal session in place of the wait text (run restart AC-CARRY-06).
+        await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
         const body = await page.evaluate<string>("document.body.innerText");
         expect(body, fixture.name).not.toContain("Paused for terminal takeover.");
-        expect(body).toContain("retry release checks"); expect(body).toContain("Kiln will not force the operation to stop.");
+        expect(body).toContain("Why the earlier conversation can't be reopened"); expect(body).toContain("Start a fresh session in your terminal");
+        expect(body).not.toContain("Wait before opening Claude");
         if (recovery === "takeover") expect(body).toContain("Pausing for takeover — finishing the current operation.");
         expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(false);
         expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>/^(Have Kiln resume |Check .* again)/.test(b.textContent.trim())&&!b.disabled)`)).toBe(false);
@@ -205,7 +210,9 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       const status = await cli(["status"]); expect(status.code).toBe(0);
       expect(status.body.live_control).toMatchObject({ target, takeover: { state: "pending" } });
       expect((status.body.controls as { name: string; available: boolean; reason: string }[]).find(control => control.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.stringContaining("history") });
-      const text = await cli(["status"], false); expect(text.output).not.toContain("Paused for terminal takeover."); expect(text.output).toContain("retry release checks");
+      // Bots see the carry-on the page offers (AC-CARRY-04, AC-CARRY-06).
+      expect((status.body.controls as { name: string; available: boolean; reason: string | null }[]).find(control => control.name === "carry-on"), JSON.stringify(status.body.controls)).toMatchObject({ available: true });
+      const text = await cli(["status"], false); expect(text.output).not.toContain("Paused for terminal takeover."); expect(text.output).toContain("can't reopen the saved conversation history");
       const handoff = await cli(["handoff"]); expect(handoff.body.data).toMatchObject({ resumable: false, resume_command: null, resume_argv: null });
       const command = "history-refused";
       await cli(["verify-and-advance", "--command-id", command, "--only-if-status-matches", String(status.body.status_token)]); await h.engine.commands.settled();
@@ -261,6 +268,65 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       if (uncertain) expect(h.engine.commands.lookup("uncertain-history").operation).toMatchObject({ message: { delivery: "uncertain", reviewedAt: expect.any(String), resolvedBy: expect.any(String) } });
     // This journey includes eight real browser views, four CLI invocations,
     // restart and real audit completion checks; it has no product timing promise.
+    }, 120000);
+    if (kind === "phase" && recovery === "takeover") it("carries on from a hold whose conversation can't be reopened: already complete advances, and a new session's init ends the hold (run restart AC-CARRY-06)", async () => {
+      const carryOn = async (commandId: string, body: Record<string, unknown>) => {
+        const response = await fetch(`${origin}/api/carry-on`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": commandId, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        return { status: response.status, body: await response.json() as Record<string, unknown> };
+      };
+      rmSync(historyFile); await reconcile();
+      expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
+      expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
+      const stop = buildSnapshot(h.engine).needsYou!;
+      expect(stop).toMatchObject({ carryOn: { available: true, endsHold: "takeover" }, reopen: { reason: "missing" }, work: { builtNothing: false } });
+      expect(stop.case).toBeUndefined();
+      // The phase was finished by hand: carry-on checks completion first and starts nothing.
+      const complete = await carryOn("held-carry-complete", { target: h.engine.phaseRecoveryTarget(), note: "Never sent." });
+      expect(complete.body, JSON.stringify(complete)).toMatchObject({ ok: true, outcome: "already_complete" });
+      expect(h.claudeCalls()).toHaveLength(originalCalls); expect(h.engine.record.liveControl).toBeDefined();
+      // Undo the hand finish, so the carry-on starts a session; it lands the phase.
+      git(h.sandbox, h.engine.worktreePath, "revert", "--no-edit", "HEAD"); git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", h.engine.record.settings.featureBranch);
+      const scenario = JSON.parse(readFileSync(h.scenarioPath, "utf8")) as { sessions: unknown[] };
+      scenario.sessions.push({ actions: [{ close: true }, { commit: "feat: carried on" }, { push: true }, { result: "Carried on and landed." }, { exit: 0 }] });
+      writeFileSync(h.scenarioPath, JSON.stringify(scenario));
+      const started = await carryOn("held-carry-start", { target: h.engine.phaseRecoveryTarget(), note: "Carry on from the hold." });
+      expect(started.body, JSON.stringify(started)).toMatchObject({ ok: true, outcome: "session_started", operation: { effects: { session: "started" } } });
+      await h.engine.settled();
+      // The new run reported init: the hold ended without its release, and the phase was judged by its checks.
+      expect(h.engine.record.liveControl).toBeUndefined();
+      expect(h.claudeCalls()).toHaveLength(originalCalls + 1);
+      expect(h.claudeCalls().at(-1)!.prompt).toContain("Carry on from the hold.");
+      expect(h.engine.phaseSessions(target.activityKey).at(-1)!.startedAs).toBe("carry_on");
+      expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();
+    }, 120000);
+    if (kind === "phase" && recovery === "takeover") it("advances from the carry-on's already-complete choice on a hold that can't be reopened, ending it without release (run restart AC-CARRY-06)", async () => {
+      rmSync(historyFile); await reconcile();
+      expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false });
+      const response = await fetch(`${origin}/api/carry-on`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": "held-advance-carry", "Content-Type": "application/json" }, body: JSON.stringify({ target: h.engine.phaseRecoveryTarget() }) });
+      expect(await response.json()).toMatchObject({ ok: true, outcome: "already_complete" });
+      const advanced = await post("check-again", { target: h.engine.phaseRecoveryTarget(), intent: "advance" });
+      expect(advanced.body, JSON.stringify(advanced)).toMatchObject({ outcome: "advanced" });
+      await h.engine.settled();
+      expect(h.engine.record.liveControl).toBeUndefined();
+      expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
+    }, 120000);
+    if (kind === "phase" && recovery === "takeover") it("keeps carry-on and the terminal copy buttons unavailable, saying why, while Claude is open on the conversation (run restart AC-CARRY-06)", async () => {
+      const open = vi.spyOn(ownership, "requireNoTerminal").mockRejectedValue(new ownership.OwnershipError("terminal_in_use", "Exit Claude in your terminal before handing this conversation back to Kiln."));
+      rmSync(historyFile); await reconcile();
+      const hold = h.engine.record.liveControl!.takeover;
+      expect(hold.history).toMatchObject({ state: "unavailable" });
+      expect(hold.carryOnObstacle).toBe("Claude is open on this conversation in a terminal. Exit it first.");
+      expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: hold.carryOnObstacle });
+      page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+      await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
+      expect(await page.evaluate(`${button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`)}.disabled`)).toBe(true);
+      expect(await page.evaluate(`Boolean(${button("Copy terminal command")})`)).toBe(false);
+      expect(await page.evaluate<string>("document.body.innerText")).toContain("Claude is open on this conversation in a terminal. Exit it first.");
+      // Once it exits, the next reconciliation clears the obstacle.
+      open.mockRestore(); await reconcile();
+      expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
     }, 120000);
     if (recovery === "takeover") it("rechecks history after the terminal ownership read before publishing release", async () => {
       const real = ownership.requireNoTerminal;

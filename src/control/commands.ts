@@ -9,12 +9,14 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import type { ItemChange, MarkCompleteOffer } from "../engine/waivers.js";
 import { markCompletePreview } from "./waiver-facts.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance"] as const;
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again"] as const;
+/** The actions that start a new session of a stopped phase (run restart AC-CARRY-04): their receipts settle `started`, never `resumed`. */
+export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again"];
 export type Action = typeof ACTIONS[number];
 const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
-export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
+export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "started" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
 export interface Receipt {
   message?: import("../live/target.js").LiveMessage;
   live_target?: import("../live/target.js").LiveTarget;
@@ -58,7 +60,7 @@ export interface ControlHost {
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = (r: Receipt) => ["accepted", "in_progress", "indeterminate"].includes(r.state);
 function uncertainEffects(r: Receipt): void {
-  if (r.stage === "dispatching" && r.effects.session !== "resumed") {
+  if (r.stage === "dispatching" && r.effects.session !== "resumed" && r.effects.session !== "started") {
     r.effects.session = "unknown";
     if (r.reply_text !== null && r.effects.reply !== "delivered") r.effects.reply = "unknown";
   }
@@ -69,7 +71,7 @@ export function validateInstruction(raw: unknown): Instruction {
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids"], resume: ["live_target", "reviewed_receipt_ids"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"] };
+  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids"], resume: ["live_target", "reviewed_receipt_ids"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids"], "start-again": [] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
@@ -84,6 +86,10 @@ export function validateInstruction(raw: unknown): Instruction {
     if (inputs.by !== undefined && !validBy(inputs.by)) throw new ControlFailure("invalid_input", "--by takes a name of 1 to 64 printable characters.", 2);
     if (!["browser", "command_line"].includes(inputs.via as string)) throw new ControlFailure("invalid_input", "Mark complete needs the entry point that admitted it.", 2);
     if (inputs.without_sending_reply !== undefined && typeof inputs.without_sending_reply !== "boolean") throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
+  } else if (r.action === "carry-on") {
+    // The reply is optional (AC-CARRY-05); when given it is a literal reply, as `kiln reply` takes.
+    if (inputs.message !== undefined && (typeof inputs.message !== "string" || inputs.message.includes("\0") || inputs.message.trim().length > 4000)) throw new ControlFailure("invalid_input", "A literal reply of at most 4,000 characters is required.", 2);
+    if (typeof inputs.message === "string") { if (inputs.message.trim()) inputs.message = inputs.message.trim(); else delete inputs.message; }
   } else if (r.action === "reply") {
     if (typeof inputs.message !== "string" || !inputs.message.trim() || inputs.message.includes("\0") || inputs.message.trim().length > 4000) throw new ControlFailure("invalid_input", "A nonempty literal reply of at most 4,000 characters is required.", 2);
     inputs.message = inputs.message.trim();
@@ -96,7 +102,7 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && ["accepted", "in_progress", "completed", "refused", "failed", "indeterminate"].includes(r.state)
     && ["intent", "applying", "dispatching", "settled"].includes(r.stage)
     && !!r.effects && ["not_applicable", "not_sent", "submitted", "delivered", "unknown"].includes(r.effects.reply)
-    && ["not_started", "starting", "resumed", "unknown"].includes(r.effects.session) && ["not_advanced", "advanced", "unknown"].includes(r.effects.plan)
+    && ["not_started", "starting", "started", "resumed", "unknown"].includes(r.effects.session) && ["not_advanced", "advanced", "unknown"].includes(r.effects.plan)
     && Number.isFinite(Date.parse(r.accepted_at)) && Number.isFinite(Date.parse(r.updated_at))
     && (r.outcome === null || typeof r.outcome === "string") && (r.reason === null || typeof r.reason === "string")
     && (r.acknowledged_by === null || typeof r.acknowledged_by === "string")

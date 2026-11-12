@@ -9,7 +9,7 @@ export interface PhaseRecoveryTarget {
 }
 
 export type PhaseRecoveryOutcome = "resume_requested" | "already_complete" | "advanced" | "still_stopped";
-export type PhaseRecoveryCode = "invalid_request" | "stale_target" | "busy" | "recovery_unavailable" | "message_review_required" | "check_unavailable" | "state_write_failed" | "folder_missing" | "folder_missing_resolved";
+export type PhaseRecoveryCode = "invalid_request" | "stale_target" | "busy" | "recovery_unavailable" | "message_review_required" | "check_unavailable" | "state_write_failed" | "folder_missing" | "folder_missing_resolved" | "terminal_in_use" | "ownership_unknown";
 export interface PhaseRecoveryView {
   target: PhaseRecoveryTarget;
   /** Identifies the last actual turn; a refused launch can change the stop without a new turn. */

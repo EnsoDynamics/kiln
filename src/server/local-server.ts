@@ -289,6 +289,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
       // The check is awaited before the first snapshot, so a page never opens on a stale phase state.
       if (engine.isUnderway && !engine.currentlyComplete) await engine.folderGuard().catch(() => undefined);
+      // A stopped or held phase's work is read before the first snapshot too, so its case is that of the branch as the page opens (run restart "Work").
+      if (engine.isUnderway && !engine.currentlyComplete && !engine.folderMissing) await engine.refreshStoppedWork().catch(() => undefined);
       sendSnapshot();
       await closed;
       clearInterval(heartbeat);
@@ -483,6 +485,50 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
     return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
+  });
+
+  // Send reply & continue and Start Phase N again (run restart "Interfaces"): journal actions admitted
+  // only against the page's own full status token, as Mark complete is, and answered once settled.
+  const startingControl = async (c: Context, action: "carry-on" | "start-again", inputs: Record<string, unknown>) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "This action needs the page's status token and command id." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action, inputs }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      const extra = { command_id: id, operation: op, controlToken: engine.controlView().token };
+      if (op.state === "indeterminate") return c.json({ ok: false, code: "operation_indeterminate", reason: op.reason, ...extra }, 503);
+      if (op.state === "failed" || op.state === "refused") return c.json({ ok: false, code: op.outcome ?? "control_unavailable", reason: op.reason, ...extra }, op.outcome === "state_write_failed" ? 500 : op.outcome === "check_unavailable" ? 503 : 409);
+      return c.json({ ok: true, outcome: op.outcome === "phase_already_complete" ? "already_complete" : op.outcome, ...extra });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  };
+  app.post("/api/carry-on", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined || Object.keys(body).some(k => !["note", "target", "reviewedReceiptIds"].includes(k)) || body.note !== undefined && typeof body.note !== "string") return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on request." }, 400);
+    let live: unknown;
+    if (body.target !== undefined) {
+      if (validLiveTarget(body.target)) live = body.target;
+      else if (validRecoveryTarget(body.target)) {
+        if (!engine.commands.has(c.req.header("X-Kiln-Command-Id") ?? "") && !sameRecoveryTarget(engine.phaseRecoveryTarget(), body.target)) return c.json({ ok: false, code: "stale_target", reason: "Refresh the stopped phase before carrying on." }, 409);
+        live = body.target.live;
+      } else return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on target." }, 400);
+    }
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    return startingControl(c, "carry-on", { ...(note ? { message: note } : {}), ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}) });
+  });
+  app.post("/api/start-again", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined || Object.keys(body).length) return c.json({ ok: false, code: "invalid_request", reason: "Start again takes no inputs." }, 400);
+    return startingControl(c, "start-again", {});
+  });
+  // Check again on the carry-on card: Codex reads the thread once; a held page reruns takeover reconciliation (run restart "Interfaces").
+  app.post("/api/reopen-check", async (c) => {
+    await engine.reopenCheckAgain();
+    return c.json({ ok: true });
   });
 
   // Mark complete (waivers "Local HTTP", AC-WAIVE-03 to 06): the one `waive-and-advance` journal

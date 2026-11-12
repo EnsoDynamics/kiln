@@ -84,7 +84,8 @@ describe("Claude billing browser controls", () => {
     h.engine.record.pause.requestedAt = new Date().toISOString(); // Existing pending pause is part of the displayed control token.
     const page = await open(mode === "verify" ? 360 : 1280);
     const button = (label: string) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
-    const reply = button("Send reply & resume Phase 1"); const resume = button("Have Kiln resume Phase 1"); const verify = button("Check Phase 1 again");
+    const reply = button("Send reply & resume Phase 1"); const resume = button("Have Kiln resume Phase 1"); // A phase that built nothing shows Check Phase 1 anyway in place of its checks (run restart AC-CASE-03).
+    const verify = `[...document.querySelectorAll('button')].find(b => ["Check Phase 1 again", "Check Phase 1 anyway"].includes(b.textContent.trim()))`;
     await page.waitFor(`document.querySelector('textarea')`);
     await page.evaluate(`(() => { const field = document.querySelector('textarea'); field.value = 'Preserve this unsent draft'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
     await page.waitFor(`${reply}.disabled && ${resume}.disabled`);

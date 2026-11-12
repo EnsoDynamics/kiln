@@ -1,0 +1,9 @@
+Kiln couldn't reopen the earlier conversation for this phase, so this is a new session that carries on from it. The earlier session's last message, and the phase's work so far, follow.
+
+The earlier session's last message:
+
+{{lastMessage}}
+
+The phase's work so far:
+
+{{work}}

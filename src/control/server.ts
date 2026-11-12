@@ -35,7 +35,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), execution_id: engine.record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: engine.record.executionId,
-    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance"] }));
+    prd_path: resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -109,7 +109,7 @@ export async function installInspectionRoutes(app: Hono, engine: Engine, cacheEr
           if (command.action === "message" || command.action === "take-over") {
             if (inputs.target === undefined) inputs.target = target;
             if (!inputs.target) throw new ControlFailure("control_unavailable", "No active supported Claude attempt is available. Refresh status.", 3);
-          } else if (["resume", "verify-and-advance", "reply", "waive-and-advance"].includes(String(command.action)) && target) {
+          } else if (["resume", "verify-and-advance", "reply", "waive-and-advance", "carry-on"].includes(String(command.action)) && target) {
             if (inputs.live_target === undefined) inputs.live_target = target;
           }
         }

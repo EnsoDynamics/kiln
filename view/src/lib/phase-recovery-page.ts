@@ -5,7 +5,7 @@ export interface PhaseRecoveryPage {
   draft: string;
   choice: boolean;
   unsent: boolean;
-  pending?: "reply" | "resume" | "verify" | "advance" | "mark";
+  pending?: "reply" | "resume" | "verify" | "advance" | "mark" | "carry" | "start" | "reopen";
   feedback?: string;
   /** The Mark complete offer pressed, kept while its rerun runs (waivers AC-WAIVE-06). */
   markOffer?: Extract<import("../../../src/engine/waivers.js").MarkCompleteOffer, { offered: true }>;

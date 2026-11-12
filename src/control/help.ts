@@ -51,13 +51,31 @@ function topLevelHelp(): string {
     "Start:        kiln run <PRD-path>",
     "See work:     kiln status",
     "",
-    ...TASK_HEADINGS.flatMap(([group, heading]) => [heading, `  ${names(group).join(", ")}`]),
+    ...TASK_HEADINGS.flatMap(([group, heading]) => [heading, ...wrapNames(names(group))]),
     "",
     "Use kiln <command> --help for what a command does and its flags.",
     `Used by Kiln's sessions: ${helpers} helper commands (kiln <command> --help for each).`,
     "Bots and scripts: kiln --help --json lists every command with full metadata.",
     "",
   ].join("\n");
+}
+
+/**
+ * A group's names on lines of at most 80 characters, each with the two-space indent, breaking
+ * after the last comma that fits (run restart "Command line").
+ *
+ *   wrapNames(["reply", "resume", "carry-on"])  // ["  reply, resume, carry-on"]
+ */
+export function wrapNames(names: string[], width = 80): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const [index, name] of names.entries()) {
+    const piece = index < names.length - 1 ? `${name},` : name;
+    const next = line ? `${line} ${piece}` : `  ${piece}`;
+    if (line && next.length > width) { lines.push(line); line = `  ${piece}`; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 export interface ParsedCommand { contract: CommandContract; positionals: string[]; flags: Record<string, string | true | string[]> }

@@ -21,6 +21,8 @@ Proof that billing and live control work on newer Claude Code comes from recorde
 
 ## Design Decisions
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (Text help: a group's names may take more than one line).
+
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Where minimums live | One module of agent tooling minimums (AC-AGENT-05) with one version-comparison function. `CODEX_MIN_VERSION` moves into it. | AC-AGENT-05 needs start checks, the README and every gate to state the same numbers. One source makes the README test and the standing guard below possible. |
@@ -80,6 +82,8 @@ Codex on Windows needs PowerShell 7.5.2 or later. Install it before starting wor
 Node.js and Git take one line each in the existing start-failure list. An agent's line is one of that agent's readiness blockers (Start checks for versions row). An update command is named only where versions below the minimum provide it; otherwise the line ends at "or later". PowerShell's lines are Codex readiness blockers on Windows (PowerShell (Codex on Windows) row).
 
 ### Top-level text help (shape, at most 40 lines of at most 80 characters)
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (a group's names may take more than one line).
 
 ```
 Kiln runs an Enso Method phase plan with Claude Code or Codex.

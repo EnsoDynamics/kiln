@@ -1,7 +1,10 @@
 import { preparationPermissions } from "./preparation-permissions.js";
+import { claudeReopenCheck, conversationBegan as sessionBegan, readPhaseWork, type WorkRead } from "./stopped-phase.js";
+import type { ReopenCheck } from "./reopen-check.js";
+import { markReasonRows } from "../state/records.js";
 import { outstandingLines, personItems, settledLines } from "../audit/person-items.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
-import { preparationPrompt, preparationImplementationPrompt } from "../session/prompts.js";
+import { preparationPrompt, preparationImplementationPrompt, carryOnPrompt, freshSessionPrompt } from "../session/prompts.js";
 import { newPreparationState, preparationAttemptNeedsReconciliation, preparationDigest, preparesPhase, type PreparationReference } from "./preparation-state.js";
 import { verifyPreparation, preparationCheckpoint, reconcilePreparationAttempt } from "./preparation-verifier.js";
 import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnapshot } from "../control/projection.js";
@@ -25,7 +28,7 @@ import { bindPreparation } from "./continuation-readiness.js";
 import { parseGithubOrigin } from "../github-origin.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, STARTING_ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
@@ -67,7 +70,7 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -357,6 +360,8 @@ export class Engine {
   startError: string | undefined;
   /** The stopped phase's commits, as last read from Git (Full session output). */
   stoppedCommits: { phaseKey: string; commits: RepositoryCommits[] } | undefined;
+  /** A stopped or held phase's work, as last read from Git (run restart "Work"). */
+  stoppedWork: { phaseKey: string; read: WorkRead } | undefined;
   /** The last successful read of the plan in this run. */
   plan: PhasePlan | undefined;
   /** Links in the requirements Kiln did not follow, from its latest read of the active plan (Kiln Linked Documents AC-LINK-03). Never saved. */
@@ -392,6 +397,10 @@ export class Engine {
   private inspectionResumingSession: string | undefined;
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
   private requestedResume: ResumeRequest | undefined;
+  /** Carry on or Start again at a stopped phase: the loop launches a new session of the phase next (run restart "Starting a Session at a Stop"). */
+  private requestedLaunch: { phaseKey: string; kind: "carry_on" | "start_again"; note?: string } | undefined;
+  /** The hold whose carry-on found the phase already complete: its advance is offered on the carry-on ownership check (AC-CARRY-06). */
+  private heldAdvance: string | undefined;
   /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
   private waitWatch: { phaseKey: string; readings: number; resetTimer?: NodeJS.Timeout } | undefined;
   /** The last account reading the engine saw, so each new one is handled once. */
@@ -540,7 +549,9 @@ export class Engine {
     const target = JSON.stringify(this.phaseRecoveryTarget() ?? { live: this.liveTarget(), execution: this.record.executionId, key: key ?? wait ?? this.current?.phaseKey ?? this.record.nextActivityKey, stop: key ? this.record.phases[key]?.stop?.at : wait ? this.record.phases[wait]?.wait : null });
     const busy = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.commands?.busy);
     const paused = !!this.record.pause.activeSince || !!this.restartReview;
-    const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending";
+    // A hold whose conversation can't be reopened advances from the carry-on's already-complete choice on the carry-on ownership check, in place of release (AC-CARRY-06).
+    const heldHistory = this.record.liveControl?.takeover.history !== undefined && !this.record.liveControl.takeover.carryOnObstacle && this.heldAdvance === this.record.liveControl.takeover.operationId;
+    const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending" && !heldHistory;
     const available: Record<Action, boolean> = {
       message: !!this.liveView()?.input?.available && !this.commands?.busy,
       "message-review": !!this.record.liveControl && !this.commands?.busy,
@@ -555,6 +566,8 @@ export class Engine {
       "waive-and-advance": this.markCompleteOffer().offered && !busy && !releasePending,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
       "outside-confirmation": false,
+      "carry-on": this.carryOnControl().available && !busy,
+      "start-again": this.startAgainControl().available && !busy,
     };
     const unavailable: Partial<Record<Action, string>> = {
       "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
@@ -564,6 +577,8 @@ export class Engine {
       "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
       "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
+      "carry-on": this.carryOnControl().reason ?? "Carry on isn't offered here.",
+      "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
@@ -639,7 +654,7 @@ export class Engine {
     if (completed) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
     if (persisted.controlApplied?.operationId === receipt.id) {
       const outcome = persisted.controlApplied.outcome;
-      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}) } };
+      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}), ...(outcome === "session_started" ? { session: "started" as const } : {}) } };
     }
     // Mark complete saves its waiver, completion and outcome in one write; with none of them saved and
     // the stop still in place, an interrupted one applied nothing and settles so control is released.
@@ -656,7 +671,10 @@ export class Engine {
       const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
       if (run && (run.spawnError && !run.pid || session?.agentId === "codex" && codexNotDispatched(run))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
-      if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: "session_resumed", effects: { ...receipt.effects, session: "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
+      const starting = STARTING_ACTIONS.includes(receipt.instruction.action);
+      if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: starting ? "session_started" : "session_resumed", effects: { ...receipt.effects, session: starting ? "started" : "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
+      // A carry-on or start-again whose run ended without beginning a conversation started nothing.
+      if (starting && session && run?.endedAt && !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started" } };
     }
     // Dispatch is saved as dispatching before spawn; completion is stamped in
     // its atomic record write. After ruling out both above, applying proves
@@ -685,7 +703,7 @@ export class Engine {
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
-    if (["reply", "resume", "verify-and-advance", "waive-and-advance"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
+    if (["reply", "resume", "verify-and-advance", "waive-and-advance", "carry-on"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
     switch (action) {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
@@ -702,6 +720,19 @@ export class Engine {
         break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
       case "waive-and-advance": return this.markComplete(inputs, receipt);
+      case "carry-on": case "start-again": {
+        this.controlDispatch = receipt;
+        answer = action === "carry-on" ? await this.carryOn({ ...(target ? { target } : {}), ...(typeof inputs.message === "string" ? { note: inputs.message } : {}) }) : await this.startAgain();
+        if (answer.ok && answer.outcome === "already_complete") { this.controlDispatch = undefined; return { ok: true, outcome: "phase_already_complete" }; }
+        if (!answer.ok) { this.controlDispatch = undefined; return answer; }
+        this.controlKickPending = false; this.kick();
+        while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
+        if (this.controlDispatch === receipt) { this.controlDispatch = undefined; return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The existing launch checks did not start a session. Inspect status for recovery." }; }
+        if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
+        if (receipt.effects.session !== "started") return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The new session did not start. Inspect the current recovery state." };
+        this.record.controlApplied = { operationId: receipt.id, outcome: "session_started" }; this.save();
+        return { ok: true, outcome: "session_started" };
+      }
       case "reply": case "resume":
         this.controlDispatch = receipt;
         answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
@@ -952,8 +983,10 @@ export class Engine {
     const uncertain = messages.some(r => r.message?.delivery === "uncertain");
     const submitting = messages.some(r => r.message?.delivery === "submitting");
     const inputAvailable = !submitting && !!run?.live?.literalInput && !messageOff && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
-    const inputReason = this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    // Until a carry-on's run ends the hold, the hold is the live target and the new attempt is starting (AC-CARRY-06).
+    const starting = !!hold && this.returningTakeover && !!this.current?.processRunning;
+    const inputReason = starting ? "The new session is starting." : this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
@@ -1019,6 +1052,22 @@ export class Engine {
       // scan and saved-event callbacks. No readiness may race those writers.
       const running = this.current?.session; const attempt = running?.runs.at(-1);
       if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("takeover_pending", "Waiting for final attempt and tracked-process observations to finish.");
+      // A pending hold whose saved conversation can't be reopened ends by a carry-on (run restart AC-CARRY-06):
+      // release stops here, and the carry-on ownership check runs in its place.
+      if (!this.returningTakeover) {
+        const check = claudeReopenCheck(this.environment, this.stateDirectory, session, true);
+        if (check.state === "unavailable") {
+          const first = !hold.history;
+          hold.history = check;
+          try { await this.carryOnOwnership(hold, run); delete hold.carryOnObstacle; }
+          catch (error) { hold.carryOnObstacle = (error as Error).message; }
+          hold.state = "pending";
+          hold.reason = "Kiln can't reopen the saved conversation history. Carry on in a new session, or start a fresh session in your terminal.";
+          if (first) void this.refreshStoppedWork(hold.target.activityKey);
+          return;
+        }
+        if (hold.history) { delete hold.history; delete hold.carryOnObstacle; }
+      }
       requireHistory(this.environment, hold.target.providerSessionId);
       if (run.live) {
         if (run.live.gateDirectory !== gateDirectory(this.stateDirectory, hold.target.attemptId)) throw new OwnershipError("ownership_unknown", "Attempt gate path does not match its saved identity.");
@@ -1118,6 +1167,46 @@ export class Engine {
     if (!target) return;
     const operationId = operation?.id ?? randomUUID();
     for (const r of this.messageReceipts(target)) if (r.message?.delivery === "uncertain" && r.message.reviewedAt) { r.message.resolvedBy = operationId; this.commands.checkpoint(r); }
+  }
+
+  /**
+   * The carry-on ownership check (run restart "A Held Phase That Can't Be Reopened"): the attempt's
+   * process has exited with its final observations saved, a fresh inventory leaves no unresolved
+   * process and every tracked identity has exited, and no terminal is open on the conversation.
+   * It never replays the transcript or requires settled operations.
+   */
+  private async carryOnOwnership(hold: TakeoverHold, run: SessionRun): Promise<void> {
+    await requireExited(run);
+    const running = this.current?.session; const attempt = running?.runs.at(-1);
+    if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("ownership_unknown", "Waiting for the paused session's final observations to be saved.");
+    if (run.live) {
+      try { await captureOwnedProcesses(run.live.gateDirectory, run.pid!, run.processStartTime!); }
+      catch (error) { throw new OwnershipError("ownership_unknown", `Kiln couldn't read the paused session's processes: ${(error as Error).message}`); }
+      const gate = readGate(run.live.gateDirectory);
+      if (gate.obstacle || gate.processObservations?.length) throw new OwnershipError("ownership_unknown", "Work the paused session started may still be running. Kiln can't confirm it has ended.");
+      for (const identity of gate.tracked) {
+        try { await requireExited({ pid: identity.pid, processStartTime: identity.startTime }); }
+        catch { throw new OwnershipError("ownership_unknown", "Work the paused session started is still running."); }
+      }
+    }
+    try { await requireNoTerminal(this.environment, hold.target.providerSessionId); }
+    catch (error) {
+      if (error instanceof OwnershipError && error.code === "terminal_in_use") throw new OwnershipError("terminal_in_use", "Claude is open on this conversation in a terminal. Exit it first.");
+      throw error instanceof OwnershipError ? new OwnershipError("ownership_unknown", error.message) : new OwnershipError("ownership_unknown", (error as Error).message);
+    }
+  }
+
+  /** Before a carry-on from a hold, or its advance: every uncertain message acknowledged, and the carry-on ownership check passing now. */
+  private async requireCarryOnOwnership(): Promise<void> {
+    const hold = this.record.liveControl?.takeover;
+    if (!hold) return;
+    if (this.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt)) throw new OwnershipError("message_review_required", "Acknowledge each message Kiln isn't sure was delivered before carrying on.");
+    if (!hold.history) await this.reconcileTakeover();
+    if (!hold.history) throw new OwnershipError("takeover_pending", hold.reason);
+    const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
+    const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
+    if (!session || !run) throw new OwnershipError("ownership_unknown", "Saved takeover attempt is unavailable.");
+    await this.carryOnOwnership(hold, run);
   }
 
   private async requireTakeoverReturn(): Promise<void> {
@@ -1476,7 +1565,8 @@ export class Engine {
     const facts = this.record.phases[phaseKey];
     const hold = this.record.billing?.hold?.phaseKey === phaseKey ? this.record.billing.hold : undefined;
     if (!hold && facts?.stop?.kind !== "done_check" && facts?.stop?.kind !== "not_resumable") return undefined;
-    const session = this.latestSession(phaseKey);
+    // The target names the latest conversation, or the latest launch when none began (run restart "A session record with no run").
+    const session = this.recoverySession(phaseKey);
     if (!session || session.kind !== "phase" && !this.record.liveControl || !session?.runs.some(run => run.pid !== undefined)) return undefined;
     return { executionId: this.record.executionId!, phaseKey, sessionId: session.sessionId, stoppedAt: hold?.at ?? facts!.stop!.at, ...(this.record.liveControl ? { live: this.record.liveControl.takeover.target } : {}) };
   }
@@ -1490,9 +1580,9 @@ export class Engine {
     return { target, ...(attemptStartedAt ? { attemptStartedAt } : {}), completion: error || !stop?.checks.length ? "unknown" : stop.checks.every(check => check.passed) ? "complete" : "incomplete", ...(error ? { checkError: { reason: error.reason, attemptedAt: error.attemptedAt } } : {}) };
   }
 
-  private async recoverPhase(action: "resume" | "verify", body: Record<string, unknown>, waive?: WaiveRequest): Promise<CommandResult | WaiveAnswer> {
+  private async recoverPhase(action: "resume" | "verify" | "carry_on", body: Record<string, unknown>, waive?: WaiveRequest): Promise<CommandResult | WaiveAnswer> {
     const fail = (code: PhaseRecoveryCode, reason: string, status: 400 | 409 | 500 | 503 = 409): CommandResult => ({ ok: false, code, reason, status });
-    const allowed = action === "resume" ? ["target", "note"] : ["target", "intent"];
+    const allowed = action === "verify" ? ["target", "intent"] : ["target", "note"];
     if (Object.keys(body).some(key => !allowed.includes(key)) || (body.target !== undefined && !validRecoveryTarget(body.target))) return fail("invalid_request", "Submit a valid recovery target and only the fields for this action.", 400);
     if (action === "verify" && body.intent !== undefined && body.intent !== "verify" && body.intent !== "advance") return fail("invalid_request", "Choose verify or advance.", 400);
     if (body.note !== undefined && typeof body.note !== "string") return fail("invalid_request", "The note must be text.", 400);
@@ -1503,13 +1593,16 @@ export class Engine {
     if (action === "verify" && body.intent === undefined) return fail("invalid_request", "Choose verify or advance.", 400);
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving || this.settingUp || this.current || this.stopping) return fail("busy", "Kiln is already checking or starting work.");
     const key = target!.phaseKey;
+    if (action === "verify" && body.intent === "verify" && this.record.liveControl?.takeover.history) return fail("recovery_unavailable", "Verify stays unavailable until the paused conversation is released; carry on in a new session instead.");
     if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation cannot be resumed. Use the available terminal recovery instructions.");
+    if (action === "carry_on") { const control = this.carryOnControl(); if (!control.offered || control.reason && !control.reason.startsWith("Kiln is checking")) return fail("recovery_unavailable", control.reason ?? "Carry on isn't offered here."); }
     this.checking = true;
     this.changed();
     let queued = false;
     try {
       const latest = this.latestSession(key)!;
-      if (this.record.liveControl) await this.requireTakeoverReturn();
+      // A hold whose conversation can't be reopened ends by a carry-on, on the carry-on ownership check (run restart AC-CARRY-06).
+      if (this.record.liveControl) await (action === "carry_on" || this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn());
       if (latest.agentId === "codex") await this.stopLiveProcess(latest);
       const evaluatedMaterial = this.record.liveControl ? await this.takeoverMaterial(key) : undefined;
       const outcome = await this.doneCheck(key);
@@ -1517,7 +1610,7 @@ export class Engine {
       if (outcome.unavailable) throw new CompletionCheckUnavailable(outcome.unavailable);
       if (!outcome.plan.ok && outcome.plan.unavailable) throw new CompletionCheckUnavailable(outcome.plan.problem);
       // A plan that does not read or reconcile is a failing row for Verify and Mark complete, but never lets Resume dispatch.
-      if (!outcome.plan.ok && action === "resume") throw new ResumeHeld(outcome.plan.problem);
+      if (!outcome.plan.ok && action !== "verify") throw new ResumeHeld(outcome.plan.problem);
       // A hold may precede a normal stop. Save actual completion evidence separately from billing.
       const facts = this.record.phases[key]!;
       const previousStop = structuredClone(facts.stop);
@@ -1526,11 +1619,12 @@ export class Engine {
       catch (error) { if (previousStop) facts.stop = previousStop; else delete facts.stop; throw error; }
       this.phaseCheckError = undefined;
       if (outcome.passed) {
-        if (action === "resume") return { ok: true, outcome: "already_complete", target: target! };
+        if (action === "carry_on" && this.record.liveControl?.takeover.history) this.heldAdvance = this.record.liveControl.takeover.operationId;
+        if (action !== "verify") return { ok: true, outcome: "already_complete", target: target! };
         // No completion state is observable before its atomic write succeeds.
         const before = structuredClone(this.record);
         try {
-          if (this.record.liveControl) await this.requireTakeoverReturn();
+          if (this.record.liveControl) await (this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn());
           await this.recordDone(key, outcome, true, true, evaluatedMaterial);
           if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
         } catch (error) {
@@ -1542,6 +1636,13 @@ export class Engine {
       // Mark complete's act runs inside the same checking boundary, on this rerun (waivers "Mark Complete").
       if (waive) return await this.waiveStopped(key, waive, outcome, evaluatedMaterial);
       if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
+      if (action === "carry_on") {
+        // A carry-on from a hold reuses the hand-back's return; the hold ends when the new run reports init (AC-CARRY-06).
+        this.returningTakeover = !!this.record.liveControl;
+        this.requestedLaunch = { phaseKey: key, kind: "carry_on", ...(note ? { note } : {}) };
+        queued = true;
+        return { ok: true, outcome: "resume_requested", target: target! };
+      }
       if (!this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
       this.returningTakeover = !!this.record.liveControl;
       this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note ? { note } : {}) };
@@ -1550,6 +1651,7 @@ export class Engine {
     } catch (error) {
       const reason = (error as Error).message;
       if (error instanceof OwnershipError && error.code === "message_review_required") return fail("message_review_required", reason);
+      if (error instanceof OwnershipError && (error.code === "terminal_in_use" || error.code === "ownership_unknown") && this.record.liveControl?.takeover.history) return fail(error.code, reason);
       if (error instanceof CompletionCheckUnavailable && !(error instanceof ResumeHeld)) this.unfinishedRecheck(key);
       this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
       return fail(error instanceof RecoveryStateWriteFailed ? "state_write_failed" : "check_unavailable", reason, error instanceof RecoveryStateWriteFailed ? 500 : 503);
@@ -1640,12 +1742,15 @@ export class Engine {
       : "moves to the next step";
     const resultingLabel = completeLabel(failing.length + checkCounts(checks).waived + (complete ? this.waivedCount(key) : 0));
     const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => item.subject))];
+    const work = this.stoppedPhase() === key ? this.workOf(key) : undefined;
+    const builtNothing = !!work && !("unknown" in work) && work.builtNothing;
     return {
       offered: true,
       label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
       heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
       continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
-      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder }),
+      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder, builtNothing }),
+      ...(builtNothing ? { builtNothing: true as const } : {}),
     };
   }
 
@@ -1871,6 +1976,31 @@ export class Engine {
   }
 
   /**
+   * Check again on the carry-on card (AC-CARRY-02): on a held page, takeover reconciliation on the
+   * hold's conversation; for Codex, one evidence-only read of the latest conversation's thread;
+   * then republish. Claude's check reads the saved file at each snapshot build anyway.
+   */
+  async reopenCheckAgain(): Promise<void> {
+    if (this.record.liveControl) { await this.reconcileTakeover(); await this.refreshStoppedWork(); this.changed(); return; }
+    const key = this.stoppedPhase();
+    const session = key === undefined ? undefined : this.recoverySession(key);
+    if (session?.agentId === "codex" && this.options.tools.codex) await this.readCodexAvailability(session);
+    if (key !== undefined) await this.refreshStoppedWork(key);
+    this.changed();
+  }
+
+  /**
+   * Send reply & continue (AC-CARRY-05): the completion check first, as resuming does, with the
+   * already-complete choice; otherwise a new session for the phase that is given the person's
+   * reply, the agent's last message and the phase's work.
+   *
+   *   await engine.carryOn({ target, note: "The import work is merged now." })  // { ok: true, outcome: "resume_requested" }
+   */
+  carryOn(body: Record<string, unknown> = {}): Promise<CommandResult> {
+    return this.recoverPhase("carry_on", body) as Promise<CommandResult>;
+  }
+
+  /**
    * Whether Needs you offers Resume (usage-limit recovery AC-RESUME-01): at a done-check or
    * pull-request-check stop, an interrupted one included (multi-repo AC-OUTSIDE-04), whose session
    * has a run that started, and never when Claude Code holds no transcript for it (multi-repo
@@ -1879,10 +2009,70 @@ export class Engine {
   resumeOffered(phaseKey: string): boolean {
     if (this.record.liveControl && this.record.liveControl.takeover.state !== "released") return false;
     const kind = this.record.phases[phaseKey]?.stop?.kind;
-    if (kind !== "done_check" && kind !== "pull_request_check" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
-    const session = this.latestSession(phaseKey);
+    if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
+    const session = this.recoverySession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
-    return !this.transcriptMissing(session) && this.codexSafetyProblems(phaseKey, false).length === 0;
+    // Resume goes by the reopen check, never by the stop's kind (run restart "Whether the conversation can be reopened").
+    if (kind === "not_resumable" && !this.conversationBegan(phaseKey)) return false;
+    return this.reopenCheck(phaseKey).state === "available";
+  }
+
+  /** A billing restriction that would stop a launch, as the launch path's own check reads it (run restart AC-CARRY-03). */
+  private launchRestriction(): string | undefined {
+    if (this.record.settings.agentId === "codex") return undefined;
+    const view = this.billing.view;
+    if (!view.next || view.canLaunch) return undefined;
+    return view.next.readinessError ?? "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
+  }
+
+  /** The limits both session-starting buttons share (AC-CARRY-03): a session running, or Kiln checking or dispatching. */
+  private launchBusy(): string | undefined {
+    if (this.current?.processRunning) return "A session for this PRD is running.";
+    if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || this.commands?.busy) return "Kiln is checking or starting work. Try again when it has finished.";
+    return undefined;
+  }
+
+  /**
+   * Send reply & continue (AC-CARRY-01, AC-CARRY-03, AC-CARRY-06): offered when a stopped phase
+   * began a conversation whose reopen check is unavailable, or on a held page whose conversation
+   * can't be reopened; unavailable, with the reason, under the shared limits.
+   */
+  carryOnControl(): { offered: boolean; available: boolean; reason?: string } {
+    const held = this.heldHistoryKey();
+    const key = held ?? this.stoppedPhase();
+    if (key === undefined) return { offered: false, available: false };
+    if (!held && (!this.conversationBegan(key) || this.reopenCheck(key).state !== "unavailable")) return { offered: false, available: false };
+    const hold = this.record.liveControl?.takeover;
+    const reason = (held && (hold?.carryOnObstacle ?? (this.liveView()?.reviewRequired?.length ? "Acknowledge each message Kiln isn't sure was delivered first." : undefined))) || this.launchBusy() || this.launchRestriction();
+    return { offered: true, available: !reason, ...(reason ? { reason } : {}) };
+  }
+
+  /** Start Phase N again (AC-CASE-02, AC-CARRY-03): offered when no session of a stopped phase began a conversation. */
+  startAgainControl(): { offered: boolean; available: boolean; reason?: string } {
+    const key = this.stoppedPhase();
+    if (key === undefined || this.conversationBegan(key)) return { offered: false, available: false };
+    const safety = this.codexSafetyProblems(key, false);
+    const reason = this.launchBusy() || this.launchRestriction() || (safety.length ? `Kiln found a Codex safety problem: ${safety.join(" ")}` : undefined);
+    return { offered: true, available: !reason, ...(reason ? { reason } : {}) };
+  }
+
+  /**
+   * Start again (AC-CASE-02): launches the stopped phase's first session again with the ordinary
+   * phase prompt. It takes no reply and runs no completion check first.
+   *
+   *   await engine.startAgain()  // { ok: true, outcome: "resume_requested" }
+   */
+  async startAgain(): Promise<CommandResult> {
+    const key = this.stoppedPhase();
+    if (key === undefined || this.conversationBegan(key)) return refuse("Start again isn't offered here.");
+    if (this.commands.active?.instruction.action === "start-again" ? this.current?.processRunning || this.checking || this.driving || this.stopping : this.launchBusy()) return refuse("Kiln is checking or starting work. Try again when it has finished.");
+    const blocked = this.launchRestriction() ?? (this.codexSafetyProblems(key, false).length ? "Kiln found a Codex safety problem." : undefined);
+    if (blocked) return refuse(blocked);
+    this.checking = true;
+    this.requestedLaunch = { phaseKey: key, kind: "start_again" };
+    this.changed();
+    this.kick();
+    return { ok: true, outcome: "resume_requested" };
   }
 
   /**
@@ -3490,7 +3680,7 @@ export class Engine {
 
   private kick(): void {
     if (this.driving) return;
-    if (this.commands?.busy && !(this.controlDispatch && this.requestedResume)) { this.controlKickPending = true; return; }
+    if (this.commands?.busy && !(this.controlDispatch && (this.requestedResume || this.requestedLaunch))) { this.controlKickPending = true; return; }
     // A write refused after a durable control write failed mid-drive ends it as a blocked controller does; restart reconciles.
     this.driving = this.drive().catch((error: unknown) => { if (!refusedWhileFrozen(error)) throw error; }).finally(() => {
       this.driving = undefined;
@@ -3503,17 +3693,27 @@ export class Engine {
     for (;;) {
       const continuation = this.pendingContinuation();
       if (continuation && !this.commands.blocked && !this.stopping) { await this.prepareContinuation(continuation); if (this.record.executionId === continuation.completedExecutionId) return; }
-      if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume) return;
-      if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume) return;
+      if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume && !this.requestedLaunch) return;
+      if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume && !this.requestedLaunch) return;
       if (this.folderMissing) return;
       if (this.requestedResume !== undefined) {
         // The one dispatch path: every launch and resume checks the folders first (AC-GONE-01).
         if (!await this.folderGuard({ mayLeave: false })) return;
         const request = this.requestedResume;
         this.requestedResume = undefined;
-        const runCount = this.latestSession(request.phaseKey)?.runs.length;
+        const runCount = this.phaseRunCount(request.phaseKey);
         await this.resumeSession(request.phaseKey, request);
-        if (this.latestSession(request.phaseKey)?.runs.length === runCount) { this.current = undefined; return; }
+        if (this.phaseRunCount(request.phaseKey) === runCount) { this.current = undefined; return; }
+        if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
+        continue;
+      }
+      if (this.requestedLaunch !== undefined) {
+        const request = this.requestedLaunch;
+        this.requestedLaunch = undefined;
+        if (!await this.folderGuard({ mayLeave: false })) { this.checking = false; this.changed(); return; }
+        const runCount = this.phaseRunCount(request.phaseKey);
+        await this.launchAtStop(request);
+        if (this.phaseRunCount(request.phaseKey) === runCount) { this.current = undefined; this.checking = false; this.changed(); return; }
         if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
         continue;
       }
@@ -3850,6 +4050,41 @@ export class Engine {
     return verdict.kind === "done" ? "done" : "stopped";
   }
 
+  /**
+   * Start again (AC-CASE-02) or Carry on (AC-CARRY-05): a session record for the phase, new or its
+   * last one when that has no run, launched through the ordinary launch path in the phase's
+   * worktree. Start again sends the ordinary phase prompt; Carry on sends the carry-on prompt.
+   * The phase's stop clears just before dispatch, after the billing check, as a resumed run's does.
+   */
+  private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>): Promise<void> {
+    const key = request.phaseKey;
+    const facts = this.record.phases[key]!;
+    await this.additionChain;
+    await this.recordStartCommits(key);
+    const leaf = this.plan?.phases.find(phase => phase.id === key) ?? judgedPhase(this.record.plan ?? [], key);
+    const fileName = (leaf && "fileName" in leaf ? leaf.fileName : undefined) ?? this.fileOf(key) ?? "";
+    const values = this.phasePromptValues(fileName, this.sessionFolder);
+    let prompt: string;
+    if (request.kind === "start_again") prompt = phaseSessionPrompt(values);
+    else {
+      const work = await this.refreshStoppedWork(key);
+      const earlier = this.recoverySession(key);
+      const lastMessage = earlier?.runs.findLast(run => run.result?.text?.trim())?.result?.text;
+      prompt = carryOnPrompt({ freshSession: freshSessionPrompt(values, true), ...(request.note ? { note: request.note } : {}), ...(lastMessage ? { lastMessage } : {}), work: work && !("unknown" in work) ? work.repositories : [], multiRepository: this.setUpRepositories.length > 1 });
+    }
+    if (this.stopping) { this.checking = false; return; }
+    this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "started" });
+    const started = () => {
+      delete facts.stop;
+      this.checking = false;
+      this.stoppedWork = undefined;
+      return true;
+    };
+    await this.launchSession(key, "phase", prompt, { started, ...(request.kind === "carry_on" ? { startedAs: "carry_on" as const } : {}) });
+    // A launch that ended before reporting init leaves the hold pending (AC-CARRY-06).
+    if (this.record.liveControl) this.returningTakeover = false;
+  }
+
   private async preparePolicyForTurn(key: string): Promise<boolean> {
     let digest: string;
     try { digest = await preparationPermissions(this.preparationContext(), true); }
@@ -4054,13 +4289,14 @@ export class Engine {
    * Launches one session for a phase. The session record is written before spawning; a session
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
-  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string): Promise<void> {
+  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on" } = {}): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey);
     observeActivity(this.record, this.stateDirectory, phaseKey, audit?.kind ?? (kind === "pull_request" ? "final_delivery" : "implementation"), this.now().toISOString(), audit?.activityId);
     // A session launch waits for an addition under way, so it gets the workspace as it ends.
     await this.additionChain;
-    let session = this.latestSession(phaseKey);
+    // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
+    let session = this.lastRecord(phaseKey);
     if (!session || session.runs.length > 0) {
       const { model } = selectedChoice(this.record.settings);
       const entry = this.modelEntry(model);
@@ -4089,8 +4325,13 @@ export class Engine {
       if (audit) audit.sessionIds.push(session.sessionId);
       this.save();
     }
+    // Every launch says how its run started, including a reused record a carry-on left (run restart "A session record with no run").
+    if (session.startedAs !== options.startedAs) {
+      if (options.startedAs) session.startedAs = options.startedAs; else delete session.startedAs;
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
     const cwd = this.workingDirectoryOf(session);
-    await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort, this.addDirs(cwd)), prompt, "launch", cwd);
+    await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort, this.addDirs(cwd)), prompt, "launch", cwd, undefined, options.started);
   }
 
   /**
@@ -4105,7 +4346,8 @@ export class Engine {
    * `checking`, are cleared as the run starts.
    */
   private async resumeSession(phaseKey: string, request?: ResumeRequest): Promise<void> {
-    const session = this.latestSession(phaseKey);
+    // The person's resume reopens the latest conversation; Kiln's own resumes the attempt that just ended (run restart "Resuming after a failed launch").
+    const session = request ? this.recoverySession(phaseKey) : this.latestSession(phaseKey);
     if (!session) return;
     const priorInspectionOwner = this.inspectionResumingSession;
     this.inspectionResumingSession = session.sessionId;
@@ -4299,8 +4541,18 @@ export class Engine {
       }
     }
     if (this.record.liveControl) {
-      try { await this.requireTakeoverReturn(); }
-      catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
+      const carryOn = !!this.record.liveControl.takeover.history;
+      try { await (carryOn ? this.requireCarryOnOwnership() : this.requireTakeoverReturn()); }
+      catch (error) {
+        this.checking = false;
+        if (carryOn) {
+          // A carry-on from a hold that fails its ownership check fails the command and starts nothing (AC-CARRY-06).
+          if (dispatchedControl) { dispatchedControl.effects.session = "not_started"; dispatchedControl.outcome = error instanceof OwnershipError ? error.code : "ownership_unknown"; dispatchedControl.reason = (error as Error).message; this.commands.checkpoint(dispatchedControl); }
+          this.controlDispatch = undefined;
+          this.returningTakeover = false;
+        } else this.record.liveControl.takeover.reason = (error as Error).message;
+        this.save(); this.changed(); return;
+      }
     }
     if (cause !== "launch" && session.agentId !== "codex" && this.transcriptMissing(session)) {
       this.checking = false;
@@ -4347,13 +4599,17 @@ export class Engine {
       ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => {
         const local = this.takeoverLocalMaterial(phaseKey);
         if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
-        await requireNoTerminal(launchEnv, session.sessionId, identity);
+        // A carry-on from a hold checks the hold's conversation, and reads no history of either conversation (AC-CARRY-06).
+        const carryOn = !!this.record.liveControl?.takeover.history;
+        const conversation = carryOn ? this.record.liveControl!.takeover.target.providerSessionId : session.sessionId;
+        try { await requireNoTerminal(launchEnv, conversation, identity); }
+        catch (error) { if (carryOn && error instanceof OwnershipError && error.code !== "terminal_in_use") throw new OwnershipError("ownership_unknown", error.message); throw error; }
         if (local !== this.takeoverLocalMaterial(phaseKey)) {
           if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
           throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back.");
         }
         // Final synchronous admission after the async checks, using this dispatch's profile.
-        requireHistory(launchEnv, session.sessionId);
+        if (!carryOn) requireHistory(launchEnv, session.sessionId);
       } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
@@ -4416,7 +4672,7 @@ export class Engine {
     const run = session.runs.find(r => r.control?.operationId === receipt.id);
     if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
     if (this.returningTakeover && this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.returningTakeover = false; this.save(); }
-    receipt.effects.session = "resumed";
+    receipt.effects.session = STARTING_ACTIONS.includes(receipt.instruction.action) ? "started" : "resumed";
     if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
     this.commands.checkpoint(receipt);
     this.commands.finishAutomatic(receipt);
@@ -4429,7 +4685,7 @@ export class Engine {
     const rows = structuredClone(facts?.stop?.checks ?? facts?.wait?.checks ?? []);
     // A hold reaches Needs you without recordStop, so it prints its own line, unless the person was already there.
     const alreadyNeedsYou = facts?.stop !== undefined || this.record.billing!.hold !== undefined;
-    this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows };
+    this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: markReasonRows(cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows) };
     this.checking = false; this.current = undefined; this.unwatchWait();
     this.save(); this.updateKeepAwake(); this.changed();
     if (!alreadyNeedsYou) this.emitSessionEvent(phaseKey, "stopped");
@@ -4690,7 +4946,8 @@ export class Engine {
     const facts = this.record.phases[phaseKey]!;
     const hold = this.record.billing?.hold;
     if (hold?.phaseKey === phaseKey) {
-      if (this.latestSession(phaseKey)?.runs.length) {
+      // A billing hold's recheck reads the hold's own session, so a launch hold is rechecked as a launch (run restart "A session record with no run").
+      if ((hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
         if (outcome !== "stopping" && "ghError" in outcome && outcome.ghError && !outcome.passed) { this.unfinishedRecheck(phaseKey); return "still_stopped"; }
         const unreadable = outcome !== "stopping" && "unavailable" in outcome ? outcome.unavailable : undefined;
@@ -4705,7 +4962,7 @@ export class Engine {
           await this.recordDone(phaseKey, outcome as DoneCheckOutcome, true); return "done";
         }
         // The run's rows only: the Billing approval row is shown beside them, outside the run, and is never waivable.
-        if (outcome !== "stopping") { hold.checks = outcome.checks; hold.run = this.newRun("recheck"); this.save(); }
+        if (outcome !== "stopping") { hold.checks = markReasonRows(outcome.checks); hold.run = this.newRun("recheck"); this.save(); }
         return "still_stopped";
       }
       await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
@@ -4714,7 +4971,7 @@ export class Engine {
       const rows = await this.completionRows(phaseKey);
       const checks = [...rows, { name: "Billing approval", passed: false, facts: [hold.reason] }];
       await this.markChecks(phaseKey, checks);
-      hold.checks = checks; hold.run = this.newRun("recheck"); this.save();
+      hold.checks = markReasonRows(checks); hold.run = this.newRun("recheck"); this.save();
       return "still_stopped";
     }
     const stop = facts.stop!;
@@ -5040,7 +5297,8 @@ export class Engine {
       if (!this.record.liveControl || !acceptManual) return;
       if (takeoverMaterial === undefined || takeoverMaterial !== await this.takeoverMaterial(phaseKey)) throw new CompletionCheckUnavailable("Completion evidence changed during hand-back. Retry Verify for fresh results.");
       const local = this.takeoverLocalMaterial(phaseKey);
-      await this.requireTakeoverReturn();
+      // A hold whose conversation can't be reopened advances on the carry-on ownership check, in place of release (AC-CARRY-06).
+      await (this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn());
       if (local !== this.takeoverLocalMaterial(phaseKey)) throw new CompletionCheckUnavailable("Local completion evidence changed during final ownership admission. Retry Verify.");
     };
     const clearManualStop = () => {
@@ -5210,7 +5468,7 @@ export class Engine {
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
-    facts.stop = { kind, at, checks: itemize(checks, phaseKey), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
+    facts.stop = { kind, at, checks: markReasonRows(itemize(checks, phaseKey)), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
     this.save();
     this.readStoppedCommits(phaseKey);
     // The one place a stop prints its line (AC-START-09). Replacing a retained stop or a hold is the same Needs you, already said.
@@ -5222,7 +5480,7 @@ export class Engine {
   /** A recheck of the stop: its rows and a new check run, `finished: false` when it could not finish (waivers "Check Runs"). */
   private updateStop(phaseKey: string, checks: CheckResult[], finished = true): void {
     const stop = this.record.phases[phaseKey]!.stop!;
-    if (finished) stop.checks = itemize(checks, phaseKey);
+    if (finished) stop.checks = markReasonRows(itemize(checks, phaseKey));
     stop.checkedAt = this.now().toISOString();
     stop.run = this.newRun("recheck", finished);
     this.save();
@@ -5316,6 +5574,57 @@ export class Engine {
     } catch {
       // The worktree may be gone; the stop's own checks already say so, and Commits shows none.
     }
+    await this.refreshStoppedWork(phaseKey);
+  }
+
+  /**
+   * Reads a stopped or held phase's work (run restart "Work"): when the stop is recorded, at each
+   * recheck, when the page is opened, and before a session starts. A read that fails is kept as
+   * unknown, naming the read.
+   */
+  async refreshStoppedWork(phaseKey = this.stoppedPhase() ?? this.heldHistoryKey()): Promise<WorkRead | undefined> {
+    if (phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey) || this.stopping) return undefined;
+    const facts = this.record.phases[phaseKey];
+    let read: WorkRead;
+    try {
+      read = await readPhaseWork(this.git, this.setUpRepositories.map(entry => ({ name: entry.name, worktreePath: expandHome(entry.worktreePath), baseBranch: entry.baseBranch, startCommit: facts?.repositories[entry.name]?.startCommit })), this.record.settings.featureBranch);
+    } catch (error) { read = { unknown: `Kiln couldn't read the phase's work: ${(error as Error).message}` }; }
+    this.stoppedWork = { phaseKey, read };
+    this.changed();
+    return read;
+  }
+
+  /**
+   * The phase at Needs you when it is a stopped phase (run restart "A Stopped Phase's Facts"): an
+   * implementation leaf that is not held, one of whose sessions has a run, with a `done_check` or
+   * `not_resumable` stop or a billing hold on a resume. A launch hold is not one while it lasts.
+   */
+  stoppedPhase(): string | undefined {
+    const key = this.stoppedPhaseKey();
+    if (key === undefined || key === PR_PHASE_KEY || this.auditActivity(key) || this.record.liveControl) return undefined;
+    const hold = this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold : undefined;
+    if (hold && hold.action !== "resume") return undefined;
+    const kind = this.record.phases[key]?.stop?.kind;
+    if (!hold && kind !== "done_check" && kind !== "not_resumable") return undefined;
+    return this.phaseRunCount(key) > 0 ? key : undefined;
+  }
+
+  /** The held phase whose saved conversation can't be reopened (run restart AC-CARRY-06), if any. */
+  heldHistoryKey(): string | undefined {
+    const hold = this.record.liveControl?.takeover;
+    return hold?.history ? hold.target.activityKey : undefined;
+  }
+
+  /** The work last read for the phase, or undefined before the first read finishes. */
+  workOf(phaseKey: string): WorkRead | undefined {
+    return this.stoppedWork?.phaseKey === phaseKey ? this.stoppedWork.read : undefined;
+  }
+
+  /** A stopped phase's case (AC-CASE-01): no conversation began, one began and the phase built nothing, or today's page. */
+  stoppedCase(phaseKey: string): "could_not_start" | "built_nothing" | "needs_input" {
+    if (!this.conversationBegan(phaseKey)) return "could_not_start";
+    const work = this.workOf(phaseKey);
+    return work && !("unknown" in work) && work.builtNothing ? "built_nothing" : "needs_input";
   }
 
   /**
@@ -6052,24 +6361,106 @@ export class Engine {
   transcriptMissing(session: SessionRecord): boolean {
     if (session.agentId === "codex") {
       if (!session.conversation?.threadId) return true;
-      // A Codex conversation resumes only in its recorded folder: one that is neither the session folder nor a set-up worktree, as after a Folder missing recovery moved it, can't be resumed (WTR-004).
-      if (session.workingDirectory !== undefined && this.isUnderway && !this.record.completedAt) {
-        const recorded = comparable(realPathOfNearestAncestor(resolve(expandHome(session.workingDirectory))));
-        const current = [this.sessionFolder, ...this.setUpRepositories.map(entry => expandHome(entry.worktreePath))].map(path => comparable(realPathOfNearestAncestor(resolve(path))));
-        if (!current.includes(recorded)) return true;
-      }
+      if (this.codexFolderMoved(session)) return true;
       return session.codex?.conversationUnavailable === true;
     }
     return !claudeHistoryAvailability(this.options.env, session.sessionId).available;
+  }
+
+  /** A Codex conversation resumes only in its recorded folder: one that is neither the session folder nor a set-up worktree, as after a Folder missing recovery moved it, can't be resumed (WTR-004). */
+  private codexFolderMoved(session: SessionRecord): boolean {
+    if (session.workingDirectory === undefined || !this.isUnderway || this.record.completedAt) return false;
+    const recorded = comparable(realPathOfNearestAncestor(resolve(expandHome(session.workingDirectory))));
+    const current = [this.sessionFolder, ...this.setUpRepositories.map(entry => expandHome(entry.worktreePath))].map(path => comparable(realPathOfNearestAncestor(resolve(path))));
+    return !current.includes(recorded);
   }
 
   sessionRecord(phaseKey: string, sessionId: string): SessionRecord | undefined {
     return readSessionRecord(this.options.stateDirectory, phaseKey, sessionId);
   }
 
-  latestSession(phaseKey: string): SessionRecord | undefined {
+  /** The phase's session records, in the order they were made. */
+  phaseSessions(phaseKey: string): SessionRecord[] {
+    return (this.record.phases[phaseKey]?.sessionIds ?? []).flatMap(id => { const session = this.sessionRecord(phaseKey, id); return session ? [session] : []; });
+  }
+
+  /** The phase's last session record, which the next launch reuses when it has no run (run restart "A session record with no run"). */
+  lastRecord(phaseKey: string): SessionRecord | undefined {
     const id = this.record.phases[phaseKey]?.sessionIds.at(-1);
     return id === undefined ? undefined : this.sessionRecord(phaseKey, id);
+  }
+
+  /**
+   * What session selection needs of one session record, read one record at a time and kept until
+   * the record's file changes, so selection never holds every record of a long phase at once.
+   */
+  private sessionSummary(phaseKey: string, sessionId: string): { stamp: string; lastStartedAt?: string; runs: number; began: boolean } | undefined {
+    let stamp: string;
+    try { const stat = statSync(join(this.stateDirectory, phaseKey, sessionId, "session.json")); stamp = `${stat.mtimeMs}:${stat.size}`; }
+    catch { return undefined; }
+    const key = `${phaseKey}/${sessionId}`;
+    const cached = this.sessionSummaries.get(key);
+    if (cached?.stamp === stamp) return cached;
+    const session = this.sessionRecord(phaseKey, sessionId);
+    if (!session) return undefined;
+    const summary = { stamp, ...(session.runs.length ? { lastStartedAt: session.runs.at(-1)!.startedAt } : {}), runs: session.runs.length, began: sessionBegan(this.stateDirectory, session) };
+    this.sessionSummaries.set(key, summary);
+    return summary;
+  }
+  private readonly sessionSummaries = new Map<string, { stamp: string; lastStartedAt?: string; runs: number; began: boolean }>();
+
+  /**
+   * The phase's latest launch: the session whose latest run started last. Everything about an
+   * attempt reads it. With no run anywhere, the last record (run restart "Latest launch").
+   */
+  latestSession(phaseKey: string): SessionRecord | undefined {
+    const ids = this.record.phases[phaseKey]?.sessionIds ?? [];
+    let chosen: string | undefined; let at: string | undefined;
+    for (const id of ids) {
+      const started = this.sessionSummary(phaseKey, id)?.lastStartedAt;
+      if (started !== undefined && (at === undefined || started >= at)) { chosen = id; at = started; }
+    }
+    return this.lastRecordOr(phaseKey, chosen);
+  }
+
+  /** What resume, reply, the terminal command and the reopen check read: the latest conversation, or the latest launch when none began. */
+  recoverySession(phaseKey: string): SessionRecord | undefined {
+    const ids = this.record.phases[phaseKey]?.sessionIds ?? [];
+    const began = ids.findLast(id => this.sessionSummary(phaseKey, id)?.began);
+    return began ? this.sessionRecord(phaseKey, began) : this.latestSession(phaseKey);
+  }
+
+  private lastRecordOr(phaseKey: string, id: string | undefined): SessionRecord | undefined {
+    return id === undefined ? this.lastRecord(phaseKey) : this.sessionRecord(phaseKey, id);
+  }
+
+  /** Whether any session of the phase began a conversation (run restart AC-CASE-01). */
+  conversationBegan(phaseKey: string): boolean {
+    return (this.record.phases[phaseKey]?.sessionIds ?? []).some(id => this.sessionSummary(phaseKey, id)?.began);
+  }
+
+  /** Every run of the phase's sessions, counted. */
+  private phaseRunCount(phaseKey: string): number {
+    return (this.record.phases[phaseKey]?.sessionIds ?? []).reduce((sum, id) => sum + (this.sessionSummary(phaseKey, id)?.runs ?? 0), 0);
+  }
+
+  /**
+   * Whether the phase's latest conversation can be reopened, and why not (run restart "Whether the
+   * conversation can be reopened"). Claude reads the saved file at each call; Codex reads only
+   * recorded facts and starts no process.
+   */
+  reopenCheck(phaseKey: string): ReopenCheck {
+    const session = this.recoverySession(phaseKey);
+    if (!session) return { state: "unavailable", reason: "missing" };
+    if (session.agentId === "codex") {
+      const problems = this.codexSafetyProblems(phaseKey, false);
+      if (problems.length) return { state: "safety", problems };
+      if (!this.transcriptMissing(session)) return { state: "available" };
+      const detail = this.codexFolderMoved(session) ? `Codex reopens this conversation only in ${session.workingDirectory}, which is no longer this run's folder.` : session.codex?.resumeError ?? "Codex conversation cannot be opened.";
+      return { state: "unavailable", reason: "codex", detail };
+    }
+    // A held phase's check reads the saved file alone, as release does (run restart "Whether the conversation can be reopened", row 6).
+    return claudeReopenCheck(this.options.env, this.stateDirectory, session, this.record.liveControl?.takeover.target.activityKey === phaseKey);
   }
 
   /** A run's last output time: its last saved event's arrival, or its start when it saved none. */

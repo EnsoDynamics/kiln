@@ -163,62 +163,108 @@ function resultText(content: unknown): string {
  * passes. Other project folders are skipped, never judged, so one folder elsewhere can't make
  * every conversation unresumable.
  */
-export function claudeHistoryAvailability(env: NodeJS.ProcessEnv, sessionId: string, deadline = Date.now() + 5000): { available: boolean; reason: string } {
-  const unavailable = (reason: string) => ({ available: false, reason });
-  if (!/^[a-zA-Z0-9_.-]{1,200}$/.test(sessionId) || sessionId === "." || sessionId === "..") return unavailable("Provider conversation identity is invalid.");
-  const check = () => { if (Date.now() > deadline) throw new Error("Provider history read deadline expired."); };
-  const unsafe = (stat: Stats, writers: number) => stat.isSymbolicLink() || !!process.getuid && stat.uid !== process.getuid() || process.platform !== "win32" && (stat.mode & writers) !== 0;
-  const owned = (path: string, writers: number) => { const stat = lstatSync(path); if (unsafe(stat, writers)) throw new HistoryUnsafe(`Provider history can be changed by other users: ${path}.`); return stat; };
+export type HistoryDefect = "writable_by_others" | "link" | "other_owner";
+/** Why a saved Claude conversation can't be reopened (run restart "Whether the conversation can be reopened"). */
+export type HistoryProblem = "missing" | "unsafe" | "not_a_file" | "no_messages" | "unreadable";
+export interface HistoryAvailability {
+  available: boolean;
+  /** A sentence for logs and older readers; the page words `code` itself. */
+  reason: string;
+  code?: HistoryProblem;
+  /** `unsafe` and `not_a_file`: the path that failed. */
+  path?: string;
+  /** `unsafe`: what is wrong with `path`. */
+  defects?: HistoryDefect[];
+  /** `unsafe` with only `writable_by_others`: the folder (true) or the file (false). */
+  folder?: boolean;
+}
+
+export function claudeHistoryAvailability(env: NodeJS.ProcessEnv, sessionId: string, deadline = Date.now() + 5000): HistoryAvailability {
+  const unavailable = (code: HistoryProblem, reason: string, extra: Partial<HistoryAvailability> = {}): HistoryAvailability => ({ available: false, reason, code, ...extra });
+  if (!/^[a-zA-Z0-9_.-]{1,200}$/.test(sessionId) || sessionId === "." || sessionId === "..") return unavailable("missing", "Provider conversation identity is invalid.");
+  const check = () => { if (Date.now() > deadline) throw new HistoryUnreadable("Provider history read deadline expired."); };
+  const defectsOf = (stat: Stats, writers: number): HistoryDefect[] => [
+    ...(stat.isSymbolicLink() ? ["link" as const] : []),
+    ...(process.getuid && stat.uid !== process.getuid() ? ["other_owner" as const] : []),
+    ...(process.platform !== "win32" && !stat.isSymbolicLink() && (stat.mode & writers) !== 0 ? ["writable_by_others" as const] : []),
+  ];
+  const owned = (path: string, writers: number, folder: boolean) => { const stat = lstatSync(path); const defects = defectsOf(stat, writers); if (defects.length) throw new HistoryUnsafe(path, defects, folder); return stat; };
   try {
     check();
-    const projects = join(claudeConfigFolder(env), "projects"); owned(projects, 0o002);
+    const projects = join(claudeConfigFolder(env), "projects");
+    try { lstatSync(projects); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return unavailable("missing", "Provider history is missing."); throw error; }
+    owned(projects, 0o002, true);
     const directory = opendirSync(projects);
     try {
       for (;;) {
         check(); const project = directory.readSync(); if (!project) break;
-        if (!project.isDirectory()) continue;
+        if (!project.isDirectory() && !project.isSymbolicLink()) continue;
         const folder = join(projects, project.name); const file = join(folder, `${sessionId}.jsonl`);
         // A folder this user can't search can't hold this user's conversation; skip it.
         try { lstatSync(file); } catch (error) { if (["ENOENT", "EACCES", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) continue; throw error; }
-        owned(folder, 0o002);
-        if (!owned(file, 0o022).isFile()) return unavailable("Provider history is not a regular file.");
+        owned(folder, 0o002, true);
+        const stat = owned(file, 0o022, false);
+        if (!stat.isFile()) return unavailable("not_a_file", "Provider history is not a regular file.", { path: file });
         // The folder may be group-writable, so the file is opened without following a link and judged again as opened.
         const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
         try {
-          const opened = fstatSync(fd); if (!opened.isFile() || unsafe(opened, 0o022)) throw new HistoryUnsafe(`Provider history can be changed by other users: ${file}.`);
-          const size = opened.size; const chunk = Buffer.allocUnsafe(65536); const parts: Buffer[] = []; let lineSize = 0;
-          const usable = () => {
-            if (!lineSize) return false;
-            let record: TranscriptRecord & { sessionId?: unknown };
-            try { record = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(parts, lineSize))) as typeof record; } catch { return false; }
-            check();
-            if (!record || (record.sessionId != null && record.sessionId !== sessionId) || !["user", "assistant"].includes(record.type ?? "")) return false;
-            const content = record.message?.content;
-            return typeof content === "string" && content.length > 0 || Array.isArray(content) && content.some(block => block && typeof block === "object" && ["text", "tool_use", "tool_result", "thinking", "image"].includes(block.type));
-          };
-          for (let at = 0; at < size;) {
-            check(); const count = readSync(fd, chunk, 0, Math.min(chunk.length, size - at), at); if (!count) throw new Error("Provider history changed during the read."); at += count;
-            let from = 0;
-            while (from < count) {
-              const newline = chunk.indexOf(10, from); const end = newline >= 0 && newline < count ? newline : count;
-              lineSize += end - from;
-              if (lineSize > 16 * 1024 * 1024) return unavailable("Provider history record exceeds the 16 MiB read budget.");
-              parts.push(Buffer.from(chunk.subarray(from, end)));
-              if (end < count) { if (usable()) { check(); return { available: true, reason: "Saved provider conversation contains usable history." }; } parts.length = 0; lineSize = 0; }
-              from = end + 1;
-            }
-          }
-          if (usable()) { check(); return { available: true, reason: "Saved provider conversation contains usable history." }; }
-          check(); return unavailable("Provider history has no usable conversation messages.");
+          const opened = fstatSync(fd);
+          if (!opened.isFile()) return unavailable("not_a_file", "Provider history is not a regular file.", { path: file });
+          const openedDefects = defectsOf(opened, 0o022); if (openedDefects.length) throw new HistoryUnsafe(file, openedDefects, false);
+          return readHistoryFile(fd, opened.size, sessionId, check);
         } finally { closeSync(fd); }
       }
     } finally { directory.closeSync(); }
-    return unavailable("Provider history is missing.");
+    return unavailable("missing", "Provider history is missing.");
   } catch (error) {
-    if (error instanceof HistoryUnsafe) return unavailable(error.message);
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return unavailable("Provider history is missing.");
-    return unavailable("Provider history is unreadable or its read deadline expired.");
+    if (error instanceof HistoryUnsafe) return unavailable("unsafe", `Provider history can be changed by other users: ${error.path}.`, { path: error.path, defects: error.defects, folder: error.folder });
+    if (error instanceof HistoryUnreadable) return unavailable("unreadable", error.message);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return unavailable("missing", "Provider history is missing.");
+    return unavailable("unreadable", "Provider history is unreadable or its read deadline expired.");
   }
 }
 
-class HistoryUnsafe extends Error {}
+/**
+ * Reads an opened transcript to its end: available when a usable user or assistant message for
+ * this conversation is found and every line is JSON or cut off; a record over 16 MiB, a line that
+ * isn't JSON and wasn't cut off, or a file that changed during the read is unreadable.
+ */
+function readHistoryFile(fd: number, size: number, sessionId: string, check: () => void): HistoryAvailability {
+  const chunk = Buffer.allocUnsafe(65536); const parts: Buffer[] = []; let lineSize = 0; let found = false;
+  // A line a killed process cut off is skipped wherever it sits, as `readTranscriptRecords` skips it: a resumed conversation appends after it.
+  const line = () => {
+    if (!lineSize) return;
+    let text: string;
+    try { text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(parts, lineSize)); } catch { throw new HistoryUnreadable("Provider history holds a line that isn't text."); }
+    if (text.trim() === "") return;
+    let record: TranscriptRecord & { sessionId?: unknown };
+    try { record = JSON.parse(text) as typeof record; } catch (error) {
+      if (isCutOff(text, error as Error)) return;
+      throw new HistoryUnreadable("Provider history holds a line that isn't JSON.");
+    }
+    check();
+    if (found || !record || (record.sessionId != null && record.sessionId !== sessionId) || !["user", "assistant"].includes(record.type ?? "")) return;
+    const content = record.message?.content;
+    found = typeof content === "string" && content.length > 0 || Array.isArray(content) && content.some(block => block && typeof block === "object" && ["text", "tool_use", "tool_result", "thinking", "image"].includes(block.type));
+  };
+  for (let at = 0; at < size;) {
+    check(); const count = readSync(fd, chunk, 0, Math.min(chunk.length, size - at), at); if (!count) throw new HistoryUnreadable("Provider history changed during the read."); at += count;
+    let from = 0;
+    while (from < count) {
+      const newline = chunk.indexOf(10, from); const end = newline >= 0 && newline < count ? newline : count;
+      lineSize += end - from;
+      if (lineSize > 16 * 1024 * 1024) throw new HistoryUnreadable("Provider history record exceeds the 16 MiB read budget.");
+      parts.push(Buffer.from(chunk.subarray(from, end)));
+      if (end < count) { line(); parts.length = 0; lineSize = 0; }
+      from = end + 1;
+    }
+  }
+  line();
+  check();
+  return found ? { available: true, reason: "Saved provider conversation contains usable history." } : { available: false, code: "no_messages", reason: "Provider history has no usable conversation messages." };
+}
+
+class HistoryUnreadable extends Error {}
+class HistoryUnsafe extends Error {
+  constructor(readonly path: string, readonly defects: HistoryDefect[], readonly folder: boolean) { super(`Provider history can be changed by other users: ${path}.`); }
+}

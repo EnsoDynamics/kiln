@@ -1,4 +1,7 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
+import type { ReopenCheck } from "./reopen-check.js";
+import { launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
+import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
@@ -353,6 +356,24 @@ export interface Snapshot {
     };
     /** The interrupted run's timing, retained while independent recovery requirements are checked. */
     interrupted?: { at: string; atIsLastOutput: boolean };
+    /** A stopped phase's case (run restart AC-CASE-01); absent on every other page, a held one included. */
+    case?: "could_not_start" | "built_nothing" | "needs_input";
+    /** The phase's work (AC-CASE-01); absent until the first read finishes. A held page whose conversation can't be reopened has it too. */
+    work?: WorkRead;
+    /** How long the latest conversation ran (AC-CASE-01's duration line). */
+    conversationRanMs?: number;
+    /** What Kiln found: the latest launch has a run and never began a conversation (AC-CASE-04). */
+    launchFailure?: LaunchFailure;
+    /** The earlier conversation's last message, shown after What Kiln found (AC-CASE-04). */
+    conversationMessage?: { finalMessage?: string; lastLines?: OutputLine[]; endedAt: string };
+    /** The phase built nothing and its checks haven't run since it stopped (AC-CASE-03). */
+    nothingToCheck?: true;
+    /** Whether the latest conversation can be reopened (AC-CARRY-01, AC-CARRY-02). */
+    reopen?: ReopenCheck;
+    /** Send reply & continue (AC-CARRY-05, AC-CARRY-06); `endsHold` on a held page. */
+    carryOn?: { available: boolean; reason?: string; endsHold?: "takeover" | "message" };
+    /** Start Phase N again (AC-CASE-02). */
+    startAgain?: { available: boolean; reason?: string };
     /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
     limit?: LimitView & { refusedAgainAt?: string };
   };
@@ -646,8 +667,11 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
+    ...restartFacts(engine, phaseKey, checkRun),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
+  // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
+  const recovery = session ? engine.recoverySession(phaseKey) ?? session : undefined;
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
@@ -712,8 +736,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
   const interrupted = stop.interrupted;
   const finalMessage = interrupted === undefined && run?.result?.text?.trim() ? run.result.text : undefined;
-  // `claude --resume` needs the transcript Kiln couldn't find (OUT-003).
-  const resumable = everStarted && !engine.transcriptMissing(session) && (!record.liveControl || record.liveControl.takeover.state === "released");
+  // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
+  const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
     ...base,
     ...sessionFacts,
@@ -727,7 +752,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(resumable ? {
-      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId, process.platform, true) : resumeCommand(folder, session.sessionId),
+      resumeCommand: recovery!.agentId === "codex" ? codexResumeCommand(resumeFolder, recovery!) : record.liveControl ? resumeCommand(resumeFolder, recovery!.sessionId, process.platform, true) : resumeCommand(resumeFolder, recovery!.sessionId),
       ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
         deliveryAuthority: engine.deliveryAuthority(),
         agentId: session.agentId ?? "claude_code",
@@ -742,6 +767,45 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
     steps: sessionSteps(engine, phaseKey, session),
+  };
+}
+
+/**
+ * A stopped phase's restart facts (run restart "A Stopped Phase's Facts"): its case, work, the
+ * latest conversation's running time, What Kiln found, Nothing to check yet, the reopen check and
+ * the two session-starting buttons. A held page whose conversation can't be reopened gets only
+ * its work, the reopen check and the carry-on button (AC-CARRY-06).
+ */
+function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | undefined): Partial<NonNullable<Snapshot["needsYou"]>> {
+  const hold = engine.record.liveControl?.takeover;
+  const work = engine.workOf(phaseKey);
+  const carry = engine.carryOnControl();
+  const carryOn = carry.offered ? { available: carry.available, ...optional("reason", carry.reason) } : undefined;
+  if (hold) {
+    if (!hold.history || engine.heldHistoryKey() !== phaseKey) return {};
+    const uncertain = engine.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain");
+    return { ...optional("work", work), reopen: hold.history, ...(carryOn ? { carryOn: { ...carryOn, endsHold: hold.kind === "delivery_recovery" || uncertain ? "message" as const : "takeover" as const } } : {}) };
+  }
+  if (engine.stoppedPhase() !== phaseKey) return {};
+  const began = engine.conversationBegan(phaseKey);
+  const latest = engine.latestSession(phaseKey);
+  const conversation = began ? engine.recoverySession(phaseKey) : undefined;
+  const failure = latest && latest.runs.length ? launchFailure(engine.stateDirectory, latest, engine.workingDirectoryOf(latest), engine.worktreePath, one => engine.outputLines(one)) : undefined;
+  const ranMs = conversation?.runs.length ? runTiming(conversation.runs.map((run, index) => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? runLastOutputAt(engine.stateDirectory, conversation, index) ?? run.startedAt })), conversation.runs[0]!.startedAt, conversation.runs.at(-1)!.endedAt ?? engine.clock().toISOString()).runningMs : undefined;
+  const known = work && !("unknown" in work) ? work : undefined;
+  const earlier = failure && conversation && conversation.sessionId !== latest?.sessionId ? conversation : undefined;
+  const earlierRun = earlier?.runs.findLast(run => run.result?.text?.trim());
+  const start = engine.startAgainControl();
+  return {
+    case: engine.stoppedCase(phaseKey),
+    ...optional("work", work),
+    ...optional("conversationRanMs", ranMs),
+    ...optional("launchFailure", failure),
+    ...(earlier ? { conversationMessage: { ...(earlierRun?.result?.text ? { finalMessage: earlierRun.result.text } : { lastLines: engine.outputLines(earlier).slice(-10) }), endedAt: earlier.runs.at(-1)!.endedAt ?? earlier.runs.at(-1)!.startedAt } } : {}),
+    ...(known?.builtNothing && checkRun?.origin === "stop" ? { nothingToCheck: true as const } : {}),
+    ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
+    ...optional("carryOn", carryOn),
+    ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
   };
 }
 

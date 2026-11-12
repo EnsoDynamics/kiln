@@ -149,3 +149,10 @@ export async function authorizeContinuation(config: PageConfig, executionId: str
   const answer = await send(config, "POST", "/api/development-authorization", { executionId, proposalId, authorizationRevision, target, ...identity });
   if (answer.ok || !answer.uncertain) commands.delete(key); return answer;
 }
+
+/** Send reply & continue (run restart AC-CARRY-05): the reply is optional; a held page sends its live target and acknowledgements. */
+export const carryOn = (config: PageConfig, body: { note?: string; target?: PhaseRecoveryTarget | import("../../../src/live/target.js").LiveTarget; reviewedReceiptIds?: string[] }) => send(config, "POST", "/api/carry-on", body);
+/** Start Phase N again (run restart AC-CASE-02). */
+export const startAgain = (config: PageConfig) => send(config, "POST", "/api/start-again", {});
+/** Check again on the carry-on card (run restart AC-CARRY-02). */
+export const reopenCheckAgain = (config: PageConfig) => send(config, "POST", "/api/reopen-check");

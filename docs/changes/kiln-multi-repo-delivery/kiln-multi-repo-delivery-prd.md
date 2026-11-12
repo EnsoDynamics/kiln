@@ -203,6 +203,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the screens this change alters, as the table says)
   - Replaces in part: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (its Needs you screens' failed facts, named by repository, as the table says)
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you after work outside the workspace gains Resume and its note, where that change's mockups put them)
+  - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the three stopped-phase pages and the held page AC-CARRY-06 changes; the rest of each layout remains).
 
 ### Proven on Real Features
 

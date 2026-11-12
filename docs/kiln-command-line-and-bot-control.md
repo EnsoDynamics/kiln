@@ -23,6 +23,15 @@ and started only in the browser, on the Documents found screen.
 
 Existing-run control commands require a caller-generated command ID and the status token returned by a fresh status read. Keep both when retrying the same instruction; inspect `kiln command-status <PRD-path> --command-id <id> --json` after a lost response. A new intention needs a new ID. Reply accepts a literal UTF-8 file or stdin. A reply or resume that discovers an already-complete phase never advances it: use explicit `verify-and-advance`, acknowledging any retained unsent reply with `--without-sending-reply`. See `kiln reply --help` and `kiln verify-and-advance --help` for complete examples and error handling.
 
+## When the conversation can't be reopened
+
+Two commands start a new session for a stopped phase, where the browser offers the matching button; `kiln status <PRD-path> --json` lists each among the controls with whether it is available and why not.
+
+- `kiln start-again <PRD-path>` launches the phase's first session again when Kiln couldn't start the agent and no conversation began. It takes no reply and runs no completion check first.
+- `kiln carry-on <PRD-path>` starts a new session when the phase's earlier conversation can't be reopened, including for a phase paused for takeover whose paused session has ended. It takes an optional reply from `--message-file <path>` or `--message-from-stdin`, and on a takeover pause the `--message-reviewed <receipt-id>` acknowledgements `kiln resume` takes. It checks completion first: already-complete work returns `phase_already_complete` and starts nothing.
+
+Neither reopens the earlier conversation. Each receipt's `operation.effects.session` reads `started` once the new session's prompt is submitted and it reports its start. Both take the command ID and status-token flags above.
+
 ## Live messages and takeover
 
 For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from `--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude reads it at its next opportunity; the current tool may finish first. `kiln take-over <PRD-path>` holds progression and waits for the next safe stopping point. Both require the same command ID and fresh status-token flags above. Use `kiln handoff` only after status reports safe release; it reads instructions and never opens a terminal.

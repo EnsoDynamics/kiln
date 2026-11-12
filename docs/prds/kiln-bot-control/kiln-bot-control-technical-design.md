@@ -98,6 +98,8 @@ Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Command line (adds `waive-and-advance`).
 
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -178,6 +180,8 @@ Repeated attempts keep the same conversation entry and distinct stable attempt I
 `handoff` is read-only and confines session selection to this execution. It returns `{ session_id, provider_session_id, agent, phase_key, working_directory, resumable, reason, provider_history, resume_command, resume_argv, environment, continuation_prompt, fresh_session_instructions }`. Environment contains only required non-secret profile selectors. Obtain resume commands/prompts through the existing provider recovery boundary, preserving recorded profile/model/effort and quoting. For an earlier phase derive that conversation's instructions, never reuse the current phase's prompt. A currently Kiln-owned conversation is reported active and unavailable for concurrent manual resume; missing identity, cwd or provider history is explicit. Bounded history reads may use Claude's provider-owned saved transcript and Codex metadata/history APIs; they start no turn. If availability cannot be established, do not promise resumption; preserve any available fresh-session instructions.
 
 ## Durable Controls and Retries
+
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
 
 ### Status-token semantics
 

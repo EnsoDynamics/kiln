@@ -132,6 +132,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
 - [ ] **AC-STOP-03 — The person sees which checks failed and why.** Each of the three checks shows whether it passed, with the specific fact behind it. Examples: "No Closed line in phase-2b-store-credit.md", "12 files changed, not committed", "a41c9e2 isn't on origin yet".
   - Superseded in part by: AC-CHECK-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (facts name their repository)
   - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a fourth check, listed only when it failed)
+  - Superseded in part by: AC-CASE-03 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (no checks shown until asked).
 - [ ] **AC-STOP-04 — Kiln never guesses a cause or invents a question.** Nothing on any screen or in the terminal output gives a reason for a stop that Kiln inferred. Anything said about why a phase stopped is the session's own words, quoted, never summarized.
   - Superseded in part by: AC-LIMIT-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a session that hit a usage limit states its cause, from Claude Code's report rather than from Kiln's reading of the session)
 - [ ] **AC-STOP-05 — The person can reopen the exact session.** Kiln shows a copyable command that changes to the PRD's worktree and runs `claude --resume <session ID>`. It opens that session in a terminal with its full history.
@@ -142,6 +143,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
   - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex fresh-session and explicit repair prompts).
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
   - Superseded in part by: AC-OUTSIDE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the fresh-session prompt carries the facts)
+  - Superseded in part by: AC-CASE-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (a phase Kiln couldn't launch offers no fresh-session prompt).
 - [ ] **AC-STOP-07 — Check again lets Kiln continue.** After the person finishes the phase by any means, Check again in the browser view runs the done check. When it passes, the phase shows as Done, finished by the person, and the next phase starts, unless a pause is waiting (AC-VIEW-03). When it fails, the phase stays Needs you with the updated check results. At a broken-plan stop, Check again and `kiln run` read the phase plan again in place of the done check: once the plan reads correctly, the phase starts, unless a pause is waiting, and nothing is marked Done; until then, the stop stays, showing the problem found.
   - Superseded in part by: AC-VERIFY-01 in [Kiln Needs you handoff](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (the manual implementation-phase completion action; broken-plan recovery remains).
   - Superseded in part by: AC-ADD-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a named repository Kiln can't add is a broken-plan stop, including one a session's own split names)
@@ -151,6 +153,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
   - Superseded in part by: AC-RESUME-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume is a third way for a session to start after a stop)
   - Superseded in part by: AC-WAIVE-04/05 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Mark complete and `kiln waive-and-advance --confirm` are another way for work to start after a stop).
   - Superseded in part by: AC-SETUP-04 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (Start on the Folder missing page is another way for work to start after a stop).
+  - Superseded in part by: AC-CASE-02, AC-CARRY-05 and AC-CARRY-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Start Phase N again and Send reply & continue Phase N are each another way for a session to start after a stop, and their two commands are two more).
 
 ### Leave the Git Work to the Sessions
 
@@ -274,6 +277,7 @@ The terminal only starts Kiln and hosts it. Everything the person does after tha
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume joins the browser view's controls)
   - Superseded in part by: AC-LIMIT-02 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Resume now joins the browser view's controls)
   - Superseded in part by: AC-WAIVE-02 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Mark complete joins the browser view's controls).
+  - Superseded in part by: AC-CASE-02 and AC-CARRY-05 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Start Phase N again and Send reply & continue Phase N join the browser view's controls).
 - [ ] **AC-VIEW-03 — Pause after this phase stops Kiln between phases.** The current session finishes, including its commit and push, and the pause holds until that phase is Done by any route (its session, a resumed one, or the person after Needs you); then no phase starts until the person presses Start, even if Kiln is interrupted or restarted in between. Until that phase is Done, the person can cancel the pause with Keep going, and the view says Kiln will pause once the current phase is Done (UI-002).
   - Superseded in part by: AC-LIVE-03/04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (paired takeover and end-of-activity pause choices, distinct pending/reached wording and separate cancellation; deferred timing remains).
   - Superseded in part by: AC-RUN-02 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (pause applies at accepted audit-session boundaries).
@@ -349,6 +353,7 @@ The v1 mockups are the design of record.
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you matches that change's mockups where they differ from v1's)
   - Superseded in part by: AC-AUTO-03, AC-AUTO-04 and AC-LIMIT-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (keep-awake's "While a session works" names the wait too; Documents found, Running, Paused and Disconnected gain the "Resume after a usage limit" row; the Waiting for usage state and its screen)
   - Superseded in part by: AC-NEXT-01/02, AC-WAIVE-02 and AC-WAIVE-10 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Needs you, the progress rows and Complete follow this change's mockup where waivers alter them; unaffected layout remains).
+  - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the three stopped-phase pages and the held page AC-CARRY-06 changes; the rest of each layout remains).
 - [ ] **AC-LOOK-02 — The feature name identifies every browser screen.** The feature name is the largest text except on Phase detail, where it is compact context and the phase title is largest. Phase detail has a clearly outlined back link with a comfortable click target.
   - Superseded in part by: AC-PAGE-02 in [Kiln Needs you handoff](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (the phase-focused Needs you headline; feature identity stays visible).
 - [ ] **AC-LOOK-03 — Phase numbers and titles stay put.** Phase titles come from the phase documents word for word. A phase's number stays in its circle in every state.

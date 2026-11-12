@@ -17,3 +17,9 @@ Reset, including the start-check rerun on a page a reset built and a reset run f
 
 ## Phase-specific notes
 - `docs/kiln-command-line-and-bot-control.md` gains `--leave-branch-as-is` here, and its claim that a terminal can do everything the browser does is corrected for choosing where a run starts.
+
+## Carried forward from Phase 1
+- The stopped-phase Work read is `Engine.refreshStoppedWork` (`src/engine/stopped-phase.ts` `readPhaseWork`), run at a stop, each recheck, page open (`/api/events`) and before a carry-on; the catch-up offer is read there. `Engine.stoppedPhase()` is the stopped-phase predicate; a held phase is never one.
+- The journal's `carry-on` and `start-again` actions take no `leave_branch` input yet (`src/control/commands.ts` `validateInstruction`), and `/api/carry-on` and `/api/start-again` take no `bringUpToDate`; the contracts in `prompts/kiln-command-contracts.json` have no `--leave-branch-as-is`.
+- The stopped-phase cards are `view/src/components/CarryOnCard.svelte` and `StartAgainCard.svelte`, rendered from `PhaseHandoff.svelte` and `NeedsYou.svelte`; the offer sits above them, once.
+- The real-agent proof for the stopped-phase actions is `scripts/proof-run/run-restart-provider-proof.mjs`.

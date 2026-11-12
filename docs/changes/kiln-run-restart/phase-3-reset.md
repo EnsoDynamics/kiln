@@ -18,3 +18,6 @@ Nothing later; this is the last planned phase.
 ## Phase-specific notes
 - `docs/kiln-command-line-and-bot-control.md` gains `kiln reset`, with its outcome read through `kiln command-status`.
 - The Delivery section's minor release follows this phase, once the PRD's audits close.
+
+## Carried forward from Phase 1
+- AC-LOOK-01's `Superseded in part by:` pointer on AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` was left for this phase: Phase 1 changes nothing on the Folder missing page, which gains only the reset line here. Phase 1 added AC-LOOK-01's other pointers.
