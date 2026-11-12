@@ -191,6 +191,8 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 
 [Open the interactive mockup](mockups/kiln-run-restart.html). Its preview control switches between the states; it is not a Kiln control. Names, paths and commits are fictional; the Phase 1 case follows the 2026-11-11 run.
 
+Each state draws the part of the page this change touches, simplified around it. Whatever today's page shows that a state leaves out stays as it is. **A session is working** is the plainest case: it stands in for today's working page, which keeps its session card with the agent's latest output, its phase plan, its account and settings column and its pause controls, and gains only the reset line at the bottom.
+
 | Preview state | Criteria shown |
 |---|---|
 | Documents found, starting from a branch someone built phases on | AC-FROM-01, AC-FROM-02, AC-FROM-03, AC-FROM-04, AC-RESET-01 (no reset line before the first Start) |
