@@ -18,10 +18,11 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <body>
 <div id="mock-controls"><label for="mock-case">Mockup only — state:</label>
 <select id="mock-case">
- <option value="found">Documents found, starting from an existing branch</option>
+ <option value="found">Documents found, starting from a branch someone built phases on</option>
+ <option value="found-reset">Documents found after a reset, on Kiln's untouched branch</option>
  <option value="launch">Kiln couldn't launch the agent</option>
- <option value="nothing">The agent stopped before building anything (the 2026-11-11 case)</option>
- <option value="conversation">The earlier conversation can't be reopened</option>
+ <option value="nothing">The agent stopped before building anything</option>
+ <option value="conversation">The earlier conversation can't be reopened, in a phase that built nothing (as on 2026-11-11; the reason shown is illustrative)</option>
  <option value="reset">Reset, the confirmation</option>
  <option value="working">A session is working</option>
 </select>
@@ -51,11 +52,15 @@ a{color:#e2694f}a:hover{color:#f0866e}
         <h2 style="margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">What Kiln found</h2>
         <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
           <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">PRD</strong><code style="color: #8c8577">clearer-receipts-screens-prd.md</code></div>
-          <span style="font-size: 14px; color: #bdb6a8">24 acceptance criteria</span>
+          <span style="font-size: 14px; color: #bdb6a8">24 acceptance criteria, AC-RECEIPTS-01 to AC-RECEIPTS-24</span>
         </div>
         <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
           <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Technical design</strong><code style="color: #8c8577">…-technical-design.md</code></div>
-          <span style="font-size: 14px; color: #bdb6a8">Covers all 24 criteria</span>
+          <span style="font-size: 14px; color: #bdb6a8">Cites all 24 criteria</span>
+        </div>
+        <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
+          <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Assumptions</strong><code style="color: #8c8577">…-assumptions.md</code></div>
+          <span style="font-size: 14px; color: #bdb6a8">6 assumptions, 2 not yet confirmed. They’re green lights; nothing waits on them.</span>
         </div>
         <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 10px">
           <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Phase plan</strong><code style="color: #8c8577">7 phase docs</code></div>
@@ -73,6 +78,11 @@ a{color:#e2694f}a:hover{color:#f0866e}
             <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">7</span><span>Empty and error states</span></li>
           </ol>
         </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,0.12); font-size: 13px; color: #bdb6a8">
+          <span><span style="color: #9cc49a">✓</span> Every phase cites its criteria</span>
+          <span><span style="color: #9cc49a">✓</span> Dependencies point backward</span>
+          <span><span style="color: #9cc49a">✓</span> Working tree is clean</span>
+        </div>
       </section>
 
       <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 20px">
@@ -87,7 +97,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
             </label>
             <label style="display: flex; gap: 10px; align-items: flex-start; border: 2px solid #ede8dd; border-radius: 12px; padding: 13px; cursor: pointer">
               <input type="radio" name="start" checked style="margin-top: 3px; accent-color: #e2694f">
-              <span style="display: flex; flex-direction: column; gap: 3px"><strong>A branch that already exists</strong><span style="font-size: 13px; color: #bdb6a8">Some of this PRD is already built there. Kiln carries on from it.</span></span>
+              <span style="display: flex; flex-direction: column; gap: 3px"><strong>A branch that already exists</strong><span style="font-size: 13px; color: #bdb6a8">Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</span></span>
             </label>
           </div>
         </div>
@@ -95,7 +105,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
         <div style="display: flex; flex-direction: column; gap: 6px">
           <label for="worktree" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Worktree</label>
           <input id="worktree" value="~/work/.worktrees/clearer-receipts-screens/harbor-ledger" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; font: 13px 'JetBrains Mono', monospace; box-sizing: border-box; width: 100%">
-          <span style="font-size: 12.5px; color: #8c8577">One worktree and one branch for the whole PRD. Every phase works here in turn.</span>
+          <span style="font-size: 12.5px; color: #8c8577">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
@@ -113,7 +123,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
             </select>
           </div>
         </div>
-        <span style="font-size: 12.5px; color: #8c8577; margin-top: -10px">Kiln didn't make this branch, and that's fine. It adds its commits and pushes them. It never rewrites, resets or force-pushes it.</span>
+        <span style="font-size: 12.5px; color: #8c8577; margin-top: -10px">Kiln adds its commits to this branch and pushes them. It never rewrites, resets or force-pushes it.</span>
 
         <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
           <div style="display: flex; flex-direction: column; gap: 6px">
@@ -125,27 +135,170 @@ a{color:#e2694f}a:hover{color:#f0866e}
             <select id="model" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; box-sizing: border-box; width: 100%"><option>Default model</option></select>
           </div>
         </div>
-        <span style="font-size: 12.5px; color: #8c8577; border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px">Effort, keep-awake, resume after a usage limit, pushes, early merges and billing follow here, exactly as today.</span>
+        <span style="font-size: 12.5px; color: #8c8577; border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px">The rest of today's panel follows here unchanged: the note on adding repositories, the account and model notes, effort, keep-awake, resume after a usage limit, pushes, early merges and billing.</span>
       </section>
     </div>
 
     <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 32px; align-items: start">
       <h2 style="grid-column: 1 / -1; margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Before you start</h2>
       <div style="display: flex; flex-direction: column; gap: 10px">
-        <span style="font-size: 14px; color: #bdb6a8">Kiln can't tell from the files whether these documents went through requirements refinement.</span>
-        <label style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230,180,80,0.55); cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e6b450"><span>These documents have been through requirements refinement</span></label>
+        <span style="font-size: 14px; color: #bdb6a8">Kiln can't tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes.</span>
+        <label style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230,180,80,0.55); cursor: pointer"><input type="checkbox" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e6b450"><span>These documents have been through requirements refinement</span></label>
       </div>
       <div style="display: flex; flex-direction: column; gap: 10px">
         <strong style="font-size: 14px">Starting lets Kiln</strong>
         <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: #bdb6a8">
           <li><span style="color: #9cc49a">✓</span> Commit and push to <code>feature/receipts-by-hand</code></li>
+          <li><span style="color: #9cc49a">✓</span> Use its open pull request into <code>develop</code>, #48, once every phase closes</li>
+          <li><span style="color: #8c8577">✕</span> Never merge, deploy, or touch other branches</li>
+        </ul>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
+        <button style="min-height: 52px; padding: 0 24px; border-radius: 999px; font-size: 15.5px; font-weight: 600; background: transparent; color: #8c8577; border: 1px solid rgba(237,232,221,0.24); width: 100%; cursor: not-allowed" disabled>Start at Phase 4</button>
+        <span style="font-size: 12.5px; color: #8c8577">Phases 1–3 are closed on the branch and won't run. Confirm refinement to start.</span>
+      </div>
+    </section>
+  </main>
+</div>
+</div>
+<div id="v-found-reset" hidden>
+<div style="background: #12110e; color: #ede8dd; font: 14.5px/1.55 Inter, -apple-system, 'Segoe UI', sans-serif; min-height: 1500px; box-sizing: border-box">
+  <header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,0.12)">
+    <span style="display: inline-flex; align-items: center; gap: 9px">
+      <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg>
+      <span style="font: 28px/1 'Instrument Serif', Georgia, serif">kiln</span>
+    </span>
+    <span style="font-size: 13px; color: #bdb6a8">Connected to Kiln <span style="color: #8c8577">· updated 2s ago</span></span>
+  </header>
+
+  <main style="max-width: 1160px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13px; color: #8c8577">Repository <code>harbor-ledger</code> &nbsp; PRD folder <code>docs/changes/clearer-receipts-screens</code></span>
+      <h1 style="font: 400 44px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Clearer receipts screens</h1>
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
+        <span style="padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1px solid rgba(237,232,221,0.24)">Not started</span>
+        <span style="font-size: 14px; color: #bdb6a8">Review what Kiln found and how it will deliver, then start.</span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 6px">
+        <h2 style="margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">What Kiln found</h2>
+        <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
+          <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">PRD</strong><code style="color: #8c8577">clearer-receipts-screens-prd.md</code></div>
+          <span style="font-size: 14px; color: #bdb6a8">24 acceptance criteria, AC-RECEIPTS-01 to AC-RECEIPTS-24</span>
+        </div>
+        <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
+          <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Technical design</strong><code style="color: #8c8577">…-technical-design.md</code></div>
+          <span style="font-size: 14px; color: #bdb6a8">Cites all 24 criteria</span>
+        </div>
+        <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 2px">
+          <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Assumptions</strong><code style="color: #8c8577">…-assumptions.md</code></div>
+          <span style="font-size: 14px; color: #bdb6a8">6 assumptions, 2 not yet confirmed. They’re green lights; nothing waits on them.</span>
+        </div>
+        <div style="padding: 14px 0; border-top: 1px solid rgba(237,232,221,0.12); display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; gap: 12px"><strong style="font-size: 15px">Phase plan</strong><code style="color: #8c8577">7 phase docs</code></div>
+          <div style="border: 1px solid rgba(237,232,221,0.18); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: #bdb6a8; display: flex; flex-direction: column; gap: 4px">
+            <span>Read from the latest commit on <code>develop</code>, because the branch is brought up to date first</span>
+            <span>7 phases to implement, in this order</span>
+          </div>
+          <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">1</span><span>Collection screens</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">2</span><span>Matching screens</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">3</span><span>Seller companies</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">4</span><span>Seller pages</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">5</span><span>Navigation</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">6</span><span>Exports</span></li>
+            <li style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #bdb6a8">7</span><span>Empty and error states</span></li>
+          </ol>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,0.12); font-size: 13px; color: #bdb6a8">
+          <span><span style="color: #9cc49a">✓</span> Every phase cites its criteria</span>
+          <span><span style="color: #9cc49a">✓</span> Dependencies point backward</span>
+          <span><span style="color: #9cc49a">✓</span> Working tree is clean</span>
+        </div>
+      </section>
+
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 20px">
+        <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">How Kiln will deliver it</h2>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 13px; font-weight: 500; color: #bdb6a8">Start from </span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+            <label style="display: flex; gap: 10px; align-items: flex-start; border: 1px solid rgba(237,232,221,0.18); border-radius: 12px; padding: 14px; cursor: pointer">
+              <input type="radio" name="start-after-reset" style="margin-top: 3px; accent-color: #e2694f">
+              <span style="display: flex; flex-direction: column; gap: 3px"><strong>A new feature branch</strong><span style="font-size: 13px; color: #bdb6a8">Kiln cuts it from the base branch. What Kiln does today.</span></span>
+            </label>
+            <label style="display: flex; gap: 10px; align-items: flex-start; border: 2px solid #ede8dd; border-radius: 12px; padding: 13px; cursor: pointer">
+              <input type="radio" name="start-after-reset" checked style="margin-top: 3px; accent-color: #e2694f">
+              <span style="display: flex; flex-direction: column; gap: 3px"><strong>A branch that already exists</strong><span style="font-size: 13px; color: #bdb6a8">Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</span></span>
+            </label>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="worktree-after-reset" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Worktree</label>
+          <input id="worktree-after-reset" value="~/work/.worktrees/clearer-receipts-screens/harbor-ledger" readonly style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.12); background: #1b1a16; color: #bdb6a8; font: 13px 'JetBrains Mono', monospace; box-sizing: border-box; width: 100%">
+          <span style="font-size: 12.5px; color: #8c8577">The branch is checked out in this folder, so Kiln works here. It has no uncommitted files. The branch and PR into are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="branch-after-reset" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Feature branch</label>
+            <select id="branch-after-reset" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; font: 13px 'JetBrains Mono', monospace; box-sizing: border-box; width: 100%">
+              <option>feature/clearer-receipts-screens</option>
+              <option>feature/old-try</option>
+            </select>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="base-after-reset" style="font-size: 13px; font-weight: 500; color: #bdb6a8">PR into</label>
+            <select id="base-after-reset" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; font: 13px 'JetBrains Mono', monospace; box-sizing: border-box; width: 100%">
+              <option>develop</option>
+            </select>
+          </div>
+        </div>
+        <span style="font-size: 12.5px; color: #8c8577; margin-top: -10px">Kiln adds its commits to this branch and pushes them. It never rewrites, resets or force-pushes it.</span>
+
+        <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 13px; color: #bdb6a8">This branch is 4 commits behind <code>develop</code>.</span>
+          <label style="display: flex; gap: 12px; align-items: flex-start; cursor: pointer">
+            <input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+            <span style="display: flex; flex-direction: column; gap: 2px"><span>Bring the branch up to date with <code>develop</code> first</span><span style="font-size: 12.5px; color: #8c8577">Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. Kiln does this when you press Start.</span></span>
+          </label>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="agent-after-reset" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Agent</label>
+            <select id="agent-after-reset" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; box-sizing: border-box; width: 100%"><option>Claude Code</option></select>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="model-after-reset" style="font-size: 13px; font-weight: 500; color: #bdb6a8">Model</label>
+            <select id="model-after-reset" style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,0.18); background: #12110e; color: #ede8dd; box-sizing: border-box; width: 100%"><option>Default model</option></select>
+          </div>
+        </div>
+        <span style="font-size: 12.5px; color: #8c8577; border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px">The rest of today's panel follows here unchanged: the note on adding repositories, the account and model notes, effort, keep-awake, resume after a usage limit, pushes, early merges and billing.</span>
+      </section>
+    </div>
+
+    <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 32px; align-items: start">
+      <h2 style="grid-column: 1 / -1; margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Before you start</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 14px; color: #bdb6a8">Kiln can't tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes.</span>
+        <label style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(230,180,80,0.55); cursor: pointer"><input type="checkbox" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e6b450"><span>These documents have been through requirements refinement</span></label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <strong style="font-size: 14px">Starting lets Kiln</strong>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: #bdb6a8">
+          <li><span style="color: #9cc49a">✓</span> Bring <code>feature/clearer-receipts-screens</code> up to date with <code>develop</code>, as ticked above</li>
+          <li><span style="color: #9cc49a">✓</span> Commit and push to <code>feature/clearer-receipts-screens</code></li>
           <li><span style="color: #9cc49a">✓</span> Open one pull request into <code>develop</code> once every phase closes</li>
           <li><span style="color: #8c8577">✕</span> Never merge, deploy, or touch other branches</li>
         </ul>
       </div>
       <div style="display: flex; flex-direction: column; gap: 10px; justify-content: flex-end">
-        <button style="min-height: 52px; padding: 0 24px; border-radius: 999px; font-size: 15.5px; font-weight: 600; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; width: 100%; cursor: pointer">Start at Phase 4</button>
-        <span style="font-size: 12.5px; color: #8c8577">Phases 1–3 are closed on the branch and won't run.</span>
+        <button style="min-height: 52px; padding: 0 24px; border-radius: 999px; font-size: 15.5px; font-weight: 600; background: transparent; color: #8c8577; border: 1px solid rgba(237,232,221,0.24); width: 100%; cursor: not-allowed" disabled>Start</button>
+        <span style="font-size: 12.5px; color: #8c8577">Confirm refinement to start.</span>
       </div>
     </section>
   </main>
@@ -170,23 +323,28 @@ a{color:#e2694f}a:hover{color:#f0866e}
       </div>
     </div>
     <h1 style="font: 400 40px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Kiln couldn't start Phase 1.</h1>
-    <p style="margin: 0; color: #bdb6a8">Claude Code never opened a session, so there is no conversation and nothing was built.</p>
+    <p style="margin: 0; color: #bdb6a8">Claude Code never began a conversation, so there is nothing to reply to.</p>
 
     <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-left: 3px solid #e2694f; border-radius: 18px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px">
       <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">What Kiln found </span>
-      <div style="line-height: 1.65">Kiln ran <code>claude</code> in the worktree and it exited straight away, before starting a conversation.</div>
-      <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 'JetBrains Mono', monospace; padding: 14px; background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px; color: #bdb6a8">claude: not signed in. Run `claude login` and try again.</pre>
-      <span style="font: 12.5px 'JetBrains Mono', monospace; color: #8c8577">Kiln · launch failed · 4:31 PM · no session</span>
+      <div style="line-height: 1.65">Kiln ran <code>claude</code> in the worktree, and the computer couldn't start it.</div>
+      <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 'JetBrains Mono', monospace; padding: 14px; background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px; color: #bdb6a8">Couldn't start claude in ~/work/.worktrees/clearer-receipts-screens/harbor-ledger: spawn claude EAGAIN</pre>
+      <span style="font: 12.5px 'JetBrains Mono', monospace; color: #8c8577">Kiln · launch failed · 4:31 PM · no conversation</span>
     </section>
 
     <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
       <h2 style="margin: 0; font-size: 20px; font-weight: 600">Fix that, then have Kiln try again</h2>
-      <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Kiln starts Phase 1 from the beginning, exactly as it would have. Nothing is lost, because nothing had begun.</p>
+      <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Kiln starts Phase 1's first session again, exactly as it would have. No conversation had begun, so none is lost.</p>
       <ul style="list-style: none; margin: 0; padding: 0; font-size: 13px; border-top: 1px solid rgba(237,232,221,0.12)">
-        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><span style="color: #bdb6a8">Phase 1's work so far</span><span>No session · no commits · no changed files</span></li>
+        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><span style="color: #bdb6a8">Phase 1's work so far</span><span>No commits · no uncommitted changes</span></li>
       </ul>
       <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; cursor: pointer">Start Phase 1 again</button>
-      <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6">There is no reply box and no completion checks here: there is no conversation to reply to and no work to check.</p>
+      <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6">There is no reply box here: there is no conversation to reply to.</p>
+    </section>
+
+    <section style="background: transparent; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 20px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
+      <span style="max-width: 720px; color: #bdb6a8"><strong style="color: #ede8dd">Nothing to check yet.</strong> Phase 1 has no commits and no uncommitted changes. Built it somewhere else? Kiln checks only this worktree, so bring the work here first. If a check still fails, you can mark Phase 1 complete.</span>
+      <button style="min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #bdb6a8; border: 1px solid rgba(237,232,221,0.18); cursor: pointer">Check Phase 1 anyway</button>
     </section>
 
     <footer style="margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,0.12); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
@@ -215,7 +373,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
       </div>
     </div>
     <h1 style="font: 400 40px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Phase 1 stopped before building anything.</h1>
-    <p style="margin: 0; color: #bdb6a8">Claude Code ran for 2 minutes, read the plan, and stopped with the message below. No commits, no changed files.</p>
+    <p style="margin: 0; color: #bdb6a8">Claude Code's latest conversation ran for 2 minutes. No commits, no uncommitted changes.</p>
 
     <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-left: 3px solid #e6b450; border-radius: 18px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px">
       <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Last message from Claude Code</span>
@@ -226,22 +384,24 @@ a{color:#e2694f}a:hover{color:#f0866e}
 
     <h2 style="margin: 12px 0 0; font-size: 20px; font-weight: 600">How would you like to resolve this?</h2>
 
+    <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 14px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13.5px; color: #bdb6a8">This branch is 4 commits behind <code>develop</code>.</span>
+      <label style="display: flex; gap: 12px; align-items: flex-start; cursor: pointer">
+        <input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+        <span style="display: flex; flex-direction: column; gap: 2px"><span>Bring the branch up to date with <code>develop</code> first</span><span style="font-size: 12.5px; color: #8c8577">Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. Kiln does this when a button below starts or resumes Phase 1.</span></span>
+      </label>
+    </div>
+
     <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
       <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
         <h2 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35">Reply here and let Kiln finish</h2>
         <p style="margin: 0; color: #bdb6a8; line-height: 1.6">For a straightforward answer. Your reply goes to the same Claude Code conversation, and Kiln resumes Phase 1.</p>
-        <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
-          <span style="font-size: 13px; color: #bdb6a8"><code>develop</code> has 4 new commits since this branch was cut.</span>
-          <label style="display: flex; gap: 12px; align-items: flex-start; cursor: pointer">
-            <input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
-            <span style="display: flex; flex-direction: column; gap: 2px"><span>Bring the branch up to date with <code>develop</code> first</span><span style="font-size: 12.5px; color: #8c8577">Offered because the branch has no work of its own yet, so nothing can be lost or overwritten.</span></span>
-          </label>
-        </div>
         <div style="display: flex; flex-direction: column; gap: 8px">
           <label for="reply" style="font-size: 13.5px; color: #bdb6a8">Your reply to Claude Code</label>
           <textarea id="reply" rows="3" style="width: 100%; box-sizing: border-box; background: #0d0c0a; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 12px; padding: 12px 14px; line-height: 1.6; resize: vertical">The receipts import work is merged into develop now. Go ahead.</textarea>
         </div>
         <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; cursor: pointer">Send reply &amp; resume Phase 1</button>
+        <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6">Kiln handles the remaining work, then follows the plan. Routine work continues unattended; an explicit hold or material decision can return control to you.</p>
       </section>
 
       <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
@@ -250,13 +410,16 @@ a{color:#e2694f}a:hover{color:#f0866e}
         <pre style="margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 'JetBrains Mono', monospace; padding: 14px; background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px">cd ~/work/.worktrees/clearer-receipts-screens/harbor-ledger
 claude --resume 5f0c2a1e-77b4-4c1d-9d3e-1b6a0e4c9f21</pre>
         <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Copy resume command</button>
+        <details style="color: #bdb6a8; font-size: 14px"><summary style="cursor: pointer">Session cannot be opened? Use a fresh session</summary></details>
+        <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6"><strong style="color: #bdb6a8">Changed the plan?</strong> Ask Claude Code to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
         <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Got it back on track? Exit Claude Code, then:</p>
         <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Have Kiln resume Phase 1</button>
+        <p style="margin: 0; font-size: 12.5px; color: #8c8577; line-height: 1.6">Kiln picks up the same conversation, including your terminal discussion, and finishes Phase 1.</p>
       </section>
     </div>
 
     <section style="background: transparent; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 20px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
-      <span style="max-width: 720px; color: #bdb6a8"><strong style="color: #ede8dd">Nothing to check yet.</strong> Phase 1 has no commits, so its completion checks and Mark complete aren't shown. Built it yourself somewhere else?</span>
+      <span style="max-width: 720px; color: #bdb6a8"><strong style="color: #ede8dd">Nothing to check yet.</strong> Phase 1 has no commits and no uncommitted changes. Built it somewhere else? Kiln checks only this worktree, so bring the work here first. If a check still fails, you can mark Phase 1 complete.</span>
       <button style="min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #bdb6a8; border: 1px solid rgba(237,232,221,0.18); cursor: pointer">Check Phase 1 anyway</button>
     </section>
 
@@ -285,8 +448,8 @@ claude --resume 5f0c2a1e-77b4-4c1d-9d3e-1b6a0e4c9f21</pre>
         <span style="font-size: 14px; color: #bdb6a8">Phase 1 of 7 · Collection screens · stopped 4:33 PM</span>
       </div>
     </div>
-    <h1 style="font: 400 40px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Phase 1 needs your input.</h1>
-    <p style="margin: 0; color: #bdb6a8">Answer here, or talk it through in your terminal.</p>
+    <h1 style="font: 400 40px/1.1 'Instrument Serif', Georgia, serif; margin: 0">Phase 1 stopped before building anything.</h1>
+    <p style="margin: 0; color: #bdb6a8">Claude Code's latest conversation ran for 2 minutes. No commits, no uncommitted changes.</p>
 
     <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-left: 3px solid #e6b450; border-radius: 18px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px">
       <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Last message from Claude Code</span>
@@ -297,21 +460,24 @@ claude --resume 5f0c2a1e-77b4-4c1d-9d3e-1b6a0e4c9f21</pre>
 
     <h2 style="margin: 12px 0 0; font-size: 20px; font-weight: 600">How would you like to resolve this?</h2>
 
+    <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 14px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13.5px; color: #bdb6a8">This branch is 4 commits behind <code>develop</code>.</span>
+      <label style="display: flex; gap: 12px; align-items: flex-start; cursor: pointer">
+        <input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+        <span style="display: flex; flex-direction: column; gap: 2px"><span>Bring the branch up to date with <code>develop</code> first</span><span style="font-size: 12.5px; color: #8c8577">Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. Kiln does this when a button below starts or resumes Phase 1.</span></span>
+      </label>
+    </div>
+
     <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
       <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
         <div style="display: flex; flex-direction: column; gap: 8px">
           
           <h2 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35">Reply here and let Kiln carry on</h2>
         </div>
-        <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Kiln can't reopen the earlier conversation, so it starts a new Claude Code session for Phase 1. The new session gets your reply, the message above, and what is already on the branch, and picks up from there.</p>
+        <p style="margin: 0; color: #bdb6a8; line-height: 1.6">Kiln can't reopen the earlier conversation, so it starts a new Claude Code session for Phase 1. The new session gets your reply, Claude Code's last message and Phase 1's work so far, and picks up from there.</p>
         <ul style="list-style: none; margin: 0; padding: 0; font-size: 13px; border-top: 1px solid rgba(237,232,221,0.12)">
           <li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><span style="color: #bdb6a8">Phase 1's work so far</span><span>No commits · no uncommitted changes</span></li>
-          <li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><span style="color: #bdb6a8">The branch</span><span style="color: #e6b450">4 commits behind <code style="color: #e6b450">develop</code></span></li>
         </ul>
-        <label style="display: flex; gap: 12px; align-items: flex-start; cursor: pointer">
-          <input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
-          <span style="display: flex; flex-direction: column; gap: 2px"><span>Bring the branch up to date with <code>develop</code> first</span><span style="font-size: 12.5px; color: #8c8577">Offered because the branch has no work of its own yet, so nothing can be lost or overwritten.</span></span>
-        </label>
         <div style="display: flex; flex-direction: column; gap: 8px">
           <label for="reply" style="font-size: 13.5px; color: #bdb6a8">Your reply to Claude Code <span style="color: #8c8577">Optional</span></label>
           <textarea id="reply" rows="3" style="width: 100%; box-sizing: border-box; background: #0d0c0a; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 12px; padding: 12px 14px; line-height: 1.6; resize: vertical">The receipts import work is merged into develop now. Go ahead.</textarea>
@@ -319,8 +485,8 @@ claude --resume 5f0c2a1e-77b4-4c1d-9d3e-1b6a0e4c9f21</pre>
         <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; cursor: pointer">Send reply &amp; continue Phase 1</button>
         <div style="border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: #8c8577; line-height: 1.6">
           <strong style="color: #bdb6a8; font-weight: 600">Why the earlier conversation can't be reopened</strong>
-          <span>Its saved file can be edited by other accounts on this computer, so Kiln won't hand it back to an agent to act on unattended. To allow it, run this, then check again:</span>
-          <code style="background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px; padding: 8px 10px">chmod go-w ~/.claude/projects/-home-dev-work</code>
+          <span>Kiln won't hand the saved conversation back to an agent to act on unattended, because <code>~/.claude/projects/-home-dev-work--worktrees-clearer-receipts-screens-harbor-ledger</code> can be changed by other accounts on this computer. To remove their access, run this, then check again:</span>
+          <code style="background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 8px; padding: 8px 10px">chmod o-w ~/.claude/projects/-home-dev-work--worktrees-clearer-receipts-screens-harbor-ledger</code>
           <button style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Check again</button>
         </div>
       </section>
@@ -339,19 +505,9 @@ claude</pre>
       </section>
     </div>
 
-    <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
-      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px">
-        <h2 style="margin: 0; font-size: 20px; font-weight: 600">Is Phase 1 already done?</h2>
-        <span style="font-size: 12.5px; color: #8c8577">Checked when Kiln stopped, 4:33:08 PM · 2 of 4 passed</span>
-      </div>
-      <p style="margin: 0; color: #bdb6a8; line-height: 1.6">If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out Phase 1 and moves to the next step.</p>
-      <ul style="list-style: none; margin: 0; padding: 0; font-size: 13px">
-        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><strong>Working tree is clean</strong><span style="color: #9cc49a">Passed</span></li>
-        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><strong>Branch is pushed</strong><span style="color: #9cc49a">Passed</span></li>
-        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><strong>Phase 1 has commits</strong><span style="color: #e6b450">Not yet</span></li>
-        <li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(237,232,221,0.12)"><strong>Phase 1 is closed in the plan</strong><span style="color: #e6b450">Not yet</span></li>
-      </ul>
-      <button style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); cursor: pointer">Check Phase 1 again</button>
+    <section style="background: transparent; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 20px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
+      <span style="max-width: 720px; color: #bdb6a8"><strong style="color: #ede8dd">Nothing to check yet.</strong> Phase 1 has no commits and no uncommitted changes. Built it somewhere else? Kiln checks only this worktree, so bring the work here first. If a check still fails, you can mark Phase 1 complete.</span>
+      <button style="min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #bdb6a8; border: 1px solid rgba(237,232,221,0.18); cursor: pointer">Check Phase 1 anyway</button>
     </section>
 
     <footer style="margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,0.12); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
@@ -374,7 +530,7 @@ claude</pre>
   <main style="max-width: 1120px; margin: 0 auto; padding: 40px 32px 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
       <span style="padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1px solid rgba(230,180,80,0.55); color: #e6b450">Needs you</span>
-      <span style="font-size: 14px; color: #bdb6a8">Phase 3 of 7 · Seller companies · stopped 4:33 PM</span>
+      <span style="font-size: 14px; color: #bdb6a8">Phase 1 of 7 · Collection screens · stopped 4:33 PM</span>
     </div>
     <div style="border: 1px dashed rgba(237,232,221,0.18); border-radius: 18px; padding: 28px; text-align: center; color: #8c8577; font-size: 13px">The rest of the page, unchanged. The reset line sits at the very bottom of every screen.</div>
 
@@ -387,23 +543,23 @@ claude</pre>
       <section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 18px">
         <div style="display: flex; flex-direction: column; gap: 6px">
           <h2 style="margin: 0; font-size: 22px; font-weight: 600">Reset Kiln for this PRD?</h2>
-          <p style="margin: 0; color: #bdb6a8; line-height: 1.6; max-width: 780px">Kiln forgets everything it recorded about running this PRD and takes you back to the first screen, as if you had just run <code>kiln</code> on it for the first time. From there you choose where to start.</p>
+          <p style="margin: 0; color: #bdb6a8; line-height: 1.6; max-width: 780px">Kiln forgets everything it recorded about running this PRD and takes you back to the first screen, as if you had just run <code>kiln run</code> on it for the first time. From there you choose where to start.</p>
         </div>
         <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
           <div style="background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px">
             <strong style="color: #e6b450">Kiln forgets</strong>
             <ul style="margin: 0; padding-left: 18px; color: #bdb6a8; font-size: 14px; display: flex; flex-direction: column; gap: 4px">
               <li>Which phase it was on, and each phase's result</li>
-              <li>Its 4 sessions and their output</li>
+              <li>Its 1 session and its output</li>
               <li>Stops, completion waivers and audit results</li>
+              <li>Its settings for this PRD, which you choose again on the first screen</li>
             </ul>
           </div>
           <div style="background: #0d0c0a; border: 1px solid rgba(237,232,221,0.12); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px">
             <strong style="color: #9cc49a">Stays exactly as it is</strong>
             <ul style="margin: 0; padding-left: 18px; color: #bdb6a8; font-size: 14px; display: flex; flex-direction: column; gap: 4px">
-              <li><code>feature/clearer-receipts-screens</code> and its 11 commits</li>
-              <li>The worktree folder, with its 2 uncommitted files</li>
-              <li>The plan: Phases 1–2 stay closed, so Kiln won't build them again</li>
+              <li><code>feature/clearer-receipts-screens</code>, which has no commits of its own</li>
+              <li>The worktree folder, with no uncommitted files</li>
             </ul>
           </div>
         </div>
@@ -453,14 +609,14 @@ claude</pre>
     </div>
 
     <footer style="margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,0.12); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px">
-      <span style="font-size: 13px; color: #8c8577; max-width: 760px">Reset isn't available while a session is working. Use Pause &amp; take over above to stop it first, or wait for the phase to end.</span>
+      <span style="font-size: 13px; color: #8c8577; max-width: 760px">Reset isn't available while a session is working. Stop it now with Pause &amp; take over above, or pause after the current phase or audit and reset once it ends.</span>
       <button disabled style="min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: transparent; color: #8c8577; border: 1px solid rgba(237,232,221,0.12); cursor: not-allowed">Reset Kiln for this PRD</button>
     </footer>
   </main>
 </div>
 </div>
 <script>
-const views=["found","launch","nothing","conversation","reset","working"];const sel=document.getElementById("mock-case");
+const views=["found","found-reset","launch","nothing","conversation","reset","working"];const sel=document.getElementById("mock-case");
 sel.addEventListener("change",()=>views.forEach(v=>document.getElementById("v-"+v).hidden=v!==sel.value));
 </script>
 </body>
