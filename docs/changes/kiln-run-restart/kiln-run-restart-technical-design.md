@@ -9,7 +9,7 @@ Four changes inside Kiln's existing engine, loopback server, command journal and
 - **Start from an existing branch.** Documents found becomes a preview the engine computes for the chosen starting point, read from Git at the commit the first session will start from. Start sets up a worktree on the chosen branch, or adopts the one it is checked out in, and records where the run began.
 - **A stopped phase says what happened and can always go on.** The engine derives three facts for a stopped phase (whether a conversation ever began, the phase's work, whether its latest conversation can be reopened and why not) and offers one of three ways to start a session: resume as today, **carry on** in a new session, or **start again**.
 - **Catch-up.** One new Git write: fast-forward a branch that has no commits of its own to its base's tip and push it, before a session starts.
-- **Reset.** The running Kiln discards the PRD's state directory, writes a fresh not-started record and replaces its engine, without restarting. A reset ledger keeps the reset's own receipt.
+- **Reset.** The running Kiln discards the PRD's state directory, writes a fresh not-started record and replaces its engine, without restarting. The reset's own command receipt is the one journal entry the discard keeps.
 
 The three new commands are `kiln carry-on`, `kiln start-again` and `kiln reset` (§Command line).
 
@@ -31,26 +31,26 @@ The three new commands are `kiln carry-on`, `kiln start-again` and `kiln reset` 
 Three structural changes carry the rest.
 
 1. **The start preview moves into the engine.** Documents found's data is computed once in `kiln-command.ts` today and handed to the server as a constant. It now depends on the starting point, so a not-started engine owns it and republishes it when the selection or a ref changes.
-2. **The server follows a replaceable engine.** The server takes its engine through a holder owned by the run. Reset swaps the engine; open pages receive the next snapshot over the same event stream.
+2. **The server follows a replaceable engine.** Today `startLocalServer` closes over one engine everywhere: the snapshot, its change listener, the legacy-session binding, the inspection and control routes (`installInspectionRoutes`), and each event-stream connection's change, output and partial subscriptions. All of these read the engine through a holder owned by the run, and the run's stop handling closes whichever engine the holder has. Reset swaps the engine; the holder moves every open event-stream connection's subscriptions to the new engine and sends it the new snapshot, so open pages stay connected.
 3. **A phase has a latest conversation, distinct from its latest session.** A launch that never began a conversation leaves a session record that nothing can resume. Resume, reply, the terminal command, availability checks and a hold's target use the phase's latest session that began a conversation.
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Where an existing-branch start reads documents | The whole **What Kiln found** block (PRD, design, assumptions, plan, plan checks) is read from Git at the **start commit**: the branch's tip, or the base's tip when the catch-up is ticked. The checkout-equals-base document check does not apply | AC-FROM-02. A branch someone built phases on necessarily differs from the person's checkout in its Closed lines, so today's equality check could never pass. Reading everything from the commit sessions start at keeps the purpose of that check: what the person reviews is what sessions read |
+| Where an existing-branch start reads documents | The whole **What Kiln found** block (PRD, design, assumptions, plan, plan checks) is read from Git at the **start commit**: the branch's tip, or the base's tip when the catch-up is ticked. Neither of today's checks that compare the person's checkout with Git applies: the base check's PRD tree comparison (`checkPrdTreeAt`) and, for a PRD repository already set up by an earlier failed Start, `checkSetUpPrdTree` | AC-FROM-02. A branch someone built phases on necessarily differs from the person's checkout in its Closed lines, so either comparison would refuse every such start, the second one on the retry after a failed Start. Reading everything from the commit sessions start at keeps the purpose of those checks: what the person reviews is what sessions read |
 | What "closed before the run" means on an existing branch | A leaf Closed in the plan at the start commit. The first plan read accepts it on that alone, with no Committed or Pushed check | AC-FROM-02, AC-DEV-03. The person chose the branch as it stands; AC-FROM-03 allows uncommitted files and an unpushed local branch, either of which would fail today's evidence check for an externally closed leaf |
-| Uncommitted PRD documents in an adopted worktree | Start is unavailable while the worktree's uncommitted changes touch the PRD directory | The preview reads committed documents and the run reads the worktree's files. A Closed line present in only one would start the run at a plan stop. Other uncommitted files are counted and allowed (AC-FROM-03) |
-| A repository's `baseCommit` on an existing branch | The merge base of the branch's tip and the base's tip on origin | Existing readers treat "tip equals `baseCommit`" as "no commits of its own" (the Pushed check, the choice of repositories that need a pull request). The merge base keeps that true |
+| Uncommitted PRD documents in an adopted worktree | Start is unavailable while the worktree's uncommitted or untracked files touch the PRD directory, naming them and saying to commit or discard them in that worktree | The preview reads committed documents and the run reads the worktree's files (`readPlan` observes the worktree). A Closed line present in only one would start the run at a plan stop. Today's new-branch start holds the same line by requiring the PRD tree Kiln read to equal the start commit's. Other uncommitted files are counted and allowed (AC-FROM-03) |
+| A repository's `baseCommit` on an existing branch | The merge base of the branch's tip and the base's tip on origin, and after any catch-up the branch's new tip | Existing readers treat "tip equals `baseCommit`" as "no commits of its own": the Pushed check (`checks.ts`), the choice of repositories that need a pull request (`pullRequestRepositoriesNow`) and development delivery's unchanged test and source-work range. The merge base keeps that true at Start. A catch-up moves the tip to the base's tip, so a `baseCommit` left at the old merge base would make the caught-up branch count as having work: a pull request with no commits, and the base's commits read as source work |
 | Commits of its own | `rev-list --count <base tip on origin>..<branch tip>` | AC-CURRENT-01's definition. A branch whose commits all reached the base by an early merge counts zero, which is right: its tip is an ancestor of the base, so a fast-forward loses nothing, and reset's confirmation says it has none of its own |
 | Catch-up mechanics | In the worktree: `merge --ff-only <base tip>`, then a plain `push origin <branch>`. Two steps, each skipped when already true | Fast-forward and a non-force push cannot rewrite or lose anything, which is what lets Kiln do it unattended (AC-FROM-04). Recognizing a half-done catch-up lets a retry finish it |
 | A conversation began | Claude: a run of the session reported the stream's `init`. Codex: a run has an accepted turn, or its dispatch is ambiguous | AC-CASE-01. A process ID proves only that something spawned; for Codex it is the work server's. An ambiguous Codex dispatch is treated as begun so it keeps today's page and safety rule |
 | Why a conversation can't be reopened | The availability check returns a typed reason with the offending path and defect, not prose | AC-CARRY-02 needs seven distinct wordings and a fix command. Today's check folds four causes into one sentence |
 | Carry-on session | A new session record for the same phase, launched through the ordinary launch path with its own prompt; run cause `carry_on` | AC-CARRY-05. The launch path already applies billing, selection and one-dispatch rules (AC-CARRY-03). A distinct cause keeps history honest about which sessions were fresh starts |
-| Ending a hold without release | A separate ownership check that leaves out the saved conversation and operation-level settlement; the hold ends when the new session's conversation begins, or on advance | AC-CARRY-06. Release proves the old conversation is safe to reopen. Nothing reopens it here, so what must still hold is exclusive use: the old process, its tracked processes and any terminal on that conversation are gone. Operation settlement is proved from the transcript, which is the thing that can't be read |
-| How reset discards | Replace `prd.json` with a fresh not-started record first, then delete the rest of the state directory, keeping the instance lock and the reset ledger | AC-RESET-04. Replacing the record first means every reader sees either the old run or a clean not-started PRD, never a half-deleted one. A crash after it is finished by the next `kiln run` from the ledger |
+| Ending a hold without release | A separate ownership check that leaves out the saved conversation and operation-level settlement; the hold ends when the new session's conversation begins, or on advance | AC-CARRY-06. Release proves the old conversation is safe to reopen. Nothing reopens it here, so what must still hold is exclusive use: the old process, every descendant it was seen to start, and any terminal on that conversation are gone. An operation runs inside the attempt's process or in a process it started, so once all of those have exited nothing the attempt started is running. Settlement can't be required: an operation the process died in never gets a result, so the hold would never end |
+| How reset discards | Replace `prd.json` with a fresh not-started record first, then delete the rest of the state directory, keeping the instance lock and the reset's own journal receipt | AC-RESET-04. Replacing the record first means every reader sees either the old run or a clean not-started PRD, never a half-deleted one. A crash after it is finished by the next `kiln run`, found from that receipt |
 | Reset in a running Kiln | The run closes the engine, discards, runs the start checks and builds a not-started engine in the same process, keeping the server, port and page token | AC-RESET-04 has the open page show Documents found. Restarting the process would drop the page and the bot's connection. The token is the page's credential, not progress |
-| The reset's own receipt | A ledger file per reset in `resets/`, outside the execution's journal | AC-RESET-06. The journal is part of what reset discards; the receipt must outlive it |
+| The reset's own receipt | The ordinary journal receipt for the `reset` instruction, kept through the discard with its `control-index` entry and the sequence cursor | AC-RESET-06. The journal already answers a retry from the receipt before any eligibility or token check (`submitValidated`), and `kiln command-status` already finds a receipt of any execution (`lookupReceipt`: the index, else a scan of every execution's directory). Keeping the one file keeps both working with no second store or reader |
 | Command names | `carry-on`, `start-again`, `reset` | AC-CARRY-04 forbids a name that promises to resume. `continue` already means "go on from a pause". The names follow the buttons |
 
 ## Starting From a Branch (AC-FROM-01 to 05)
@@ -94,8 +94,8 @@ Start submits `previewId`. Kiln recomputes the preview and refuses `start_change
 
 1. Origin-only branch: bring the tip's objects in and create the local branch with its upstream, as Folder missing's existing-branch start does.
 2. No worktree: `git worktree add <folder> <branch>`. An adopted worktree is re-verified with the folder check's predicate and nothing is written.
-3. Record the entry: `baseCommit` (the merge base), `startCommit` (the branch's tip), `adoptedWorktree` when adopted.
-4. Catch-up, when ticked and still qualifying (§Catching a Branch Up); `startCommit` is then the new tip.
+3. Record the entry: `baseCommit` (the merge base), `runStartCommit` (the branch's tip), `adoptedWorktree` when adopted.
+4. Catch-up, when ticked and still qualifying (§Catching a Branch Up); `runStartCommit` and `baseCommit` are then the new tip.
 
 A step that fails ends Start, clears `startedAt` as today and shows Documents found with the error. Kiln removes nothing it made: a local branch or worktree left by a failed Start is classified by the same table on the next visit, so the next Start adopts it.
 
@@ -103,7 +103,7 @@ The record's plan at Start is the plan the preview showed. A repository that get
 
 ### After Start
 
-- **Closed before the run.** The first plan read accepts each leaf Closed at the PRD repository's `startCommit` as an outside completion at that commit, before the published-base proof and the evidence check, which still apply to any other closed leaf. Development delivery's "closed before the run" set is read at `startCommit` when the entry has one.
+- **Closed before the run.** The first plan read (`readPlan` with no earlier baseline) accepts each leaf Closed at the PRD repository's `runStartCommit` as an outside completion at that commit, with its scope repositories and each set-up repository's `runStartCommit`, or `baseCommit` where the branch was cut new, as its revisions. This comes before the published-base proof and the evidence check, which still apply to any other closed leaf. Development delivery's "closed before the run" set (`leavesClosedAtRunBase`, read at `baseCommit` today) is read at `runStartCommit` when the entry has one.
 - **The first session is told.** The first session the run launches gets one added paragraph when the run adopted a worktree with uncommitted files: how many, and to look before building.
 - **Pull requests (AC-FROM-04).** Final delivery is unchanged: its check already passes on the branch's open, ready pull request into the base, and its prompt already tells the session not to open a second. The preview names that pull request in **Starting lets Kiln**.
 - **Git limits.** Sessions commit and push as today. Kiln's own writes to an existing branch are the worktree and local-branch setup above and the catch-up, nothing else.
@@ -118,7 +118,7 @@ A repository's branch **qualifies** when all hold, read at the moment of use:
 
 The offer exists when any of the PRD's repositories qualifies, and lists each with its count behind. Doing it, per qualifying repository: bring the base tip's objects in; `merge --ff-only <base tip>` in the worktree when the local tip is behind; `git push origin <branch>` when origin's copy is not at the local tip. On any failure nothing starts, the reason is shown where the action was pressed, and what was already moved stays moved.
 
-Each catch-up is saved (`branchCatchUps`) and told to the next session Kiln starts or resumes in one sentence: which branch moved, from and to which commit. The phase's start commits are untouched, so the base's commits are left out of the phase's work by the rule in §A Stopped Phase's Facts.
+Each catch-up is saved (`branchCatchUps`) and told to the next session Kiln starts or resumes in one sentence: which branch moved, from and to which commit. With it, the repository's `baseCommit` becomes the new tip (Design Decisions), and so does the stopped phase's start commit in that repository. A branch qualifies only with nothing of its own, so the phase had no commits there to lose; moving its start keeps the base's commits out of its commit count and its recorded commit range, as well as its work (§A Stopped Phase's Facts).
 
 | Where | Behavior |
 |---|---|
@@ -161,15 +161,17 @@ ReopenCheck:
 
 | `reason` | From | AC-CARRY-02 row |
 |---|---|---|
-| `missing` | No file for the session ID in any project folder, or an ID no file could have | 1 |
-| `unsafe` | The file or a folder holding it fails the ownership check; `path` is the first that fails | 2 |
+| `missing` | No `projects` folder, no file for the session ID in any project folder, or an ID no file could have | 1 |
+| `unsafe` | The file, its project folder or the `projects` folder fails the ownership check; `path` is the first that fails. A project folder that doesn't hold the file is never the reason | 2 |
 | `not_a_file` | The saved path isn't an ordinary file | 3 |
 | `no_messages` | The file holds no usable message | 4 |
-| `unreadable` | A read error, the read deadline, or a record over the size Kiln reads | 5 |
+| `unreadable` | A read error, the read deadline, a record over the size Kiln reads, or a line that isn't JSON and wasn't cut off | 5 |
 | `reopen_failed` | The stop is `not_resumable` because a resumed run ended before its conversation began | 6 |
 | `codex` | Codex reports the thread can't be opened, or its recorded folder is no longer the run's | 7 |
 
 `fixCommand` is `chmod go-w <path>` when `defects` is only `writable_by_others`. `safety` is a Codex safety problem and wins over every reason.
+
+For Claude, `available` is exactly the condition a hold's release requires (`requireHistory`: the file found, not empty, every line JSON or cut off, and `claudeHistoryAvailability`'s usable message), computed by one function that returns these typed reasons; resume's offer and release both read it. Today `claudeHistoryAvailability` returns prose and folds unsafe, unreadable and deadline failures into one sentence, and it checks every project folder, so an unrelated one fails it; both change here. With one predicate, a page never offers resume for a conversation release would refuse, and a hold never waits on a conversation the page calls reopenable.
 
 The check runs at every snapshot build, as the transcript check does today, so **Check again**, **Check Phase N again** and **Check Phase N anyway** need only re-read Codex's thread and republish. A conversation that reads as available again brings back reply and resume with no restart. `reopen_failed` is a recorded fact about an attempt and does not clear on a re-read.
 
@@ -202,11 +204,13 @@ Reply and resume reopen the phase's latest conversation. When a later launch of 
 
 ## A Held Phase That Can't Be Reopened (AC-CARRY-06)
 
-While a hold is pending and its attempt's process has exited, takeover reconciliation also computes the `ReopenCheck` for the hold's conversation and saves it on the hold as `history` when it is `unavailable`. It then runs the **carry-on ownership check** and saves its obstacle, if any, as the hold's reason:
+While a hold is pending and its attempt's process has exited, takeover reconciliation also computes the `ReopenCheck` for the hold's conversation and saves it on the hold as `history` when it is `unavailable`. Release's own path stops at `requireHistory`, before its process checks, so for a hold with `history` reconciliation runs the **carry-on ownership check** in its place and saves its obstacle, if any, as the hold's reason:
 
-- the attempt's process has exited and its final observations are saved;
-- every process the attempt tracked has exited (`captureOwnedProcesses`, then `requireExited` for each);
+- the attempt's process has exited and its final observations are saved (no running adapter for that attempt);
+- for an attempt with a gate: a fresh `captureOwnedProcesses` succeeds, leaving no unresolved process observation or obstacle, and every tracked identity has exited (`requireExited` for each);
 - no terminal is open on the conversation (`requireNoTerminal`).
+
+It does not replay the transcript or require `unsettled(gate)` to be empty. The one case it can't see is a descendant that detached from the attempt between two of the scanner's 250 ms inventories; Live Session Control accepted the same bound for release (its Q2: containment of arbitrary downstream shell or remote effects is not part of AC-TAKE-02 or AC-TAKE-04).
 
 A hold with `history` set stays `pending`: it is never reported as released, and nothing that requires release changes.
 
@@ -240,22 +244,21 @@ The view leaves out a line whose value is zero or absent (AC-RESET-03). A read t
 
 ### Doing it
 
-Reset is admitted through the command journal like every changing command. Once accepted, the run:
+Reset is admitted through the command journal like every changing command, as action `reset`; its receipt is saved `in_progress` before any effect. Then the run:
 
-1. writes the ledger entry `resets/<sha256(command ID)>.json`, state `in_progress`, with the instruction, its digest and the `forgets` counts;
-2. closes the engine: timers, watchers, keep-awake, the journal;
-3. replaces `prd.json` with a fresh not-started record: default settings as a first `kiln run` computes them, a new execution ID, the same page token;
-4. deletes everything else in the PRD's state directory except `instance.lock` and `resets/`;
-5. runs the start checks and builds a not-started engine over the new record, then publishes it through the holder;
-6. marks the ledger entry `completed`, outcome `reset`.
+1. closes the engine's work: timers, watchers, keep-awake;
+2. replaces `prd.json` with a fresh not-started record: default settings as a first `kiln run` computes them, a new execution ID, the same page token;
+3. deletes everything else in the PRD's state directory except `instance.lock`, the files under `controls/` of this and every earlier `reset` receipt, their `control-index` entries when the journal is indexed, and the sequence cursor;
+4. settles the receipt `completed`, outcome `reset`, with the `forgets` counts, and closes the old journal;
+5. runs the start checks and builds a not-started engine over the new record, then publishes it through the holder.
 
-Nothing in any repository, and nothing of Claude Code's or Codex's own, is touched (AC-RESET-05). The port registration stays.
+The new engine's journal loads the kept receipts with the rest; they belong to earlier executions, so nothing reads them as current. Nothing in any repository, and nothing of Claude Code's or Codex's own, is touched (AC-RESET-05). The port registration (`ports.json`, outside the PRD's state directory) stays.
 
-**Recovery.** `kiln run` reads `resets/` before the record. An entry still `in_progress` means a reset was interrupted: it finishes steps 3 and 4, whichever remain, marks the entry `completed`, and carries on as a first run.
+**Recovery.** Before reading the record, `kiln run` looks in the journal for a `reset` receipt that isn't settled. One means a reset was interrupted: Kiln finishes steps 2 and 3, whichever remain (step 2 remains when `prd.json` still holds the receipt's execution ID), settles the receipt as in step 4, and carries on as a first run.
 
 **Start checks on the page (AC-RESET-04).** A not-started engine built by a reset holds the start-check report. When a check fails, the preview's check list names it in `kiln run`'s words where the passed ones are listed, the documents that could not be read are absent, and Start is unavailable with **Fix what failed, then reload.** Opening or reloading the page reruns the checks. `kiln run` from a terminal is unchanged: it prints the failure and exits.
 
-**The receipt (AC-RESET-06).** A retry with the same command ID and inputs is answered from the ledger before any other check, so it returns the recorded result and not a stale-token refusal against the new execution. `kiln command-status` reads the ledger when the journal holds no receipt for the ID. An `in_progress` entry read without a running Kiln reports `indeterminate`, as an unfinished journal receipt does. Ledger entries are kept across later resets.
+**The receipt (AC-RESET-06).** A retry with the same command ID and inputs finds the kept receipt before any eligibility or token check, so it returns the recorded result and not a stale-token refusal against the new execution. `kiln command-status` finds it as it finds any receipt, through the running Kiln or from disk; one read without a running Kiln while not settled reports `indeterminate`, as today. Each reset keeps the receipts of earlier resets.
 
 A reset refused at admission (stale token, busy, unavailable) is an ordinary journal receipt and discards nothing.
 
@@ -327,24 +330,11 @@ All three are changing commands under bot control's contract: a PRD path, `--onl
 Schema version 21. Every addition is optional; a record from schema 20 reads unchanged.
 
 - **`PrdRecord.start?: { from: "new" | "existing"; bringUpToDate: boolean }`**: the starting point chosen on Documents found. Absent reads as `new`.
-- **`RepositoryEntry.startCommit?: string`**: the branch's tip when the run started on an existing branch, after any catch-up. **`RepositoryEntry.adoptedWorktree?: true`**: the worktree existed before Start.
+- **`RepositoryEntry.runStartCommit?: string`**: the branch's tip when the run started on an existing branch, after any catch-up. Named apart from `RepositoryPhaseFacts.startCommit`, which is where one phase's commits begin. **`RepositoryEntry.adoptedWorktree?: true`**: the worktree existed before Start.
 - **`PrdRecord.branchCatchUps?: [{ at, repository, branch, from, to, commits, toldSessionId? }]`**: each catch-up Kiln made; `toldSessionId` is set once a session's prompt carried it.
 - **`SessionRun.cause`** adds `"carry_on"`.
 - **`TakeoverHold.history?: ReopenCheck`**: additive under `liveControl` version 1.
-- **Reset ledger, `resets/<sha256(command ID)>.json`** (private, durable):
-
-```
-ResetReceipt:
-  formatVersion: 1
-  commandId, executionId: string            // the execution that was reset
-  digest: string                            // of the instruction, for retry matching
-  source: "browser" | "command_line"
-  acceptedAt, completedAt?: string
-  state: "in_progress" | "completed"
-  outcome?: "reset"
-  forgets: ResetPreview.forgets
-  newExecutionId?: string
-```
+- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`) and `reset` (none). A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`. An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
 
 ## Changes to Earlier Designs
 
@@ -352,14 +342,15 @@ Each pointer is added under the named heading when this change is built.
 
 - Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (a first Start may use an existing branch and adopt its worktree; Kiln may fast-forward and push a branch with no commits of its own).
 - Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands: what `kiln run` does (Documents found is computed for a starting point; a reset returns a running Kiln to it; an interrupted reset is finished first).
-- Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Kiln's State on Disk (the reset ledger; reset discards the rest).
+- Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Kiln's State on Disk (reset discards the PRD's state directory except the instance lock and reset receipts).
+- Replaces in part: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (AC-SAFE-03: Kiln may fast-forward and push a branch with no commits of its own).
 - Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Settings before Start and §Setup at Start (a repository that has the chosen branch uses it; existing worktrees fix the workspace folder).
 - Replaces in part: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §One evaluator at every transition (closed before the run is read at the start commit on an existing branch).
 - Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Completion evidence from outside Kiln (a leaf Closed at an existing branch's start commit is accepted on its Closed line).
 - Replaces in part: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Applicability and ownership, §Local Interfaces and §Needs you Layout (the three cases; carry on and start again; the recovery target for a session that never spawned; missing history no longer leaves only the terminal).
 - Replaces in part: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
 - Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Release is a separate fact, §Activity-specific evaluate, then act and §Bot Extension (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
-- Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar, §Durable Controls and Retries and §Durable Data and Evolution (three commands; the catch-up before reply and resume; a reset's receipt lives in the ledger).
+- Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar, §Durable Controls and Retries and §Durable Data and Evolution (three commands; the catch-up before reply and resume; a reset's receipt survives the discard of the journal it belongs to).
 
 ## Integration Points
 
@@ -399,5 +390,4 @@ Each pointer is added under the named heading when this change is built.
 
 ## Open Questions
 
-1. **Start is unavailable while an adopted worktree has uncommitted changes to the PRD's documents.** The PRD allows uncommitted files in an adopted worktree and is silent on this case; the commit that closed its refinement left it to the design. The alternative, reading the preview from the worktree's files, would make "closed before the run" depend on uncommitted text.
-2. **The carry-on ownership check leaves out operation-level settlement.** Reconciliation proves an operation settled partly from the saved conversation, which is unreadable here, so requiring it would keep the hold forever. The check relies on process exit alone for "work the attempt started is still running". The design review should confirm no case exists where every tracked process has exited and work is still running.
+None.
