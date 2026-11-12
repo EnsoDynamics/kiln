@@ -9,7 +9,7 @@ import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, type PlannedPhase } from "../plan/phase-plan.js";
 import { deliveryOwner } from "../state/development-delivery.js";
 import type { PrdRecord } from "../state/records.js";
-import { owesDevelopmentEvidence, requireOwnerDeliveryEvidence, validateDeliverySplits } from "./development-delivery.js";
+import { owesDevelopmentEvidence, phaseFileDigest, requireOwnerDeliveryEvidence, validateDeliverySplits } from "./development-delivery.js";
 import { gitRead, remoteBase, observeGitPlan } from "./completed-plan-sources.js";
 import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { judgedPhase } from "./plan-reading.js";
@@ -183,8 +183,11 @@ function checkDevelopment(record: PrdRecord, candidate: PlanSource, phase: Plann
     return hash(files.map(file => [posix.basename(file), mechanical(candidate.documents[file]!)]));
   };
   try {
-    if (!state || !assessment || assessment.documentsDigest !== digest(phase.id) || assessment.requirementManifestDigest || state.sourceUnavailable) throw new Error("Restore a current scope-bound development-delivery assessment and its required verification evidence.");
-    validateDeliverySplits(state, candidate.plan, digest);
+    // A finished phase stays bound to the documents its check passed against while its own phase document is unchanged.
+    const accepted = state?.accepted?.find(one => one.phaseId === phase.id); const own = candidate.documents[posix.join(record.prdDirectory, phase.fileName)];
+    const bound = accepted && own !== undefined && accepted.phaseDocumentDigest === phaseFileDigest(phase.fileName, own) ? accepted.documentsDigest : digest(phase.id);
+    if (!state || !assessment || assessment.documentsDigest !== bound || assessment.requirementManifestDigest || state.sourceUnavailable) throw new Error("Restore a current scope-bound development-delivery assessment and its required verification evidence.");
+    validateDeliverySplits(state, candidate.plan, digest, id => { const file = candidate.plan.phases.find(one => one.id === id)?.fileName; const text = file === undefined ? undefined : candidate.documents[posix.join(record.prdDirectory, file)]; return text === undefined ? undefined : phaseFileDigest(file!, text); });
     requireOwnerDeliveryEvidence(state, { kind: "phase", phaseId: phase.id });
   } catch (error) { problems.push(`Phase ${phase.id}: ${(error as Error).message}`); }
 }
