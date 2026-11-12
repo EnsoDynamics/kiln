@@ -1,9 +1,9 @@
 # Design Refinement State — Kiln Run Restart
 
-Started: 2026-11-12   Current pass: 5   Status: In progress
+Started: 2026-11-12   Current pass: 5   Status: In progress (Phase 7, completion)
 Branch: develop (shared checkout, documents only; never push — publish-kiln gate)
 Existing code posture: Preserve (source: user; TD §Existing Code agrees)
-PRD words: at start 4463 · growth baseline 4463 · after pass 1: 4668 (pointer lines only) · after pass 2: 4701 · after pass 3: 4701 (TD 11843) · after pass 4: 4741 (TD 13511)
+PRD words: at start 4463 · growth baseline 4463 · after pass 1: 4668 (pointer lines only) · after pass 2: 4701 · after pass 3: 4701 (TD 11843) · after pass 4: 4741 (TD 13511) · after pass 5: 4749 (TD 14943)
 Last updated: 2026-11-12
 
 ## Documents
@@ -24,6 +24,7 @@ Review commit 5d8acef did not verify: Codex thread-availability reasons; mockup 
 | 2 | 16 (13 from discovery, 3 raised mid-pass: Q17, Q31, Q32; 6 repeats) | 12 (6 carried: Q3, Q9, Q16, Q14, Q15, Q13; 6 new: Q18-Q23) | 6 | 0 | 5 of the 12 (15 carried in all) | 0 | 1 (Q22) |
 | 3 | 12 (8 from discovery, 4 raised mid-pass: Q33, Q34 counted in discovery's 8, Q42, Q43; 11 repeats) | 12 (Q18, Q23, Q14, Q15, Q21, Q24, Q28, Q26, Q33, Q34, Q25, Q17) | 11 | 0 | 1 of the 12 (Q26; 15 carried in all) | 0 | 0 |
 | 4 | 7 (6 from discovery, Q50 raised by conformance; 6 repeats) | 14 (Q29, Q31, Q40, Q36, Q39, Q41, Q26, Q32, Q37, Q38, Q43, Q42, Q35, Q30; two over the cap) | 14 (two by decision: Q36, Q41) | 0 | 0 of the 14 (8 carried: Q27, Q44-Q50) | 0 | 0 |
+| 5 | 1 (from discovery; 5 repeats; discovery's judgment: ready to implement) | 9 (Q27, Q44-Q50 carried, Q51 new) | 9 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -53,7 +54,7 @@ Review commit 5d8acef did not verify: Codex thread-availability reasons; mockup 
 | Q24 | 2 | Reset ordering against the journal: who settles the receipt, and when are the new engine and journal built? | Technical | MEDIUM | 70 → 90 | Resolved | TD §Reset: Doing it, Recovery; Architecture 2; Design Decisions; Interfaces; Data Models |
 | Q25 | 2 | Is a session "told" a catch-up or the adopted worktree's uncommitted files when its prompt carried them but it never began a conversation? | Technical | MEDIUM | 75 → 92 | Resolved | TD §After Start (Sessions are told); §Catching a Branch Up; Data Models (toldSessionId) |
 | Q26 | 2 | A worktree entry for the branch that fails the folder check's run's-worktree test but isn't prunable-with-absent-path: which AC-FROM-03 row? | Technical | LOW | 80 → 90 | Resolved | PRD AC-FROM-03 rows 4 and 6; TD §The branch list; §Start step 2; Design Decisions (a detached entry) |
-| Q27 | 2 | How eagerly is the branch list classified (ref-only reads vs fetching objects for every branch)? | Technical | LOW | 65 → 90 | Answered, not folded | |
+| Q27 | 2 | How eagerly is the branch list classified (ref-only reads vs fetching objects for every branch)? | Technical | LOW | 65 → 90 | Resolved | TD §The branch list (row 5; list vs preview reads); Design Decisions; Snapshot |
 | Q28 | 2 | What refreshes the preview, and how does a not-started engine take new start-check results on reload? | Technical | LOW | 75 → 90 | Resolved | TD §The preview; Start checks on the page; Architecture 1; Design Decisions |
 | Q29 | 2 | Is a hold's `history` cleared when a later read finds the conversation can be reopened? | Technical | LOW | 88 → 95 | Resolved | TD §A Held Phase That Can't Be Reopened |
 | Q30 | 2 | Two small ones: `conversationRanMs` span or sum; what the `kiln run` terminal prints after a reset | Technical | LOW | 75 → 92 | Resolved | TD §A Stopped Phase's Facts (Case); §Reset: Doing it; Design Decisions |
@@ -70,13 +71,14 @@ Review commit 5d8acef did not verify: Codex thread-availability reasons; mockup 
 | Q41 | 3 | Reset-unavailable wording when no session is running or Pause & take over isn't offered (Codex; Kiln's own work between sessions) | Technical | LOW | 85 → 85 | Resolved by decision | TD §Reset: Availability (reset.reason table); Design Decisions |
 | Q42 | 3 | `kiln reset`'s command row lists only outcome `reset`, but Recovery can settle a receipt `failed`/`not_applied`, and the command prints the admission receipt (`in_progress`); and which journal answers a retry that arrives during the reset, before the new engine is published? (raised by Q24's fold) | Technical | LOW | — → 95 | Resolved | TD §Reset: Doing it, The receipt; Command line table |
 | Q43 | 3 | Documents found's snapshot has one `start.worktree` with one count of uncommitted files; with several repositories each adopted worktree has its own count and AC-FROM-03 counts them on the screen: a total, or per repository in `start.repositories[]`? (raised by pass 3 conformance) | Technical | LOW | — → 90 | Resolved | TD §The preview; Snapshot; Design Decisions |
-| Q44 | 4 | Interrupted Start with a saved `catchUp`: which runs first as `kiln run` prepares, settling the `catchUp` (which removes one whose fast-forward never landed) or Start's own step 3 (which performs it)? Settle points also omit page-open Work reads and Folder missing | Technical | MEDIUM | 85 → 90 | Answered, not folded | |
-| Q45 | 4 | What does the running Kiln do when a reset step fails after step 1 stopped the engine (steps 3-4 throw → the journal marks the receipt `indeterminate`, against Recovery's rule; step 5 fails → nothing published, `POST /api/reset` never answers)? | Technical | MEDIUM | 75 → | Investigating | |
-| Q46 | 4 | Carry-on from a hold that hits a billing hold at launch: which page shows, and is `returningTakeover` cleared? | Technical | LOW | 80 → 92 | Answered, not folded | |
-| Q47 | 4 | After a reset, can a reload clear a missing-tool start check, given tool paths are found once at `kiln run`? | Technical | LOW | 80 → | Investigating (with Q45, one investigator) | |
-| Q48 | 4 | Where does reset step 3 get the fresh record's GitHub identity and bases, given `kiln run` builds them from the start-check report and step 1 aborted the engine's git signal? | Technical | LOW | 85 → | Investigating (with Q45, one investigator) | |
-| Q49 | 4 | The preview's open-pull-request read (`gh pr list`) fails: is Start blocked? | Technical | LOW | 75 → 90 | Answered, not folded | |
-| Q50 | 4 | A half-made worktree (`locked initializing`) whose folder is gone: the PRD's AC-FROM-03 fits it to row 4 first (the prune reason), the design's half-made rule ("whatever its folder holds; rows 4 and 6 exclude it") gives the half-made message. Both make the branch unavailable and name the folder; which reason applies? (raised by pass 4 conformance) | Technical | LOW | — | Deferred | |
+| Q44 | 4 | Interrupted Start with a saved `catchUp`: which runs first as `kiln run` prepares, settling the `catchUp` (which removes one whose fast-forward never landed) or Start's own step 3 (which performs it)? Settle points also omit page-open Work reads and Folder missing | Technical | MEDIUM | 85 → 90 | Resolved | TD §Catching a Branch Up (settling); §Start (Interruption); Design Decisions |
+| Q45 | 4 | What does the running Kiln do when a reset step fails after step 1 stopped the engine (steps 3-4 throw → the journal marks the receipt `indeterminate`, against Recovery's rule; step 5 fails → nothing published, `POST /api/reset` never answers)? | Technical | MEDIUM | 75 → 90 | Resolved | TD §Reset: Doing it (A step that fails), Recovery; Design Decisions; Interfaces |
+| Q46 | 4 | Carry-on from a hold that hits a billing hold at launch: which page shows, and is `returningTakeover` cleared? | Technical | LOW | 80 → 92 | Resolved | TD §A Held Phase (Carry on from a hold); held definition |
+| Q47 | 4 | After a reset, can a reload clear a missing-tool start check, given tool paths are found once at `kiln run`? | Technical | LOW | 80 → 95 | Resolved | TD §Reset: Start checks on the page |
+| Q48 | 4 | Where does reset step 3 get the fresh record's GitHub identity and bases, given `kiln run` builds them from the start-check report and step 1 aborted the engine's git signal? | Technical | LOW | 85 → 92 | Resolved | TD §Reset: Doing it (steps 3 and 5) |
+| Q49 | 4 | The preview's open-pull-request read (`gh pr list`) fails: is Start blocked? | Technical | LOW | 75 → 90 | Resolved | TD §The preview; §The branch list |
+| Q50 | 4 | A half-made worktree (`locked initializing`) whose folder is gone: the PRD's AC-FROM-03 fits it to row 4 first (the prune reason), the design's half-made rule ("whatever its folder holds; rows 4 and 6 exclude it") gives the half-made message. Both make the branch unavailable and name the folder; which reason applies? (raised by pass 4 conformance) | Technical | LOW | — → 97 | Resolved | PRD AC-FROM-03 row 4 ("…, and git didn't leave that worktree half made"); the design's rule stands. Fact: `git worktree prune` does not clear an entry locked `initializing` even with its folder gone (git 2.50.1), so row 4's remedy was false for it; worktree-setup.ts:388-391 |
+| Q51 | 5 | When is a stopped phase's catch-up offer (`needsYou.catchUp`: whether it qualifies and its count behind) read, given the snapshot build is synchronous and the offer needs Git and origin reads? | Technical | LOW | 88 → 93 | Resolved | TD §Catching a Branch Up; Design Decisions; §A Stopped Phase's Facts (Work); Snapshot |
 | Q13 | 1 | Should POST /api/start-again carry the recovery target, as carry-on does? | Technical | LOW | 85 → 90 | Resolved | TD §Start again |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
@@ -447,19 +449,41 @@ Q27 (90%; row 5 needing no fetch is a fact, the rest a build choice):
 - Design Decisions row: "What the branch list computes per name | AC-FROM-03's rows over today's repositories, from local reads; the preview's reads for the selected name only | An origin-only branch's merge base needs a fetch per branch, and per-branch plan reads are what Which repositories already rejects. Row 5 needs no fetch, so no name the table makes unavailable can read available."
 Evidence: git-reads.ts:39, 58, 117-122.
 
+### Q45, Q47 and Q48, final text (pass 5)
+Q45 (90%, Refined; the code name `restart_required` and the two reason texts are build choices):
+- Recovery, first sentence: replace "for a `reset` receipt that isn't settled." with "for a `reset` receipt whose stage isn't `settled`: `in_progress`, or `indeterminate` after a step that threw."
+- Recovery, last sentence: replace "A reset receipt is never left `indeterminate`, because…" with "No reset receipt outlives Recovery unsettled, because the journal built over the fresh record loads every kept receipt and one unsettled receipt would keep it busy."
+- New paragraph after the `POST /api/reset` paragraph: "**A step that fails.** Once step 1 has stopped the engine, a step that throws leaves the run nothing to serve, so the run ends. When step 2, 3 or 4 throws, the apply throws a `ControlFailure` whose message, the receipt's reason, is "The reset didn't finish: <error>. Run kiln run again to finish it." The journal records the receipt `indeterminate`, as it does for any effect that throws, and the next `kiln run` finishes it (Recovery). When step 5 throws (the start checks, the PRD tree read or the engine's construction; a check that fails is not a throw), the receipt is already `completed` and the record is not started, so the next `kiln run` is a first run. In both cases `POST /api/reset` answers 500 `{ ok: false, code: "restart_required", reason }`. Step 5's reason is "Kiln was reset but couldn't open Documents found: <error>. Run kiln run again." The terminal prints `kiln: <reason>` on stderr, and the run closes the server, releases the instance lock and exits 1. An open page shows Connection to Kiln lost. After the exit, `kiln command-status` reads the receipt from disk: `indeterminate` with that reason until the next `kiln run`, or `completed`."
+- Interfaces, `POST /api/reset` row, add: "`restart_required` (500, with the reason) when a step fails after the engine stopped (§Reset, Doing it)."
+- Design Decisions row: a reset step that throws ends the run; reason: after step 1 no engine is left to serve, and exit 1 is the run's existing way to stop when it cannot go on; the receipt on disk tells the next `kiln run` what remains.
+Evidence: commands.ts:59, 223, 237, 251, 340-361; kiln-command.ts:59-60, 182; view/src/components/DisconnectedBanner.svelte:11.
+Q47 (95%): joins §Start checks on the page, after "…replaces its report, PRD tree, plan and named repositories.": "The rerun looks `gh` up on Kiln's PATH again (`findExecutable`), so installing it clears "gh isn't on the PATH." on reload. The engine keeps the tool paths `kiln run` found, since a `gh` that wasn't found is called by name and resolves through the PATH when called." Evidence: start-checks.ts:145; kiln-command.ts:243; helper-process.ts:44-58.
+Q48 (92%, Refined): step 3 does no reads.
+- Replace step 3 with: "3. replaces `prd.json` with a fresh not-started record, as `newPrdRecord` writes one for a first `kiln run`: from the run's PRD location and the old record's `repository.github`, default settings computed without an origin read (`defaultSettings` with no origin, which leaves the PRD repository's base empty and sets no named repository's base), that execution ID and the same page token. It reads nothing from Git or GitHub, so Recovery can repeat it;"
+- Step 5 adds, before "builds": "sets `repository.github` from the report when it has one, and fills the named repositories' bases, as `kiln run` does for a saved not-started record;"
+- Step 5 adds after "publishes it through the holder": ", then runs its base check (`checkBase`), as an event-stream connection does, which chooses each empty base from origin."
+Evidence: kiln-command.ts:319-339; new-record.ts; worktree-setup.ts:31-44; engine.ts:1375, 5677-5684; local-server.ts:288; git-reads.ts:39-41; private-state.ts:56-67.
+
+### Q51, final text (pass 5)
+Final answer (93%, Resolved). Sentences for §Catching a Branch Up, after "...lists each with its count behind.": "The offer is read with Work, at Work's moments and from the same reads, with the branch and the base asked of origin in one `ls-remote`. The engine keeps the latest read for the snapshot, and there is no offer until the first read finishes. When a page is opened, that read finishes before the first snapshot, as the folder check does. A read that fails gives no offer, and the page names the read through Work's unknown state. A press reads again, so an offer read before the base moved catches the branch up to the base's newer tip, and one read before the branch gained commits returns `branch_changed`." Build choice (for Design Decisions, with its reason): the read is awaited when a page is opened, as the folder check's is, so a page never opens showing an old offer. Evidence: engine.ts:2750-2770; snapshot.ts:422; folder-facts.ts:171, 205-209; local-server.ts:288-291.
+### Q51 (discovery's notes)
+Discovery: buildSnapshot and needsYouView are synchronous (snapshot.ts:415, 625); §Catching a Branch Up says a branch "qualifies … read at the moment of use", which settles the press (re-read, `branch_changed` 409) but not when the offer shown on the page is read; Work has its own read moments and already reads the base's tip on origin; checkBase (engine.ts:5649) is the existing read-at-view-connect pattern. Proposed (88%): read the offer together with Work, at Work's moments (when the stop is recorded, at each recheck, when the page is opened or reloaded, before a session starts), cached on the engine like Work with the snapshot reading the cached value; a read that fails gives no offer and names the read, as Work's unknown state does; the press keeps its own fresh re-read and the 409. One sentence after "The offer exists when any of the PRD's repositories qualifies".
+Pass 5 discovery also confirmed without raising: carry-on's reply forms match `kiln reply` (client.ts:121, 144, 151); "the phase's fresh-session prompt" is `freshSessionPrompt(values, true)` (prompts.ts:113-119); reply goes through POST /api/resume (local-server.ts:482); AC-FROM-03 row 2 needs no new store (client.ts:126); an existing branch's draft pull request is covered by final delivery's check (checks.ts:297-321).
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
 
 ## Conflict check
 Pass 1: 2026-11-12 · 42 earlier criteria changed (26 already pointed at) · 4 existing lines to fix, 8 lines to add (16 criteria) · 0 raised as questions · folded into the PRD (3 lines fixed, 2 removed, 12 added incl. UI-003; Changes header gained Codex Support and Completion Audits). For pass 1 conformance: Check again (AC-CARRY-02) and Check Phase N anyway (AC-CASE-03) may need AC-VIEW-02 lines by the same precedent (conformance: no; precedent adds the line only for controls that change the run, and these are rechecks)
-Changed after pass 1: AC-FROM-03, AC-RESET-04 (pass 2, Q3); AC-FROM-03 again (pass 4, Q26 and Q32)
+Changed after pass 1: AC-FROM-03, AC-RESET-04 (pass 2, Q3); AC-FROM-03 again (pass 4, Q26 and Q32; pass 5, Q50)
 Completion:
 
 ## Register re-sort
 Pass 1: 2026-11-12 · 0 open entries (validated table only) · nothing to sort
 
 ## Noticed, out of scope
+- A retry of a failed reset's command ID that reaches the old journal before Kiln exits overwrites the receipt's reason with the generic "Controller stopped during an effect…" (commands.ts:251); Kiln's PATH is fixed when it starts, so a `gh` put only on a shell's changed PATH needs a new `kiln run`.
 - In a shallow main checkout, "origin's tip is absent, so it is not an ancestor" can be wrong; Kiln has no shallow-clone handling.
 - Between phases with no current activity, `request-pause` is available but no page shows Pause after.
 - The `controlView()` token doesn't include `folderMissing` (engine.ts:572-574), so a token copied before a folder went missing still matches afterwards; harmless for reset, and other commands are refused with `folder_missing` anyway.
@@ -482,4 +506,4 @@ Pass 1: 2026-11-12 · 0 open entries (validated table only) · nothing to sort
 |---|---|---|
 
 ## Next action
-Passes 1-4 are committed (not pushed). Pass 5 in progress: Q44 and Q46+Q49+Q27 are Answered, not folded (fold from the "Q44, final text" and "Q46, Q49 and Q27, final text" blocks; one writer at a time). Investigator on Q45+Q47+Q48. Still to do in pass 5: Q50; pass 5 discovery (one subagent). Then conformance and the pass 5 commit. Convergence: stop when a discovery surfaces fewer than 3 new questions and nothing is Deferred; maximum 8 passes.
+Passes 1-5 are committed (not pushed). Converged: pass 5's discovery surfaced 1 new question and nothing is Deferred. The final conformance pass ran with pass 5 (clean). Phase 7 in progress: (2) conflict check re-run for AC-FROM-03 and AC-RESET-04 and (3) final verification (one readiness-check subagent) are running. If verification surfaces questions below the bar, treat them as pass 6 (3 passes remain). Otherwise: write the completion report, delete this file, completion commit with the Noticed-out-of-scope lines and a `Conflict check:` line in its body, then Phase 8 consolidation on top of that commit, then stakeholder-review-package, then hand off to phase-split.

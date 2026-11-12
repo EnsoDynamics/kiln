@@ -23,6 +23,8 @@
 
 **Document Purpose**: This document lists the assumptions we're making to proceed with [Kiln Run Restart](kiln-run-restart-prd.md). We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong. Every numbered entry before the Technical Assumptions section is a business assumption.
 
+**Technical details** are documented in the [Technical Design Document](kiln-run-restart-technical-design.md).
+
 ---
 
 ## Validated Assumptions
