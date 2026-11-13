@@ -18,6 +18,7 @@ Three phases, executed in order. The PRD holds four capabilities, each with its 
 | [5 complete start from existing branch](phase-5-complete-start-from-branch.md) | Added by delivery audit: finish Documents found's labels, branch list and pull request line, and name each repository's own base in the catch-up offer. | 2 (Start from, branch list, catch-up offer) |
 | [6 complete first card, held command and layout](phase-6-complete-first-card-held-command-and-layout.md) | Added by delivery audit: show the last message on a stopped phase that can't be resumed, let `kiln carry-on --message-reviewed` work on a held phase, keep **PR into** on a multi-repository row whose branch is unavailable, and lay out Documents found's plan-source box and Start from choices as drawn. | 4, 5 |
 | [7 complete closed-at-start and catch-up box](phase-7-complete-closed-at-start-and-catch-up-box.md) | Added by delivery audit: accept the phases Closed at the start on a multi-repository start whose PRD repository has no copy of the chosen branch, and draw Documents found's catch-up offer in its box. | 2, 6 |
+| [8 complete plan-source line, repository set and why section](phase-8-complete-plan-source-repositories-and-why-section.md) | Added by delivery audit: say where Documents found read the plan only when the documents shown were read there, keep the repositories an earlier Start set up in an existing-branch start, and draw the carry-on card's why section as drawn. | 1, 2, 5, 6, 7 |
 
 ## Acceptance-criterion ownership
 

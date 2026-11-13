@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "60729a02-ca4d-48bb-9249-969c250a9151",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The whole-PRD delivery audit of Kiln Run Restart at 6f397ca found 3 of 23 criteria not fully built. AC-FROM-02: Documents found says \"Read from <branch>\" or \"Read from <base>\" above documents that were not read there, when an existing branch's plan read is skipped or fails, or a new branch's checkout differs from its base. AC-FROM-05: an existing-branch start drops a repository an earlier Start set up when the start commit's plan doesn't name it. AC-LOOK-01: the carry-on card's \"Why the earlier conversation can't be reopened\" section is a filled panel where the mockup draws a ruled section. Phase 8 builds them. Four rounds ran and each confirmed a new missing part, so the assessment ended at its round limit. No criterion was amended and no behavior was found changed outside the requirements.",
+  "completionPhases": ["8"],
+  "needsYou": [],
+  "settled": []
+}
