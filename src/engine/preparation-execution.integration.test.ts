@@ -914,3 +914,56 @@ nativeIt.each(["checkpoint_read", "checkpoint_changed"])("discovers a real detac
     if (owner) await waitFor(async () => { try { await requireExited(owner!); return true; } catch { return false; } });
   }
 }, 120_000);
+
+/** A Start again or Carry on instruction as the browser and command line submit it, settled. */
+async function restartCommand(action: "start-again" | "carry-on", commandId: string, inputs: Record<string, unknown> = {}) {
+  const answer = h.engine.commands.submit({ command_id: commandId, execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action, inputs }, "caller", true);
+  expect(answer.ok, JSON.stringify(answer.errors)).toBe(true);
+  await h.engine.commands.settled(); await h.engine.settled();
+  return h.engine.commands.lookup(commandId).operation as import("../control/commands.js").Receipt;
+}
+nativeIt("starts the preparation phase again with its own task and a fresh policy read (run restart AC-CASE-02)", async () => {
+  const f = await fixture();
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ noInit: true, actions: [] }, { actions: [{ result: "Not prepared yet." }, { exit: 0 }] }] }));
+  await f.accept(); await h.engine.settled();
+  expect(h.engine.stoppedPhase()).toBe("9"); expect(h.engine.stoppedCase("9")).toBe("could_not_start");
+  delete h.engine.record.preparation!.providerPolicyDigest;
+  expect(await restartCommand("start-again", "prep-start-again")).toMatchObject({ outcome: "session_started" });
+  const calls = h.claudeCalls();
+  expect(calls).toHaveLength(2);
+  expect(calls[1]!.prompt).toBe(calls[0]!.prompt); expect(calls[1]!.prompt).toContain("preparation only");
+  expect(h.engine.record.preparation).toMatchObject({ stage: "preparation", providerPolicyDigest: expect.any(String) });
+}, 120_000);
+nativeIt("carries on the preparation phase with its own task and the carry-on facts (run restart AC-CARRY-05)", async () => {
+  const f = await fixture();
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ noTranscript: true, actions: [{ result: "Blocked before preparing." }, { exit: 0 }] }, { actions: [{ result: "Still not prepared." }, { exit: 0 }] }] }));
+  await f.accept(); await h.engine.settled();
+  expect(h.engine.stoppedPhase()).toBe("9"); expect(h.engine.carryOnControl()).toMatchObject({ offered: true, available: true });
+  delete h.engine.record.preparation!.providerPolicyDigest;
+  expect(await restartCommand("carry-on", "prep-carry-on", { message: "The catalog work is merged." })).toMatchObject({ outcome: "session_started" });
+  const prompt = h.claudeCalls()[1]!.prompt;
+  expect(prompt.startsWith("Prepare the prerequisites for Phase 9 of Library catalog")).toBe(true); expect(prompt).toContain("preparation only");
+  expect(prompt).toContain("The person running Kiln says:\n\nThe catalog work is merged.");
+  expect(prompt).toContain("Blocked before preparing.");
+  expect(h.engine.phaseSessions("9").at(-1)!.startedAs).toBe("carry_on");
+  expect(h.engine.record.preparation).toMatchObject({ stage: "preparation", providerPolicyDigest: expect.any(String) });
+}, 120_000);
+nativeIt("carries on the preparation phase's implementation stage in a new session that the checks can pass (run restart AC-CARRY-05)", async () => {
+  const f = await fixture(); await f.accept();
+  const scenario = JSON.parse(readFileSync(h.scenarioPath, "utf8")) as { sessions: unknown[] };
+  scenario.sessions[1] = { actions: [{ result: "Blocked partway through the implementation." }, { exit: 0 }] };
+  scenario.sessions[2] = landingSession();
+  writeFileSync(h.scenarioPath, JSON.stringify(scenario));
+  const resultBody = await f.submit();
+  expect(await h.engine.submitPreparation(resultBody)).toMatchObject({ ok: true, disposition: "verified" }); await h.engine.settled();
+  expect(h.engine.record.preparation!.stage).toBe("implementation"); expect(h.engine.stoppedPhase()).toBe("9");
+  // The saved conversation is gone, so Kiln carries on in a new session.
+  const { findTranscripts } = await import("../session/transcripts.js");
+  unlinkSync(findTranscripts(h.env.CLAUDE_CONFIG_DIR!, h.engine.latestSession("9")!.sessionId).main!);
+  expect(h.engine.carryOnControl()).toMatchObject({ offered: true, available: true });
+  expect(await restartCommand("carry-on", "prep-implementation-carry-on")).toMatchObject({ outcome: "session_started" });
+  expect(h.claudeCalls()[2]!.prompt).not.toContain("preparation only");
+  expect(h.claudeCalls()[2]!.prompt).toContain("Blocked partway through the implementation.");
+  expect(h.engine.phaseSessions("9")).toHaveLength(2);
+  expect(h.engine.record.phases["9"]?.doneAt).toBeDefined();
+}, 120_000);

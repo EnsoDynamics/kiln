@@ -241,10 +241,72 @@ describe("carrying on when the conversation can't be reopened (AC-CARRY-01, AC-C
     await h.engine.settled();
     finishByHand(h);
     const receipt = await submit(h.engine, "carry-on", { message: "Carry on." });
-    expect(receipt).toMatchObject({ state: "completed", outcome: "phase_already_complete", effects: { session: "not_started" } });
+    expect(receipt).toMatchObject({ state: "completed", outcome: "phase_already_complete", effects: { session: "not_started", reply: "not_sent" }, reply_text: "Carry on." });
     expect(h.claudeCalls()).toHaveLength(1);
     expect(h.engine.phaseSessions("1")).toHaveLength(1);
     expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
+    // The reply is kept unsent, as a reply's is: the page and kiln status list it, and advancing must say it leaves it unsent.
+    const target = h.engine.controlView().target;
+    expect(h.engine.commands.unsent(target).map(one => one.reply_text)).toEqual(["Carry on."]);
+    const view = h.engine.controlView();
+    const refused = h.engine.commands.submit({ command_id: "advance-1", execution_id: h.engine.record.executionId!, status_token: view.token, action: "verify-and-advance", inputs: {} }, "caller", true);
+    expect(refused.ok).toBe(false);
+    expect(h.engine.commands.lookup("advance-1").operation).toMatchObject({ state: "refused", outcome: "unsent_reply_acknowledgement_required" });
+    const advance = h.engine.commands.submit({ command_id: "advance-2", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "verify-and-advance", inputs: { without_sending_reply: true } }, "caller", true);
+    expect(advance.ok, JSON.stringify(advance.errors)).toBe(true);
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(h.engine.commands.lookup("advance-2").operation).toMatchObject({ outcome: "advanced", effects: { plan: "advanced" } });
+    expect((h.engine.commands.lookup(receipt.command_id).operation as Receipt).acknowledged_by).toBe((h.engine.commands.lookup("advance-2").operation as Receipt).id);
+    expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
+  });
+
+  it("keeps no unsent reply for a carry-on without one, and advancing needs no acknowledgement", async () => {
+    harness = await createHarness({ sessions: [blocked("Blocked.", { noTranscript: true }), landingSession()] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    finishByHand(h);
+    const receipt = await submit(h.engine, "carry-on", { message: "   " });
+    expect(receipt).toMatchObject({ outcome: "phase_already_complete", reply_text: null, effects: { reply: "not_applicable" } });
+    expect(h.engine.commands.unsent(h.engine.controlView().target)).toEqual([]);
+    const advance = h.engine.commands.submit({ command_id: "advance-plain", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "verify-and-advance", inputs: {} }, "caller", true);
+    expect(advance.ok, JSON.stringify(advance.errors)).toBe(true);
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(h.engine.commands.lookup("advance-plain").operation).toMatchObject({ outcome: "advanced" });
+  });
+
+  it("keeps a carry-on's unsent reply once Kiln is opened again", async () => {
+    harness = await createHarness({ sessions: [blocked("Blocked.", { noTranscript: true }), landingSession()] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    finishByHand(h);
+    const receipt = await submit(h.engine, "carry-on", { message: "Carry on." });
+    expect(receipt.outcome).toBe("phase_already_complete");
+    h.engine.close();
+    const reopened = h.reopen();
+    expect(reopened.commands.unsent(reopened.controlView().target).map(one => one.reply_text)).toEqual(["Carry on."]);
+    reopened.close();
+  });
+});
+
+describe("the first card after a resume that couldn't spawn (AC-CASE-04)", () => {
+  it("gives the latest launch's last recorded final message, with today's spawn-error warning", async () => {
+    harness = await createHarness({ sessions: [blocked("Blocked: the import work isn't on develop.")] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    // A resume whose process couldn't start, as the Claude session records one: a run with only its spawn error.
+    const session = h.engine.latestSession("1")!;
+    const at = new Date(Date.parse(session.runs[0]!.endedAt!) + 60_000).toISOString();
+    session.runs.push({ startedAt: at, endedAt: at, cause: "person_resume", spawnError: { code: "EACCES", message: "spawn claude EACCES" } });
+    writeSessionRecord(h.stateDirectory, session);
+    expect(h.engine.stoppedPhase()).toBe("1");
+    const stop = buildSnapshot(h.engine).needsYou!;
+    expect(stop.launchFailure).toBeUndefined();
+    expect(stop.finalMessage).toBe("Blocked: the import work isn't on develop.");
+    expect(stop.lastLines).toBeUndefined();
+    expect(stop.spawnError).toEqual({ code: "EACCES", message: "spawn claude EACCES" });
   });
 });
 

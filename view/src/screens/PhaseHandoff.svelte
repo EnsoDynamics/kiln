@@ -40,10 +40,13 @@
   // Mid-sentence the activity reads as the mockup writes it: "Phase 3" keeps its capital, "delivery audit" and "final delivery" do not.
   const inSentence = $derived(/^Phase /.test(activity) ? activity : activity.charAt(0).toLowerCase() + activity.slice(1));
   const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
+  const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
-  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover || !!snapshot.liveControl?.reviewRequired?.length);
+  // A held page whose conversation can't be reopened stays pending with its history, yet carries on
+  // and advances from the carry-on's already-complete choice (run restart AC-CARRY-06).
+  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover && !heldCarryOn || !!snapshot.liveControl?.reviewRequired?.length);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -65,7 +68,6 @@
   let lastAction: "reply" | "resume" | "carry" = $state("resume");
   // A stopped phase's case (run restart AC-CASE-01); a held page keeps today's headline.
   const restart = $derived(snapshot.liveControl ? undefined : caseHeadline(stop, activity, agent));
-  const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   // The catch-up offer, once above the ways to resolve the stop, covers every button that starts or resumes the phase (AC-CURRENT-01).
   let catchUpTicked = $state(true);
   const bringUpToDate = $derived(!snapshot.liveControl && !!stop.catchUp && catchUpTicked);
@@ -199,7 +201,7 @@
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
       <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
     </div>
-  {:else if pendingTakeover}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
+  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
   {:else if page.choice}
     <section class="card choice" aria-live="polite">
       <h2 tabindex="-1" bind:this={choiceHeading}>{activity} is already complete.</h2>
@@ -224,6 +226,8 @@
     {@render checkSection()}
   {:else}
     <h2>How would you like to resolve this?</h2>
+    <!-- A failed work read is named on every stopped page (run restart "A Stopped Phase's Facts", Work). -->
+    {#if stop.work && "unknown" in stop.work}<p class="warning" role="status">{stop.work.unknown}</p>{/if}
     {#if stop.resumeOffered}{@render catchUp()}{/if}
     <div class="peer-choices">
       <section class="card">

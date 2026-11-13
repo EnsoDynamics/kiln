@@ -2,7 +2,7 @@
 // complete reference for bots (AC-HELP-02).
 
 import { describe, expect, it } from "vitest";
-import { commandContracts, commandHelp, wrapNames } from "./help.js";
+import { commandContracts, commandHelp, parseCommand, wrapNames } from "./help.js";
 
 const GROUPS = ["start", "answer", "live", "inspect", "reset", "kiln-sessions"];
 const text = commandHelp([], false);
@@ -110,7 +110,11 @@ describe("the commands that start a stopped phase's session (run restart AC-CARR
     const carry = commandContracts.find(c => c.path.join(" ") === "carry-on")!;
     // The reply is optional, in the same forms as kiln reply.
     expect(Object.keys(carry.flags)).toEqual(expect.arrayContaining(["message-file", "message-from-stdin", "message-reviewed"]));
-    expect(carry.required_exclusive_groups).toEqual([]);
+    expect(carry.required_exclusive_groups).toEqual([{ at_most_one: ["message-file", "message-from-stdin"] }]);
+    expect(commandHelp(["carry-on"], false)).toContain("At most one: message-file, message-from-stdin");
+    const changing = ["--only-if-status-matches", "s", "--command-id", "c"];
+    expect(parseCommand(["carry-on", "prd.md", ...changing]).flags["message-file"]).toBeUndefined();
+    expect(() => parseCommand(["carry-on", "prd.md", ...changing, "--message-file", "reply.txt", "--message-from-stdin"])).toThrow(/At most one of --message-file, --message-from-stdin/);
     expect(Object.keys(commandContracts.find(c => c.path.join(" ") === "start-again")!.flags)).not.toContain("message-file");
   });
 });

@@ -72,6 +72,16 @@ function uncertainEffects(r: Receipt): void {
   }
   if (["verify-and-advance", "check-again", "waive-and-advance"].includes(r.instruction.action) && r.effects.plan !== "advanced") r.effects.plan = "unknown";
 }
+/**
+ * A carry-on that finds the phase already complete keeps its reply unsent, as a reply does
+ * (run restart AC-CARRY-05): the text is kept only then, since a started carry-on's reply rides
+ * in the new session's prompt rather than being delivered to a conversation.
+ */
+function keepUnsentCarryOnReply(r: Receipt): void {
+  const message = r.instruction.inputs.message;
+  if (r.instruction.action !== "carry-on" || r.outcome !== "phase_already_complete" || typeof message !== "string" || !message.trim()) return;
+  r.reply_text = message; r.effects.reply = "not_sent";
+}
 export function validateInstruction(raw: unknown): Instruction {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ControlFailure("invalid_input", "A command object is required.", 2);
   const r = raw as Record<string, unknown>;
@@ -114,7 +124,7 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && (r.outcome === null || typeof r.outcome === "string") && (r.reason === null || typeof r.reason === "string")
     && (r.acknowledged_by === null || typeof r.acknowledged_by === "string")
     && (r.settings === undefined || typeof r.settings.keep_awake === "boolean" && typeof r.settings.resume_after_usage_limit === "boolean")
-    && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
+    && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.instruction.action === "carry-on" ? r.reply_text === null || r.outcome === "phase_already_complete" && r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
     && (r.message === undefined || r.instruction.action === "message" && validLiveTarget(r.live_target) && r.message.text === r.instruction.inputs.text && typeof r.message.uuid === "string" && !!r.message.uuid && ["submitting", "submitted", "received", "not_sent", "uncertain"].includes(r.message.delivery) && [r.message.writeStartedAt, r.message.writeCompletedAt, r.message.writeSettledAt, r.message.receivedAt, r.message.resultAt, r.message.reviewedAt].every(v => v === undefined || Number.isFinite(Date.parse(v))))
     && [r.session_id, r.phase_key, r.attempt_id, r.waiver_id].every(v => v === undefined || typeof v === "string")
     && (r.changes === undefined || Array.isArray(r.changes) && r.changes.every(c => !!c && typeof c.check === "string" && typeof c.subject === "string" && ["newly_failing", "newly_passing", "text_changed"].includes(c.change)));
@@ -253,6 +263,7 @@ export class CommandJournal {
     const known = this.host.reconcile(r);
     if (known) {
       Object.assign(r, known);
+      keepUnsentCarryOnReply(r);
       // A Mark complete proven applied after a restart advanced the plan when its outcome does (waivers "Command line").
       if (r.instruction.action === "waive-and-advance" && r.state === "completed" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome ?? "")) r.effects.plan = "advanced";
       if (r.effects.plan === "advanced" && r.instruction.inputs.without_sending_reply === true) {
@@ -360,6 +371,7 @@ export class CommandJournal {
       else {
         r.state = r.message?.delivery === "uncertain" ? "indeterminate" : "completed"; r.outcome = answer.outcome ?? "completed";
         if (r.instruction.action === "waive-and-advance" && answer.reason !== undefined) r.reason = answer.reason;
+        keepUnsentCarryOnReply(r);
         if (r.outcome === "advanced" || r.instruction.action === "waive-and-advance" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome)) {
           r.effects.plan = "advanced";
           for (const prior of unsent) { prior.acknowledged_by = r.id; this.save(prior); }

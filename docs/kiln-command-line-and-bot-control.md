@@ -31,7 +31,7 @@ Existing-run control commands require a caller-generated command ID and the stat
 Two commands start a new session for a stopped phase, where the browser offers the matching button; `kiln status <PRD-path> --json` lists each among the controls with whether it is available and why not.
 
 - `kiln start-again <PRD-path>` launches the phase's first session again when Kiln couldn't start the agent and no conversation began. It takes no reply and runs no completion check first.
-- `kiln carry-on <PRD-path>` starts a new session when the phase's earlier conversation can't be reopened, including for a phase paused for takeover whose paused session has ended. It takes an optional reply from `--message-file <path>` or `--message-from-stdin`, and on a takeover pause the `--message-reviewed <receipt-id>` acknowledgements `kiln resume` takes. It checks completion first: already-complete work returns `phase_already_complete` and starts nothing.
+- `kiln carry-on <PRD-path>` starts a new session when the phase's earlier conversation can't be reopened, including for a phase paused for takeover whose paused session has ended. It takes an optional reply from at most one of `--message-file <path>` or `--message-from-stdin`, and on a takeover pause the `--message-reviewed <receipt-id>` acknowledgements `kiln resume` takes. It checks completion first: already-complete work returns `phase_already_complete`, starts nothing and keeps the reply unsent, listed in `unsent_replies`, so advancing then needs `--without-sending-reply` as after a reply.
 
 Neither reopens the earlier conversation. Each receipt's `operation.effects.session` reads `started` once the new session's prompt is submitted and it reports its start. Both take the command ID and status-token flags above.
 

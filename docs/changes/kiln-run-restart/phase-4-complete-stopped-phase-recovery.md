@@ -1,5 +1,6 @@
 # Phase 4: Complete stopped-phase recovery
 
+**Closed:** 2026-11-12
 **Added by delivery audit:** 2026-11-12, after every planned phase closed. It builds what earlier phases left out of the criteria below, confirmed in the whole-PRD audit at `522e983`.
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "A Stopped Phase's Facts" (Work, Case), "Starting a Session at a Stop" (Start again, Carry on, Command line), "A Held Phase That Can't Be Reopened" (Advance from a hold, Bots), "Interfaces" (`kiln carry-on`)

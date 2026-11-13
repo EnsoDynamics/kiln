@@ -1068,7 +1068,14 @@
           "source": "Command runner supplies literal UTF-8 message bytes on standard input; no shell interpolation."
         }
       },
-      "required_exclusive_groups": [],
+      "required_exclusive_groups": [
+        {
+          "at_most_one": [
+            "message-file",
+            "message-from-stdin"
+          ]
+        }
+      ],
       "limits": [
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",

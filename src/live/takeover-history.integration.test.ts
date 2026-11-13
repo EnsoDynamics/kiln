@@ -280,10 +280,15 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       const stop = buildSnapshot(h.engine).needsYou!;
       expect(stop).toMatchObject({ carryOn: { available: true, endsHold: "takeover" }, reopen: { reason: "missing" }, work: { builtNothing: false } });
       expect(stop.case).toBeUndefined();
+      // kiln handoff gives the fresh-session instructions the terminal card shows, and no resume command.
+      const handoff = await cli(["handoff"]);
+      expect(handoff.body.data, JSON.stringify(handoff.body)).toMatchObject({ resumable: false, resume_command: null, resume_argv: null, fresh_session_instructions: { command: stop.freshSessionCommand, prompt: stop.freshSessionPrompt } });
       // The phase was finished by hand: carry-on checks completion first and starts nothing.
       const complete = await carryOn("held-carry-complete", { target: h.engine.phaseRecoveryTarget(), note: "Never sent." });
       expect(complete.body, JSON.stringify(complete)).toMatchObject({ ok: true, outcome: "already_complete" });
       expect(h.claudeCalls()).toHaveLength(originalCalls); expect(h.engine.record.liveControl).toBeDefined();
+      // The reply is kept unsent, as a reply's is (AC-CARRY-05).
+      expect(h.engine.commands.unsent(h.engine.controlView().target).map(r => r.reply_text)).toEqual(["Never sent."]);
       // Undo the hand finish, so the carry-on starts a session; it lands the phase.
       git(h.sandbox, h.engine.worktreePath, "revert", "--no-edit", "HEAD"); git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", h.engine.record.settings.featureBranch);
       const scenario = JSON.parse(readFileSync(h.scenarioPath, "utf8")) as { sessions: unknown[] };
@@ -318,6 +323,9 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(hold.history).toMatchObject({ state: "unavailable" });
       expect(hold.carryOnObstacle).toBe("Claude is open on this conversation in a terminal. Exit it first.");
       expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: hold.carryOnObstacle });
+      // kiln handoff gives no fresh-session instructions while Claude is open on the conversation.
+      const handoff = await cli(["handoff"]);
+      expect(handoff.body.data, JSON.stringify(handoff.body)).toMatchObject({ resume_command: null, fresh_session_instructions: null });
       page = await chrome.open(server!.address, { width: 1200, height: 1100 });
       await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
       expect(await page.evaluate(`${button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`)}.disabled`)).toBe(true);

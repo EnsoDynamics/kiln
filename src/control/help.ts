@@ -5,7 +5,7 @@ export interface CommandContract {
   path: string[]; group: CommandGroup; purpose: string; side_effect: string; implemented: boolean; availability: string; usage: string;
   arguments: { name: string; required: boolean; source: string }[];
   flags: Record<string, { value: string | null; source: string; repeatable?: boolean }>;
-  required_exclusive_groups: { exactly_one?: string[]; required?: string[] }[];
+  required_exclusive_groups: { exactly_one?: string[]; at_most_one?: string[]; required?: string[] }[];
   limits: string[]; result_fields: Record<string, string>; errors: string[]; error_meanings?: Record<string, string>; exits: Record<string, string>;
   input_contract?: { fields: Record<string, string>; types?: Record<string, unknown>; rules: string[] };
   examples: { request: string; argv: string[]; stdin?: string; preparation?: string; files?: Record<string, unknown> }[];
@@ -22,7 +22,7 @@ export function commandHelp(path: string[], json: boolean): string {
   return [c.usage, c.purpose, `Availability: ${c.availability}`, `Side effects: ${c.side_effect}`,
     ...c.arguments.map(a => `${a.name}${a.required ? " (required)" : " (optional)"}: ${a.source}`),
     ...Object.entries(c.flags).map(([name, f]) => `--${name}${f.value ? ` <${f.value}>` : ""}: ${f.source}`),
-    ...c.required_exclusive_groups.map(g => g.exactly_one ? `Exactly one: ${g.exactly_one.join(", ")}` : `Required together: ${g.required?.join(", ")}`),
+    ...c.required_exclusive_groups.map(g => g.exactly_one ? `Exactly one: ${g.exactly_one.join(", ")}` : g.at_most_one ? `At most one: ${g.at_most_one.join(", ")}` : `Required together: ${g.required?.join(", ")}`),
     ...c.limits, "Result fields:", ...Object.entries(c.result_fields).map(([k, v]) => `${k}: ${v}`),
     ...(c.input_contract ? ["JSON file input contract:", JSON.stringify(c.input_contract, null, 2)] : []),
     `Errors: ${c.errors.join(", ")}`, ...Object.entries(c.error_meanings ?? {}).map(([code, meaning]) => `${code}: ${meaning}`), ...Object.entries(c.exits).map(([code, meaning]) => `Exit ${code}: ${meaning}`),
@@ -94,6 +94,7 @@ export function parseCommand(args: string[]): ParsedCommand {
   if (!flags.help) {
     if (positionals.length > contract.arguments.length || positionals.length < contract.arguments.filter(a => a.required).length) throw new ControlFailure("invalid_input", `Invalid arguments. Use kiln ${contract.path.join(" ")} --help.`, 2);
     for (const g of contract.required_exclusive_groups) if (g.exactly_one && g.exactly_one.filter(name => flags[name] !== undefined).length !== 1) throw new ControlFailure("invalid_input", `Exactly one of ${g.exactly_one.map(n => `--${n}`).join(", ")} is required.`, 2);
+    for (const g of contract.required_exclusive_groups) if (g.at_most_one && g.at_most_one.filter(name => flags[name] !== undefined).length > 1) throw new ControlFailure("invalid_input", `At most one of ${g.at_most_one.map(n => `--${n}`).join(", ")} may be given.`, 2);
     for (const g of contract.required_exclusive_groups) if (g.required?.some(name => flags[name] === undefined)) throw new ControlFailure("invalid_input", `Required flags: ${g.required.map(n => `--${n}`).join(", ")}.`, 2);
     if (contract.side_effect === "change" && (!flags["command-id"] || !flags["only-if-status-matches"])) throw new ControlFailure("invalid_input", "Changing commands require --command-id and --only-if-status-matches.", 2);
   }

@@ -775,7 +775,10 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   }
   // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
   const interrupted = stop.interrupted;
-  const finalMessage = interrupted === undefined && run?.result?.text?.trim() ? run.result.text : undefined;
+  // A stopped phase's first card gives the latest launch's last recorded final message, the one the
+  // carry-on prompt carries, so a resume that couldn't spawn still shows it (AC-CASE-04).
+  const messageRun = engine.stoppedPhase() === phaseKey ? session.runs.findLast(candidate => candidate.result?.text?.trim()) : run;
+  const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
   const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
   const resumeFolder = engine.workingDirectoryOf(recovery!);

@@ -414,6 +414,9 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   const heldSession = hold?.target.sessionId === session.sessionId;
   const liveRun = session.runs.at(-1);
   const requiresRelease = heldSession || !!liveRun?.live && !liveRun.endedAt;
+  // A hold whose saved conversation can't be reopened is never released, yet once the carry-on
+  // ownership check passes its fresh-session instructions are usable, with no resume command (run restart AC-CARRY-06).
+  const heldFresh = !!engine && heldSession && !!hold?.history && !hold.carryOnObstacle;
   if (requiresRelease && (!engine || hold?.state !== "released")) {
     available = false;
     reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
@@ -424,7 +427,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     working_directory: cwd, resumable: available, reason, active_under_kiln: owned,
     provider_history: { state: available ? "available" : owned ? "unknown" : "unavailable", observed_at: new Date().toISOString(), reason },
     resume_command: available ? currentStop?.resumeCommand ?? (session.agentId === "codex" ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId)) : null,
-    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
+    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
   } finally { history.dispose(); }
 }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */

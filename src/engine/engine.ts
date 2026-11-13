@@ -4279,7 +4279,8 @@ export class Engine {
   /**
    * Start again (AC-CASE-02) or Carry on (AC-CARRY-05): a session record for the phase, new or its
    * last one when that has no run, launched through the ordinary launch path in the phase's
-   * worktree. Start again sends the ordinary phase prompt; Carry on sends the carry-on prompt.
+   * worktree. Start again sends the ordinary phase prompt; Carry on sends the carry-on prompt; on
+   * the prerequisite-preparation phase each is built on the preparation task.
    * The phase's stop clears just before dispatch, after the billing check, as a resumed run's does.
    */
   private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>): Promise<void> {
@@ -4290,13 +4291,19 @@ export class Engine {
     const leaf = this.plan?.phases.find(phase => phase.id === key) ?? judgedPhase(this.record.plan ?? [], key);
     const fileName = (leaf && "fileName" in leaf ? leaf.fileName : undefined) ?? this.fileOf(key) ?? "";
     const values = this.phasePromptValues(fileName, this.sessionFolder);
+    // The prerequisite-preparation phase gets its own task and policy read, as its first launch and a resume do.
+    const preparing = this.preparingTurn(key);
+    if (preparing && !await this.restartPreparationTurn(key)) return;
+    // Once the preparation phase's implementation stage has begun, a carry-on's new session holds that
+    // stage from its first run, admitted on the verified checkpoint as the stage's first run is.
+    if (request.kind === "carry_on" && !preparing && this.record.preparation?.phaseId === key) this.record.preparation.implementationRun = 0;
     let prompt: string;
-    if (request.kind === "start_again") prompt = phaseSessionPrompt(values);
+    if (request.kind === "start_again") prompt = preparing ? this.preparationTask() : phaseSessionPrompt(values);
     else {
       const work = await this.refreshStoppedWork(key);
       const earlier = this.recoverySession(key);
       const lastMessage = earlier?.runs.findLast(run => run.result?.text?.trim())?.result?.text;
-      prompt = carryOnPrompt({ freshSession: freshSessionPrompt(values, true), ...(request.note ? { note: request.note } : {}), ...(lastMessage ? { lastMessage } : {}), work: work && !("unknown" in work) ? work.repositories : [], multiRepository: this.setUpRepositories.length > 1 });
+      prompt = carryOnPrompt({ freshSession: preparing ? this.preparationTask() : freshSessionPrompt(values, true), ...(request.note ? { note: request.note } : {}), ...(lastMessage ? { lastMessage } : {}), work: work && !("unknown" in work) ? work.repositories : [], multiRepository: this.setUpRepositories.length > 1 });
     }
     if (this.stopping) { this.checking = false; return; }
     this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "started" });
@@ -4321,6 +4328,25 @@ export class Engine {
     }
     this.record.preparation!.providerPolicyDigest = digest;
     this.writeContinuationMetadata(() => this.save()); return true;
+  }
+
+  /** Whether the phase's next turn is prerequisite preparation rather than its implementation stage. */
+  private preparingTurn(key: string): boolean {
+    return this.record.preparation?.phaseId === key && this.record.preparation.stage !== "implementation";
+  }
+
+  /**
+   * Explicit preparation recovery before a new turn of the preparation phase (a resume, Start again
+   * or Carry on): settles any attempt left unfinished, returns to the preparation stage and reads the
+   * policy again. False when the policy read stopped the phase.
+   */
+  private async restartPreparationTurn(key: string): Promise<boolean> {
+    const state = this.record.preparation!;
+    for (const attempt of state.attempts.filter(preparationAttemptNeedsReconciliation)) { await reconcilePreparationAttempt(attempt); attempt.outcome = "interrupted"; attempt.reason = "Explicit preparation recovery; investigate external effects before a new submission."; }
+    state.stage = "preparation"; state.submissions = []; delete state.verifiedCheckpoint;
+    if (!await this.preparePolicyForTurn(key)) return false;
+    this.save();
+    return true;
   }
 
   private preparationTask(note?: string): string {
@@ -4648,11 +4674,9 @@ export class Engine {
       : undefined;
     // A resumed run gets the flags for the workspace as it now stands.
     const args = session.agentId === "codex" ? [] : resumeArguments(session.sessionId, session.initModel ?? session.model, session.effort, this.addDirs(cwd));
-    if (this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation") {
-      for (const attempt of this.record.preparation.attempts.filter(preparationAttemptNeedsReconciliation)) { await reconcilePreparationAttempt(attempt); attempt.outcome = "interrupted"; attempt.reason = "Explicit preparation recovery; investigate external effects before a new submission."; }
-      this.record.preparation.stage = "preparation"; this.record.preparation.submissions = []; delete this.record.preparation.verifiedCheckpoint; if (!await this.preparePolicyForTurn(phaseKey)) return; this.save();
-    }
-    const actualPrompt = this.record.preparation?.phaseId === phaseKey && this.record.preparation.stage !== "implementation" ? this.preparationTask(request?.note) : prompt;
+    const preparing = this.preparingTurn(phaseKey);
+    if (preparing && !await this.restartPreparationTurn(phaseKey)) return;
+    const actualPrompt = preparing ? this.preparationTask(request?.note) : prompt;
     await this.runProcess(phaseKey, session, args, actualPrompt, request?.cause ?? "resume", cwd, request?.note, started, account);
     } catch (error) {
       if (this.record.preparation?.phaseId !== phaseKey || this.commands.fault || this.stopping) throw error;

@@ -75,6 +75,11 @@ it("kiln carry-on takes its reply from a file or standard input, and start-again
   const status = await cli(["status"]);
   expect((status.body.controls as { name: string; available: boolean }[]).find(c => c.name === "carry-on")).toMatchObject({ available: true });
   const file = join(h!.sandbox.root, "reply.txt"); writeFileSync(file, "  Merged now; $(not a command) carry on.\n");
+  // At most one reply source, as kiln reply takes them: both together are refused and start nothing.
+  const both = await cli(["carry-on", "--message-file", file, "--message-from-stdin", "--only-if-status-matches", String(status.body.status_token), "--command-id", "cli-carry-both"], "From stdin.\n");
+  expect(both.code).toBe(2);
+  expect(JSON.stringify(both.body)).toContain("At most one of --message-file, --message-from-stdin");
+  expect(h!.claudeCalls()).toHaveLength(1);
   const carried = await cli(["carry-on", "--message-file", file, "--only-if-status-matches", String(status.body.status_token), "--command-id", "cli-carry"]);
   expect(carried.code, carried.error).toBe(0);
   const receipt = await settledReceipt("cli-carry");

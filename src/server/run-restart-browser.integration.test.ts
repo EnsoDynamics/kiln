@@ -38,8 +38,8 @@ function stopped(change: Partial<NonNullable<Snapshot["needsYou"]>>, noTarget = 
 }
 const launchFailure = { ran: "claude" as const, folder: "/w", sentence: "Kiln ran `claude` in the worktree, and the computer couldn't start it.", error: "Couldn't start claude in ~/work/.worktrees/customer-returns/acme-shop: spawn claude EAGAIN", at: "2026-10-17T15:52:00Z" };
 
-async function open(snapshot: Snapshot, width = 1200): Promise<{ server: ViewFixtureServer; page: BrowserPage }> {
-  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => ({ status: 200, body: command.includes("carry-on") || command.includes("start-again") ? { ok: true, outcome: "session_started" } : { ok: true } }) });
+async function open(snapshot: Snapshot, width = 1200, carryOutcome = "session_started"): Promise<{ server: ViewFixtureServer; page: BrowserPage }> {
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => ({ status: 200, body: command.includes("carry-on") ? { ok: true, outcome: carryOutcome } : command.includes("start-again") ? { ok: true, outcome: "session_started" } : { ok: true } }) });
   return { server, page: await chrome.open(server.address, { width, height: 1100 }) };
 }
 
@@ -147,6 +147,40 @@ describe.each([1200, 390])("at %ipx wide", width => {
       expect(body).not.toContain("Wait before opening Claude");
       expect(body).not.toContain("Finished Phase 2b there?");
       expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("advances from the carry-on's already-complete choice on a held page whose conversation can't be reopened (AC-CARRY-06)", async () => {
+    const snapshot = stopped({ resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true, endsHold: "takeover" } }, false, ["resumeCommand"]);
+    const target = { executionId: "execution", activityId: "act", activityKey: "2b", sessionId: snapshot.needsYou!.sessionId!, providerSessionId: snapshot.needsYou!.sessionId!, attemptId: "attempt" };
+    snapshot.needsYou!.phaseRecovery!.target.live = target;
+    snapshot.liveControl = { target, label: "Phase 2b", observedAt: "2026-10-17T15:52:00Z", available: false, reason: "Kiln can't reopen the saved conversation history.", messages: [], reviewRequired: [], takeover: { target, operationId: "op", instructionId: "take", requestedAt: "2026-10-17T15:50:00Z", state: "pending", observedAt: "2026-10-17T15:52:00Z", reason: "Kiln can't reopen the saved conversation history.", history: { state: "unavailable", reason: "missing" } } };
+    const { server, page } = await open(snapshot, width, "already_complete");
+    try {
+      await words(page, "Reply here and let Kiln carry on");
+      await page.evaluate(`(() => { const input = document.querySelector('#carry-reply'); input.value = 'Carry on.'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await click(page, "Send reply & continue Phase 2b");
+      // The hold stays pending with its history, yet the choice shows in place of the wait text, and its advance is sent.
+      await words(page, "Phase 2b is already complete.");
+      const body = await text(page);
+      expect(body).toContain("Your reply has not been sent.");
+      expect(body).not.toContain("Wait before opening Claude");
+      await click(page, "Advance without sending reply");
+      await waitFor(() => server.commands.some(command => command.startsWith("POST /api/check-again ")));
+      const sent = server.commands.find(command => command.startsWith("POST /api/check-again "));
+      expect(JSON.parse(sent!.slice("POST /api/check-again ".length))).toMatchObject({ intent: "advance", withoutSendingReply: true, target: { activityKey: "2b" } });
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("names a failed work read on today's reply and resume page (AC-CASE-01)", async () => {
+    const { server, page } = await open(stopped({ case: "needs_input", reopen: { state: "available" }, work: { unknown: "Kiln couldn't read the phase's work: fatal: bad object 0000000" } }), width);
+    try {
+      await words(page, "Reply here and let Kiln finish");
+      const body = await text(page);
+      expect(body).toContain("Phase 2b needs your input.");
+      expect(body).toContain("Kiln couldn't read the phase's work: fatal: bad object 0000000");
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });
