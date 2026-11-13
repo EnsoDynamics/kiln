@@ -1,5 +1,7 @@
 # Phase 3: Reset Kiln for a PRD
 
+**Closed:** 2026-11-12
+
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Architecture" (item 2, the engine holder), "Reset", "Interfaces" (`GET /api/reset/preview`, `POST /api/reset`, the snapshot's `reset`, `kiln reset` and the **Start over** help group), "Data Models" (the `reset` journal action and receipt), "Changes to Earlier Designs" (the Kiln v1 state and `kiln run` pointers, Missing Worktree Recovery's Folder Check pointer, Bot Control's retained receipt, Public Release Readiness's help groups)
 

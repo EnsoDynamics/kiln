@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { commandText, ControlFailure } from "./result.js";
-export type CommandGroup = "start" | "answer" | "live" | "inspect" | "kiln-sessions";
+export type CommandGroup = "start" | "answer" | "live" | "inspect" | "reset" | "kiln-sessions";
 export interface CommandContract {
   path: string[]; group: CommandGroup; purpose: string; side_effect: string; implemented: boolean; availability: string; usage: string;
   arguments: { name: string; required: boolean; source: string }[];
@@ -30,7 +30,7 @@ export function commandHelp(path: string[], json: boolean): string {
     ...commandContracts.filter(child => child.path.length > c.path.length && c.path.every((p, i) => child.path[i] === p)).map(child => `Subcommand: kiln ${child.path.join(" ")} --help`), reference.guidance, ""].join("\n");
 }
 /** The task headings of top-level text help, in the order they print; `start` and `kiln-sessions` print as lines of their own. */
-const TASK_HEADINGS: [CommandGroup, string][] = [["answer", "Answer a stopped phase"], ["live", "Message, pause or take over"], ["inspect", "Look closer"]];
+const TASK_HEADINGS: [CommandGroup, string][] = [["answer", "Answer a stopped phase"], ["live", "Message, pause or take over"], ["inspect", "Look closer"], ["reset", "Start over"]];
 
 /**
  * Top-level text help: a one-screen guide for people (AC-HELP-01). The full reference, helpers

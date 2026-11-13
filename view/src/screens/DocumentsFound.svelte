@@ -50,7 +50,7 @@
 
   const documents = $derived(snapshot.documents!);
   const settings = $derived(snapshot.settings);
-  const rows = $derived(planRows(documents.plan.phases));
+  const rows = $derived(documents.plan ? planRows(documents.plan.phases) : []);
   const account = $derived(accountLines(snapshot.account));
   const models = $derived(modelOptions(snapshot));
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
@@ -69,7 +69,7 @@
   const offer = $derived(existing ? startFrom?.catchUp : undefined);
   const catchUpTicked = $derived(startFrom?.bringUpToDate ?? true);
   const startLabel = $derived(startFrom?.startAt ? `Start at Phase ${startFrom.startAt.id}` : "Start");
-  const closedLine = $derived(closedPhasesLine(documents.plan.phases, startFrom));
+  const closedLine = $derived(documents.plan ? closedPhasesLine(documents.plan.phases, startFrom) : undefined);
   const branchFixed = $derived(fixedLocked || settings.fixed.featureBranch);
 
   // The confirmation box belongs to the view: the same tab keeps it ticked, and a reload asks again.
@@ -153,13 +153,13 @@
             <span class="item-line">{prdLine(documents.prd)}</span>
           </div>
         </li>
-        <li>
+        {#if documents.design}<li>
           {@render check(16)}
           <div class="item">
             <div class="item-head"><span class="item-name">Technical design</span><span class="mono file">{documents.design.file}</span></div>
             <span class="item-line">{designLine(documents.design, documents.prd.criteriaCount)}</span>
           </div>
-        </li>
+        </li>{/if}
         <li>
           {@render check(16)}
           <div class="item">
@@ -167,13 +167,13 @@
             <span class="item-line">{assumptionsLine(documents.assumptions)}</span>
           </div>
         </li>
-        <li>
+        {#if documents.plan}<li>
           {@render check(16)}
           <div class="item plan">
             <div class="item-intro">
-              <div class="item-head"><span class="item-name">Phase plan</span><span class="mono file">{documents.plan.phaseDocCount} {documents.plan.phaseDocCount === 1 ? "phase doc" : "phase docs"}</span></div>
+              <div class="item-head"><span class="item-name">Phase plan</span><span class="mono file">{documents.plan!.phaseDocCount} {documents.plan!.phaseDocCount === 1 ? "phase doc" : "phase docs"}</span></div>
               {#if sourceLine}<span class="item-line">{sourceLine.lead}<span class="mono code">{sourceLine.code}</span>{sourceLine.tail ?? ""}</span>{/if}
-              <span class="item-line">{startCountLine(documents.plan, startFrom)}</span>
+              <span class="item-line">{startCountLine(documents.plan!, startFrom)}</span>
             </div>
             <ol class="phases">
               {#each rows as row (row.id)}
@@ -192,7 +192,7 @@
               {/each}
             </ol>
           </div>
-        </li>
+        </li>{/if}
         {#if documents.unfollowedLinks?.length}
           <!-- Neither passed nor failed: Kiln starts anyway and tells the agent (Kiln Linked Documents AC-LINK-04). -->
           <li class="linked">
@@ -212,7 +212,10 @@
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
           {@const named = passed.name.split(` ${repositoryName}`)}
-          {#if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
+          {#if !passed.passed}
+            <!-- A start check that failed on a page a reset built, in kiln run's words (run restart AC-RESET-04). -->
+            <span class="failed"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg>{passed.text ?? passed.name}</span>
+          {:else if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
             <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{repositoryName}</span>{named[1]}</span></span>
           {:else}
             <span class="passed">{@render check(12)}{passed.name}</span>
@@ -473,6 +476,7 @@
   .choice-text { display: flex; flex-direction: column; gap: 3px; }
   .choice-name { font-size: 14.5px; font-weight: 600; color: var(--text); }
   .phase-repos { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--dim); text-align: right; }
+  .checks .failed { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); flex-basis: 100%; }
   .checks { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .passed { display: inline-flex; align-items: center; gap: 6px; }
   .check-name { font-size: 12px; color: var(--text); }

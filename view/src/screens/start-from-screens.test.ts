@@ -16,11 +16,11 @@ const SHA = "a".repeat(40);
 /** Documents found on a branch someone built phases 1, 2a and 2b on, with its open pull request #48. */
 function builtByHand(): Snapshot {
   const base = documentsFoundSnapshot();
-  const phases = base.documents!.plan.phases.map(phase => ["1", "2a", "2b"].includes(phase.id) ? { ...phase, closed: true } : phase);
+  const phases = base.documents!.plan!.phases.map(phase => ["1", "2a", "2b"].includes(phase.id) ? { ...phase, closed: true } : phase);
   return documentsFoundSnapshot({
     settings: { featureBranch: "feature/receipts-by-hand" },
     documents: {
-      plan: { ...base.documents!.plan, closedCount: 3, phases },
+      plan: { ...base.documents!.plan!, closedCount: 3, phases },
       start: {
         from: "existing", bringUpToDate: true, previewId: "p".repeat(64),
         branches: [{ name: "feature/old-try", available: true }, { name: "feature/receipts-by-hand", available: true }, { name: "develop", available: false }],

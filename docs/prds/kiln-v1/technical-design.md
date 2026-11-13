@@ -99,7 +99,7 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Normal Order Under a Waived Problem (a waived plan stop follows normal order).
 
-Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch (Documents found is computed for a starting point).
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch and §Reset (Documents found is computed for a starting point; a reset returns a running Kiln to it; an interrupted reset is finished first).
 
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Reconciliation is passive by default: an in-memory restart review holds all new dispatch and usage-wait watchers. Eligible continuation is shown through the Paused overview with a Resume button, completed/total/planned phases and the next activity. The snapshot adds optional `restartReview: { activityKey, action: start | resume | wait }`. Needs you, Complete and an intentional pause keep their existing screens. Resume uses the existing Start API and bot `continue` command, rechecks current state, then releases the review and drives normal continuation. The review has no saved schema field; every controller restart reviews again. `--resume` skips only this review for an already-started record, never an intentional pause or another restriction. No record or an unstarted record with that flag fails before setup. The following reconciliation choices describe what becomes eligible after this review, or immediately with `--resume`. Pseudocode:
 
@@ -700,6 +700,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (schema 3; a run the person resumed, with its note)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Data Models (the wait, `limitRefusal`, `limit_resume`, the setting)
+
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, Doing it (reset discards the PRD's state directory except the instance lock and reset receipts).
 
 Root: `$XDG_STATE_HOME/kiln`, else `~/.local/state/kiln`, on macOS and Linux alike; `%LOCALAPPDATA%\kiln` on Windows, readable by its owner only. Never inside the repository (AC-GIT-03).
 

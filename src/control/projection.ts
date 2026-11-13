@@ -33,7 +33,7 @@ import { checkFoldersSync, type FolderCheck } from "../engine/folder-check.js";
 import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -335,12 +335,15 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
 function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {
   const record = engine?.record ?? work.record;
   const reachable = !!engine;
+  const control = engine ? engine.controlView() : undefined;
+  const reset = control?.controls.find(one => one.name === "reset");
   return result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
     controller: reachable ? "reachable" : "stopped", working_sessions: engine?.current?.processRunning ? 1 : 0, facts: { state: "current", observed_at: folders.checkedAt, reason: null },
     state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
-    status_token: null, controls: PLANNED_CONTROLS.map(name => ({ name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null })), unsent_replies: [],
+    // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
+    status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }), unsent_replies: [],
     ...(full ? { plan: record.plan ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit } } : {}),
   });
 }

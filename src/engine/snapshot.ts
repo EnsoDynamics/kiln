@@ -113,9 +113,11 @@ export function sessionIdentity(session: SessionRecord): SessionIdentityView {
 
 export interface DocumentsFound {
   prd: { file: string; criteriaCount: number; firstLabel?: string; lastLabel?: string };
-  design: { file: string; criteriaCited: number };
+  /** Absent only on a page a reset built, when the start checks could not read it (run restart AC-RESET-04). */
+  design?: { file: string; criteriaCited: number };
   assumptions: { file: string; total: number; notYetConfirmed: number } | null;
-  plan: {
+  /** Absent only on a page a reset built, when the plan could not be read (run restart AC-RESET-04). */
+  plan?: {
     phaseDocCount: number;
     leafCount: number;
     closedCount: number;
@@ -124,7 +126,10 @@ export interface DocumentsFound {
   };
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
-  checks: { name: string; passed: boolean }[];
+  /** A failed row, on a page a reset built, names the check in `kiln run`'s words (run restart AC-RESET-04). */
+  checks: { name: string; passed: boolean; text?: string }[];
+  /** On a page a reset built: a start check failed, so Start is unavailable until a reload finds them all passing. */
+  checksFailed?: true;
   /** Where Kiln starts from (run restart AC-FROM-01 to 05, AC-CURRENT-01); absent until the first preview finishes. */
   start?: StartView;
 }
@@ -270,6 +275,8 @@ export interface Snapshot {
     stoppedAt?: string;
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
+  /** Started PRDs only: present means the reset line shows (run restart "Availability"). */
+  reset?: { available: boolean; reason?: string };
   settings: {
     developmentDeployments?: DevelopmentSettings;
     agent: string;
@@ -563,11 +570,18 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...optional("needsYou", needsYou),
     ...optional("waiting", waiting),
     ...(folderMissing ? { folderMissing: folderMissingSnapshot(folderMissing, engine) } : {}),
+    // Every screen of a started PRD ends with the reset line (run restart AC-RESET-01).
+    ...(record.startedAt !== undefined ? { reset: engine.resetControl() } : {}),
   };
   if (state === "not_started" && documents) {
     const preview = engine.startPreview;
     // With an existing branch, What Kiln found is read from Git at the start commit (run restart AC-FROM-02).
-    const found = preview?.from === "existing" && preview.documents && preview.plan && preview.plan.problems.length === 0 ? gitDocumentsFound(preview, engine) : documents;
+    const fromGit = preview?.from === "existing" && preview.documents && preview.plan && preview.plan.problems.length === 0 ? gitDocumentsFound(preview, engine) : undefined;
+    // A start check that failed on a page a reset built stays named, and holds Start, whichever documents show (AC-RESET-04).
+    // On a page a reset built, its start checks decide the check rows: a clean tree it didn't find isn't shown as passed.
+    const cleanRow = (name: string) => name.startsWith("Working tree");
+    const resetRows = engine.resetStart ? (fromGit?.checks ?? []).filter(check => !cleanRow(check.name) || documents.checks.some(row => row.passed && row.name === check.name)) : fromGit?.checks;
+    const found = fromGit ? { ...fromGit, checks: [...resetRows!, ...documents.checks.filter(check => !check.passed)], ...(documents.checksFailed ? { checksFailed: true as const } : {}) } : documents;
     snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
@@ -1087,6 +1101,44 @@ export function documentsFound(
           ]
         : [{ name: "Working tree is clean", passed: true }]),
     ],
+  };
+}
+
+/**
+ * Documents found on a page a reset built (run restart AC-RESET-04, "Start checks on the page"):
+ * the documents the start checks could read, the passed checks, and each failed one in `kiln run`'s
+ * words. `adoptsCheckout` lets the uncommitted-files check give way for a selection that adopts the
+ * checkout `kiln run` was run from (AC-FROM-03 row 6).
+ *
+ *   startCheckDocuments(prdDirectory, "customer-returns", report, "acme-shop", prdDirectoryFromRoot, false)  // { prd, design, plan, checks, ... }
+ */
+export function startCheckDocuments(prdDirectory: string, folderName: string, report: StartCheckReport, repositoryName: string, prdDirectoryFromRoot: string, adoptsCheckout: boolean): DocumentsFound {
+  const problems = report.problems.filter(problem => !(adoptsCheckout && problem === report.uncommitted));
+  const failed = [...report.missingDocuments.map(document => `Missing from ${prdDirectoryFromRoot}/: ${document.name} ${document.description}`), ...problems];
+  const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
+  const prdFile = `${folderName}-prd.md`;
+  let criteria: ReturnType<typeof countPrdCriteria> = { count: 0, labels: [] } as unknown as ReturnType<typeof countPrdCriteria>;
+  try { criteria = countPrdCriteria(read(prdFile)); } catch { /* A PRD the checks couldn't read is named among the failed checks. */ }
+  const readable = (name: string | undefined) => { if (!name) return undefined; try { return read(name); } catch { return undefined; } };
+  const design = readable(report.found.designFile);
+  const assumptions = readable(report.found.assumptionsFile);
+  const plan = report.plan && report.plan.problems.length === 0 ? report.plan : undefined;
+  const leaves = plan ? leavesOf(plan) : [];
+  const cleanName = report.repositories.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
+  return {
+    prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
+    ...(design !== undefined ? { design: { file: report.found.designFile!, criteriaCited: countDesignCitations(design, criteria.labels) } } : {}),
+    assumptions: assumptions !== undefined ? { file: report.found.assumptionsFile!, ...countAssumptions(assumptions) } : null,
+    ...(plan ? { plan: { phaseDocCount: report.found.phaseDocCount, leafCount: leaves.length, closedCount: leaves.filter(leaf => leaf.closed).length, phases: plan.phases.map(phase => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })) } } : {}),
+    ...(report.found.unfollowedLinks?.length ? { unfollowedLinks: report.found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
+    checks: [
+      ...(plan ? [{ name: "Every phase cites its criteria", passed: true }, { name: "Dependencies point backward", passed: true }] : []),
+      ...(report.repositories.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: `Named repositories found beside ${repositoryName}`, passed: true }] : []),
+      // Uncommitted files an adopted worktree holds are counted on the page, never shown as a clean tree.
+      ...(report.uncommitted !== undefined || report.problems.some(problem => problem.startsWith("Couldn't read the checkout's status")) ? [] : [{ name: cleanName, passed: true }]),
+      ...failed.map(text => ({ name: text, passed: false, text })),
+    ],
+    ...(failed.length ? { checksFailed: true as const } : {}),
   };
 }
 

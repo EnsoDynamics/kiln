@@ -13,7 +13,9 @@ import { readBuildInfo, versionLine } from "./build-info.js";
 // repository (multi-repo AC-ADD-01; add-repository-command.ts).
 
 import { basename, dirname, resolve, join } from "node:path";
-import { Engine, type StopReport, type TerminalEvent } from "./engine/engine.js";
+import { Engine, type ResetOutcome, type ResetStartChecks, type StopReport, type TerminalEvent } from "./engine/engine.js";
+import { recoverReset, resetFailureReason } from "./engine/reset.js";
+import type { Receipt } from "./control/commands.js";
 import { originBranches } from "./engine/git-reads.js";
 import { documentsFound, PR_TITLE } from "./engine/snapshot.js";
 import { defaultBaseBranch, defaultSettings, prdTreeAtHead } from "./engine/worktree-setup.js";
@@ -30,7 +32,7 @@ import { newPrdRecord } from "./state/new-record.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatResetLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
 import { formatCompletedPlanCheck, formatDecisionLine, formatFolderMissing, formatSummaryLine } from "./underway-output.js";
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
@@ -93,6 +95,11 @@ class StopControl {
 
   get stopping(): boolean {
     return this.cause !== undefined;
+  }
+
+  /** Ends the run with `code`, as when a reset step fails and the run has nothing left to serve. */
+  end(code: number): void {
+    this.resolveDone(code);
   }
 
   private onSignal(signal: (typeof STOP_SIGNALS)[number]): void {
@@ -191,6 +198,13 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   try {
     let record: PrdRecord | undefined;
     try {
+      // A reset a stop or a failing step left unfinished is finished before the record is read (run restart "Recovery").
+      recoverReset(stateDirectory);
+    } catch (error) {
+      context.stderr.write(`kiln: ${error instanceof Error ? error.message : String(error)}\n`);
+      return EXIT_START_CHECKS_FAILED;
+    }
+    try {
       record = readPrdRecord(stateDirectory);
     } catch (error) {
       if (!(error instanceof NewerSchemaError)) throw error;
@@ -224,6 +238,7 @@ function makeEngine(
   record: PrdRecord,
   write: (line: string) => void,
   start?: { prdTree: string | undefined; plan: PhasePlan | undefined; repositories: FoundRepository[] },
+  startChecks?: () => Promise<ResetStartChecks>,
 ): Engine {
   const { location, tools, context } = run;
   const colors = terminalColors(context.stdout, context.env);
@@ -255,6 +270,8 @@ function makeEngine(
       write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id), address) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
+    onReset: (receipt) => afterReset(run, receipt),
+    ...(startChecks ? { startChecks } : {}),
   });
   const savedInspection = readWork(stateRoot(context.env), run.stateDirectory);
   const aliases = [...new Set([...retainedAliases(savedInspection).filter(path => !path.endsWith("-prd.md")), location.prdDirectory])];
@@ -269,6 +286,61 @@ function makeEngine(
   };
   engine.onChange(readHistoryOnce);
   queueMicrotask(readHistoryOnce);
+  return engine;
+}
+
+/** How long a failed reset's answer has to reach the page before the run closes the server and exits. */
+const RESET_EXIT_DELAY_MS = 250;
+
+/**
+ * Step 5 of a reset, once the old journal settled its receipt (run restart "Doing it"): the start
+ * checks, the not-started engine over the fresh record, published to the open pages, and the one
+ * Reset line. A step that failed, or a step 5 that throws, ends the run with exit 1.
+ */
+async function afterReset(run: KilnRun, receipt: Receipt): Promise<ResetOutcome> {
+  const fail = (reason: string): ResetOutcome => {
+    run.context.stderr.write(`kiln: ${reason}\n`);
+    // The page's answer goes out first; then the run closes the server, releases the lock and exits 1.
+    setTimeout(() => run.stop.end(EXIT_START_CHECKS_FAILED), RESET_EXIT_DELAY_MS).unref();
+    return { ok: false, reason };
+  };
+  if (receipt.state !== "completed") return fail(receipt.reason ?? resetFailureReason("the reset was interrupted"));
+  try {
+    const engine = await resetEngine(run);
+    run.stop.server!.replaceEngine(engine);
+    engine.checkBase();
+    terminalWriter(run)(formatResetLine(new Date(), terminalColors(run.context.stdout, run.context.env)));
+    return { ok: true, controlToken: engine.controlView().token };
+  } catch (error) {
+    return fail(`Kiln was reset but couldn't open Documents found: ${error instanceof Error ? error.message : String(error)}. Run kiln run again.`);
+  }
+}
+
+/**
+ * The not-started engine a reset builds, as `kiln run` builds one for a saved not-started record,
+ * without exiting when a check fails: the page shows the failure and Start waits (AC-RESET-04).
+ */
+async function resetEngine(run: KilnRun): Promise<Engine> {
+  const { location, tools, context } = run;
+  const git = { git: tools.git, env: context.env };
+  const startChecks = async (): Promise<ResetStartChecks> => {
+    // gh is looked up on the PATH again, so installing it clears "gh isn't on the PATH." on reload.
+    const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env);
+    return { report, prdTree: await prdTreeAtHead(git, location.checkoutRoot, location.prdDirectoryFromRoot) };
+  };
+  const checks = await startChecks();
+  const record = readPrdRecord(run.stateDirectory);
+  if (!record) throw new Error("the fresh record is missing");
+  if (checks.report.github) record.repository.github = checks.report.github;
+  const unset = checks.report.repositories.filter((repository) => record.settings.bases[repository.name] === undefined);
+  const origins = await Promise.all(unset.map((repository) => originBranches(git, repository.mainCheckoutPath)));
+  unset.forEach((repository, index) => {
+    const origin = origins[index]!;
+    if (origin.ok) record.settings.bases[repository.name] = defaultBaseBranch(origin.value);
+  });
+  writePrdRecord(run.stateDirectory, record);
+  const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories }, startChecks);
+  engine.resetStart = checks;
   return engine;
 }
 

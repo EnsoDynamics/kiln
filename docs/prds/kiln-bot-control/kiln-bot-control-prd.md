@@ -62,6 +62,7 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-HELP-01 in `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-prd.md` (top-level text help is a short guide that collapses the sessions' helpers into one line; `kiln --help --json` and per-command help keep the full list)
   - Replaces in part: AC-CLI-02 and AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the listed post-start controls and output are also available outside the browser).
   - Superseded in part by: AC-CARRY-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (two more commands join the controls for a run already started).
+  - Superseded in part by: AC-RESET-06 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (one more command joins the controls for a run already started).
 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
   - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)

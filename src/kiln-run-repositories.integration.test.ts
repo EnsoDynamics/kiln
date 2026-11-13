@@ -197,7 +197,7 @@ describe("kiln run on a PRD across repositories", () => {
       ["storefront", "named", "develop", displayPath(join(workspace, "storefront")), false],
     ]);
     // AC-REPO-01: each phase shows the repositories it names; a split record's aren't passed down.
-    expect(snapshot.documents!.plan.phases.map((phase) => [phase.id, phase.repositories])).toEqual([
+    expect(snapshot.documents!.plan!.phases.map((phase) => [phase.id, phase.repositories])).toEqual([
       ["1", ["returns-api"]],
       ["2", ["returns-api"]],
       ["2a", []],

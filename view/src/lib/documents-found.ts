@@ -18,7 +18,7 @@ export function prdLine(prd: Documents["prd"]): string {
 }
 
 /** "Cites all 14 criteria", or "Cites 12 of 14 criteria" */
-export function designLine(design: Documents["design"], criteriaCount: number): string {
+export function designLine(design: NonNullable<Documents["design"]>, criteriaCount: number): string {
   if (criteriaCount > 0 && design.criteriaCited === criteriaCount) return `Cites all ${plural(criteriaCount, "criterion", "criteria")}`;
   return `Cites ${design.criteriaCited} of ${plural(criteriaCount, "criterion", "criteria")}`;
 }
@@ -40,7 +40,7 @@ export function linkedDocumentsLine(count: number): string {
  *
  *   planCountLine({ leafCount: 5, closedCount: 1 })  // "4 phases to implement, in this order · 1 already closed"
  */
-export function planCountLine(plan: Pick<Documents["plan"], "leafCount" | "closedCount">): string {
+export function planCountLine(plan: Pick<NonNullable<Documents["plan"]>, "leafCount" | "closedCount">): string {
   const left = plan.leafCount - plan.closedCount;
   const closed = plan.closedCount > 0 ? ` · ${plan.closedCount} already closed` : "";
   if (left === 0) return `No phases left to implement · all ${plan.leafCount} already closed`;
@@ -64,13 +64,13 @@ function closedWhere(start: NonNullable<Documents["start"]>): { count: string; l
 }
 
 /** The count line with phases closed where the plan was read: "3 of 7 phases are already closed on that branch. Kiln starts at Phase 4." */
-export function startCountLine(plan: Pick<Documents["plan"], "leafCount" | "closedCount">, start: Documents["start"]): string {
+export function startCountLine(plan: Pick<NonNullable<Documents["plan"]>, "leafCount" | "closedCount">, start: Documents["start"]): string {
   if (start?.startAt && plan.closedCount > 0) return `${plan.closedCount} of ${plan.leafCount} phases ${plan.closedCount === 1 ? "is" : "are"} already closed on ${closedWhere(start).count}. Kiln starts at Phase ${start.startAt.id}.`;
   return planCountLine(plan);
 }
 
 /** The line beside Start naming the closed phases that won't run: "Phases 1–3 are closed on the branch and won't run." */
-export function closedPhasesLine(phases: Documents["plan"]["phases"], start: Documents["start"]): string | undefined {
+export function closedPhasesLine(phases: NonNullable<Documents["plan"]>["phases"], start: Documents["start"]): string | undefined {
   if (!start?.startAt) return undefined;
   const closed = phases.filter(phase => phase.closed && !phase.splitInto).map(phase => phase.id);
   if (closed.length === 0) return undefined;
@@ -99,7 +99,7 @@ export interface PlanRow {
 }
 
 /** The plan as drawn: every phase in order, a split phase's children nested under it. */
-export function planRows(phases: Documents["plan"]["phases"]): PlanRow[] {
+export function planRows(phases: NonNullable<Documents["plan"]>["phases"]): PlanRow[] {
   const byId = new Map(phases.map((phase) => [phase.id, phase]));
   const childIds = new Set(phases.flatMap((phase) => phase.splitInto ?? []));
   const row = (id: string): PlanRow => {
@@ -153,6 +153,8 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   const { settings, documents, repositories } = snapshot;
   const multi = snapshot.feature.multiRepository;
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
+  // On a page a reset built, a failed start check holds Start until a reload finds them all passing (run restart AC-RESET-04).
+  if (documents?.checksFailed) return { enabled: false, note: "Fix what failed, then reload." };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
   if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };

@@ -9,7 +9,7 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import type { ItemChange, MarkCompleteOffer } from "../engine/waivers.js";
 import { markCompletePreview } from "./waiver-facts.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again"] as const;
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset"] as const;
 /** The actions that start a new session of a stopped phase (run restart AC-CARRY-04): their receipts settle `started`, never `resumed`. */
 export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again"];
 export type Action = typeof ACTIONS[number];
@@ -35,7 +35,11 @@ export interface Receipt {
   changes?: ItemChange[];
   /** The four session-starting actions: what a catch-up moved before the session, empty when nothing did (run restart AC-CURRENT-01). */
   branch_catch_up?: { repository: string; branch: string; from: string; to: string; commits: number }[];
+  /** `reset` only: what the reset discards and the execution it starts, checkpointed before the record changes (run restart "Doing it", step 2). */
+  reset?: { forgets: ResetForgets; new_execution_id: string };
 }
+/** The counts a reset's confirmation names under Kiln forgets (run restart AC-RESET-03). */
+export interface ResetForgets { phaseResults: number; sessions: number; stops: number; waivers: number; audits: number; deliveries: number }
 /** The outcomes of `waive-and-advance` that advance the plan (waivers "Command line"). */
 export const WAIVE_ADVANCING_OUTCOMES = ["marked_complete", "checks_passed", "continued"];
 /** Rechecks whose failed outcome carries the stop's Mark complete preview (AC-WAIVE-05). */
@@ -73,7 +77,7 @@ export function validateInstruction(raw: unknown): Instruction {
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"] };
+  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);

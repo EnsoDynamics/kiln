@@ -21,7 +21,7 @@ Proof that billing and live control work on newer Claude Code comes from recorde
 
 ## Design Decisions
 
-Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (Text help: a group's names may take more than one line).
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (Text help: a fourth task group, **Start over**; a group's names may take more than one line).
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -83,7 +83,7 @@ Node.js and Git take one line each in the existing start-failure list. An agent'
 
 ### Top-level text help (shape, at most 40 lines of at most 80 characters)
 
-Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (a group's names may take more than one line).
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (a fourth task group, **Start over**; a group's names may take more than one line).
 
 ```
 Kiln runs an Enso Method phase plan with Claude Code or Codex.

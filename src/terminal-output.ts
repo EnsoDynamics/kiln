@@ -123,6 +123,11 @@ export function resetClock(at: Date, now: Date): string {
   return rounded.toDateString() === now.toDateString() ? time : `${rounded.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
 }
 
+/** After a reset, in the Started line's form: ` 9:17  Reset  ·  back to Documents found` (run restart "Doing it"). */
+export function formatResetLine(at: Date, colors: TerminalColors): string {
+  return `${colors.grey(`${terminalTime(at)}  `)}Reset${colors.grey("  ·  back to Documents found")}`;
+}
+
 /**
  * ` 9:17  Started  ·  feature/customer-returns from develop`, or with several repositories
  * ` 9:17  Started  ·  feature/customer-returns in 3 repositories`.

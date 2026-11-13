@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { commandContracts, commandHelp, wrapNames } from "./help.js";
 
-const GROUPS = ["start", "answer", "live", "inspect", "kiln-sessions"];
+const GROUPS = ["start", "answer", "live", "inspect", "reset", "kiln-sessions"];
 const text = commandHelp([], false);
 const lines = text.trimEnd().split("\n");
 
@@ -27,7 +27,9 @@ describe("top-level text help", () => {
   it("groups every people-facing command under its task heading, in a fixed order", () => {
     // A group's names wrap past 80 characters, breaking after the last comma that fits (run restart "Command line").
     const names = (group: string) => wrapNames(commandContracts.filter(c => c.group === group).map(c => c.path.join(" "))).join("\n");
-    expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nLook closer\n${names("inspect")}\n`);
+    expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nLook closer\n${names("inspect")}\nStart over\n${names("reset")}\n`);
+    // Reset is the only command of the last group (run restart "Command line").
+    expect(names("reset")).toBe("  reset");
     for (const c of commandContracts.filter(c => c.group !== "kiln-sessions")) expect(text, c.path.join(" ")).toMatch(new RegExp(`(?<![\\w-])${c.path.join(" ")}(?![\\w-])`));
   });
 
@@ -55,6 +57,7 @@ describe("the command contracts", () => {
       reply: "answer", resume: "answer", "carry-on": "answer", "start-again": "answer", "verify-and-advance": "answer", "check-again": "answer", "waive-and-advance": "answer",
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
+      reset: "reset",
     };
     for (const c of commandContracts) {
       const name = c.path.join(" ");
@@ -63,6 +66,14 @@ describe("the command contracts", () => {
       expect(c.group, name).toBe(sessionHelper ? "kiln-sessions" : expected[name]);
     }
     expect(Object.keys(expected).every(name => commandContracts.some(c => c.path.join(" ") === name))).toBe(true);
+  });
+
+  // AC-RESET-06: the help is the warning, before any option, and there is no confirming flag.
+  it("warn in kiln reset --help that it can't be undone, what Kiln forgets and that nothing runs until Start", () => {
+    const text = commandHelp(["reset"], false);
+    const warning = text.slice(0, text.indexOf("--"));
+    for (const part of ["This can't be undone.", "which phase it was on and each phase's result", "its sessions and their output", "stops, completion waivers and audit results", "its settings for this PRD", "its record of earlier deliveries", "nothing runs until someone opens the browser view with kiln run <PRD-path> and presses Start on Documents found"]) expect(warning).toContain(part);
+    expect(Object.keys(commandContracts.find(c => c.path.join(" ") === "reset")!.flags).sort()).toEqual(["command-id", "help", "json", "only-if-status-matches"]);
   });
 
   it("keep every command, helpers included, in the JSON help, each with its group", () => {

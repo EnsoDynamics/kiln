@@ -49,7 +49,7 @@ The person first sees the agent’s own message, then chooses where to resolve i
   - Replaces in part: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (the implementation-phase Needs you layout, retaining agent-specific information).
   - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (implementation-phase Needs you arrangement only; repository-specific recovery facts and obligations remain).
   - Replaces in part: AC-LOOK-01 and AC-LOOK-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the implementation-phase Needs you layout and its phase-focused headline; existing feature identity remains visible).
-  - Superseded in part by: AC-CASE-01 and AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the headline; the three stopped-phase pages and the held page AC-CARRY-06 changes; the rest of each layout remains).
+  - Superseded in part by: AC-CASE-01 and AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the headline; the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
 
 ### Answer here or talk it through in the terminal
 

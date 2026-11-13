@@ -152,6 +152,7 @@ Recovery changes nothing until the person presses Start, and Start does only wha
 ### Look like the mockup
 
 - [ ] **AC-LOOK-01 — The screens match their drawings.** The Folder missing page and its terminal message match this change's mockup for layout, order and wording, in Kiln's existing visual style. Sample names, paths, commits and counts are illustrative; the real ones come from the run.
+  - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the reset line on Folder missing; the rest of the layout remains).
 
 ## Mockup
 

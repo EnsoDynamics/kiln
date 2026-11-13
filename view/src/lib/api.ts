@@ -155,5 +155,14 @@ export async function authorizeContinuation(config: PageConfig, executionId: str
 export const carryOn = (config: PageConfig, body: { note?: string; target?: PhaseRecoveryTarget | import("../../../src/live/target.js").LiveTarget; reviewedReceiptIds?: string[]; bringUpToDate?: boolean }) => send(config, "POST", "/api/carry-on", body);
 /** Start Phase N again (run restart AC-CASE-02). */
 export const startAgain = (config: PageConfig, bringUpToDate = false) => send(config, "POST", "/api/start-again", { bringUpToDate });
+/** The reset confirmation's facts, read when it opens (run restart "The confirmation"). */
+export async function resetPreview(config: PageConfig): Promise<import("../../../src/engine/reset.js").ResetPreview | { error: string }> {
+  try {
+    const response = await fetch("/api/reset/preview", { headers: { "X-Kiln-Token": config.token } });
+    return response.ok ? await response.json() as import("../../../src/engine/reset.js").ResetPreview : { error: String(((await response.json()) as { reason?: string }).reason ?? response.statusText) };
+  } catch (error) { return { error: (error as Error).message }; }
+}
+/** Reset Kiln for this PRD, against the page's status token; answered once the new engine is published. */
+export const reset = (config: PageConfig) => send(config, "POST", "/api/reset");
 /** Check again on the carry-on card (run restart AC-CARRY-02). */
 export const reopenCheckAgain = (config: PageConfig) => send(config, "POST", "/api/reopen-check");

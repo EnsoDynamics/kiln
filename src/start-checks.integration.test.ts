@@ -88,8 +88,8 @@ describe("runStartChecks", () => {
     expect(report.repositories).toEqual([]);
     expect(report.found).toEqual({ designFile: `${FOLDER}-technical-design.md`, assumptionsFile: `${FOLDER}-assumptions.md`, phaseDocCount: 5 });
     const documents = documentsFound(join(repository, prdDirectory), FOLDER, report.plan!, { ...report.found, repositories: report.repositories }, "acme-shop");
-    expect(documents.design.file).toBe(`${FOLDER}-technical-design.md`);
-    expect(documents.design.criteriaCited).toBeGreaterThan(0);
+    expect(documents.design!.file).toBe(`${FOLDER}-technical-design.md`);
+    expect(documents.design!.criteriaCited).toBeGreaterThan(0);
     expect(documents.assumptions?.file).toBe(`${FOLDER}-assumptions.md`);
   });
 

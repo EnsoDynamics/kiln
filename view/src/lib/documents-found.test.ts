@@ -6,7 +6,7 @@ describe("what Documents found says it found (AC-START-04)", () => {
   it("words each document's line as drawn", () => {
     const documents = documentsFoundSnapshot().documents!;
     expect(prdLine(documents.prd)).toBe("14 acceptance criteria, AC-RET-01 to AC-RET-14");
-    expect(designLine(documents.design, 14)).toBe("Cites all 14 criteria");
+    expect(designLine(documents.design!, 14)).toBe("Cites all 14 criteria");
     expect(designLine({ file: "technical-design.md", criteriaCited: 12 }, 14)).toBe("Cites 12 of 14 criteria");
     expect(assumptionsLine(documents.assumptions)).toBe("11 assumptions, 2 not yet confirmed. They’re green lights; nothing waits on them.");
     expect(assumptionsLine(null)).toBe("No assumptions document.");
@@ -21,7 +21,7 @@ describe("what Documents found says it found (AC-START-04)", () => {
   });
 
   it("lists every phase in plan order, a split phase's children nested under it", () => {
-    const rows = planRows(documentsFoundSnapshot().documents!.plan.phases);
+    const rows = planRows(documentsFoundSnapshot().documents!.plan!.phases);
     expect(rows.map((row) => [row.id, row.title, row.splitNote, row.children.map((child) => child.id)])).toEqual([
       ["1", "Return intake", undefined, []],
       ["2", "Refund routing", "split into 2a and 2b", ["2a", "2b"]],
@@ -82,7 +82,7 @@ describe("Start (AC-START-05)", () => {
 
 describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
   it("keeps each phase's repositories with its row", () => {
-    const rows = planRows(documentsFoundRepositoriesSnapshot().documents!.plan.phases);
+    const rows = planRows(documentsFoundRepositoriesSnapshot().documents!.plan!.phases);
     expect(rows.map((row) => [row.id, row.repositories, row.children.map((child) => child.repositories)])).toEqual([
       ["1", ["returns-api"], []],
       ["2", ["returns-api"], [["returns-api"], ["returns-api", "storefront"]]],

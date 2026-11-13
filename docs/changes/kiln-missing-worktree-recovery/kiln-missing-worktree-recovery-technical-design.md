@@ -44,6 +44,8 @@ No new process, service or watcher. The engine owns the folder check, the facts,
 
 ## The Folder Check (AC-GONE-01)
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, Availability (while Folder missing is set, `kiln status` returns the status token and lists `reset`, and `reset` is admitted from the page and from the command line).
+
 For each repository entry with `setupCompletedAt`, Kiln classifies the saved folder (`expandHome(entry.worktreePath)`):
 
 | Classification | Predicate |
@@ -170,6 +172,8 @@ Codex records are not rewritten: a Codex conversation resumes only in its record
 A session that started in a worktree before a repository was added still matches a set-up worktree, so it stays resumable.
 
 ## Interfaces
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, Availability (while Folder missing is set, `kiln status` returns the status token and lists `reset`, and `reset` is admitted from the page and from the command line).
 
 ### HTTP (same-origin, token, as today)
 

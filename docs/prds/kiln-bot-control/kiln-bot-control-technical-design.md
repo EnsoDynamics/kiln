@@ -98,7 +98,7 @@ Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Command line (adds `waive-and-advance`).
 
-Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (three more changing commands, `carry-on`, `start-again` and `reset`; the first two's receipts settle `started` in place of `resumed`).
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (`kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` catch an untouched branch up first unless given `--leave-branch-as-is`).
 
@@ -183,9 +183,11 @@ Repeated attempts keep the same conversation entry and distinct stable attempt I
 
 ## Durable Controls and Retries
 
-Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (three more changing commands, `carry-on`, `start-again` and `reset`; the first two's receipts settle `started` in place of `resumed`).
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (the four session-starting receipts gain `branch_catch_up`, what a catch-up moved before the session).
+
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, The receipt (a reset's receipt survives the discard of the journal it belongs to).
 
 ### Status-token semantics
 
@@ -244,6 +246,8 @@ A cursor fixes snapshot and exclusive endpoint; repeated requests with the same 
 `account` and full status separate `last_attempt`/`original_attempt` provenance from `next_attempt` current authentication. Each account, plan, billing route, usage bucket and permission observation retains its own timestamp/state/reason. Codex preserves provider window IDs, duration and account identity; five-hour and weekly names are only assigned when provider data supports them. Claude preserves provider-specific weekly scoped rows. Missing usage is not 0%, and credit balance is not ordinary usage permission. Refresh uses provider metadata, never an inference request. Concurrency joins identical display refreshes; a required prelaunch check starts freshly after older reads settle.
 
 ## Durable Data and Evolution
+
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, The receipt (a reset's receipt survives the discard of the journal it belongs to).
 
 All state is local to this OS user; moving to another Mac is outside this feature. Private state loss means loss of receipts and retained output, reported explicitly, not silently reconstructed as a successful operation. History deletion is one execution-owned lifecycle operation: active or indeterminate effects must reconcile first; provider-owned conversations/credentials are not deleted with Kiln history. A later retention policy can remove one execution without changing another execution’s operation/session identity. No cloud backup or second credentials store is introduced.
 

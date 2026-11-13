@@ -145,7 +145,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (feature && !owner.features?.includes(feature)) throw new ControlFailure("instance_incompatible", "This controller does not support the requested live control. Restart it with updated Kiln.");
       const waive = name === "waive-and-advance";
       if (waive && !owner.features?.includes("waive_and_advance")) throw new ControlFailure("instance_incompatible", "This controller does not support waive-and-advance. Restart it with updated Kiln.");
-      if ((name === "carry-on" || name === "start-again") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
+      if ((name === "carry-on" || name === "start-again" || name === "reset") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
         inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };

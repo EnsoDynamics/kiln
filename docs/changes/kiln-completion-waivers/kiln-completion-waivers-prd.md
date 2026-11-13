@@ -85,6 +85,7 @@ When the person has checked again and Kiln still refuses, they can mark the acti
 Anyone looking later, in the browser, the terminal or a bot, must be able to tell the activity was completed on a waiver and which checks it skipped.
 
 - [ ] **AC-WAIVE-08 — The waiver is saved with everything needed to audit it.** Kiln saves, with the execution, before advancing: when, where it came from (browser or command line, with the local account name and any `--by` name), each waived item with its check, its failure text and what it was checked against (AC-WAIVE-09), and an identity for the check run it rests on. The record survives restarts and is never edited or deleted by Kiln.
+  - Superseded in part by: AC-RESET-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (a reset discards saved session output, waiver records and audit records).
 - [ ] **AC-WAIVE-09 — A waiver covers only the items it named, while they are unchanged.** A waived item counts as met wherever Kiln asks for it again (audits: AC-WAIVE-12): choosing the next activity, a later activity's checks, and the PRD's final completion checks. Across activities, an item matches by its table row and that row's Matched by, so a phase's unpushed work in a repository is the same item as final delivery's. Once what the item was checked against changes, it needs its own passing check or its own waiver; the PRD is never asked to waive the same unchanged item twice. A waiver ending never reopens a completed activity.
 
   | Waived item | Matched by | Checked against | The waiver ends when |

@@ -20,6 +20,10 @@ import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
+import { startCheckDocuments, type DocumentsFound } from "./snapshot.js";
+import { discardResetState, freshResetRecord, resetFailureReason, resetForgets, type ResetPreview } from "./reset.js";
+import { openPullRequest } from "./start-from.js";
+import { ControlFailure } from "../control/result.js";
 import { checkFolder, checkFolders, checkedEntries, type FolderCheck } from "./folder-check.js";
 import { gatherFolderFacts, type FolderMissingView } from "./folder-facts.js";
 import { buildPanel, buildStart, emptyDraft, type PanelContext, type PanelDraft, type PanelFields, type PanelView, type StartBuild, type StartKind } from "./folder-setup.js";
@@ -70,7 +74,7 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
@@ -265,6 +269,26 @@ export interface EngineOptions {
    * of the `kiln` the person ran, on macOS and Linux (multi-repo technical design, "The command").
    */
   kilnBinDirectory?: string;
+  /**
+   * Step 5 of a reset, once its receipt has settled (run restart "Reset", Doing it): the run builds
+   * and publishes a not-started engine, or ends when a step failed. Resolves with what
+   * `POST /api/reset` answers.
+   */
+  onReset?: (receipt: Receipt) => Promise<ResetOutcome>;
+  /**
+   * An engine built by a reset reruns the run's start-check step on each event-stream connection
+   * before Start (run restart AC-RESET-04, Start checks on the page).
+   */
+  startChecks?: () => Promise<ResetStartChecks>;
+}
+
+/** What `POST /api/reset` answers once the reset is over (run restart "Interfaces"). */
+export type ResetOutcome = { ok: true; controlToken: string } | { ok: false; reason: string };
+
+/** The start-check step a reset's engine reruns: the report, the PRD tree and Documents found. */
+export interface ResetStartChecks {
+  report: import("../start-checks.js").StartCheckReport;
+  prdTree: string | undefined;
 }
 
 /** What a stop leaves to print (UI-010 item 3): the first sentence, then the grey rest. */
@@ -585,6 +609,7 @@ export class Engine {
       "outside-confirmation": false,
       "carry-on": this.carryOnControl().available && !busy,
       "start-again": this.startAgainControl().available && !busy,
+      reset: this.resetControl().available,
     };
     const unavailable: Partial<Record<Action, string>> = {
       "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
@@ -596,10 +621,11 @@ export class Engine {
       "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
       "carry-on": this.carryOnControl().reason ?? "Carry on isn't offered here.",
       "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
+      reset: this.resetControl().reason ?? "Reset isn't available.",
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
+    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : name === "reset" ? unavailable.reset! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
@@ -703,6 +729,8 @@ export class Engine {
   }
 
   private async applyControl(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt) {
+    // Reset judges nothing and launches nothing, so no folder check runs before it (run restart "Availability").
+    if (action === "reset") return this.applyReset(receipt);
     // Commands that judge or start work rerun the folder check first; the live and settings controls
     // only refuse while the mode is set (The Folder Check). Kiln's own resume at the end of a usage
     // wait is checked in its wait check, before the completion check (recheckWait).
@@ -1478,6 +1506,8 @@ export class Engine {
     }
     if (record.startedAt !== undefined || this.settingUp) return refuse("Kiln isn't waiting for Start.");
     if (body.refinementConfirmed !== true) return { ok: false, status: 400, reason: "Confirm the documents have been through requirements refinement first." };
+    // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04).
+    if (this.resetDocuments()?.checksFailed) return refuse("Fix what failed, then reload.");
     if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
     const modelError = this.currentFieldErrors.model;
     if (modelError !== undefined) return { ok: false, status: 409, reason: modelError, fieldErrors: { model: modelError } };
@@ -2127,6 +2157,125 @@ export class Engine {
    *
    *   await engine.startAgain()  // { ok: true, outcome: "resume_requested" }
    */
+  /**
+   * Reset's availability on every screen of a started PRD (run restart AC-RESET-01, 02; "Availability"):
+   * unavailable while a session is working or Kiln's own work is under way, with the first matching
+   * sentence of the `reset.reason` table.
+   */
+  resetControl(): { available: boolean; reason?: string } {
+    if (this.record.startedAt === undefined) return { available: false, reason: "Not started; there is nothing to reset." };
+    const session = !!this.current?.processRunning || !!this.orphanStop;
+    const kilnWork = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.completedPlanReading || this.deliveryReading || this.billing.busy || this.stopping || this.commands?.busy || this.folderStartProgress && !this.folderStartProgress.error);
+    if (!session && !kilnWork) return { available: true };
+    const paused = !!this.record.pause.activeSince || !!this.restartReview;
+    const pauseAfter = this.isUnderway && !this.currentlyComplete && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !this.commands?.busy && !this.folderMissing;
+    if (session) {
+      const takeOver = !!this.liveView()?.available && !this.commands?.busy;
+      if (takeOver && pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends." };
+      if (pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Pause after the current phase or audit and reset once it ends." };
+      return { available: false, reason: "A session is still running. Reset becomes available when it ends." };
+    }
+    if (pauseAfter) return { available: false, reason: "Reset isn't available while Kiln is working. Pause after the current phase or audit and reset once it ends." };
+    return { available: false, reason: "Kiln is still working. Reset becomes available when that work ends." };
+  }
+
+  /** Settles with what `POST /api/reset` answers, once a reset this engine admitted is over. */
+  resetOutcome: Promise<ResetOutcome> | undefined;
+
+  /**
+   * Steps 1 to 4 of a reset, inside the journal's apply (run restart "Doing it"): stop the engine,
+   * checkpoint what it forgets and the new execution ID, write a fresh not-started record, then
+   * discard the rest of the PRD's state. Nothing in any repository is touched (AC-RESET-05).
+   */
+  private async applyReset(receipt: Receipt): Promise<{ ok: true; outcome: string }> {
+    const finish = () => {
+      // Step 5 is the run's, once the old journal has settled this receipt.
+      const settled = this.commands.settled().then(() => receipt);
+      this.resetOutcome = this.options.onReset ? settled.then(done => this.options.onReset!(done)) : settled.then(done => done.state === "completed" ? { ok: true as const, controlToken: "" } : { ok: false as const, reason: done.reason ?? "The reset didn't finish." });
+    };
+    try {
+      await this.stop("sigterm");
+      const executionId = randomUUID();
+      receipt.reset = { forgets: resetForgets(this.record), new_execution_id: executionId };
+      // A checkpoint that wasn't saved recorded nothing to finish, so the receipt must not claim one.
+      try { this.commands.checkpoint(receipt); } catch (error) { delete receipt.reset; throw error; }
+      writePrdRecord(this.options.stateDirectory, freshResetRecord(this.record, executionId));
+      discardResetState(this.options.stateDirectory);
+    } catch (error) {
+      finish();
+      throw new ControlFailure("reset_incomplete", resetFailureReason(error));
+    }
+    finish();
+    return { ok: true, outcome: "reset" };
+  }
+
+  /**
+   * The confirmation's facts, read when it opens (run restart AC-RESET-03, "The confirmation"): the
+   * counts Kiln forgets, and per repository the branch and its commits of its own, the worktree and
+   * its uncommitted files, open pull requests and the leaves closed in the plan on the branch.
+   */
+  async resetPreview(): Promise<ResetPreview> {
+    const branch = this.record.settings.featureBranch;
+    // A Start that stopped before setup has no entries yet: the PRD's repository, as settings name it.
+    const entries: Pick<RepositoryEntry, "name" | "kind" | "mainCheckoutPath" | "github" | "baseBranch" | "worktreePath">[] = this.record.repositories.length ? this.record.repositories : [{ name: this.record.repository.name, kind: "prd", mainCheckoutPath: this.record.repository.mainCheckoutPath, github: this.record.repository.github, baseBranch: this.record.settings.baseBranch, worktreePath: this.record.settings.worktreePath }];
+    let closedOnBranch: number | undefined;
+    const stays = await Promise.all(entries.map(async entry => {
+      const main = expandHome(entry.mainCheckoutPath);
+      const unknown: string[] = [];
+      const out: ResetPreview["stays"][number] = { repository: entry.name, branch, pullRequests: [], unknown };
+      const tipRead = await runGit(this.git, main, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
+      const tip = tipRead.exitCode === 0 ? tipRead.stdout.trim() : undefined;
+      const own = tip ? await runGit(this.git, main, ["rev-list", "--count", `refs/remotes/origin/${entry.baseBranch}..${tip}`]) : undefined;
+      if (own?.exitCode === 0) out.ownCommits = Number(own.stdout.trim()); else unknown.push("ownCommits");
+      const worktree = expandHome(entry.worktreePath);
+      if (existsSync(worktree)) {
+        out.worktree = displayPath(worktree);
+        const files = await uncommittedFiles(this.git, worktree);
+        if (files) out.uncommittedFiles = files.length; else unknown.push("uncommittedFiles");
+      }
+      const pull = await openPullRequest(this.options.tools.gh, this.options.env, main, entry.github, branch, entry.baseBranch);
+      if (pull && "unknown" in pull) unknown.push("pullRequests"); else if (pull) out.pullRequests.push(pull);
+      if (entry.kind === "prd") {
+        try { closedOnBranch = tip ? leavesOf((await observeGitPlan(this.git, main, this.record.prdDirectory, tip)).plan).filter(leaf => leaf.closed).length : undefined; }
+        catch { closedOnBranch = undefined; }
+        if (closedOnBranch === undefined) unknown.push("closedOnBranch");
+      }
+      return out;
+    }));
+    return { forgets: resetForgets(this.record), stays, ...(closedOnBranch === undefined ? {} : { closedOnBranch }) };
+  }
+
+  /** Set on an engine a reset built: the latest start-check step (AC-RESET-04). */
+  resetStart: ResetStartChecks | undefined;
+
+  /**
+   * Documents found on a page a reset built, for the current selection: the uncommitted-files check
+   * gives way when the selection adopts the checkout `kiln run` was run from (A reset run from the adopted worktree).
+   */
+  resetDocuments(): DocumentsFound | undefined {
+    if (!this.resetStart || this.record.startedAt !== undefined) return undefined;
+    const checkout = this.paths.suppliedCheckoutPath ?? this.paths.mainCheckoutPath;
+    const real = (path: string) => { try { return realpathSync.native(expandHome(path)); } catch { return path; } };
+    const prd = this.startPreview?.from === "existing" ? this.startPreview.repositories.find(repository => repository.kind === "prd") : undefined;
+    const adopts = !!prd?.worktree?.adopted && real(prd.worktree.path) === real(checkout);
+    return startCheckDocuments(join(checkout, this.paths.prdDirectoryFromRoot), this.paths.folderName, this.resetStart.report, this.paths.repositoryName, this.paths.prdDirectoryFromRoot, adopts);
+  }
+
+  /**
+   * An engine built by a reset reruns the start-check step before Start, on each event-stream
+   * connection, and replaces its report, PRD tree, plan and named repositories (Start checks on the page).
+   */
+  async rerunStartChecks(): Promise<void> {
+    if (!this.options.startChecks || this.record.startedAt !== undefined || this.settingUp) return;
+    const checks = await this.options.startChecks();
+    this.resetStart = checks;
+    if (checks.prdTree === undefined) delete this.options.prdTree; else this.options.prdTree = checks.prdTree;
+    if (checks.report.plan === undefined) delete this.options.startPlan; else this.options.startPlan = checks.report.plan;
+    this.options.namedRepositories = checks.report.repositories;
+    if (checks.report.plan) this.plan = checks.report.plan;
+    this.changed();
+  }
+
   async startAgain(): Promise<CommandResult> {
     const key = this.stoppedPhase();
     if (key === undefined || this.conversationBegan(key)) return refuse("Start again isn't offered here.");

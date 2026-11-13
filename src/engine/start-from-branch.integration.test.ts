@@ -77,7 +77,7 @@ describe("starting on a branch someone built phases on (AC-FROM-01, AC-FROM-02, 
     h.setPulls([{ number: 48, url: "https://github.com/acme/acme-shop/pull/48", title: "Customer returns", isDraft: false, isCrossRepository: false, headRefName: BRANCH, baseRefName: "develop", additions: 1, deletions: 0, commits: 1 }]);
     const documents = checkoutDocuments(h);
     // The checkout's own plan shows only 2a closed.
-    expect(documents.plan.closedCount).toBe(1);
+    expect(documents.plan!.closedCount).toBe(1);
 
     // A branch with the name Kiln would give a new one exists, so A branch that already exists is selected (AC-FROM-01).
     await h.engine.refreshStartPreview();
@@ -95,8 +95,8 @@ describe("starting on a branch someone built phases on (AC-FROM-01, AC-FROM-02, 
     expect(snapshot.documents!.start!.branches).toEqual(expect.arrayContaining([{ name: BRANCH, available: true }, { name: "develop", available: false }]));
     expect(snapshot.documents!.start!.catchUp).toBeUndefined();
     // What Kiln found is read at the branch's tip: its closed marks (AC-FROM-02).
-    expect(snapshot.documents!.plan.closedCount).toBe(3);
-    expect(snapshot.documents!.plan.phases.filter(phase => phase.closed).map(phase => phase.id)).toEqual(["1", "2a", "2b"]);
+    expect(snapshot.documents!.plan!.closedCount).toBe(3);
+    expect(snapshot.documents!.plan!.phases.filter(phase => phase.closed).map(phase => phase.id)).toEqual(["1", "2a", "2b"]);
     expect(snapshot.settings.fieldErrors.featureBranch).toBeUndefined();
 
     // Start acts on what the page showed: a stale preview is refused.

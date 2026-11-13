@@ -54,6 +54,12 @@ export interface LocalServer {
   readonly address: string;
   /** Ends every event stream and closes the server. */
   close(): Promise<void>;
+  /**
+   * Moves everything the server serves to the engine a reset built (run restart "Architecture",
+   * item 2): open event streams resubscribe, the inspection projection is written from it and each
+   * page is sent its snapshot, so open pages stay connected.
+   */
+  replaceEngine(next: Engine): void;
 }
 
 const HEARTBEAT_MS = 5_000;
@@ -86,14 +92,17 @@ export const SECURITY_HEADERS: Record<string, string> = {
  *   await server.close();
  */
 export async function startLocalServer(options: LocalServerOptions): Promise<LocalServer> {
-  const { engine, port, folderName } = options;
+  const { port, folderName } = options;
+  // The holder: every route, stream and projection reads the engine through this one binding.
+  let engine = options.engine;
+  let documents = options.documents;
   // The package's dist/view, from the compiled server in dist/ or its source in src/.
   const viewDirectory = options.viewDirectory ?? fileURLToPath(new URL("../../dist/view/", import.meta.url));
   const viewRoot = existsSync(viewDirectory) ? realpathSync.native(viewDirectory) : viewDirectory;
   const allowedHosts = new Set(port === 0 ? [] : [`127.0.0.1:${port}`, `localhost:${port}`]);
   const streams = new Set<SSEStreamingApi>();
   let closing = false;
-  const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, options.documents), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
+  const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, documents ?? engine.resetDocuments()), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
 
   bindLegacySessions(engine);
   let inspectionCacheError: string | undefined;
@@ -103,12 +112,16 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   };
   preserveInspection();
   let pendingInspection: NodeJS.Timeout | undefined;
-  const offInspection = engine.onChange(() => {
-    if (closing || pendingInspection) return;
+  const onInspectionChange = () => {
+    // A stopped engine (a reset under way) writes no projection into the directory the reset cleans.
+    if (closing || pendingInspection || engine.stopping) return;
     // Output bursts share one observation; live reads still project current engine facts.
     pendingInspection = setTimeout(() => { pendingInspection = undefined; preserveInspection(); }, SNAPSHOT_THROTTLE_MS);
     pendingInspection.unref();
-  });
+  };
+  let offInspection = engine.onChange(onInspectionChange);
+  /** Each open event stream's subscriptions, moved to a new engine by a reset. */
+  const subscriptions = new Map<SSEStreamingApi, { bind: () => () => void; off: () => void; send: () => void }>();
 
   const app = new Hono();
   app.onError((error, c) => c.json({ ok: false, reason: error instanceof NewerSchemaError ? error.message : "Kiln could not read the requested state." }, error instanceof NewerSchemaError ? 409 : 500));
@@ -136,7 +149,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     await next();
   });
 
-  await installInspectionRoutes(app, engine, () => inspectionCacheError);
+  await installInspectionRoutes(app, () => engine, () => inspectionCacheError);
 
   app.get("/api/delivery/evidence/:digest", c => {
     const digest = c.req.param("digest");
@@ -278,12 +291,21 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
         if (closing || pending) return;
         pending = setTimeout(sendSnapshot, Math.max(0, SNAPSHOT_THROTTLE_MS - (Date.now() - lastSent)));
       };
-      const offChange = engine.onChange(onChange);
-      const offClaude = engine.claude?.onChange(onChange);
-      const offOutput = engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) }));
-      const offPartial = engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) }));
+      const bind = () => {
+        const offs = [
+          engine.onChange(onChange),
+          engine.claude?.onChange(onChange),
+          engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) })),
+          engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) })),
+        ];
+        return () => { for (const off of offs) off?.(); };
+      };
+      const subscription = { bind, off: bind(), send: sendSnapshot };
+      subscriptions.set(stream, subscription);
       const heartbeat = setInterval(() => void stream.writeSSE({ event: "heartbeat", data: new Date().toISOString() }), options.heartbeatMs ?? HEARTBEAT_MS);
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
+      // An engine a reset built reruns the start checks first, before the field checks (run restart AC-RESET-04).
+      await engine.rerunStartChecks().catch(() => undefined);
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
       engine.checkBase();
       // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
@@ -295,10 +317,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       await closed;
       clearInterval(heartbeat);
       clearTimeout(pending);
-      offChange();
-      offClaude?.();
-      offOutput();
-      offPartial();
+      subscription.off();
+      subscriptions.delete(stream);
       streams.delete(stream);
     }),
   );
@@ -546,6 +566,30 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return c.json({ ok: true });
   });
 
+  // Reset Kiln for this PRD (run restart "Interfaces"): the confirmation's facts, read when it opens.
+  app.get("/api/reset/preview", async (c) => c.json(await engine.resetPreview()));
+  // The reset itself, a journal action admitted against the page's full status token, answered once
+  // the new engine is published, or 500 `restart_required` when a step failed after the engine stopped.
+  app.post("/api/reset", async (c) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Reset needs the page's status token and command id." }, 400);
+    const admitting = engine;
+    try {
+      const answer = admitting.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "reset", inputs: {} }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await admitting.commands.settled();
+      const outcome = await admitting.resetOutcome;
+      if (outcome && !outcome.ok) return c.json({ ok: false, code: "restart_required", reason: outcome.reason }, 500);
+      // A retry once the new engine is published returns the kept receipt from the new journal.
+      const op = admitting.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
+      return c.json({ ok: true, outcome: "reset", controlToken: outcome?.ok && outcome.controlToken ? outcome.controlToken : engine.controlView().token });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  });
+
   // Mark complete (waivers "Local HTTP", AC-WAIVE-03 to 06): the one `waive-and-advance` journal
   // action, admitted only against the page's own status token and check run, never a substituted one.
   app.post("/api/mark-complete", async (c) => {
@@ -623,6 +667,19 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   allowedHosts.add(`localhost:${bound.port}`);
   return {
     address: `http://127.0.0.1:${bound.port}/${folderName}`,
+    replaceEngine: (next: Engine) => {
+      offInspection();
+      engine = next;
+      documents = undefined;
+      offInspection = engine.onChange(onInspectionChange);
+      bindLegacySessions(engine);
+      preserveInspection();
+      for (const subscription of subscriptions.values()) {
+        subscription.off();
+        subscription.off = subscription.bind();
+        subscription.send();
+      }
+    },
     close: async () => {
       closing = true;
       offInspection();
@@ -637,7 +694,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 }
 
 /** The routes that act while a folder is missing: Check again, and refreshing agent information. */
-const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/folder-setup/panel", "/api/folder-setup/start", "/api/metadata/refresh"]);
+const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/folder-setup/panel", "/api/folder-setup/start", "/api/metadata/refresh", "/api/reset"]);
 
 function tokenMatches(given: string | undefined, token: string): boolean {
   if (given === undefined) return false;
