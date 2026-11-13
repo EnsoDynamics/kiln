@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "bfdb1429-61f3-4d26-a1b9-945970f366c9",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "The whole-PRD delivery audit of Kiln Run Restart at e807e7e, after Phase 8 closed, found every one of the 23 criteria implemented. Phase 8's three repairs are present: Documents found names where the plan was read only over documents read there, an existing-branch start keeps the repositories an earlier Start set up, and the carry-on card's why section is drawn as a ruled section. One round ran and confirmed no gap, so the assessment ended there. No criterion was amended and no behavior was found changed outside the requirements. The test audit follows.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}
