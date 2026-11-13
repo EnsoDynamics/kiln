@@ -7,8 +7,10 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Receipt } from "../control/commands.js";
 import { readPlanAt } from "./plan-reading.js";
+import { readBaseline } from "./plan-reconciliation.js";
 import { createHarness, landingSession, pullRequestSession, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { createBareOrigin, createRepository, git } from "../test-support/git-repositories.js";
+import { createBareOrigin, createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
+import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
@@ -546,5 +548,53 @@ describe("more of AC-CURRENT-01 at a stop and AC-FROM-02", () => {
     expect(Object.keys(h.engine.record.phases)).toEqual(["pr"]);
     expect(h.claudeCalls()).toHaveLength(1);
     expect(h.engine.record.completedAt).toBeDefined();
+  });
+});
+
+describe("phases closed at the start when the PRD's repository cuts the branch new (AC-FROM-02, AC-FROM-05, several repositories)", () => {
+  it("accepts each phase Closed at the PRD repository's base on its Closed line, though another repository's adopted branch has commits of its own", async () => {
+    // Every phase is Closed on develop, Phase 1 touching returns-api too (2a is closed in the fixture already).
+    const files = prdDirectoryFiles();
+    for (const [file, extra] of [["phase-1-return-intake.md", ["", "**Repositories:** returns-api"]], ["phase-2b-store-credit.md", []], ["phase-3-returns-dashboard.md", []]] as const) {
+      const [title, ...rest] = files[file]!.split("\n");
+      files[file] = [title, "", "**Closed:** 2026-11-10", ...extra, ...rest].join("\n");
+    }
+    harness = await createHarness({ files, sessions: [pullRequestSession(61)] });
+    const h = harness;
+    // returns-api already has the branch, checked out in a worktree with a commit of its own and a
+    // file left uncommitted outside the PRD's directory (AC-FROM-03 allows both); acme-shop doesn't have it.
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    const adopted = join(h.sandbox.root, "kept", "returns-api");
+    mkdirSync(dirname(adopted), { recursive: true });
+    git(h.sandbox, api, "worktree", "add", "-q", "-b", BRANCH, adopted);
+    writeFileSync(join(adopted, "intake-api.txt"), "by hand\n");
+    git(h.sandbox, adopted, "add", "intake-api.txt");
+    git(h.sandbox, adopted, "commit", "-q", "-m", "feat: intake endpoint, by hand");
+    git(h.sandbox, adopted, "push", "-q", "-u", "origin", BRANCH);
+    writeFileSync(join(adopted, "notes.txt"), "half done\n");
+    const apiTip = git(h.sandbox, adopted, "rev-parse", "HEAD").trim();
+    Object.assign(h.env, h.sandbox.env);
+
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "returns-api", hasBranch: true }]);
+    expect(h.engine.startPreview).toMatchObject({ closedCount: 4 });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+
+    const [shop, apiEntry] = h.engine.record.repositories;
+    expect(shop).toMatchObject({ name: "acme-shop", baseCommit: git(h.sandbox, h.repository, "rev-parse", "develop").trim() });
+    expect(shop).not.toHaveProperty("runStartCommit");
+    expect(apiEntry).toMatchObject({ name: "returns-api", runStartCommit: apiTip, worktreePath: adopted, adoptedWorktree: true });
+    // The first plan read accepted every phase at acme-shop's base, so no plan stop: Kiln goes on to final delivery.
+    // Each is an outside completion at acme-shop's baseCommit, with returns-api at its runStartCommit.
+    const { completions } = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+    for (const id of ["1", "2a", "2b", "3"]) {
+      expect(completions[id]).toMatchObject({ kind: "external", revision: shop!.baseCommit, repositories: { "acme-shop": { revision: shop!.baseCommit }, "returns-api": { revision: apiTip } } });
+    }
+    expect(completions["1"]!.scopeRepositories).toEqual(["returns-api"]);
+    expect(Object.keys(h.engine.record.phases)).toEqual(["pr"]);
+    expect(h.claudeCalls()).toHaveLength(1);
   });
 });

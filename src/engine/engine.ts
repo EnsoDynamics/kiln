@@ -7154,12 +7154,14 @@ export class Engine {
         const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
         if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);
         // On a start from an existing branch, the first plan read accepts a leaf Closed at the PRD
-        // repository's start commit on its Closed line alone (run restart AC-FROM-02, "After Start").
+        // repository's start commit on its Closed line alone (run restart AC-FROM-02, "After Start"):
+        // its runStartCommit, or its baseCommit when its branch is cut new (AC-FROM-05).
         const prdEntry = this.setUpRepositories.find(entry => entry.kind === "prd");
-        if (!previous && prdEntry?.runStartCommit) {
-          closedAtStart ??= new Set((await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, prdEntry.runStartCommit)).plan.phases.filter(p => p.closed && !p.splitInto).map(p => p.id));
+        const prdStartCommit = prdEntry?.runStartCommit ?? prdEntry?.baseCommit;
+        if (!previous && prdStartCommit && this.record.start?.from === "existing") {
+          closedAtStart ??= new Set((await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, prdStartCommit)).plan.phases.filter(p => p.closed && !p.splitInto).map(p => p.id));
           if (closedAtStart.has(phase.id)) {
-            completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: prdEntry.runStartCommit, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: entry.runStartCommit ?? entry.baseCommit! }])) };
+            completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: prdStartCommit, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: entry.runStartCommit ?? entry.baseCommit! }])) };
             continue;
           }
         }

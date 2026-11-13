@@ -2,6 +2,7 @@
 // AC-CARRY-01, 02, 05, 06): each is today's screen with the drawn change, in the built view
 // against a fixture server, at desktop and phone widths.
 
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
 import { documentsFoundSnapshot, needsYouMessageSnapshot } from "../test-support/sample-snapshots.js";
@@ -290,5 +291,49 @@ describe("Documents found's plan-source box and Start from choices (AC-LOOK-01)"
       expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
+  });
+});
+
+describe("the catch-up offer's box, as the mockup draws it (AC-LOOK-01)", () => {
+  const MOCKUP = fileURLToPath(new URL("../../docs/changes/kiln-run-restart/mockups/kiln-run-restart.html", import.meta.url));
+  /** The offer's fill, border, corner, padding and behind-line size: OFFER is an expression for its element. */
+  const BOX = `(() => { const s = getComputedStyle(OFFER); return [s.backgroundColor, s.borderTopWidth, s.borderTopStyle, s.borderTopColor, s.borderTopLeftRadius, s.paddingTop, s.paddingLeft, getComputedStyle(OFFER.firstElementChild).fontSize]; })()`;
+  const drawn = async (state: string) => {
+    const page = await chrome.open(`file://${MOCKUP}`, { width: 1200, height: 1100 });
+    try {
+      await page.waitFor(`document.readyState === "complete"`);
+      return await page.evaluate<string[]>(BOX.replaceAll("OFFER", `[...document.querySelectorAll("#${state} div")].find(e => e.firstElementChild?.textContent.startsWith("This branch is"))`));
+    } finally { await page.close(); }
+  };
+  const built = async (snapshot: Snapshot) => {
+    const { server, page } = await open(snapshot);
+    try {
+      await words(page, "Bring the branch up to date");
+      const box = await page.evaluate<string[]>(BOX.replaceAll("OFFER", `document.querySelector(".offer")`));
+      expect(page.problems).toEqual([]);
+      return box;
+    } finally { await page.close(); await server.close(); }
+  };
+  const catchUp = { repositories: [{ name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 }] };
+  const behindOnBranch = (multi: boolean) => {
+    const snapshot = startingFromBranch(false);
+    snapshot.feature.multiRepository = multi;
+    snapshot.documents!.start!.catchUp = multi ? { repositories: [...catchUp.repositories, { name: "acme-api", branch: "feature/customer-returns", base: "develop", behind: 2 }] } : catchUp;
+    return snapshot;
+  };
+
+  it("draws Documents found's offer in its own amber box, with one repository and with several", async () => {
+    const mockup = await drawn("v-found-reset");
+    expect(mockup).toEqual(["rgba(0, 0, 0, 0)", "1px", "solid", "rgba(230, 180, 80, 0.55)", "12px", "14px", "16px", "13px"]);
+    expect(await built(behindOnBranch(false))).toEqual(mockup);
+    expect(await built(behindOnBranch(true))).toEqual(mockup);
+  });
+
+  it("draws a stopped phase's offer in its own amber box, on the handoff page and on Needs you", async () => {
+    const mockup = await drawn("v-nothing");
+    expect(mockup).toEqual(["rgba(0, 0, 0, 0)", "1px", "solid", "rgba(230, 180, 80, 0.55)", "14px", "16px", "20px", "13.5px"]);
+    expect(await drawn("v-conversation")).toEqual(mockup);
+    expect(await built(stopped({ case: "needs_input", resumeOffered: true, reopen: { state: "available" }, catchUp }))).toEqual(mockup);
+    expect(await built(stopped({ case: "could_not_start", launchFailure, startAgain: { available: true }, nothingToCheck: true, resumeOffered: false, catchUp }, true, ["finalMessage", "resumeCommand"]))).toEqual(mockup);
   });
 });

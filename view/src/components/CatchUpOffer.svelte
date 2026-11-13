@@ -12,7 +12,7 @@
   const bases = $derived([...new Set(offer.repositories.map((repository) => repository.base))]);
 </script>
 
-<div class="offer" class:stop={where === "stop"}>
+<div class="offer" class:start={where === "start"} class:stop={where === "stop"}>
   {#if multi}
     {#each offer.repositories as repository (repository.name)}
       <span class="behind">In <span class="mono">{repository.name}</span>, the branch is {commits(repository.behind)} behind <code>{repository.base}</code>.</span>
@@ -28,8 +28,12 @@
 
 <style>
   .offer { display: flex; flex-direction: column; gap: 10px; }
-  .offer.stop { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 24px; }
-  .behind { font-size: 14px; color: var(--muted); }
+  /* Each page draws the offer in its own amber box (run restart AC-LOOK-01). */
+  .offer.start { border: 1px solid var(--amber-border); border-radius: 12px; padding: 14px 16px; }
+  .offer.stop { border: 1px solid var(--amber-border); border-radius: 14px; padding: 16px 20px; }
+  .behind { color: var(--muted); }
+  .start .behind { font-size: 13px; }
+  .stop .behind { font-size: 13.5px; }
   .tick { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer; }
   .tick input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
   .text { display: flex; flex-direction: column; gap: 2px; font-size: 14.5px; color: var(--text); }
