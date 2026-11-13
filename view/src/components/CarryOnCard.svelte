@@ -50,9 +50,10 @@
   .optional { color: var(--dim); }
   textarea { width: 100%; box-sizing: border-box; background: var(--deep); color: var(--text); font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 12px; resize: vertical; }
   .button { align-self: flex-start; white-space: normal; } .button:disabled { opacity: .45; }
-  .why { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--deep); border: 1px solid var(--line); border-radius: 12px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-  .why strong { color: var(--text); }
+  /* The card's last section, as the mockup draws it: a top rule, no box, dim small text (AC-LOOK-01). */
+  .why { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 12.5px; line-height: 1.6; color: var(--dim); overflow-wrap: anywhere; }
+  .why strong { color: var(--muted); font-weight: 600; }
   .why code { font-family: var(--mono); font-size: 12px; color: var(--text); }
-  .command { display: block; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .command { display: block; padding: 8px 10px; background: var(--deep); border: 1px solid var(--line); border-radius: 8px; }
   .reason { font-size: 12.5px; color: var(--amber); }
 </style>

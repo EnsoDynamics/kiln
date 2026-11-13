@@ -582,7 +582,9 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     const cleanRow = (name: string) => name.startsWith("Working tree");
     const resetRows = engine.resetStart ? (fromGit?.checks ?? []).filter(check => !cleanRow(check.name) || documents.checks.some(row => row.passed && row.name === check.name)) : fromGit?.checks;
     const found = fromGit ? { ...fromGit, checks: [...resetRows!, ...documents.checks.filter(check => !check.passed)], ...(documents.checksFailed ? { checksFailed: true as const } : {}) } : documents;
-    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
+    // The page says where the plan was read only over documents read there (AC-FROM-02): the start commit's, or a base the checkout matches.
+    const readAtStart = preview?.from === "existing" ? fromGit !== undefined : preview !== undefined && engine.baseDocumentsMatched === preview.previewId;
+    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
 }
@@ -1152,17 +1154,18 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
 }
 
 /** Documents found's Start from, as the engine's latest preview read it. */
-function startView(engine: Engine, preview: StartPreview): StartView {
+function startView(engine: Engine, preview: StartPreview, readAtStart: boolean): StartView {
   return {
     from: preview.from,
     bringUpToDate: preview.bringUpToDate,
     previewId: preview.previewId,
     branches: (engine.branchChoices ?? []).map(({ name, available }) => ({ name, available })),
-    ...optional("planSource", preview.planSource),
+    ...optional("planSource", readAtStart ? preview.planSource : undefined),
     repositories: preview.repositories.map(repository => ({ name: repository.name, hasBranch: repository.hasBranch, ...optional("pullRequest", repository.pullRequest), ...(repository.worktree ? { worktree: { path: displayPath(repository.worktree.path), adopted: repository.worktree.adopted, ...optional("uncommittedFiles", repository.worktree.uncommittedFiles) } } : {}) })),
     ...optional("workspaceFolder", preview.workspaceFolder === undefined ? undefined : displayPath(preview.workspaceFolder)),
     closedCount: preview.closedCount,
-    ...optional("startAt", preview.startAt),
+    // The closed marks belong to the plan read at the start commit, so Start at Phase N waits for it too.
+    ...optional("startAt", readAtStart ? preview.startAt : undefined),
     ...optional("catchUp", preview.catchUp),
   };
 }

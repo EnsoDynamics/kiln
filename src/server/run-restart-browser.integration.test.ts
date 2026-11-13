@@ -37,6 +37,14 @@ function stopped(change: Partial<NonNullable<Snapshot["needsYou"]>>, noTarget = 
   snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
   return snapshot;
 }
+/** The carry-on card's why section as drawn: the card's last section, a top rule and no box, dim small text, a muted heading, the command in its own box (AC-LOOK-01). */
+const whyDrawn = (page: BrowserPage) => page.evaluate<Record<string, unknown>>(`(() => {
+  const card = document.querySelector('section.carry'); const why = card.querySelector('.why'); const s = getComputedStyle(why); const command = why.querySelector('.command');
+  return { last: card.lastElementChild === why, rule: [s.borderTopWidth, s.borderTopStyle, s.paddingTop], box: [s.backgroundColor, s.borderBottomWidth, s.borderTopLeftRadius, s.paddingLeft], text: [s.fontSize, s.color], heading: getComputedStyle(why.querySelector('strong')).color,
+    command: command && [getComputedStyle(command).backgroundColor, getComputedStyle(command).borderTopWidth, getComputedStyle(command).borderTopLeftRadius] };
+})()`);
+const WHY = { last: true, rule: ["1px", "solid", "14px"], box: ["rgba(0, 0, 0, 0)", "0px", "0px", "0px"], text: ["12.5px", "rgb(140, 133, 119)"], heading: "rgb(189, 182, 168)" };
+
 const launchFailure = { ran: "claude" as const, folder: "/w", sentence: "Kiln ran `claude` in the worktree, and the computer couldn't start it.", error: "Couldn't start claude in ~/work/.worktrees/customer-returns/acme-shop: spawn claude EAGAIN", at: "2026-10-17T15:52:00Z" };
 
 async function open(snapshot: Snapshot, width = 1200, carryOutcome = "session_started"): Promise<{ server: ViewFixtureServer; page: BrowserPage }> {
@@ -110,6 +118,7 @@ describe.each([1200, 390])("at %ipx wide", width => {
       expect(body).toContain("Why the earlier conversation can't be reopened");
       expect(body).toContain(`Kiln won't hand the saved conversation back to an agent to act on unattended, because ${PATH} can be changed by other accounts on this computer. To remove their access, run this, then check again:`);
       expect(body).toContain(`chmod o-w ${PATH}`);
+      expect(await whyDrawn(page)).toEqual({ ...WHY, command: ["rgb(13, 12, 10)", "1px", "8px"] });
       expect(body).toContain("Start a fresh session in your terminal");
       expect(body).toContain("Copy terminal command"); expect(body).toContain("Copy recovery prompt");
       expect(body).not.toContain("Reply here and let Kiln finish");
@@ -144,6 +153,7 @@ describe.each([1200, 390])("at %ipx wide", width => {
       expect(body).toContain("picks up from there. Starting it ends the takeover pause.");
       expect(body).toContain("2 commits · 3 uncommitted files");
       expect(body).toContain("Claude Code has no saved conversation for this session.");
+      expect(await whyDrawn(page)).toEqual({ ...WHY, command: null });
       expect(body).toContain("Start a fresh session in your terminal");
       expect(body).not.toContain("Wait before opening Claude");
       expect(body).not.toContain("Finished Phase 2b there?");

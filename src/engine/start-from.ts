@@ -23,6 +23,8 @@ export interface StartRepository {
   mainCheckoutPath: string;
   github: string;
   baseBranch: string;
+  /** An earlier Start set it up: an existing-branch start keeps it whatever the start commit's plan names (AC-FROM-05). */
+  setUp?: true;
 }
 
 /** A repository's refs, read once per list: local branches, origin's branches and the worktree list. */
@@ -346,7 +348,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     }
   }
   // Which repositories (AC-FROM-05): those an earlier Start set up, the PRD's, and those the start commit's plan names.
-  const selection: StartRepository[] = [...input.repositories.filter(repository => repository.kind !== "named")];
+  const selection: StartRepository[] = [...input.repositories.filter(repository => repository.kind !== "named" || repository.setUp)];
   if (plan && plan.problems.length === 0) {
     for (const name of namedRepositories(plan.phases, prd.name)) {
       if (selection.some(repository => repository.name === name)) continue;
@@ -361,7 +363,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
       selection.push(repository);
       await classify(repository);
     }
-  } else selection.push(...input.repositories.filter(repository => repository.kind === "named"));
+  } else selection.push(...input.repositories.filter(repository => repository.kind === "named" && !repository.setUp));
   const multi = selection.length > 1;
   for (const repository of selection) if (!read.has(repository.name)) await readOne(repository);
   const repositories = selection.map(repository => read.get(repository.name)!);

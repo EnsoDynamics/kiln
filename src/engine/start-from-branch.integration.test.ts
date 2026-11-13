@@ -598,3 +598,105 @@ describe("phases closed at the start when the PRD's repository cuts the branch n
     expect(h.claudeCalls()).toHaveLength(1);
   });
 });
+
+describe("where Documents found says the plan was read (AC-FROM-02, completed in Phase 8 of Kiln Run Restart)", () => {
+  it("names the chosen branch only over documents read there: not when its read is skipped or fails", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    // A branch that shares no history with develop: a read problem after its tip, so the documents are never read there.
+    git(h.sandbox, h.repository, "switch", "-q", "--orphan", BRANCH);
+    writeFileSync(join(h.repository, "orphan.txt"), "unrelated\n");
+    git(h.sandbox, h.repository, "add", "orphan.txt");
+    git(h.sandbox, h.repository, "commit", "-q", "-m", "unrelated history");
+    git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "-f", "develop");
+    git(h.sandbox, h.repository, "clean", "-q", "-fd");
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.planSource).toMatchObject({ kind: "branch", branch: BRANCH });
+    expect(h.engine.startPreview!.fieldError).toMatch(/shares no history with develop/);
+    let snapshot = buildSnapshot(h.engine, documents);
+    // The page shows the checkout's documents, so it doesn't say they were read from the branch.
+    expect(snapshot.documents!.plan!.closedCount).toBe(1);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+    expect(snapshot.documents!.start).not.toHaveProperty("startAt");
+
+    // A branch with history whose tip lacks the PRD's documents: the read throws.
+    git(h.sandbox, h.repository, "push", "-q", "origin", `:${BRANCH}`);
+    git(h.sandbox, h.repository, "branch", "-q", "-D", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+    git(h.sandbox, h.repository, "rm", "-q", "-r", DIRECTORY);
+    git(h.sandbox, h.repository, "commit", "-q", "-m", "docs: the PRD moved away");
+    git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "develop");
+    await h.engine.changeStart({ from: "existing", bringUpToDate: false });
+    expect(h.engine.startPreview!.fieldError).toMatch(/doesn't have this PRD's documents/);
+    snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+  });
+
+  it("names the base for a new branch only while the checkout's PRD documents match the base's", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    expect(await h.engine.changeStart({ from: "new", bringUpToDate: true })).toEqual({ ok: true });
+    expect(buildSnapshot(h.engine, documents).documents!.start!.planSource).toMatchObject({ kind: "base", branch: "develop" });
+
+    // develop on origin gets different PRD documents; the checkout keeps its own.
+    close(h, h.repository, "phase-1-return-intake.md");
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "docs: phase 1 closed on develop");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    git(h.sandbox, h.repository, "reset", "-q", "--hard", "HEAD~1");
+    await h.engine.changeStart({ from: "new", bringUpToDate: false });
+    const snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.settings.fieldErrors.baseBranch).toMatch(/different PRD documents from this checkout/);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+    expect(snapshot.documents!.start).not.toHaveProperty("startAt");
+  });
+
+  it("doesn't name the base once the PRD's repository is set up, when its documents are checked against the feature branch instead", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    // A new-branch Start set the PRD's repository up, then failed later: its feature branch holds the checkout's documents.
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    const worktree = join(h.sandbox.root, "set-up", "acme-shop");
+    h.engine.record.repositories.push({ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop", worktreePath: worktree, baseCommit: git(h.sandbox, h.repository, "rev-parse", "develop").trim(), setupCompletedAt: "2026-11-13T10:00:00.000Z" });
+    h.engine.record.start = { from: "new", bringUpToDate: true };
+    await h.engine["runFieldChecks"](false);
+    const snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.settings.fieldErrors.baseBranch).toBeUndefined();
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+  });
+});
+
+describe("an existing-branch start keeps the repositories an earlier Start set up (AC-FROM-05, completed in Phase 8 of Kiln Run Restart)", () => {
+  it("keeps a repository set up before a failed Start though the start commit's plan doesn't name it", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    const workspace = join(h.sandbox.root, "workspace");
+    const worktree = join(workspace, "returns-api");
+    mkdirSync(workspace, { recursive: true });
+    git(h.sandbox, api, "worktree", "add", "-q", "-b", BRANCH, worktree);
+    git(h.sandbox, worktree, "push", "-q", "-u", "origin", BRANCH);
+    Object.assign(h.env, h.sandbox.env);
+    // An earlier existing-branch Start set returns-api up and failed at a later step, keeping it set up; neither plan names returns-api now.
+    const baseCommit = git(h.sandbox, api, "rev-parse", "develop").trim();
+    h.engine.record.repositories.push({ name: "returns-api", kind: "named", mainCheckoutPath: api, github: "acme/returns-api", baseBranch: "develop", worktreePath: worktree, baseCommit, setupCompletedAt: "2026-11-13T10:00:00.000Z" });
+    h.engine.record.start = { from: "existing", bringUpToDate: true };
+    const preview = await h.engine.refreshStartPreview();
+    expect(preview!.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "returns-api", hasBranch: true }]);
+    expect(preview!.workspaceFolder).toBe(worktree.slice(0, -"/returns-api".length));
+    expect(h.engine.plannedRepositories.map(one => one.name)).toEqual(["acme-shop", "returns-api"]);
+    expect(preview!.fieldError).toBeUndefined();
+
+    // The set-up repository decides the name's availability too: its local copy falls behind origin's.
+    writeFileSync(join(worktree, "ahead.txt"), "ahead\n"); git(h.sandbox, worktree, "add", "ahead.txt"); git(h.sandbox, worktree, "commit", "-q", "-m", "ahead");
+    git(h.sandbox, worktree, "push", "-q", "origin", BRANCH);
+    git(h.sandbox, worktree, "reset", "-q", "--hard", "HEAD~1");
+    expect((await h.engine.refreshStartPreview())!.fieldError).toMatch(/^In returns-api: /);
+  });
+});

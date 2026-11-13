@@ -1,5 +1,7 @@
 # Phase 8: Complete Documents found's plan-source line and repository set, and the carry-on card's why section
 
+**Closed:** 2026-11-13
+
 **Added by delivery audit:** 2026-11-13, after every planned phase closed. It builds what earlier phases left out of the criteria below, confirmed in the whole-PRD audit at `6f397ca`.
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Starting From a Branch" (The starting point, The preview, Which repositories), "A Stopped Phase's Facts"

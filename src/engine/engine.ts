@@ -392,6 +392,11 @@ export class Engine {
   stoppedWork: { phaseKey: string; read: WorkRead } | undefined;
   /** The start preview for the chosen starting point, recomputed at each of its moments (run restart "The preview"). */
   startPreview: StartPreview | undefined;
+  /**
+   * The new-branch preview whose base the checkout's PRD documents were last found to match, so
+   * Documents found's documents are the base's and the page may say the plan was read there (AC-FROM-02).
+   */
+  baseDocumentsMatched: string | undefined;
   /** A branch that already exists: every name, available or not (run restart "The branch list"). */
   branchChoices: BranchChoice[] | undefined;
   /** Whether a branch named `settings.featureBranch` exists in any repository, read with the branch list. */
@@ -6288,6 +6293,9 @@ export class Engine {
       if (run === this.fieldCheckRun) {
         this.fieldErrors = outcome.errors;
         this.baseErrors = outcome.baseErrors;
+        // A PRD repository already set up is checked against its feature branch, not the base, so that match doesn't count.
+        const prdSetUp = this.record.repositories.some(entry => entry.kind === "prd" && entry.setupCompletedAt !== undefined);
+        this.baseDocumentsMatched = preview?.from === "new" && !prdSetUp && outcome.errors.baseBranch === undefined ? preview.previewId : undefined;
         this.baseCheck = outcome.errors.baseBranch === undefined && Object.keys(outcome.baseErrors).length === 0 ? "ok" : "error";
       }
       return outcome;
@@ -6357,7 +6365,7 @@ export class Engine {
 
   /** Today's repositories as the branch list reads them: the PRD's first, each with the base it would use. */
   private startRepositories(): StartRepository[] {
-    return this.checkoutRepositories.map(repository => ({ name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: baseFor(repository, this.record.settings, this.workspaceFixed) }));
+    return this.checkoutRepositories.map(repository => ({ name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: baseFor(repository, this.record.settings, this.workspaceFixed), ...(repository.entry?.setupCompletedAt !== undefined ? { setUp: true as const } : {}) }));
   }
 
   /**
