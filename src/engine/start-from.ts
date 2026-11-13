@@ -231,7 +231,8 @@ const count = async (git: GitContext, cwd: string, range: string): Promise<numbe
 
 /** Files in a worktree with uncommitted or untracked changes. */
 export async function uncommittedFiles(git: GitContext, worktree: string): Promise<string[] | undefined> {
-  const status = await runGit(git, worktree, ["status", "--porcelain", "--untracked-files=all"]);
+  // A read never takes the index lock, so it can't make a catch-up's fast-forward fail (run restart AC-CURRENT-01).
+  const status = await runGit(git, worktree, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"]);
   if (status.exitCode !== 0) return undefined;
   return status.stdout.split(/\r?\n/).filter(line => line.trim() !== "").map(line => line.slice(3).replace(/^.* -> /, ""));
 }

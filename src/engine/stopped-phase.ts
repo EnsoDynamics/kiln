@@ -78,7 +78,8 @@ export async function readPhaseWork(git: GitContext, repositories: readonly Work
       if (log.exitCode !== 0) return `Kiln couldn't read ${entry.name}'s commits.`;
       commits = log.stdout.split(/\r?\n/).filter(line => line.includes("\t")).map(line => { const [sha, ...subject] = line.split("\t"); return { sha: sha!, subject: subject.join("\t") }; });
     }
-    const status = await runGit(git, entry.worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+    // A read never takes the index lock, so it can't make a catch-up's fast-forward fail (run restart AC-CURRENT-01).
+    const status = await runGit(git, entry.worktreePath, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"]);
     if (status.exitCode !== 0) return `Kiln couldn't read ${entry.name}'s uncommitted changes.`;
     const uncommittedFiles = status.stdout.split(/\r?\n/).filter(line => line.trim() !== "").length;
     return { name: entry.name, commits, uncommittedFiles };
