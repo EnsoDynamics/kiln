@@ -47,6 +47,8 @@ export interface LocalServerOptions {
   viewDirectory?: string;
   /** How often the event stream sends a heartbeat: every 5 seconds. */
   heartbeatMs?: number;
+  /** npm's newer Kiln, when there is one, asked once as this `kiln` started (newer version notice, AC-NEWER-01). */
+  newerVersion?: Promise<string | undefined>;
 }
 
 export interface LocalServer {
@@ -238,6 +240,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   });
 
   app.get("/api/snapshot", (c) => c.json(snapshot()));
+  // Settles within the check's own timeout, so a view that loads first gets the answer when it arrives.
+  app.get("/api/newer-version", async c => c.json({ latest: (await options.newerVersion) ?? null }));
 
   // Check again on the Folder missing page: the folder check, the facts and, once every folder passes, leaving the mode (AC-SETUP-06).
   app.post("/api/folder-setup/check", async (c) => {
